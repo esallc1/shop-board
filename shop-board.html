@@ -234,24 +234,74 @@
     .dot-waiting-tech { background:#3b82f6; }
     .dot-delayed      { background:#ef4444; }
     .dot-done         { background:#06b6d4; }
+
+    /* ── PASSWORD SCREEN ── */
+    #lockScreen {
+      position: fixed; inset: 0; z-index: 9999;
+      background: #111827;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+    }
+    #lockScreen h2 {
+      color: #f5c518; font-size: 1.3rem; letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    #lockScreen p { color: #6b7280; font-size: 0.8rem; }
+    #lockScreen .lock-box {
+      background: #1f2937; border: 1px solid #374151;
+      border-radius: 12px; padding: 28px 32px;
+      display: flex; flex-direction: column; align-items: center; gap: 14px;
+      min-width: 280px;
+    }
+    #lockScreen .lock-icon { font-size: 2.5rem; }
+    #pwInput {
+      width: 100%; background: #111827; border: 1px solid #374151;
+      border-radius: 6px; color: #e0e0e0; padding: 10px 14px;
+      font-size: 1.1rem; outline: none; text-align: center;
+      letter-spacing: 4px; transition: border-color 0.2s;
+    }
+    #pwInput:focus { border-color: #f5c518; }
+    #pwBtn {
+      width: 100%; background: #f5c518; color: #111827;
+      border: none; border-radius: 6px; padding: 10px;
+      font-size: 0.9rem; font-weight: 700; cursor: pointer;
+      transition: background 0.2s;
+    }
+    #pwBtn:hover { background: #fde047; }
+    #pwError {
+      color: #ef4444; font-size: 0.75rem; display: none;
+    }
   </style>
 </head>
 <body>
 
+<!-- PASSWORD SCREEN -->
+<div id="lockScreen">
+  <div class="lock-box">
+    <div class="lock-icon">[LT]</div>
+    <h2>Lee Transmission</h2>
+    <p>Enter password to access the Shop Board</p>
+    <input type="password" id="pwInput" placeholder="••••" maxlength="20" autocomplete="off"/>
+    <button id="pwBtn">Unlock</button>
+    <span id="pwError">Incorrect password. Try again.</span>
+  </div>
+</div>
+
+<div id="mainApp" style="display:none">
 <header>
-  <h1>🔧 Lee Transmission — Shop Board</h1>
+  <h1>Lee Transmission — Shop Board</h1>
   <p id="clock"></p>
 </header>
 
 <div class="stats-bar" id="statsBar"></div>
 
-<div class="section-title">🔩 Lifts</div>
+<div class="section-title">Lifts</div>
 <div class="board" id="board"></div>
 
 <!-- PARKING LOT -->
 <div class="table-section">
   <div class="table-header">
-    <div class="section-title">🅿️ Parking Lot — Waiting</div>
+    <div class="section-title">Parking Lot — Waiting</div>
     <button class="add-btn yellow" id="addCarBtn">+ Add Car</button>
   </div>
   <div class="table-wrap">
@@ -262,6 +312,7 @@
         <th style="width:165px">Year / Make / Model</th>
         <th>Work Description</th>
         <th style="width:155px">Status</th>
+        <th style="width:95px">Arrival</th>
         <th>Notes</th>
         <th style="width:140px">Actions</th>
       </tr></thead>
@@ -274,7 +325,7 @@
 <!-- READY FOR PICKUP -->
 <div class="table-section">
   <div class="table-header">
-    <div class="section-title">✅ Ready — Waiting for Customer Pickup</div>
+    <div class="section-title">Ready — Waiting for Customer Pickup</div>
     <button class="add-btn teal" id="addPickupBtn">+ Add Vehicle</button>
   </div>
   <div class="table-wrap">
@@ -285,6 +336,7 @@
         <th style="width:165px">Year / Make / Model</th>
         <th>Work Done</th>
         <th style="width:115px">Customer</th>
+        <th style="width:95px">Arrival</th>
         <th>Notes</th>
         <th style="width:56px">Status</th>
         <th style="width:90px">Actions</th>
@@ -304,7 +356,37 @@
   <div class="legend-item"><div class="legend-dot dot-done"></div> Done / Ready</div>
 </div>
 
+</div><!-- end mainApp -->
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+  /* ── PASSWORD ── */
+  const CORRECT = '1760';
+  function unlock() {
+    if (sessionStorage.getItem('sb_auth') === CORRECT) {
+      document.getElementById('lockScreen').style.display = 'none';
+      document.getElementById('mainApp').style.display = 'block';
+      return true;
+    }
+    return false;
+  }
+  if (!unlock()) {
+    document.getElementById('pwBtn').addEventListener('click', tryUnlock);
+    document.getElementById('pwInput').addEventListener('keydown', e => { if(e.key==='Enter') tryUnlock(); });
+  }
+  function tryUnlock() {
+    const val = document.getElementById('pwInput').value;
+    if (val === CORRECT) {
+      sessionStorage.setItem('sb_auth', CORRECT);
+      unlock();
+    } else {
+      document.getElementById('pwError').style.display = 'block';
+      document.getElementById('pwInput').value = '';
+      document.getElementById('pwInput').focus();
+    }
+  }
+</script>
+
 <script>
   /* ── SUPABASE ── */
   const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
@@ -367,13 +449,29 @@
       const {data}=await db.from('shopboard_lifts').select('*').order('id');
       if(data){liftState=data;renderLifts();updateStats();}
     })
-    .on('postgres_changes',{event:'*',schema:'public',table:'shopboard_parking'}, async()=>{
-      const {data}=await db.from('shopboard_parking').select('*').order('created_at');
-      if(data){parkState=data;renderParking();updateStats();}
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'shopboard_parking'}, ({new:rec})=>{
+      if(rec && !parkState.some(c=>String(c.id)===String(rec.id))) parkState.push(rec);
+      renderParking();updateStats();
     })
-    .on('postgres_changes',{event:'*',schema:'public',table:'shopboard_pickup'}, async()=>{
-      const {data}=await db.from('shopboard_pickup').select('*').order('created_at');
-      if(data){pickupState=data;renderPickup();updateStats();}
+    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'shopboard_parking'}, ({new:rec})=>{
+      if(rec){ const idx=parkState.findIndex(c=>String(c.id)===String(rec.id)); if(idx>=0) parkState[idx]=rec; }
+      renderParking();updateStats();
+    })
+    .on('postgres_changes',{event:'DELETE',schema:'public',table:'shopboard_parking'}, ({old:rec})=>{
+      if(rec) parkState=parkState.filter(c=>String(c.id)!==String(rec.id));
+      renderParking();updateStats();
+    })
+    .on('postgres_changes',{event:'INSERT',schema:'public',table:'shopboard_pickup'}, ({new:rec})=>{
+      if(rec && !pickupState.some(c=>String(c.id)===String(rec.id))) pickupState.push(rec);
+      renderPickup();updateStats();
+    })
+    .on('postgres_changes',{event:'UPDATE',schema:'public',table:'shopboard_pickup'}, ({new:rec})=>{
+      if(rec){ const idx=pickupState.findIndex(c=>String(c.id)===String(rec.id)); if(idx>=0) pickupState[idx]=rec; }
+      renderPickup();updateStats();
+    })
+    .on('postgres_changes',{event:'DELETE',schema:'public',table:'shopboard_pickup'}, ({old:rec})=>{
+      if(rec) pickupState=pickupState.filter(c=>String(c.id)!==String(rec.id));
+      renderPickup();updateStats();
     })
     .subscribe();
 
@@ -392,14 +490,18 @@
       await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:''}).eq('id', liftIdx+1);
       renderLifts();
     } else {
-      car = parkState.find(c=>c.id===carId);
+      car = parkState.find(c=>String(c.id)===String(carId));
+      if (car && car.po && isDuplicatePO(car.po, 'park', carId)) {
+        alert(`PO # "${car.po}" already exists on the board. Update it before moving to pickup.`);
+        return;
+      }
       parkState = parkState.filter(c=>c.id!==carId);
       await db.from('shopboard_parking').delete().eq('id', carId);
       renderParking();
     }
     const {data} = await db.from('shopboard_pickup').insert({
       po:car.po, vehicle:car.vehicle, work:car.work,
-      customer:'', notes:car.notes||'',
+      customer:'', notes:car.notes||'', arrival_date:car.arrival_date||null,
       undo_source:source, undo_index:liftIdx??null, undo_car:car
     }).select().single();
     if(data) pickupState.push(data);
@@ -409,9 +511,9 @@
 
   /* ── UNDO from pickup row ── */
   async function undoPickup(carId) {
-    const entry = pickupState.find(c=>c.id===carId);
+    const entry = pickupState.find(c=>String(c.id)===String(carId));
     if (!entry) return;
-    pickupState = pickupState.filter(c=>c.id!==carId);
+    pickupState = pickupState.filter(c=>String(c.id)!==String(carId));
     await db.from('shopboard_pickup').delete().eq('id', carId);
     if (entry.undo_source==='lift' && entry.undo_car) {
       const car = entry.undo_car;
@@ -419,8 +521,8 @@
       await db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,work:car.work,status:car.status,notes:car.notes||''}).eq('id', entry.undo_index+1);
       renderLifts();
     } else {
-      const car = entry.undo_car || {po:entry.po,vehicle:entry.vehicle,work:entry.work,status:'empty',notes:entry.notes||''};
-      const {data} = await db.from('shopboard_parking').insert({po:car.po,vehicle:car.vehicle,work:car.work,status:car.status||'empty',notes:car.notes||''}).select().single();
+      const car = entry.undo_car || {po:entry.po,vehicle:entry.vehicle,work:entry.work,status:'empty',notes:entry.notes||'',arrival_date:entry.arrival_date||null};
+      const {data} = await db.from('shopboard_parking').insert({po:car.po,vehicle:car.vehicle,work:car.work,status:car.status||'empty',notes:car.notes||'',arrival_date:car.arrival_date||null}).select().single();
       if(data) parkState.push(data);
       renderParking();
     }
@@ -429,13 +531,17 @@
 
   /* ── PLACE ON LIFT ── */
   async function placeOnLift(carId, liftIdx) {
-    const car = parkState.find(c=>c.id===carId);
+    const car = parkState.find(c=>String(c.id)===String(carId));
     if (!car) return;
+    if (car.po && isDuplicatePO(car.po, 'park', carId)) {
+      alert(`PO # "${car.po}" already exists on the board. Update it before placing on a lift.`);
+      return;
+    }
     const newStatus = car.status==='empty'?'in-progress':car.status;
-    liftState[liftIdx] = {...liftState[liftIdx], po:car.po,vehicle:car.vehicle,work:car.work,status:newStatus,notes:car.notes||''};
-    parkState = parkState.filter(c=>c.id!==carId);
+    liftState[liftIdx] = {...liftState[liftIdx], po:car.po,vehicle:car.vehicle,work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null};
+    parkState = parkState.filter(c=>String(c.id)!==String(carId));
     await Promise.all([
-      db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,work:car.work,status:newStatus,notes:car.notes||''}).eq('id',liftIdx+1),
+      db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null}).eq('id',liftIdx+1),
       db.from('shopboard_parking').delete().eq('id',carId)
     ]);
     renderLifts(); renderParking(); updateStats();
@@ -460,6 +566,25 @@
       <div class="stat-pill delayed"><span class="num">${totalDel}</span>            <span class="lbl">Delayed</span></div>
       <div class="stat-pill pickup"> <span class="num">${pickupState.length}</span> <span class="lbl">Ready Pickup</span></div>
     `;
+  }
+
+  /* ── DUPLICATE PO CHECK ── */
+  function isDuplicatePO(po, excludeSource, excludeId) {
+    if (!po || !po.trim()) return false;
+    const norm = po.trim().toLowerCase();
+    const inLifts   = liftState.some((l, i) => {
+      if (excludeSource==='lift' && excludeId===i) return false;
+      return (l.po||'').trim().toLowerCase() === norm;
+    });
+    const inParking = parkState.some(c => {
+      if (excludeSource==='park' && String(c.id)===String(excludeId)) return false;
+      return (c.po||'').trim().toLowerCase() === norm;
+    });
+    const inPickup  = pickupState.some(c => {
+      if (excludeSource==='pickup' && String(c.id)===String(excludeId)) return false;
+      return (c.po||'').trim().toLowerCase() === norm;
+    });
+    return inLifts || inParking || inPickup;
   }
 
   /* ── LIFT IMAGE ── */
@@ -502,18 +627,21 @@
         ${liftSVG(lift.status)}
         <div class="lift-info">
           <div class="field"><label>PO #</label>
-            <input type="text" placeholder="10452" value="${esc(lift.po)}" data-i="${i}" data-field="po"/>
+            <input type="text" placeholder="PO #" value="${esc(lift.po)}" data-i="${i}" data-field="po"/>
           </div>
           <div class="field"><label>Vehicle</label>
-            <input type="text" placeholder="2019 Honda Accord" value="${esc(lift.vehicle)}" data-i="${i}" data-field="vehicle"/>
+            <input type="text" placeholder="Year / Make / Model" value="${esc(lift.vehicle)}" data-i="${i}" data-field="vehicle"/>
           </div>
           <div class="field"><label>Work</label>
-            <input type="text" placeholder="Trans Removal" value="${esc(lift.work)}" data-i="${i}" data-field="work"/>
+            <input type="text" placeholder="Work description" value="${esc(lift.work)}" data-i="${i}" data-field="work"/>
           </div>
           <div class="field"><label>Status</label>
             <select data-i="${i}" data-field="status">
               ${STATUS_OPTIONS.map(o=>`<option value="${o.value}"${lift.status===o.value?' selected':''}>${o.label}</option>`).join('')}
             </select>
+          </div>
+          <div class="field"><label>Arrival Date</label>
+            <input type="date" data-i="${i}" data-field="arrival_date" value="${hasVehicle ? esc(lift.arrival_date||'') : ''}"/>
           </div>
           <div class="field"><label>Notes</label>
             <textarea placeholder="Notes..." data-i="${i}" data-field="notes">${esc(lift.notes||'')}</textarea>
@@ -521,7 +649,7 @@
           <div class="lift-btn-row">
             <button class="clear-btn" data-clear="${i}">✕ Clear</button>
             <button class="lot-back-btn" data-lot-back="${i}" ${!hasVehicle?'disabled':''}>↩ Lot</button>
-            <button class="pickup-move-btn" data-lift-pickup="${i}" ${!hasVehicle?'disabled':''}>✅ Pickup</button>
+            <button class="pickup-move-btn" data-lift-pickup="${i}" ${!hasVehicle?'disabled':''}>Pickup</button>
           </div>
         </div>
       `;
@@ -534,8 +662,8 @@
     board.querySelectorAll('[data-clear]').forEach(btn => {
       btn.addEventListener('click', async e => {
         const i = +e.currentTarget.dataset.clear;
-        liftState[i] = {...liftState[i], po:'',vehicle:'',work:'',status:'empty',notes:''};
-        await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:''}).eq('id',i+1);
+        liftState[i] = {...liftState[i], po:'',vehicle:'',work:'',status:'empty',notes:'',arrival_date:null};
+        await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:'',arrival_date:null}).eq('id',i+1);
         renderLifts(); updateStats();
       });
     });
@@ -544,12 +672,12 @@
         const i = +e.currentTarget.dataset.lotBack;
         const car = {...liftState[i]};
         // clear the lift
-        liftState[i] = {...liftState[i], po:'',vehicle:'',work:'',status:'empty',notes:''};
-        await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:''}).eq('id', i+1);
+        liftState[i] = {...liftState[i], po:'',vehicle:'',work:'',status:'empty',notes:'',arrival_date:null};
+        await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:'',arrival_date:null}).eq('id', i+1);
         // send car back to parking lot
         const {data} = await db.from('shopboard_parking').insert({
           po:car.po, vehicle:car.vehicle, work:car.work,
-          status:car.status==='empty'?'empty':car.status, notes:car.notes||''
+          status:car.status==='empty'?'empty':car.status, notes:car.notes||'', arrival_date:car.arrival_date||null
         }).select().single();
         if(data) parkState.push(data);
         renderLifts(); renderParking(); updateStats();
@@ -564,6 +692,14 @@
 
   function onLiftChange(e) {
     const i = +e.target.dataset.i, field = e.target.dataset.field;
+    if (field === 'po' && e.type === 'change' && isDuplicatePO(e.target.value, 'lift', i)) {
+      alert(`PO # "${e.target.value}" already exists on the board. Please use a different number.`);
+      const prev = liftState[i].po || '';
+      e.target.value = prev;
+      liftState[i].po = prev;
+      clearTimeout(debounceTimers[`lift-${i}-po`]);
+      return;
+    }
     liftState[i][field] = e.target.value;
     if (field === 'status') renderLifts();
     updateStats();
@@ -588,26 +724,27 @@
         ? `<select class="lift-sel" data-park-liftsel="${i}">
              ${free.map(l=>`<option value="${l.i}">${l.label}</option>`).join('')}
            </select>
-           <button class="place-btn" data-place-park="${i}">🔧 Place</button>`
+           <button class="place-btn" data-place-park="${i}">Place</button>`
         : `<span style="font-size:0.62rem;color:#4b5563">No free lift</span>`;
 
       const liftSelId = `ls-${car.id}`;
       tr.innerHTML = `
         <td class="row-num">${i+1}</td>
         <td><input type="text" placeholder="PO #" value="${esc(car.po)}" data-id="${car.id}" data-field="po"/></td>
-        <td><input type="text" placeholder="2019 Honda Accord" value="${esc(car.vehicle)}" data-id="${car.id}" data-field="vehicle"/></td>
+        <td><input type="text" placeholder="Year / Make / Model" value="${esc(car.vehicle)}" data-id="${car.id}" data-field="vehicle"/></td>
         <td><input type="text" placeholder="Transmission Removal" value="${esc(car.work)}" data-id="${car.id}" data-field="work"/></td>
         <td><select data-id="${car.id}" data-field="status">
           ${STATUS_OPTIONS.map(o=>`<option value="${o.value}"${car.status===o.value?' selected':''}>${o.label}</option>`).join('')}
         </select></td>
+        <td><input type="date" data-id="${car.id}" data-field="arrival_date" value="${esc(car.arrival_date||'')}"/></td>
         <td><textarea placeholder="Notes..." data-id="${car.id}" data-field="notes">${esc(car.notes||'')}</textarea></td>
         <td style="white-space:nowrap;vertical-align:middle">
           <div style="display:flex;flex-wrap:wrap;gap:3px;align-items:center">
             ${free.length
               ? `<select class="lift-sel" id="${liftSelId}">${free.map(l=>`<option value="${l.i}">${l.label}</option>`).join('')}</select>
-                 <button class="place-btn" data-place-id="${car.id}" data-liftsel="${liftSelId}">🔧 Place</button>`
+                 <button class="place-btn" data-place-id="${car.id}" data-liftsel="${liftSelId}">Place</button>`
               : `<span style="font-size:0.62rem;color:#4b5563">No free lift</span>`}
-            <button class="move-btn" data-park-pickup="${car.id}" title="Move to Ready">✅</button>
+            <button class="move-btn" data-park-pickup="${car.id}" title="Move to Ready">Ready</button>
             <button class="del-btn" data-del="${car.id}" title="Remove">✕</button>
           </div>
         </td>
@@ -633,7 +770,7 @@
     tbody.querySelectorAll('[data-del]').forEach(btn => {
       btn.addEventListener('click', async e => {
         const id = e.currentTarget.dataset.del;
-        parkState = parkState.filter(c=>c.id!==id);
+        parkState = parkState.filter(c=>String(c.id)!==id);
         await db.from('shopboard_parking').delete().eq('id', id);
         renderParking(); updateStats();
       });
@@ -643,7 +780,16 @@
   function onParkChange(e) {
     const id = e.target.dataset.id, field = e.target.dataset.field;
     if (!field || !id) return;
-    const car = parkState.find(c=>c.id===id);
+    if (field === 'po' && e.type === 'change' && isDuplicatePO(e.target.value, 'park', id)) {
+      alert(`PO # "${e.target.value}" already exists on the board. Please use a different number.`);
+      const car = parkState.find(c=>String(c.id)===id);
+      const prev = car?.po || '';
+      e.target.value = prev;
+      if (car) car.po = prev;
+      clearTimeout(debounceTimers[`park-${id}-po`]);
+      return;
+    }
+    const car = parkState.find(c=>String(c.id)===id);
     if (car) car[field] = e.target.value;
     if (field === 'status') renderParking();
     updateStats();
@@ -653,7 +799,8 @@
   }
 
   document.getElementById('addCarBtn').addEventListener('click', async () => {
-    const {data} = await db.from('shopboard_parking').insert({po:'',vehicle:'',work:'',status:'empty',notes:''}).select().single();
+    const today = new Date().toISOString().slice(0,10);
+    const {data} = await db.from('shopboard_parking').insert({po:'',vehicle:'',work:'',status:'empty',notes:'',arrival_date:today}).select().single();
     if(data) parkState.push(data);
     renderParking(); updateStats();
     const tbody = document.getElementById('parkingBody');
@@ -677,9 +824,10 @@
       tr.innerHTML = `
         <td class="row-num">${i+1}</td>
         <td><input type="text" placeholder="PO #" value="${esc(car.po)}" data-id="${car.id}" data-field="po"/></td>
-        <td><input type="text" placeholder="2019 Honda Accord" value="${esc(car.vehicle)}" data-id="${car.id}" data-field="vehicle"/></td>
+        <td><input type="text" placeholder="Year / Make / Model" value="${esc(car.vehicle)}" data-id="${car.id}" data-field="vehicle"/></td>
         <td><input type="text" placeholder="Work completed" value="${esc(car.work)}" data-id="${car.id}" data-field="work"/></td>
         <td><input type="text" placeholder="Customer name" value="${esc(car.customer)}" data-id="${car.id}" data-field="customer"/></td>
+        <td><input type="date" data-id="${car.id}" data-field="arrival_date" value="${esc(car.arrival_date||'')}"/></td>
         <td><textarea placeholder="Notes..." data-id="${car.id}" data-field="notes">${esc(car.notes||'')}</textarea></td>
         <td><span class="pickup-badge">Ready</span></td>
         <td style="white-space:nowrap;vertical-align:middle">
@@ -701,7 +849,7 @@
     tbody.querySelectorAll('[data-rdel]').forEach(btn => {
       btn.addEventListener('click', async e => {
         const id = e.currentTarget.dataset.rdel;
-        pickupState = pickupState.filter(c=>c.id!==id);
+        pickupState = pickupState.filter(c=>String(c.id)!==id);
         await db.from('shopboard_pickup').delete().eq('id', id);
         renderPickup(); updateStats();
       });
@@ -711,7 +859,16 @@
   function onPickupChange(e) {
     const id = e.target.dataset.id, field = e.target.dataset.field;
     if (!field || !id) return;
-    const car = pickupState.find(c=>c.id===id);
+    if (field === 'po' && e.type === 'change' && isDuplicatePO(e.target.value, 'pickup', id)) {
+      alert(`PO # "${e.target.value}" already exists on the board. Please use a different number.`);
+      const car = pickupState.find(c=>String(c.id)===id);
+      const prev = car?.po || '';
+      e.target.value = prev;
+      if (car) car.po = prev;
+      clearTimeout(debounceTimers[`pickup-${id}-po`]);
+      return;
+    }
+    const car = pickupState.find(c=>String(c.id)===id);
     if (car) car[field] = e.target.value;
     debounce(`pickup-${id}-${field}`, () => {
       db.from('shopboard_pickup').update({[field]: e.target.value}).eq('id', id);
