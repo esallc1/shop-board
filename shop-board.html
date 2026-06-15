@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lee Transmission — Shop Board</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #111827;
+      color: #e0e0e0;
+      padding: 8px 12px;
+      font-size: 12px;
+    }
+
+    header { text-align: center; margin-bottom: 8px; }
+    header h1 { font-size: 1.15rem; color: #f5c518; letter-spacing: 2px; text-transform: uppercase; }
+    header p { font-size: 0.68rem; color: #555; margin-top: 1px; }
+
+    /* ── STATS BAR ── */
+    .stats-bar { display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
+    .stat-pill {
+      background:#1f2937; border:1px solid #374151; border-radius:6px;
+      padding:5px 10px; display:flex; flex-direction:column;
+      align-items:center; min-width:72px; flex:1;
+    }
+    .stat-pill .num { font-size:1.3rem; font-weight:800; line-height:1; }
+    .stat-pill .lbl { font-size:0.58rem; text-transform:uppercase; letter-spacing:0.8px; color:#6b7280; margin-top:2px; text-align:center; }
+    .stat-pill.total   .num { color:#f5c518; }
+    .stat-pill.on-lift .num { color:#a78bfa; }
+    .stat-pill.in-lot  .num { color:#9ca3af; }
+    .stat-pill.working .num { color:#22c55e; }
+    .stat-pill.w-part  .num { color:#f59e0b; }
+    .stat-pill.w-tech  .num { color:#3b82f6; }
+    .stat-pill.delayed .num { color:#ef4444; }
+    .stat-pill.pickup  .num { color:#06b6d4; }
+
+    /* ── SECTION TITLE ── */
+    .section-title {
+      font-size:0.65rem; font-weight:700; text-transform:uppercase;
+      letter-spacing:1.5px; color:#6b7280; margin-bottom:6px;
+      display:flex; align-items:center; gap:8px;
+    }
+    .section-title::after { content:''; flex:1; height:1px; background:#374151; }
+
+    /* ── LIFTS ── */
+    .board { display:grid; grid-template-columns:repeat(6,1fr); gap:7px; margin-bottom:10px; }
+
+    .lift-card {
+      background:#1f2937; border:2px solid #374151; border-radius:8px;
+      overflow:hidden; display:flex; flex-direction:column; transition:border-color 0.3s;
+    }
+    .lift-card.s-in-progress  { border-color:#22c55e; }
+    .lift-card.s-waiting-part { border-color:#f59e0b; }
+    .lift-card.s-waiting-tech { border-color:#3b82f6; }
+    .lift-card.s-delayed      { border-color:#ef4444; }
+    .lift-card.s-done         { border-color:#06b6d4; }
+
+    .lift-top { padding:4px 6px 0; display:flex; align-items:center; justify-content:space-between; }
+    .lift-label { font-size:0.68rem; font-weight:700; color:#f5c518; }
+    .lift-img-wrap {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      padding: 2px 0;
+    }
+    .lift-img {
+      width: 100%;
+      height: auto;
+      display: block;
+      transition: filter 0.35s ease;
+    }
+    .lift-empty-label {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: #374151;
+      text-transform: uppercase;
+    }
+    .lift-info { padding:3px 6px 6px; display:flex; flex-direction:column; gap:3px; }
+
+    .field label {
+      display:block; font-size:0.56rem; text-transform:uppercase;
+      letter-spacing:0.7px; color:#4b5563; margin-bottom:1px;
+    }
+    .field input, .field select, .field textarea {
+      width:100%; background:#111827; border:1px solid #374151;
+      border-radius:4px; color:#e0e0e0; padding:3px 5px;
+      font-size:0.72rem; outline:none; transition:border-color 0.2s; font-family:inherit;
+    }
+    .field input:focus, .field select:focus, .field textarea:focus { border-color:#f5c518; }
+    .field select option { background:#111827; }
+    .field textarea { resize:none; height:34px; line-height:1.3; }
+
+    .status-badge {
+      font-size:0.55rem; font-weight:700; text-transform:uppercase;
+      padding:1px 5px; border-radius:20px; white-space:nowrap;
+    }
+    .badge-empty        { background:#1f2937; color:#4b5563; border:1px solid #374151; }
+    .badge-in-progress  { background:#14532d; color:#4ade80; }
+    .badge-waiting-part { background:#451a03; color:#fbbf24; }
+    .badge-waiting-tech { background:#1e3a5f; color:#60a5fa; }
+    .badge-delayed      { background:#450a0a; color:#f87171; }
+    .badge-done         { background:#083344; color:#22d3ee; }
+
+    .lift-btn-row { display:flex; gap:3px; margin-top:2px; }
+    .clear-btn, .pickup-move-btn, .lot-back-btn {
+      border-radius:4px; cursor:pointer; font-size:0.6rem;
+      flex:1; padding:3px 2px; transition:all 0.2s; font-weight:600;
+    }
+    .clear-btn { background:transparent; border:1px solid #374151; color:#4b5563; }
+    .clear-btn:hover { border-color:#ef4444; color:#ef4444; }
+    .pickup-move-btn { background:#083344; border:1px solid #0e7490; color:#22d3ee; }
+    .pickup-move-btn:hover { background:#0e7490; color:#fff; }
+    .pickup-move-btn:disabled { opacity:0.25; cursor:default; }
+    .lot-back-btn { background:#2d1a03; border:1px solid #92400e; color:#fbbf24; }
+    .lot-back-btn:hover { background:#92400e; color:#fff; }
+    .lot-back-btn:disabled { opacity:0.25; cursor:default; }
+
+    /* ── SHARED TABLE ── */
+    .table-section { margin-bottom:10px; }
+    .table-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:5px; }
+    .table-header .section-title { margin-bottom:0; flex:1; }
+
+    .add-btn {
+      border:none; border-radius:5px; padding:3px 10px;
+      font-size:0.68rem; font-weight:700; cursor:pointer;
+      white-space:nowrap; transition:background 0.2s;
+    }
+    .add-btn.yellow { background:#f5c518; color:#111827; }
+    .add-btn.yellow:hover { background:#fde047; }
+    .add-btn.teal { background:#0e7490; color:#e0f7fa; }
+    .add-btn.teal:hover { background:#06b6d4; color:#111827; }
+
+    .table-wrap {
+      background:#1f2937; border:1px solid #374151; border-radius:8px;
+      overflow:hidden; max-height:180px; overflow-y:auto;
+    }
+
+    .tbl { width:100%; border-collapse:collapse; }
+    .tbl thead { position:sticky; top:0; z-index:2; }
+    .tbl thead tr { background:#111827; }
+    .tbl thead th {
+      padding:5px 7px; font-size:0.6rem; text-transform:uppercase;
+      letter-spacing:0.8px; color:#6b7280; text-align:left;
+      font-weight:600; border-bottom:1px solid #374151;
+    }
+    .tbl tbody tr { border-bottom:1px solid #263041; transition:background 0.15s; }
+    .tbl tbody tr:last-child { border-bottom:none; }
+    .tbl tbody tr:hover { background:#263041; }
+
+    .tbl tbody tr.s-in-progress  td:first-child { border-left:3px solid #22c55e; }
+    .tbl tbody tr.s-waiting-part td:first-child { border-left:3px solid #f59e0b; }
+    .tbl tbody tr.s-waiting-tech td:first-child { border-left:3px solid #3b82f6; }
+    .tbl tbody tr.s-delayed      td:first-child { border-left:3px solid #ef4444; }
+    .tbl tbody tr.s-done         td:first-child { border-left:3px solid #06b6d4; }
+    .tbl tbody tr.s-empty        td:first-child { border-left:3px solid #374151; }
+
+    .tbl tbody td { padding:3px 6px; vertical-align:middle; }
+    .tbl tbody td input, .tbl tbody td select, .tbl tbody td textarea {
+      width:100%; background:transparent; border:1px solid transparent;
+      border-radius:4px; color:#e0e0e0; padding:3px 5px;
+      font-size:0.78rem; outline:none; transition:border-color 0.2s, background 0.2s; font-family:inherit;
+    }
+    .tbl tbody td input:hover, .tbl tbody td select:hover,
+    .tbl tbody td textarea:hover { border-color:#374151; background:#111827; }
+    .tbl tbody td input:focus, .tbl tbody td select:focus,
+    .tbl tbody td textarea:focus { border-color:#f5c518; background:#111827; }
+    .tbl tbody td select option { background:#111827; }
+    .tbl tbody td textarea { resize:none; height:30px; line-height:1.3; }
+
+    .row-num { font-size:0.62rem; color:#4b5563; font-weight:700; text-align:center; min-width:20px; }
+
+    .del-btn {
+      background:transparent; border:none; color:#4b5563;
+      cursor:pointer; font-size:0.82rem; padding:1px 4px;
+      border-radius:3px; transition:color 0.2s; line-height:1;
+    }
+    .del-btn:hover { color:#ef4444; }
+
+    /* move-to-pickup btn */
+    .move-btn {
+      background:#083344; border:1px solid #0e7490; color:#22d3ee;
+      border-radius:4px; cursor:pointer; font-size:0.62rem; font-weight:700;
+      padding:2px 5px; white-space:nowrap; transition:all 0.2s; line-height:1.4;
+    }
+    .move-btn:hover { background:#0e7490; color:#fff; }
+
+    /* place-on-lift controls */
+    .lift-sel {
+      background:#111827; border:1px solid #374151; border-radius:4px;
+      color:#e0e0e0; padding:2px 4px; font-size:0.7rem; outline:none;
+      cursor:pointer; max-width:80px;
+    }
+    .lift-sel option { background:#111827; }
+    .place-btn {
+      background:#2d1a6e; border:1px solid #7c3aed; color:#c4b5fd;
+      border-radius:4px; cursor:pointer; font-size:0.62rem; font-weight:700;
+      padding:2px 5px; white-space:nowrap; transition:all 0.2s; line-height:1.4;
+    }
+    .place-btn:hover { background:#7c3aed; color:#fff; }
+    .place-btn:disabled { opacity:0.3; cursor:default; }
+
+    /* undo btn in pickup table */
+    .undo-row-btn {
+      background:#451a03; border:1px solid #92400e; color:#fbbf24;
+      border-radius:4px; cursor:pointer; font-size:0.62rem; font-weight:700;
+      padding:2px 5px; white-space:nowrap; transition:all 0.2s; line-height:1.4;
+    }
+    .undo-row-btn:hover { background:#92400e; color:#fff; }
+
+    .pickup-badge {
+      display:inline-block; background:#083344; color:#22d3ee;
+      font-size:0.6rem; font-weight:700; text-transform:uppercase;
+      padding:2px 7px; border-radius:20px;
+    }
+
+    .empty-msg { text-align:center; padding:12px; color:#4b5563; font-size:0.78rem; }
+
+    /* ── LEGEND ── */
+    .legend { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:8px; }
+    .legend-item { display:flex; align-items:center; gap:4px; font-size:0.65rem; color:#6b7280; }
+    .legend-dot { width:7px; height:7px; border-radius:50%; }
+    .dot-empty        { background:#4b5563; }
+    .dot-in-progress  { background:#22c55e; }
+    .dot-waiting-part { background:#f59e0b; }
+    .dot-waiting-tech { background:#3b82f6; }
+    .dot-delayed      { background:#ef4444; }
+    .dot-done         { background:#06b6d4; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🔧 Lee Transmission — Shop Board</h1>
+  <p id="clock"></p>
+</header>
+
+<div class="stats-bar" id="statsBar"></div>
+
+<div class="section-title">🔩 Lifts</div>
+<div class="board" id="board"></div>
+
+<!-- PARKING LOT -->
+<div class="table-section">
+  <div class="table-header">
+    <div class="section-title">🅿️ Parking Lot — Waiting</div>
+    <button class="add-btn yellow" id="addCarBtn">+ Add Car</button>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead><tr>
+        <th style="width:24px">#</th>
+        <th style="width:76px">PO #</th>
+        <th style="width:165px">Year / Make / Model</th>
+        <th>Work Description</th>
+        <th style="width:155px">Status</th>
+        <th>Notes</th>
+        <th style="width:140px">Actions</th>
+      </tr></thead>
+      <tbody id="parkingBody"></tbody>
+    </table>
+    <div class="empty-msg" id="parkingEmpty" style="display:none">No cars in lot — tap "+ Add Car".</div>
+  </div>
+</div>
+
+<!-- READY FOR PICKUP -->
+<div class="table-section">
+  <div class="table-header">
+    <div class="section-title">✅ Ready — Waiting for Customer Pickup</div>
+    <button class="add-btn teal" id="addPickupBtn">+ Add Vehicle</button>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead><tr>
+        <th style="width:24px">#</th>
+        <th style="width:76px">PO #</th>
+        <th style="width:165px">Year / Make / Model</th>
+        <th>Work Done</th>
+        <th style="width:115px">Customer</th>
+        <th>Notes</th>
+        <th style="width:56px">Status</th>
+        <th style="width:90px">Actions</th>
+      </tr></thead>
+      <tbody id="pickupBody"></tbody>
+    </table>
+    <div class="empty-msg" id="pickupEmpty" style="display:none">No vehicles waiting for pickup.</div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot dot-empty"></div> Empty</div>
+  <div class="legend-item"><div class="legend-dot dot-in-progress"></div> In Progress</div>
+  <div class="legend-item"><div class="legend-dot dot-waiting-part"></div> Waiting for Part</div>
+  <div class="legend-item"><div class="legend-dot dot-waiting-tech"></div> Waiting for Tech</div>
+  <div class="legend-item"><div class="legend-dot dot-delayed"></div> Delayed</div>
+  <div class="legend-item"><div class="legend-dot dot-done"></div> Done / Ready</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+  /* ── SUPABASE ── */
+  const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  const LIFTS = 6;
+
+  const STATUS_OPTIONS = [
+    { value:'empty',        label:'— Unassigned —' },
+    { value:'in-progress',  label:'In Progress' },
+    { value:'waiting-part', label:'Waiting for Part' },
+    { value:'waiting-tech', label:'Waiting for Tech' },
+    { value:'delayed',      label:'Delayed' },
+    { value:'done',         label:'Done / Ready' },
+  ];
+
+  const STATUS_COLORS = {
+    'empty':        { car:'#374151', post:'#4b5563', arm:'#6b7280' },
+    'in-progress':  { car:'#16a34a', post:'#15803d', arm:'#22c55e' },
+    'waiting-part': { car:'#d97706', post:'#b45309', arm:'#f59e0b' },
+    'waiting-tech': { car:'#2563eb', post:'#1d4ed8', arm:'#3b82f6' },
+    'delayed':      { car:'#dc2626', post:'#b91c1c', arm:'#ef4444' },
+    'done':         { car:'#0891b2', post:'#0e7490', arm:'#06b6d4' },
+  };
+
+  const BADGE_CLASS = {
+    'empty':'badge-empty','in-progress':'badge-in-progress',
+    'waiting-part':'badge-waiting-part','waiting-tech':'badge-waiting-tech',
+    'delayed':'badge-delayed','done':'badge-done'
+  };
+
+  /* ── STATE ── */
+  let liftState   = [];
+  let parkState   = [];
+  let pickupState = [];
+
+  const debounceTimers = {};
+  function debounce(key, fn, delay = 500) {
+    clearTimeout(debounceTimers[key]);
+    debounceTimers[key] = setTimeout(fn, delay);
+  }
+
+  /* ── LOAD ALL FROM SUPABASE ── */
+  async function loadAll() {
+    const [l, p, k] = await Promise.all([
+      db.from('shopboard_lifts').select('*').order('id'),
+      db.from('shopboard_parking').select('*').order('created_at'),
+      db.from('shopboard_pickup').select('*').order('created_at'),
+    ]);
+    liftState   = l.data || Array.from({length:6},(_,i)=>({id:i+1,po:'',vehicle:'',work:'',status:'empty',notes:''}));
+    parkState   = p.data || [];
+    pickupState = k.data || [];
+    renderLifts(); renderParking(); renderPickup(); updateStats();
+  }
+
+  /* ── REALTIME SUBSCRIPTIONS ── */
+  db.channel('shopboard-live')
+    .on('postgres_changes',{event:'*',schema:'public',table:'shopboard_lifts'}, async()=>{
+      const {data}=await db.from('shopboard_lifts').select('*').order('id');
+      if(data){liftState=data;renderLifts();updateStats();}
+    })
+    .on('postgres_changes',{event:'*',schema:'public',table:'shopboard_parking'}, async()=>{
+      const {data}=await db.from('shopboard_parking').select('*').order('created_at');
+      if(data){parkState=data;renderParking();updateStats();}
+    })
+    .on('postgres_changes',{event:'*',schema:'public',table:'shopboard_pickup'}, async()=>{
+      const {data}=await db.from('shopboard_pickup').select('*').order('created_at');
+      if(data){pickupState=data;renderPickup();updateStats();}
+    })
+    .subscribe();
+
+  /* ── EMPTY LIFTS helper ── */
+  function emptyLifts() {
+    return liftState.map((l,i)=>({i,label:`Lift ${i+1}`}))
+                    .filter(l=>liftState[l.i].status==='empty'&&!liftState[l.i].po&&!liftState[l.i].vehicle);
+  }
+
+  /* ── MOVE TO PICKUP ── */
+  async function moveToPickup(source, liftIdx, carId) {
+    let car;
+    if (source === 'lift') {
+      car = {...liftState[liftIdx]};
+      liftState[liftIdx] = {...liftState[liftIdx], po:'',vehicle:'',work:'',status:'empty',notes:''};
+      await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:''}).eq('id', liftIdx+1);
+      renderLifts();
+    } else {
+      car = parkState.find(c=>c.id===carId);
+      parkState = parkState.filter(c=>c.id!==carId);
+      await db.from('shopboard_parking').delete().eq('id', carId);
+      renderParking();
+    }
+    const {data} = await db.from('shopboard_pickup').insert({
+      po:car.po, vehicle:car.vehicle, work:car.work,
+      customer:'', notes:car.notes||'',
+      undo_source:source, undo_index:liftIdx??null, undo_car:car
+    }).select().single();
+    if(data) pickupState.push(data);
+    renderPickup(); updateStats();
+    document.getElementById('pickupBody').lastElementChild?.scrollIntoView({behavior:'smooth',block:'center'});
+  }
+
+  /* ── UNDO from pickup row ── */
+  async function undoPickup(carId) {
+    const entry = pickupState.find(c=>c.id===carId);
+    if (!entry) return;
+    pickupState = pickupState.filter(c=>c.id!==carId);
+    await db.from('shopboard_pickup').delete().eq('id', carId);
+    if (entry.undo_source==='lift' && entry.undo_car) {
+      const car = entry.undo_car;
+      liftState[entry.undo_index] = {...liftState[entry.undo_index], ...car};
+      await db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,work:car.work,status:car.status,notes:car.notes||''}).eq('id', entry.undo_index+1);
+      renderLifts();
+    } else {
+      const car = entry.undo_car || {po:entry.po,vehicle:entry.vehicle,work:entry.work,status:'empty',notes:entry.notes||''};
+      const {data} = await db.from('shopboard_parking').insert({po:car.po,vehicle:car.vehicle,work:car.work,status:car.status||'empty',notes:car.notes||''}).select().single();
+      if(data) parkState.push(data);
+      renderParking();
+    }
+    renderPickup(); updateStats();
+  }
+
+  /* ── PLACE ON LIFT ── */
+  async function placeOnLift(carId, liftIdx) {
+    const car = parkState.find(c=>c.id===carId);
+    if (!car) return;
+    const newStatus = car.status==='empty'?'in-progress':car.status;
+    liftState[liftIdx] = {...liftState[liftIdx], po:car.po,vehicle:car.vehicle,work:car.work,status:newStatus,notes:car.notes||''};
+    parkState = parkState.filter(c=>c.id!==carId);
+    await Promise.all([
+      db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,work:car.work,status:newStatus,notes:car.notes||''}).eq('id',liftIdx+1),
+      db.from('shopboard_parking').delete().eq('id',carId)
+    ]);
+    renderLifts(); renderParking(); updateStats();
+  }
+
+  /* ── STATS ── */
+  function updateStats() {
+    const liftActive  = liftState.filter(l => l.status !== 'empty' || l.po || l.vehicle);
+    const totalInProg = [...liftState,...parkState].filter(c=>c.status==='in-progress').length;
+    const totalWPart  = [...liftState,...parkState].filter(c=>c.status==='waiting-part').length;
+    const totalWTech  = [...liftState,...parkState].filter(c=>c.status==='waiting-tech').length;
+    const totalDel    = [...liftState,...parkState].filter(c=>c.status==='delayed').length;
+    const total       = liftActive.length + parkState.length + pickupState.length;
+
+    document.getElementById('statsBar').innerHTML = `
+      <div class="stat-pill total">  <span class="num">${total}</span>              <span class="lbl">Total Vehicles</span></div>
+      <div class="stat-pill on-lift"><span class="num">${liftActive.length}</span>  <span class="lbl">On Lifts</span></div>
+      <div class="stat-pill in-lot"> <span class="num">${parkState.length}</span>   <span class="lbl">In Lot</span></div>
+      <div class="stat-pill working"><span class="num">${totalInProg}</span>         <span class="lbl">In Progress</span></div>
+      <div class="stat-pill w-part"> <span class="num">${totalWPart}</span>          <span class="lbl">Waiting Part</span></div>
+      <div class="stat-pill w-tech"> <span class="num">${totalWTech}</span>          <span class="lbl">Waiting Tech</span></div>
+      <div class="stat-pill delayed"><span class="num">${totalDel}</span>            <span class="lbl">Delayed</span></div>
+      <div class="stat-pill pickup"> <span class="num">${pickupState.length}</span> <span class="lbl">Ready Pickup</span></div>
+    `;
+  }
+
+  /* ── LIFT IMAGE ── */
+  // hue-rotate to shift the green car to each status color
+  const STATUS_FILTER = {
+    'empty':        'grayscale(1) brightness(0.3)',
+    'in-progress':  'hue-rotate(0deg)   saturate(1.2) brightness(1.05)',   // green
+    'waiting-tech': 'hue-rotate(200deg) saturate(1.5) brightness(1.0)',    // blue
+    'waiting-part': 'hue-rotate(42deg)  saturate(2.0) brightness(1.1)',    // amber
+    'delayed':      'hue-rotate(240deg) saturate(1.8) brightness(1.0)',    // red
+    'done':         'hue-rotate(160deg) saturate(1.4) brightness(1.05)',   // teal
+  };
+
+  function liftSVG(status) {
+    const isEmpty   = status === 'empty';
+    const imgFilter = STATUS_FILTER[status] || STATUS_FILTER['empty'];
+
+    return `<div class="lift-img-wrap${isEmpty ? ' empty-lift' : ''}">
+      <img src="lift_vehicle_icon.png" class="lift-img" style="filter:${imgFilter};"/>
+      ${isEmpty ? '<div class="lift-empty-label">EMPTY</div>' : ''}
+    </div>`;
+  }
+
+  function statusLabel(s) { return STATUS_OPTIONS.find(o=>o.value===s)?.label||'—'; }
+  function esc(s) { return (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+  /* ── LIFTS ── */
+  function renderLifts() {
+    const board = document.getElementById('board');
+    board.innerHTML = '';
+    liftState.forEach((lift, i) => {
+      const hasVehicle = lift.status !== 'empty' || lift.po || lift.vehicle;
+      const card = document.createElement('div');
+      card.className = `lift-card s-${lift.status}`;
+      card.innerHTML = `
+        <div class="lift-top">
+          <span class="lift-label">LIFT ${i+1}</span>
+          <span class="status-badge ${BADGE_CLASS[lift.status]}">${statusLabel(lift.status)}</span>
+        </div>
+        ${liftSVG(lift.status)}
+        <div class="lift-info">
+          <div class="field"><label>PO #</label>
+            <input type="text" placeholder="10452" value="${esc(lift.po)}" data-i="${i}" data-field="po"/>
+          </div>
+          <div class="field"><label>Vehicle</label>
+            <input type="text" placeholder="2019 Honda Accord" value="${esc(lift.vehicle)}" data-i="${i}" data-field="vehicle"/>
+          </div>
+          <div class="field"><label>Work</label>
+            <input type="text" placeholder="Trans Removal" value="${esc(lift.work)}" data-i="${i}" data-field="work"/>
+          </div>
+          <div class="field"><label>Status</label>
+            <select data-i="${i}" data-field="status">
+              ${STATUS_OPTIONS.map(o=>`<option value="${o.value}"${lift.status===o.value?' selected':''}>${o.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>Notes</label>
+            <textarea placeholder="Notes..." data-i="${i}" data-field="notes">${esc(lift.notes||'')}</textarea>
+          </div>
+          <div class="lift-btn-row">
+            <button class="clear-btn" data-clear="${i}">✕ Clear</button>
+            <button class="lot-back-btn" data-lot-back="${i}" ${!hasVehicle?'disabled':''}>↩ Lot</button>
+            <button class="pickup-move-btn" data-lift-pickup="${i}" ${!hasVehicle?'disabled':''}>✅ Pickup</button>
+          </div>
+        </div>
+      `;
+      board.appendChild(card);
+    });
+    board.querySelectorAll('input,select,textarea').forEach(el => {
+      el.addEventListener('change', onLiftChange);
+      el.addEventListener('input', onLiftChange);
+    });
+    board.querySelectorAll('[data-clear]').forEach(btn => {
+      btn.addEventListener('click', async e => {
+        const i = +e.currentTarget.dataset.clear;
+        liftState[i] = {...liftState[i], po:'',vehicle:'',work:'',status:'empty',notes:''};
+        await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:''}).eq('id',i+1);
+        renderLifts(); updateStats();
+      });
+    });
+    board.querySelectorAll('[data-lot-back]').forEach(btn => {
+      btn.addEventListener('click', async e => {
+        const i = +e.currentTarget.dataset.lotBack;
+        const car = {...liftState[i]};
+        // clear the lift
+        liftState[i] = {...liftState[i], po:'',vehicle:'',work:'',status:'empty',notes:''};
+        await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:''}).eq('id', i+1);
+        // send car back to parking lot
+        const {data} = await db.from('shopboard_parking').insert({
+          po:car.po, vehicle:car.vehicle, work:car.work,
+          status:car.status==='empty'?'empty':car.status, notes:car.notes||''
+        }).select().single();
+        if(data) parkState.push(data);
+        renderLifts(); renderParking(); updateStats();
+      });
+    });
+    board.querySelectorAll('[data-lift-pickup]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        moveToPickup('lift', +e.currentTarget.dataset.liftPickup, null);
+      });
+    });
+  }
+
+  function onLiftChange(e) {
+    const i = +e.target.dataset.i, field = e.target.dataset.field;
+    liftState[i][field] = e.target.value;
+    if (field === 'status') renderLifts();
+    updateStats();
+    debounce(`lift-${i}-${field}`, () => {
+      db.from('shopboard_lifts').update({[field]: e.target.value}).eq('id', i+1);
+    });
+  }
+
+  /* ── PARKING ── */
+  function renderParking() {
+    const tbody = document.getElementById('parkingBody');
+    const emptyMsg = document.getElementById('parkingEmpty');
+    tbody.innerHTML = '';
+    if (parkState.length === 0) { emptyMsg.style.display='block'; return; }
+    emptyMsg.style.display = 'none';
+    const free = emptyLifts();
+
+    parkState.forEach((car, i) => {
+      const tr = document.createElement('tr');
+      tr.className = `s-${car.status}`;
+      const liftOpts = free.length
+        ? `<select class="lift-sel" data-park-liftsel="${i}">
+             ${free.map(l=>`<option value="${l.i}">${l.label}</option>`).join('')}
+           </select>
+           <button class="place-btn" data-place-park="${i}">🔧 Place</button>`
+        : `<span style="font-size:0.62rem;color:#4b5563">No free lift</span>`;
+
+      const liftSelId = `ls-${car.id}`;
+      tr.innerHTML = `
+        <td class="row-num">${i+1}</td>
+        <td><input type="text" placeholder="PO #" value="${esc(car.po)}" data-id="${car.id}" data-field="po"/></td>
+        <td><input type="text" placeholder="2019 Honda Accord" value="${esc(car.vehicle)}" data-id="${car.id}" data-field="vehicle"/></td>
+        <td><input type="text" placeholder="Transmission Removal" value="${esc(car.work)}" data-id="${car.id}" data-field="work"/></td>
+        <td><select data-id="${car.id}" data-field="status">
+          ${STATUS_OPTIONS.map(o=>`<option value="${o.value}"${car.status===o.value?' selected':''}>${o.label}</option>`).join('')}
+        </select></td>
+        <td><textarea placeholder="Notes..." data-id="${car.id}" data-field="notes">${esc(car.notes||'')}</textarea></td>
+        <td style="white-space:nowrap;vertical-align:middle">
+          <div style="display:flex;flex-wrap:wrap;gap:3px;align-items:center">
+            ${free.length
+              ? `<select class="lift-sel" id="${liftSelId}">${free.map(l=>`<option value="${l.i}">${l.label}</option>`).join('')}</select>
+                 <button class="place-btn" data-place-id="${car.id}" data-liftsel="${liftSelId}">🔧 Place</button>`
+              : `<span style="font-size:0.62rem;color:#4b5563">No free lift</span>`}
+            <button class="move-btn" data-park-pickup="${car.id}" title="Move to Ready">✅</button>
+            <button class="del-btn" data-del="${car.id}" title="Remove">✕</button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    tbody.querySelectorAll('input,select,textarea').forEach(el => {
+      el.addEventListener('change', onParkChange);
+      el.addEventListener('input', onParkChange);
+    });
+    tbody.querySelectorAll('[data-place-id]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        const carId  = e.currentTarget.dataset.placeId;
+        const selId  = e.currentTarget.dataset.liftsel;
+        const liftIdx = +document.getElementById(selId).value;
+        placeOnLift(carId, liftIdx);
+      });
+    });
+    tbody.querySelectorAll('[data-park-pickup]').forEach(btn => {
+      btn.addEventListener('click', e => moveToPickup('park', null, e.currentTarget.dataset.parkPickup));
+    });
+    tbody.querySelectorAll('[data-del]').forEach(btn => {
+      btn.addEventListener('click', async e => {
+        const id = e.currentTarget.dataset.del;
+        parkState = parkState.filter(c=>c.id!==id);
+        await db.from('shopboard_parking').delete().eq('id', id);
+        renderParking(); updateStats();
+      });
+    });
+  }
+
+  function onParkChange(e) {
+    const id = e.target.dataset.id, field = e.target.dataset.field;
+    if (!field || !id) return;
+    const car = parkState.find(c=>c.id===id);
+    if (car) car[field] = e.target.value;
+    if (field === 'status') renderParking();
+    updateStats();
+    debounce(`park-${id}-${field}`, () => {
+      db.from('shopboard_parking').update({[field]: e.target.value}).eq('id', id);
+    });
+  }
+
+  document.getElementById('addCarBtn').addEventListener('click', async () => {
+    const {data} = await db.from('shopboard_parking').insert({po:'',vehicle:'',work:'',status:'empty',notes:''}).select().single();
+    if(data) parkState.push(data);
+    renderParking(); updateStats();
+    const tbody = document.getElementById('parkingBody');
+    if (tbody.lastElementChild) {
+      tbody.lastElementChild.scrollIntoView({behavior:'smooth',block:'center'});
+      tbody.lastElementChild.querySelector('input')?.focus();
+    }
+  });
+
+  /* ── PICKUP ── */
+  function renderPickup() {
+    const tbody = document.getElementById('pickupBody');
+    const emptyMsg = document.getElementById('pickupEmpty');
+    tbody.innerHTML = '';
+    if (pickupState.length === 0) { emptyMsg.style.display='block'; return; }
+    emptyMsg.style.display = 'none';
+    pickupState.forEach((car, i) => {
+      const canUndo = !!(car.undo_source);
+      const tr = document.createElement('tr');
+      tr.className = 's-done';
+      tr.innerHTML = `
+        <td class="row-num">${i+1}</td>
+        <td><input type="text" placeholder="PO #" value="${esc(car.po)}" data-id="${car.id}" data-field="po"/></td>
+        <td><input type="text" placeholder="2019 Honda Accord" value="${esc(car.vehicle)}" data-id="${car.id}" data-field="vehicle"/></td>
+        <td><input type="text" placeholder="Work completed" value="${esc(car.work)}" data-id="${car.id}" data-field="work"/></td>
+        <td><input type="text" placeholder="Customer name" value="${esc(car.customer)}" data-id="${car.id}" data-field="customer"/></td>
+        <td><textarea placeholder="Notes..." data-id="${car.id}" data-field="notes">${esc(car.notes||'')}</textarea></td>
+        <td><span class="pickup-badge">Ready</span></td>
+        <td style="white-space:nowrap;vertical-align:middle">
+          <div style="display:flex;gap:3px;align-items:center">
+            ${canUndo ? `<button class="undo-row-btn" data-undo="${car.id}" title="Send back">↩ Undo</button>` : ''}
+            <button class="del-btn" data-rdel="${car.id}" title="Picked up — remove">✕</button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+    tbody.querySelectorAll('input,textarea').forEach(el => {
+      el.addEventListener('change', onPickupChange);
+      el.addEventListener('input', onPickupChange);
+    });
+    tbody.querySelectorAll('[data-undo]').forEach(btn => {
+      btn.addEventListener('click', e => undoPickup(e.currentTarget.dataset.undo));
+    });
+    tbody.querySelectorAll('[data-rdel]').forEach(btn => {
+      btn.addEventListener('click', async e => {
+        const id = e.currentTarget.dataset.rdel;
+        pickupState = pickupState.filter(c=>c.id!==id);
+        await db.from('shopboard_pickup').delete().eq('id', id);
+        renderPickup(); updateStats();
+      });
+    });
+  }
+
+  function onPickupChange(e) {
+    const id = e.target.dataset.id, field = e.target.dataset.field;
+    if (!field || !id) return;
+    const car = pickupState.find(c=>c.id===id);
+    if (car) car[field] = e.target.value;
+    debounce(`pickup-${id}-${field}`, () => {
+      db.from('shopboard_pickup').update({[field]: e.target.value}).eq('id', id);
+    });
+  }
+
+  document.getElementById('addPickupBtn').addEventListener('click', async () => {
+    const {data} = await db.from('shopboard_pickup').insert({po:'',vehicle:'',work:'',customer:'',notes:''}).select().single();
+    if(data) pickupState.push(data);
+    renderPickup(); updateStats();
+    const tbody = document.getElementById('pickupBody');
+    if (tbody.lastElementChild) {
+      tbody.lastElementChild.scrollIntoView({behavior:'smooth',block:'center'});
+      tbody.lastElementChild.querySelector('input')?.focus();
+    }
+  });
+
+  /* ── CLOCK ── */
+  function tick() {
+    const now = new Date();
+    document.getElementById('clock').textContent =
+      now.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'}) +
+      '  •  ' + now.toLocaleTimeString('en-US');
+  }
+
+  loadAll();
+  tick();
+  setInterval(tick, 1000);
+</script>
+</body>
+</html>
