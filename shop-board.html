@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lee Transmission — Shop Board</title>
+  <title>Lee Transmission - Shop Board</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: 'Segoe UI', Arial, sans-serif;
-      background: #111827;
+      background: #0b1120;
       color: #e0e0e0;
       padding: 8px 12px;
       font-size: 12px;
@@ -18,7 +18,7 @@
     header h1 { font-size: 1.15rem; color: #f5c518; letter-spacing: 2px; text-transform: uppercase; }
     header p { font-size: 0.68rem; color: #555; margin-top: 1px; }
 
-    /* ── STATS BAR ── */
+    /* -- STATS BAR -- */
     .stats-bar { display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
     .stat-pill {
       background:#1f2937; border:1px solid #374151; border-radius:6px;
@@ -36,7 +36,7 @@
     .stat-pill.delayed .num { color:#ef4444; }
     .stat-pill.pickup  .num { color:#06b6d4; }
 
-    /* ── SECTION TITLE ── */
+    /* -- SECTION TITLE -- */
     .section-title {
       font-size:0.65rem; font-weight:700; text-transform:uppercase;
       letter-spacing:1.5px; color:#6b7280; margin-bottom:6px;
@@ -44,18 +44,25 @@
     }
     .section-title::after { content:''; flex:1; height:1px; background:#374151; }
 
-    /* ── LIFTS ── */
+    /* -- LIFTS -- */
     .board { display:grid; grid-template-columns:repeat(6,1fr); gap:7px; margin-bottom:10px; }
 
     .lift-card {
-      background:#1f2937; border:2px solid #374151; border-radius:8px;
+      background:#1e293b; border:2px solid #374151; border-radius:8px;
       overflow:hidden; display:flex; flex-direction:column; transition:border-color 0.3s;
     }
-    .lift-card.s-in-progress  { border-color:#22c55e; }
-    .lift-card.s-waiting-part { border-color:#f59e0b; }
-    .lift-card.s-waiting-tech { border-color:#3b82f6; }
-    .lift-card.s-delayed      { border-color:#ef4444; }
-    .lift-card.s-done         { border-color:#06b6d4; }
+    .lift-card.s-in-progress  { border-color:#16a34a; background:linear-gradient(180deg, rgba(22,163,74,0.10), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-waiting-part { border-color:#d97706; background:linear-gradient(180deg, rgba(217,119,6,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-waiting-tech { border-color:#2563eb; background:linear-gradient(180deg, rgba(37,99,235,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-delayed      { border-color:#dc2626; background:linear-gradient(180deg, rgba(220,38,38,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-done         { border-color:#0891b2; background:linear-gradient(180deg, rgba(8,145,178,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-empty, .lift-card-empty { background:#111827; border-color:#374151; opacity:0.72; }
+
+    .lift-card.s-in-progress  .lift-img-wrap { background:radial-gradient(circle at center, rgba(22,163,74,0.20), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-waiting-part .lift-img-wrap { background:radial-gradient(circle at center, rgba(217,119,6,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-waiting-tech .lift-img-wrap { background:radial-gradient(circle at center, rgba(37,99,235,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-delayed      .lift-img-wrap { background:radial-gradient(circle at center, rgba(220,38,38,0.24), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-done         .lift-img-wrap { background:radial-gradient(circle at center, rgba(8,145,178,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
 
     .lift-top { padding:4px 6px 0; display:flex; align-items:center; justify-content:space-between; }
     .lift-label { font-size:0.68rem; font-weight:700; color:#f5c518; }
@@ -91,7 +98,7 @@
       letter-spacing:0.7px; color:#4b5563; margin-bottom:1px;
     }
     .field input, .field select, .field textarea {
-      width:100%; background:#111827; border:1px solid #374151;
+      width:100%; background:#0f172a; border:1px solid #374151;
       border-radius:4px; color:#e0e0e0; padding:3px 5px;
       font-size:0.72rem; outline:none; transition:border-color 0.2s; font-family:inherit;
     }
@@ -100,15 +107,25 @@
     .field textarea { resize:none; height:34px; line-height:1.3; }
 
     .status-badge {
-      font-size:0.55rem; font-weight:700; text-transform:uppercase;
-      padding:1px 5px; border-radius:20px; white-space:nowrap;
+      font-size:0.58rem; font-weight:800; text-transform:uppercase;
+      padding:2px 7px; border-radius:20px; white-space:nowrap;
     }
     .badge-empty        { background:#1f2937; color:#4b5563; border:1px solid #374151; }
-    .badge-in-progress  { background:#14532d; color:#4ade80; }
-    .badge-waiting-part { background:#451a03; color:#fbbf24; }
-    .badge-waiting-tech { background:#1e3a5f; color:#60a5fa; }
-    .badge-delayed      { background:#450a0a; color:#f87171; }
-    .badge-done         { background:#083344; color:#22d3ee; }
+
+    .lift-card-empty { min-height:260px; opacity:0.75; }
+    .empty-bay {
+      flex:1; min-height:230px; margin:8px;
+      border:1px dashed #374151; border-radius:8px;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      text-align:center; background:rgba(17,24,39,0.45);
+    }
+    .empty-bay-title { color:#9ca3af; font-size:1rem; font-weight:800; text-transform:uppercase; letter-spacing:1.5px; }
+    .empty-bay-subtitle { color:#4b5563; font-size:0.68rem; margin-top:6px; }
+    .badge-in-progress  { background:#052e16; color:#86efac; }
+    .badge-waiting-part { background:#2c1a00; color:#fcd34d; }
+    .badge-waiting-tech { background:#0f1f3d; color:#93c5fd; }
+    .badge-delayed      { background:#3b0a0a; color:#fca5a5; }
+    .badge-done         { background:#052630; color:#67e8f9; }
 
     .lift-btn-row { display:flex; gap:3px; margin-top:2px; }
     .clear-btn, .pickup-move-btn, .lot-back-btn {
@@ -124,7 +141,7 @@
     .lot-back-btn:hover { background:#92400e; color:#fff; }
     .lot-back-btn:disabled { opacity:0.25; cursor:default; }
 
-    /* ── SHARED TABLE ── */
+    /* -- SHARED TABLE -- */
     .table-section { margin-bottom:10px; }
     .table-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:5px; }
     .table-header .section-title { margin-bottom:0; flex:1; }
@@ -156,11 +173,11 @@
     .tbl tbody tr:last-child { border-bottom:none; }
     .tbl tbody tr:hover { background:#263041; }
 
-    .tbl tbody tr.s-in-progress  td:first-child { border-left:3px solid #22c55e; }
-    .tbl tbody tr.s-waiting-part td:first-child { border-left:3px solid #f59e0b; }
-    .tbl tbody tr.s-waiting-tech td:first-child { border-left:3px solid #3b82f6; }
-    .tbl tbody tr.s-delayed      td:first-child { border-left:3px solid #ef4444; }
-    .tbl tbody tr.s-done         td:first-child { border-left:3px solid #06b6d4; }
+    .tbl tbody tr.s-in-progress  td:first-child { border-left:3px solid #16a34a; }
+    .tbl tbody tr.s-waiting-part td:first-child { border-left:3px solid #d97706; }
+    .tbl tbody tr.s-waiting-tech td:first-child { border-left:3px solid #2563eb; }
+    .tbl tbody tr.s-delayed      td:first-child { border-left:3px solid #dc2626; }
+    .tbl tbody tr.s-done         td:first-child { border-left:3px solid #0891b2; }
     .tbl tbody tr.s-empty        td:first-child { border-left:3px solid #374151; }
 
     .tbl tbody td { padding:3px 6px; vertical-align:middle; }
@@ -224,18 +241,18 @@
 
     .empty-msg { text-align:center; padding:12px; color:#4b5563; font-size:0.78rem; }
 
-    /* ── LEGEND ── */
+    /* -- LEGEND -- */
     .legend { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin-top:8px; }
     .legend-item { display:flex; align-items:center; gap:4px; font-size:0.65rem; color:#6b7280; }
     .legend-dot { width:7px; height:7px; border-radius:50%; }
     .dot-empty        { background:#4b5563; }
-    .dot-in-progress  { background:#22c55e; }
-    .dot-waiting-part { background:#f59e0b; }
-    .dot-waiting-tech { background:#3b82f6; }
-    .dot-delayed      { background:#ef4444; }
-    .dot-done         { background:#06b6d4; }
+    .dot-in-progress  { background:#16a34a; }
+    .dot-waiting-part { background:#d97706; }
+    .dot-waiting-tech { background:#2563eb; }
+    .dot-delayed      { background:#dc2626; }
+    .dot-done         { background:#0891b2; }
 
-    /* ── PASSWORD SCREEN ── */
+    /* -- PASSWORD SCREEN -- */
     #lockScreen {
       position: fixed; inset: 0; z-index: 9999;
       background: #111827;
@@ -271,6 +288,63 @@
     #pwError {
       color: #ef4444; font-size: 0.75rem; display: none;
     }
+
+    /* -- TOOLBAR -- */
+    .header-toolbar { display:flex; justify-content:center; gap:8px; margin-top:6px; flex-wrap:wrap; }
+    .tool-btn {
+      background:#1f2937; border:1px solid #374151; border-radius:6px;
+      color:#9ca3af; padding:4px 12px; font-size:0.65rem; font-weight:700;
+      cursor:pointer; text-transform:uppercase; letter-spacing:0.8px;
+      transition:all 0.2s; position:relative;
+    }
+    .tool-btn:hover { border-color:#f5c518; color:#f5c518; }
+    .tool-btn.teal { border-color:#0e7490; color:#22d3ee; }
+    .tool-btn.teal:hover { background:#0e7490; color:#fff; }
+    .tool-btn .badge {
+      position:absolute; top:-5px; right:-5px; background:#ef4444; color:#fff;
+      border-radius:50%; width:16px; height:16px; font-size:0.55rem;
+      display:flex; align-items:center; justify-content:center; font-weight:800;
+    }
+    .sync-status { font-size:0.6rem; color:#4b5563; text-align:center; margin-top:3px; }
+
+    /* -- MODALS -- */
+    .modal-overlay {
+      position:fixed; inset:0; background:rgba(0,0,0,0.75);
+      z-index:2000; display:flex; align-items:center; justify-content:center;
+    }
+    .modal-box {
+      background:#1f2937; border:1px solid #374151; border-radius:12px;
+      padding:24px; min-width:340px; max-width:620px; width:92%;
+      max-height:82vh; overflow-y:auto;
+    }
+    .modal-box h3 { color:#f5c518; font-size:0.9rem; margin-bottom:14px; text-transform:uppercase; letter-spacing:1px; }
+    .modal-close { float:right; background:none; border:none; color:#6b7280; font-size:1.2rem; cursor:pointer; margin-top:-4px; }
+    .modal-close:hover { color:#ef4444; }
+    .modal-field { margin-bottom:12px; }
+    .modal-field label { display:block; font-size:0.62rem; color:#6b7280; text-transform:uppercase; margin-bottom:4px; letter-spacing:0.5px; }
+    .modal-field input, .modal-field textarea {
+      width:100%; background:#111827; border:1px solid #374151;
+      border-radius:6px; color:#e0e0e0; padding:8px 10px; font-size:0.78rem; outline:none; font-family:inherit;
+    }
+    .modal-field input:focus, .modal-field textarea:focus { border-color:#f5c518; }
+    .modal-field textarea { height:72px; resize:none; font-family:monospace; font-size:0.68rem; }
+    .modal-btn {
+      background:#f5c518; color:#111827; border:none; border-radius:6px;
+      padding:8px 16px; font-size:0.78rem; font-weight:700; cursor:pointer; margin-right:6px;
+    }
+    .modal-btn:hover { background:#fde047; }
+    .modal-btn.sec { background:#374151; color:#e0e0e0; }
+    .modal-btn.sec:hover { background:#4b5563; }
+    .modal-btn.red { background:#7f1d1d; color:#fca5a5; }
+    .modal-btn.red:hover { background:#991b1b; }
+    .modal-note { font-size:0.68rem; color:#6b7280; margin-bottom:10px; line-height:1.5; }
+    .modal-note a { color:#22d3ee; }
+    .modal-note code { background:#111827; padding:1px 5px; border-radius:3px; font-size:0.65rem; color:#a78bfa; }
+    .error-entry { background:#1a0808; border:1px solid #450a0a; border-radius:6px; padding:8px 10px; margin-bottom:8px; }
+    .error-entry .err-time { color:#6b7280; font-size:0.6rem; }
+    .error-entry .err-ctx { color:#f87171; font-weight:700; font-size:0.7rem; }
+    .error-entry .err-msg { color:#e0e0e0; margin-top:2px; font-size:0.68rem; word-break:break-all; }
+    .no-errors { text-align:center; color:#22c55e; padding:16px; font-size:0.78rem; }
   </style>
 </head>
 <body>
@@ -281,7 +355,7 @@
     <div class="lock-icon">[LT]</div>
     <h2>Lee Transmission</h2>
     <p>Enter password to access the Shop Board</p>
-    <input type="password" id="pwInput" placeholder="••••" maxlength="20" autocomplete="off"/>
+    <input type="password" id="pwInput" placeholder="...." maxlength="20" autocomplete="off"/>
     <button id="pwBtn">Unlock</button>
     <span id="pwError">Incorrect password. Try again.</span>
   </div>
@@ -289,8 +363,19 @@
 
 <div id="mainApp" style="display:none">
 <header>
-  <h1>Lee Transmission — Shop Board</h1>
+  <h1>Lee Transmission - Shop Board</h1>
   <p id="clock"></p>
+  <div class="header-toolbar">
+    <button class="tool-btn teal" id="syncBtn">Sync to Sheets</button>
+    <button class="tool-btn" id="refreshBtn">Refresh</button>
+    <button class="tool-btn" id="settingsBtn">Settings</button>
+    <button class="tool-btn" id="errorLogBtn">Error Log <span class="badge" id="errorBadge" style="display:none">0</span></button>
+    <button class="tool-btn" id="techBoardBtn" style="background:#1e3a5f;color:#93c5fd;border-color:#2563eb">Tech Board</button>
+  </div>
+  <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+    <div class="sync-status" id="syncStatus"></div>
+    <div class="sync-status" id="refreshStatus"></div>
+  </div>
 </header>
 
 <div class="stats-bar" id="statsBar"></div>
@@ -301,15 +386,19 @@
 <!-- PARKING LOT -->
 <div class="table-section">
   <div class="table-header">
-    <div class="section-title">Parking Lot — Waiting</div>
-    <button class="add-btn yellow" id="addCarBtn">+ Add Car</button>
+    <div class="section-title">Parking Lot - Waiting</div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <button class="add-btn" style="background:#1f2937;color:#9ca3af;border:1px solid #374151" id="importCsvBtn">Import CSV</button>
+      <button class="add-btn yellow" id="addCarBtn">+ Add Car</button>
+    </div>
   </div>
   <div class="table-wrap">
     <table class="tbl">
       <thead><tr>
         <th style="width:24px">#</th>
         <th style="width:76px">PO #</th>
-        <th style="width:165px">Year / Make / Model</th>
+        <th style="width:110px">Customer</th>
+        <th style="width:155px">Year / Make / Model</th>
         <th>Work Description</th>
         <th style="width:155px">Status</th>
         <th style="width:95px">Arrival</th>
@@ -318,14 +407,14 @@
       </tr></thead>
       <tbody id="parkingBody"></tbody>
     </table>
-    <div class="empty-msg" id="parkingEmpty" style="display:none">No cars in lot — tap "+ Add Car".</div>
+    <div class="empty-msg" id="parkingEmpty" style="display:none">No cars in lot - tap "+ Add Car".</div>
   </div>
 </div>
 
 <!-- READY FOR PICKUP -->
 <div class="table-section">
   <div class="table-header">
-    <div class="section-title">Ready — Waiting for Customer Pickup</div>
+    <div class="section-title">Ready - Waiting for Customer Pickup</div>
     <button class="add-btn teal" id="addPickupBtn">+ Add Vehicle</button>
   </div>
   <div class="table-wrap">
@@ -356,11 +445,65 @@
   <div class="legend-item"><div class="legend-dot dot-done"></div> Done / Ready</div>
 </div>
 
+<!-- CSV IMPORT MODAL -->
+<div class="modal-overlay" id="csvImportModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="closeCsvModal">x</button>
+    <h3>Import Parking Lot CSV</h3>
+    <p class="modal-note">Paste your CSV data below. Expected columns:<br>
+      <code>PO, Vehicle, Customer, Work, Status, Arrival, Notes</code><br>
+      First row must be the header row. Status values: empty, in-progress, waiting-part, waiting-tech, delayed, done.
+    </p>
+    <div class="modal-field">
+      <label>Paste CSV data here</label>
+      <textarea id="csvPasteArea" style="height:200px;font-family:monospace;font-size:0.7rem" placeholder="PO,Vehicle,Customer,Work,Status,Arrival,Notes&#10;1234,2019 Honda Accord,John Smith,Trans Removal,in-progress,2026-06-18,"></textarea>
+    </div>
+    <button class="modal-btn" id="runCsvImportBtn">Import</button>
+    <button class="modal-btn sec" id="closeCsvModal2">Cancel</button>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-overlay" id="settingsModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="closeSettings">x</button>
+    <h3>Settings - Google Sheets Backup</h3>
+    <p class="modal-note">
+      To enable auto-backup to Google Sheets, follow these steps:<br><br>
+      1. Go to <a href="https://sheets.google.com" target="_blank">sheets.google.com</a> and create a new spreadsheet named <strong>Lee Transmission Shop Board</strong>.<br>
+      2. Click <strong>Extensions &gt; Apps Script</strong>.<br>
+      3. Delete the existing code and paste the script shown below.<br>
+      4. Click <strong>Deploy &gt; New deployment</strong>, select type <strong>Web app</strong>, set "Who has access" to <strong>Anyone</strong>, click Deploy.<br>
+      5. Copy the Web App URL and paste it below.
+    </p>
+    <div class="modal-field">
+      <label>Apps Script Code (copy this into your Google Sheet)</label>
+      <textarea id="appsScriptCode" readonly>function doPost(e){try{var data=JSON.parse(e.postData.contents);var ss=SpreadsheetApp.getActiveSpreadsheet();var s1=ss.getSheetByName('Current Lifts');if(!s1){return ContentService.createTextOutput('error: tab "Current Lifts" not found');}s1.clearContents();s1.appendRow(['Lift','PO#','Customer','Vehicle','Work','Status','Arrival','Notes']);data.lifts.forEach(function(l,i){s1.appendRow(['Lift '+(i+1),l.po||'',l.customer||'',l.vehicle||'',l.work||'',l.status||'',l.arrival_date||'',l.notes||'']);});var s2=ss.getSheetByName('Current Parking Lot');if(!s2){return ContentService.createTextOutput('error: tab "Current Parking Lot" not found');}s2.clearContents();s2.appendRow(['#','PO#','Customer','Vehicle','Work','Status','Arrival','Notes']);data.parking.forEach(function(c,i){s2.appendRow([i+1,c.po||'',c.customer||'',c.vehicle||'',c.work||'',c.status||'',c.arrival_date||'',c.notes||'']);});var s3=ss.getSheetByName('Current Ready Pickup');if(!s3){return ContentService.createTextOutput('error: tab "Current Ready Pickup" not found');}s3.clearContents();s3.appendRow(['#','PO#','Customer','Vehicle','Work Done','Arrival','Notes','Status']);data.pickup.forEach(function(c,i){s3.appendRow([i+1,c.po||'',c.customer||'',c.vehicle||'',c.work||'',c.arrival_date||'',c.notes||'',c.status||'ready']);});return ContentService.createTextOutput('ok');}catch(err){return ContentService.createTextOutput('error:'+err.message);}}</textarea>
+    </div>
+    <div class="modal-field">
+      <label>Google Apps Script Web App URL</label>
+      <input type="text" id="sheetsUrlInput" placeholder="https://script.google.com/macros/s/.../exec"/>
+    </div>
+    <button class="modal-btn" id="saveSettingsBtn">Save</button>
+    <button class="modal-btn sec" id="testSyncBtn">Test Sync</button>
+  </div>
+</div>
+
+<!-- ERROR LOG MODAL -->
+<div class="modal-overlay" id="errorModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="closeErrors">x</button>
+    <h3>Error Log</h3>
+    <button class="modal-btn red" id="clearErrorsBtn" style="margin-bottom:12px">Clear Log</button>
+    <div id="errorLogList"></div>
+  </div>
+</div>
+
 </div><!-- end mainApp -->
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
-  /* ── PASSWORD ── */
+  /* -- PASSWORD -- */
   const CORRECT = '1760';
   function unlock() {
     if (sessionStorage.getItem('sb_auth') === CORRECT) {
@@ -388,7 +531,7 @@
 </script>
 
 <script>
-  /* ── SUPABASE ── */
+  /* -- SUPABASE -- */
   const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -396,7 +539,7 @@
   const LIFTS = 6;
 
   const STATUS_OPTIONS = [
-    { value:'empty',        label:'— Unassigned —' },
+    { value:'empty',        label:'- Unassigned -' },
     { value:'in-progress',  label:'In Progress' },
     { value:'waiting-part', label:'Waiting for Part' },
     { value:'waiting-tech', label:'Waiting for Tech' },
@@ -419,18 +562,85 @@
     'delayed':'badge-delayed','done':'badge-done'
   };
 
-  /* ── STATE ── */
+  const TECH_LIST = ['Unassigned','Capote','Cory','Alex','Cuba'];
+  const TECH_STATUS_OPTIONS = [
+    { value:'available',     label:'Available' },
+    { value:'working',       label:'Working' },
+    { value:'waiting-parts', label:'Waiting on Parts' },
+    { value:'waiting-info',  label:'Waiting on Info' },
+    { value:'road-testing',  label:'Road Testing' },
+    { value:'finished',      label:'Finished' },
+  ];
+
+  /* -- STATE -- */
   let liftState   = [];
   let parkState   = [];
   let pickupState = [];
 
   const debounceTimers = {};
-  function debounce(key, fn, delay = 500) {
+  function debounce(key, fn, delay = 1000) {
     clearTimeout(debounceTimers[key]);
     debounceTimers[key] = setTimeout(fn, delay);
   }
 
-  /* ── LOAD ALL FROM SUPABASE ── */
+  /* -- REFRESH SYSTEM (Fix 1) -- */
+  let isRefreshing = false;
+
+  function updateRefreshStatus(label) {
+    const el = document.getElementById('refreshStatus');
+    if (!el) return;
+    el.textContent = label + ': ' + new Date().toLocaleTimeString('en-US');
+  }
+
+  async function refreshBoard(label) {
+    if (isRefreshing) return;
+    isRefreshing = true;
+    const statusEl = document.getElementById('refreshStatus');
+    if (statusEl) statusEl.textContent = 'Refreshing...';
+    try {
+      await loadAll();
+      updateRefreshStatus(label || 'Last updated');
+    } catch(err) {
+      logError('Refresh board', err);
+      if (statusEl) statusEl.textContent = 'Refresh failed - see Error Log';
+    } finally {
+      isRefreshing = false;
+    }
+  }
+
+  /* -- EDITING GUARD (Fix 2) -- */
+  let isUserEditing = false;
+  let editingTimeout = null;
+  let pendingRealtimeRefresh = null;
+
+  document.addEventListener('focusin', (e) => {
+    if (e.target.matches('input, textarea, select')) isUserEditing = true;
+  });
+  document.addEventListener('focusout', (e) => {
+    if (e.target.matches('input, textarea, select')) {
+      clearTimeout(editingTimeout);
+      editingTimeout = setTimeout(() => { isUserEditing = false; }, 800);
+    }
+  });
+
+  function safeRealtimeRefresh() {
+    if (isUserEditing) {
+      clearTimeout(pendingRealtimeRefresh);
+      pendingRealtimeRefresh = setTimeout(() => {
+        if (!isUserEditing) refreshBoard('Realtime updated');
+      }, 1500);
+      return;
+    }
+    refreshBoard('Realtime updated');
+  }
+
+  /* -- VEHICLE VALIDATION HELPER -- */
+  function hasRequiredVehicleData(c) {
+    if (!c) return false;
+    return Boolean((c.po || '').trim() && (c.vehicle || '').trim());
+  }
+
+  /* -- LOAD ALL FROM SUPABASE -- */
   async function loadAll() {
     const [l, p, k] = await Promise.all([
       db.from('shopboard_lifts').select('*').order('id'),
@@ -443,54 +653,68 @@
     renderLifts(); renderParking(); renderPickup(); updateStats();
   }
 
-  /* ── REALTIME SUBSCRIPTIONS ── */
+  /* -- REALTIME SUBSCRIPTIONS -- */
   db.channel('shopboard-live')
-    .on('postgres_changes',{event:'*',schema:'public',table:'shopboard_lifts'}, async()=>{
-      const {data}=await db.from('shopboard_lifts').select('*').order('id');
-      if(data){liftState=data;renderLifts();updateStats();}
+    .on('postgres_changes',{event:'*',schema:'public',table:'shopboard_lifts'}, ()=>{
+      safeRealtimeRefresh();
     })
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'shopboard_parking'}, ({new:rec})=>{
       if(rec && !parkState.some(c=>String(c.id)===String(rec.id))) parkState.push(rec);
-      renderParking();updateStats();
+      if (!isUserEditing) { renderParking(); updateStats(); }
+      else safeRealtimeRefresh();
     })
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'shopboard_parking'}, ({new:rec})=>{
       if(rec){ const idx=parkState.findIndex(c=>String(c.id)===String(rec.id)); if(idx>=0) parkState[idx]=rec; }
-      renderParking();updateStats();
+      if (!isUserEditing) { renderParking(); updateStats(); }
+      else safeRealtimeRefresh();
     })
     .on('postgres_changes',{event:'DELETE',schema:'public',table:'shopboard_parking'}, ({old:rec})=>{
       if(rec) parkState=parkState.filter(c=>String(c.id)!==String(rec.id));
-      renderParking();updateStats();
+      if (!isUserEditing) { renderParking(); updateStats(); }
+      else safeRealtimeRefresh();
     })
     .on('postgres_changes',{event:'INSERT',schema:'public',table:'shopboard_pickup'}, ({new:rec})=>{
       if(rec && !pickupState.some(c=>String(c.id)===String(rec.id))) pickupState.push(rec);
-      renderPickup();updateStats();
+      if (!isUserEditing) { renderPickup(); updateStats(); }
+      else safeRealtimeRefresh();
     })
     .on('postgres_changes',{event:'UPDATE',schema:'public',table:'shopboard_pickup'}, ({new:rec})=>{
       if(rec){ const idx=pickupState.findIndex(c=>String(c.id)===String(rec.id)); if(idx>=0) pickupState[idx]=rec; }
-      renderPickup();updateStats();
+      if (!isUserEditing) { renderPickup(); updateStats(); }
+      else safeRealtimeRefresh();
     })
     .on('postgres_changes',{event:'DELETE',schema:'public',table:'shopboard_pickup'}, ({old:rec})=>{
       if(rec) pickupState=pickupState.filter(c=>String(c.id)!==String(rec.id));
-      renderPickup();updateStats();
+      if (!isUserEditing) { renderPickup(); updateStats(); }
+      else safeRealtimeRefresh();
     })
     .subscribe();
 
-  /* ── EMPTY LIFTS helper ── */
+  /* -- EMPTY LIFTS helper -- */
   function emptyLifts() {
-    return liftState.map((l,i)=>({i,label:`Lift ${i+1}`}))
-                    .filter(l=>liftState[l.i].status==='empty'&&!liftState[l.i].po&&!liftState[l.i].vehicle);
+    return liftState
+      .map((l, i) => ({ i, label: `Lift ${i + 1}` }))
+      .filter(l => !hasRequiredVehicleData(liftState[l.i]));
   }
 
-  /* ── MOVE TO PICKUP ── */
+  /* -- MOVE TO PICKUP -- */
   async function moveToPickup(source, liftIdx, carId) {
     let car;
     if (source === 'lift') {
       car = {...liftState[liftIdx]};
+      if (!hasRequiredVehicleData(car)) {
+        alert('Cannot move an incomplete lift to pickup. Add both PO # and Vehicle first.');
+        return;
+      }
       liftState[liftIdx] = {...liftState[liftIdx], po:'',vehicle:'',work:'',status:'empty',notes:''};
       await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:''}).eq('id', liftIdx+1);
       renderLifts();
     } else {
       car = parkState.find(c=>String(c.id)===String(carId));
+      if (!hasRequiredVehicleData(car)) {
+        alert('Cannot move an incomplete parking lot vehicle to pickup. Add both PO # and Vehicle first.');
+        return;
+      }
       if (car && car.po && isDuplicatePO(car.po, 'park', carId)) {
         alert(`PO # "${car.po}" already exists on the board. Update it before moving to pickup.`);
         return;
@@ -501,7 +725,7 @@
     }
     const {data} = await db.from('shopboard_pickup').insert({
       po:car.po, vehicle:car.vehicle, work:car.work,
-      customer:'', notes:car.notes||'', arrival_date:car.arrival_date||null,
+      customer:car.customer||'', notes:car.notes||'', arrival_date:car.arrival_date||null,
       undo_source:source, undo_index:liftIdx??null, undo_car:car
     }).select().single();
     if(data) pickupState.push(data);
@@ -509,7 +733,7 @@
     document.getElementById('pickupBody').lastElementChild?.scrollIntoView({behavior:'smooth',block:'center'});
   }
 
-  /* ── UNDO from pickup row ── */
+  /* -- UNDO from pickup row -- */
   async function undoPickup(carId) {
     const entry = pickupState.find(c=>String(c.id)===String(carId));
     if (!entry) return;
@@ -518,57 +742,63 @@
     if (entry.undo_source==='lift' && entry.undo_car) {
       const car = entry.undo_car;
       liftState[entry.undo_index] = {...liftState[entry.undo_index], ...car};
-      await db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,work:car.work,status:car.status,notes:car.notes||''}).eq('id', entry.undo_index+1);
+      await db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:car.status,notes:car.notes||''}).eq('id', entry.undo_index+1);
       renderLifts();
     } else {
-      const car = entry.undo_car || {po:entry.po,vehicle:entry.vehicle,work:entry.work,status:'empty',notes:entry.notes||'',arrival_date:entry.arrival_date||null};
-      const {data} = await db.from('shopboard_parking').insert({po:car.po,vehicle:car.vehicle,work:car.work,status:car.status||'empty',notes:car.notes||'',arrival_date:car.arrival_date||null}).select().single();
+      const car = entry.undo_car || {po:entry.po,vehicle:entry.vehicle,customer:entry.customer||'',work:entry.work,status:'empty',notes:entry.notes||'',arrival_date:entry.arrival_date||null};
+      const {data} = await db.from('shopboard_parking').insert({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:car.status||'empty',notes:car.notes||'',arrival_date:car.arrival_date||null}).select().single();
       if(data) parkState.push(data);
       renderParking();
     }
     renderPickup(); updateStats();
   }
 
-  /* ── PLACE ON LIFT ── */
+  /* -- PLACE ON LIFT -- */
   async function placeOnLift(carId, liftIdx) {
     const car = parkState.find(c=>String(c.id)===String(carId));
     if (!car) return;
+    if (!hasRequiredVehicleData(car)) {
+      alert('Cannot place an incomplete parking lot vehicle on a lift. Add both PO # and Vehicle first.');
+      return;
+    }
     if (car.po && isDuplicatePO(car.po, 'park', carId)) {
       alert(`PO # "${car.po}" already exists on the board. Update it before placing on a lift.`);
       return;
     }
     const newStatus = car.status==='empty'?'in-progress':car.status;
-    liftState[liftIdx] = {...liftState[liftIdx], po:car.po,vehicle:car.vehicle,work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null};
+    liftState[liftIdx] = {...liftState[liftIdx], po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null};
     parkState = parkState.filter(c=>String(c.id)!==String(carId));
     await Promise.all([
-      db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null}).eq('id',liftIdx+1),
+      db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null}).eq('id',liftIdx+1),
       db.from('shopboard_parking').delete().eq('id',carId)
     ]);
     renderLifts(); renderParking(); updateStats();
   }
 
-  /* ── STATS ── */
+  /* -- STATS -- */
   function updateStats() {
-    const liftActive  = liftState.filter(l => l.status !== 'empty' || l.po || l.vehicle);
-    const totalInProg = [...liftState,...parkState].filter(c=>c.status==='in-progress').length;
-    const totalWPart  = [...liftState,...parkState].filter(c=>c.status==='waiting-part').length;
-    const totalWTech  = [...liftState,...parkState].filter(c=>c.status==='waiting-tech').length;
-    const totalDel    = [...liftState,...parkState].filter(c=>c.status==='delayed').length;
-    const total       = liftActive.length + parkState.length + pickupState.length;
+    const activeLifts   = liftState.filter(hasRequiredVehicleData);
+    const activeParking = parkState.filter(hasRequiredVehicleData);
+    const activePickup  = pickupState.filter(hasRequiredVehicleData);
+    const totalInProg = [...activeLifts,...activeParking].filter(c=>c.status==='in-progress').length;
+    const totalWPart  = [...activeLifts,...activeParking].filter(c=>c.status==='waiting-part').length;
+    const totalWTech  = [...activeLifts,...activeParking].filter(c=>c.status==='waiting-tech').length;
+    const totalDel    = [...activeLifts,...activeParking].filter(c=>c.status==='delayed').length;
+    const total       = activeLifts.length + activeParking.length + activePickup.length;
 
     document.getElementById('statsBar').innerHTML = `
-      <div class="stat-pill total">  <span class="num">${total}</span>              <span class="lbl">Total Vehicles</span></div>
-      <div class="stat-pill on-lift"><span class="num">${liftActive.length}</span>  <span class="lbl">On Lifts</span></div>
-      <div class="stat-pill in-lot"> <span class="num">${parkState.length}</span>   <span class="lbl">In Lot</span></div>
-      <div class="stat-pill working"><span class="num">${totalInProg}</span>         <span class="lbl">In Progress</span></div>
-      <div class="stat-pill w-part"> <span class="num">${totalWPart}</span>          <span class="lbl">Waiting Part</span></div>
-      <div class="stat-pill w-tech"> <span class="num">${totalWTech}</span>          <span class="lbl">Waiting Tech</span></div>
-      <div class="stat-pill delayed"><span class="num">${totalDel}</span>            <span class="lbl">Delayed</span></div>
-      <div class="stat-pill pickup"> <span class="num">${pickupState.length}</span> <span class="lbl">Ready Pickup</span></div>
+      <div class="stat-pill total">  <span class="num">${total}</span>                    <span class="lbl">Total Vehicles</span></div>
+      <div class="stat-pill on-lift"><span class="num">${activeLifts.length}</span>        <span class="lbl">On Lifts</span></div>
+      <div class="stat-pill in-lot"> <span class="num">${activeParking.length}</span>      <span class="lbl">In Lot</span></div>
+      <div class="stat-pill working"><span class="num">${totalInProg}</span>               <span class="lbl">In Progress</span></div>
+      <div class="stat-pill w-part"> <span class="num">${totalWPart}</span>                <span class="lbl">Waiting Part</span></div>
+      <div class="stat-pill w-tech"> <span class="num">${totalWTech}</span>                <span class="lbl">Waiting Tech</span></div>
+      <div class="stat-pill delayed"><span class="num">${totalDel}</span>                  <span class="lbl">Delayed</span></div>
+      <div class="stat-pill pickup"> <span class="num">${activePickup.length}</span>       <span class="lbl">Ready Pickup</span></div>
     `;
   }
 
-  /* ── DUPLICATE PO CHECK ── */
+  /* -- DUPLICATE PO CHECK -- */
   function isDuplicatePO(po, excludeSource, excludeId) {
     if (!po || !po.trim()) return false;
     const norm = po.trim().toLowerCase();
@@ -587,15 +817,15 @@
     return inLifts || inParking || inPickup;
   }
 
-  /* ── LIFT IMAGE ── */
+  /* -- LIFT IMAGE -- */
   // hue-rotate to shift the green car to each status color
   const STATUS_FILTER = {
-    'empty':        'grayscale(1) brightness(0.3)',
-    'in-progress':  'hue-rotate(0deg)   saturate(1.2) brightness(1.05)',   // green
-    'waiting-tech': 'hue-rotate(200deg) saturate(1.5) brightness(1.0)',    // blue
-    'waiting-part': 'hue-rotate(42deg)  saturate(2.0) brightness(1.1)',    // amber
-    'delayed':      'hue-rotate(240deg) saturate(1.8) brightness(1.0)',    // red
-    'done':         'hue-rotate(160deg) saturate(1.4) brightness(1.05)',   // teal
+    'empty':        'grayscale(1) brightness(0.18) contrast(0.9)',
+    'in-progress':  'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+    'waiting-part': 'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+    'waiting-tech': 'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+    'delayed':      'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+    'done':         'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
   };
 
   function liftSVG(status) {
@@ -608,29 +838,50 @@
     </div>`;
   }
 
-  function statusLabel(s) { return STATUS_OPTIONS.find(o=>o.value===s)?.label||'—'; }
+  function statusLabel(s) { return STATUS_OPTIONS.find(o=>o.value===s)?.label||'-'; }
   function esc(s) { return (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
 
-  /* ── LIFTS ── */
+  /* -- LIFTS -- */
   function renderLifts() {
     const board = document.getElementById('board');
     board.innerHTML = '';
     liftState.forEach((lift, i) => {
-      const hasVehicle = lift.status !== 'empty' || lift.po || lift.vehicle;
+      const hasVehicle = hasRequiredVehicleData(lift);
       const card = document.createElement('div');
-      card.className = `lift-card s-${lift.status}`;
+
+      if (!hasVehicle) {
+        card.className = 'lift-card s-empty lift-card-empty';
+        card.innerHTML = `
+          <div class="lift-top">
+            <span class="lift-label">LIFT ${i+1}</span>
+            <span class="status-badge badge-empty">EMPTY</span>
+          </div>
+          <div class="empty-bay">
+            <div class="empty-bay-title">Open Bay</div>
+            <div class="empty-bay-subtitle">Assign vehicle from Parking Lot</div>
+          </div>
+        `;
+        board.appendChild(card);
+        return;
+      }
+
+      const displayStatus = lift.status || 'in-progress';
+      card.className = `lift-card s-${displayStatus}`;
       card.innerHTML = `
         <div class="lift-top">
           <span class="lift-label">LIFT ${i+1}</span>
-          <span class="status-badge ${BADGE_CLASS[lift.status]}">${statusLabel(lift.status)}</span>
+          <span class="status-badge ${BADGE_CLASS[displayStatus]}">${statusLabel(displayStatus)}</span>
         </div>
-        ${liftSVG(lift.status)}
+        ${liftSVG(displayStatus)}
         <div class="lift-info">
           <div class="field"><label>PO #</label>
             <input type="text" placeholder="PO #" value="${esc(lift.po)}" data-i="${i}" data-field="po"/>
           </div>
           <div class="field"><label>Vehicle</label>
             <input type="text" placeholder="Year / Make / Model" value="${esc(lift.vehicle)}" data-i="${i}" data-field="vehicle"/>
+          </div>
+          <div class="field"><label>Customer</label>
+            <input type="text" placeholder="Customer name" value="${esc(lift.customer||'')}" data-i="${i}" data-field="customer"/>
           </div>
           <div class="field"><label>Work</label>
             <input type="text" placeholder="Work description" value="${esc(lift.work)}" data-i="${i}" data-field="work"/>
@@ -641,15 +892,28 @@
             </select>
           </div>
           <div class="field"><label>Arrival Date</label>
-            <input type="date" data-i="${i}" data-field="arrival_date" value="${hasVehicle ? esc(lift.arrival_date||'') : ''}"/>
+            <input type="date" data-i="${i}" data-field="arrival_date" value="${esc(lift.arrival_date||'')}"/>
           </div>
           <div class="field"><label>Notes</label>
             <textarea placeholder="Notes..." data-i="${i}" data-field="notes">${esc(lift.notes||'')}</textarea>
           </div>
+          <div class="field"><label>Tech</label>
+            <select data-i="${i}" data-field="assigned_tech">
+              ${TECH_LIST.map(t=>`<option value="${t==='Unassigned'?'':t}"${(lift.assigned_tech||'')===(t==='Unassigned'?'':t)?' selected':''}>${t}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>Tech Status</label>
+            <select data-i="${i}" data-field="tech_status">
+              ${TECH_STATUS_OPTIONS.map(o=>`<option value="${o.value}"${(lift.tech_status||'available')===o.value?' selected':''}>${o.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>Tech Notes</label>
+            <textarea placeholder="Tech notes..." data-i="${i}" data-field="tech_notes">${esc(lift.tech_notes||'')}</textarea>
+          </div>
           <div class="lift-btn-row">
-            <button class="clear-btn" data-clear="${i}">✕ Clear</button>
-            <button class="lot-back-btn" data-lot-back="${i}" ${!hasVehicle?'disabled':''}>↩ Lot</button>
-            <button class="pickup-move-btn" data-lift-pickup="${i}" ${!hasVehicle?'disabled':''}>Pickup</button>
+            <button class="clear-btn" data-clear="${i}">x Clear</button>
+            <button class="lot-back-btn" data-lot-back="${i}"><- Lot</button>
+            <button class="pickup-move-btn" data-lift-pickup="${i}">Pickup</button>
           </div>
         </div>
       `;
@@ -662,21 +926,26 @@
     board.querySelectorAll('[data-clear]').forEach(btn => {
       btn.addEventListener('click', async e => {
         const i = +e.currentTarget.dataset.clear;
-        liftState[i] = {...liftState[i], po:'',vehicle:'',work:'',status:'empty',notes:'',arrival_date:null};
-        await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:'',arrival_date:null}).eq('id',i+1);
-        renderLifts(); updateStats();
+        liftState[i] = {...liftState[i], po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,assigned_tech:'',tech_status:'available',tech_notes:''};
+        const {error:clearErr} = await db.from('shopboard_lifts').update({po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,assigned_tech:'',tech_status:'available',tech_notes:''}).eq('id',i+1);
+        if(clearErr) logError('Clear Lift '+(i+1), clearErr);
+        renderLifts(); renderParking(); updateStats();
       });
     });
     board.querySelectorAll('[data-lot-back]').forEach(btn => {
       btn.addEventListener('click', async e => {
         const i = +e.currentTarget.dataset.lotBack;
         const car = {...liftState[i]};
+        if (!hasRequiredVehicleData(car)) {
+          alert('Cannot move an incomplete lift to the parking lot. Add both PO # and Vehicle first.');
+          return;
+        }
         // clear the lift
-        liftState[i] = {...liftState[i], po:'',vehicle:'',work:'',status:'empty',notes:'',arrival_date:null};
-        await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:'',arrival_date:null}).eq('id', i+1);
-        // send car back to parking lot
+        liftState[i] = {...liftState[i], po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null};
+        await db.from('shopboard_lifts').update({po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null}).eq('id', i+1);
+        // send car back to parking lot with customer
         const {data} = await db.from('shopboard_parking').insert({
-          po:car.po, vehicle:car.vehicle, work:car.work,
+          po:car.po, vehicle:car.vehicle, customer:car.customer||'', work:car.work,
           status:car.status==='empty'?'empty':car.status, notes:car.notes||'', arrival_date:car.arrival_date||null
         }).select().single();
         if(data) parkState.push(data);
@@ -692,6 +961,17 @@
 
   function onLiftChange(e) {
     const i = +e.target.dataset.i, field = e.target.dataset.field;
+    const currentLift = liftState[i];
+    const hasAnyVehicleIdentity = Boolean(
+      (currentLift?.po || '').trim() ||
+      (currentLift?.vehicle || '').trim()
+    );
+    if (!hasAnyVehicleIdentity) {
+      console.warn('Blocked manual edit on empty lift', { lift: i + 1, field });
+      renderLifts();
+      updateStats();
+      return;
+    }
     if (field === 'po' && e.type === 'change' && isDuplicatePO(e.target.value, 'lift', i)) {
       alert(`PO # "${e.target.value}" already exists on the board. Please use a different number.`);
       const prev = liftState[i].po || '';
@@ -703,12 +983,16 @@
     liftState[i][field] = e.target.value;
     if (field === 'status') renderLifts();
     updateStats();
-    debounce(`lift-${i}-${field}`, () => {
-      db.from('shopboard_lifts').update({[field]: e.target.value}).eq('id', i+1);
+    debounce(`lift-${i}-${field}`, async () => {
+      try {
+        const result = await db.from('shopboard_lifts').update({[field]: e.target.value}).eq('id', i+1);
+        if (result.error) logError('Lift save field:'+field, result.error);
+      } catch(err) { logError('Lift save field:'+field, err); }
     });
+    scheduleAutoSync();
   }
 
-  /* ── PARKING ── */
+  /* -- PARKING -- */
   function renderParking() {
     const tbody = document.getElementById('parkingBody');
     const emptyMsg = document.getElementById('parkingEmpty');
@@ -731,6 +1015,7 @@
       tr.innerHTML = `
         <td class="row-num">${i+1}</td>
         <td><input type="text" placeholder="PO #" value="${esc(car.po)}" data-id="${car.id}" data-field="po"/></td>
+        <td><input type="text" placeholder="Customer name" value="${esc(car.customer||'')}" data-id="${car.id}" data-field="customer"/></td>
         <td><input type="text" placeholder="Year / Make / Model" value="${esc(car.vehicle)}" data-id="${car.id}" data-field="vehicle"/></td>
         <td><input type="text" placeholder="Transmission Removal" value="${esc(car.work)}" data-id="${car.id}" data-field="work"/></td>
         <td><select data-id="${car.id}" data-field="status">
@@ -745,7 +1030,7 @@
                  <button class="place-btn" data-place-id="${car.id}" data-liftsel="${liftSelId}">Place</button>`
               : `<span style="font-size:0.62rem;color:#4b5563">No free lift</span>`}
             <button class="move-btn" data-park-pickup="${car.id}" title="Move to Ready">Ready</button>
-            <button class="del-btn" data-del="${car.id}" title="Remove">✕</button>
+            <button class="del-btn" data-del="${car.id}" title="Remove">x</button>
           </div>
         </td>
       `;
@@ -793,14 +1078,18 @@
     if (car) car[field] = e.target.value;
     if (field === 'status') renderParking();
     updateStats();
-    debounce(`park-${id}-${field}`, () => {
-      db.from('shopboard_parking').update({[field]: e.target.value}).eq('id', id);
+    debounce(`park-${id}-${field}`, async () => {
+      try {
+        const result = await db.from('shopboard_parking').update({[field]: e.target.value}).eq('id', id);
+        if (result.error) logError('Parking save field:'+field, result.error);
+      } catch(err) { logError('Parking save field:'+field, err); }
     });
+    scheduleAutoSync();
   }
 
   document.getElementById('addCarBtn').addEventListener('click', async () => {
     const today = new Date().toISOString().slice(0,10);
-    const {data} = await db.from('shopboard_parking').insert({po:'',vehicle:'',work:'',status:'empty',notes:'',arrival_date:today}).select().single();
+    const {data} = await db.from('shopboard_parking').insert({po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:today}).select().single();
     if(data) parkState.push(data);
     renderParking(); updateStats();
     const tbody = document.getElementById('parkingBody');
@@ -810,7 +1099,7 @@
     }
   });
 
-  /* ── PICKUP ── */
+  /* -- PICKUP -- */
   function renderPickup() {
     const tbody = document.getElementById('pickupBody');
     const emptyMsg = document.getElementById('pickupEmpty');
@@ -832,8 +1121,8 @@
         <td><span class="pickup-badge">Ready</span></td>
         <td style="white-space:nowrap;vertical-align:middle">
           <div style="display:flex;gap:3px;align-items:center">
-            ${canUndo ? `<button class="undo-row-btn" data-undo="${car.id}" title="Send back">↩ Undo</button>` : ''}
-            <button class="del-btn" data-rdel="${car.id}" title="Picked up — remove">✕</button>
+            ${canUndo ? `<button class="undo-row-btn" data-undo="${car.id}" title="Send back"><- Undo</button>` : ''}
+            <button class="del-btn" data-rdel="${car.id}" title="Picked up - remove">x</button>
           </div>
         </td>
       `;
@@ -870,9 +1159,13 @@
     }
     const car = pickupState.find(c=>String(c.id)===id);
     if (car) car[field] = e.target.value;
-    debounce(`pickup-${id}-${field}`, () => {
-      db.from('shopboard_pickup').update({[field]: e.target.value}).eq('id', id);
+    debounce(`pickup-${id}-${field}`, async () => {
+      try {
+        const result = await db.from('shopboard_pickup').update({[field]: e.target.value}).eq('id', id);
+        if (result.error) logError('Pickup save field:'+field, result.error);
+      } catch(err) { logError('Pickup save field:'+field, err); }
     });
+    scheduleAutoSync();
   }
 
   document.getElementById('addPickupBtn').addEventListener('click', async () => {
@@ -886,15 +1179,165 @@
     }
   });
 
-  /* ── CLOCK ── */
+  /* -- ERROR LOG -- */
+  const errorLog = [];
+  function logError(context, err) {
+    const entry = { time: new Date().toLocaleString(), context, message: err?.message || String(err) };
+    errorLog.push(entry);
+    console.error('[ShopBoard]', context, err);
+    const badge = document.getElementById('errorBadge');
+    badge.style.display = 'flex';
+    badge.textContent = errorLog.length;
+  }
+  window.addEventListener('unhandledrejection', e => logError('Unhandled Promise', e.reason));
+
+  document.getElementById('errorLogBtn').addEventListener('click', () => {
+    const list = document.getElementById('errorLogList');
+    if (errorLog.length === 0) {
+      list.innerHTML = '<div class="no-errors">No errors recorded.</div>';
+    } else {
+      list.innerHTML = errorLog.slice().reverse().map(e =>
+        `<div class="error-entry">
+          <div class="err-time">${e.time}</div>
+          <div class="err-ctx">${e.context}</div>
+          <div class="err-msg">${e.message}</div>
+        </div>`).join('');
+    }
+    document.getElementById('errorModal').style.display = 'flex';
+  });
+  document.getElementById('closeErrors').addEventListener('click', () => document.getElementById('errorModal').style.display = 'none');
+  document.getElementById('clearErrorsBtn').addEventListener('click', () => {
+    errorLog.length = 0;
+    const badge = document.getElementById('errorBadge');
+    badge.style.display = 'none';
+    document.getElementById('errorLogList').innerHTML = '<div class="no-errors">No errors recorded.</div>';
+  });
+
+  /* -- GOOGLE SHEETS SYNC -- */
+  const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyIouxqLOitERyAU1MXG5Xes_EmpTXGtS9rkpLYdaoCb2o4OwX6PqSoiuoQRAlruVZK/exec';
+  let sheetsUrl = localStorage.getItem('sb_sheets_url') || GOOGLE_SCRIPT_URL;
+  let lastSync = localStorage.getItem('sb_last_sync') || '';
+  if (lastSync) document.getElementById('syncStatus').textContent = 'Last sync: ' + lastSync;
+
+  async function syncToSheets(manual) {
+    if (manual) document.getElementById('syncStatus').textContent = 'Syncing...';
+    try {
+      await fetch(GOOGLE_SCRIPT_URL, { method: 'GET', mode: 'no-cors' });
+      console.log('Sync to Sheets request sent');
+      const time = new Date().toLocaleString();
+      lastSync = time;
+      localStorage.setItem('sb_last_sync', time);
+      document.getElementById('syncStatus').textContent = 'Last sync: ' + time;
+      if (manual) alert('Sync triggered! Google Sheets will update within seconds.');
+    } catch(err) {
+      console.error('Sync to Sheets failed:', err);
+      logError('Google Sheets Sync', err);
+      document.getElementById('syncStatus').textContent = 'Sync failed - see Error Log';
+      if (manual) alert('Sync failed. Check the Error Log for details.');
+    }
+  }
+
+  function scheduleAutoSync() { /* auto-sync handled by Apps Script every 5 min */ }
+
+  document.getElementById('syncBtn').addEventListener('click', () => syncToSheets(true));
+
+  document.getElementById('settingsBtn').addEventListener('click', () => {
+    document.getElementById('sheetsUrlInput').value = sheetsUrl;
+    document.getElementById('settingsModal').style.display = 'flex';
+  });
+  document.getElementById('closeSettings').addEventListener('click', () => document.getElementById('settingsModal').style.display = 'none');
+  document.getElementById('saveSettingsBtn').addEventListener('click', () => {
+    sheetsUrl = document.getElementById('sheetsUrlInput').value.trim();
+    localStorage.setItem('sb_sheets_url', sheetsUrl);
+    document.getElementById('settingsModal').style.display = 'none';
+    alert('Settings saved! Auto-sync is now active.');
+  });
+  document.getElementById('testSyncBtn').addEventListener('click', () => {
+    sheetsUrl = document.getElementById('sheetsUrlInput').value.trim();
+    if (!sheetsUrl) { alert('Enter the URL first.'); return; }
+    syncToSheets(true);
+  });
+
+  /* -- CSV IMPORT -- */
+  document.getElementById('importCsvBtn').addEventListener('click', () => {
+    document.getElementById('csvPasteArea').value = '';
+    document.getElementById('csvImportModal').style.display = 'flex';
+  });
+  document.getElementById('closeCsvModal').addEventListener('click', () => document.getElementById('csvImportModal').style.display = 'none');
+  document.getElementById('closeCsvModal2').addEventListener('click', () => document.getElementById('csvImportModal').style.display = 'none');
+
+  document.getElementById('runCsvImportBtn').addEventListener('click', async function() {
+    try {
+      const text = document.getElementById('csvPasteArea').value.trim();
+      if (!text) { alert('Please paste CSV data first.'); return; }
+
+      const lines = text.split(/\r?\n/).filter(l => l.trim());
+      if (lines.length < 2) { alert('CSV has no data rows.'); return; }
+
+      const headers = lines[0].split(',').map(h => h.replace(/"/g,'').trim().toLowerCase());
+      const getCol = (row, ...keys) => {
+        for (const k of keys) {
+          const i = headers.findIndex(h => h.includes(k));
+          if (i >= 0) return (row[i] || '').replace(/"/g,'').trim();
+        }
+        return '';
+      };
+
+      const allowedStatuses = ['empty','in-progress','waiting-part','waiting-tech','delayed','done'];
+      let imported = 0, skipped = 0, failed = 0;
+
+      for (let i = 1; i < lines.length; i++) {
+        const row = lines[i].split(',');
+        const po       = getCol(row, 'po');
+        const vehicle  = getCol(row, 'vehicle', 'make', 'model', 'year');
+        const customer = getCol(row, 'customer', 'client', 'owner');
+        const work     = getCol(row, 'work', 'description', 'desc');
+        const status   = getCol(row, 'status') || 'empty';
+        const arrival  = getCol(row, 'arrival', 'date') || null;
+        const notes    = getCol(row, 'note');
+
+        if (!po || !vehicle) { skipped++; continue; }
+        if (po && isDuplicatePO(po, null, null)) { skipped++; continue; }
+
+        const safeStatus = allowedStatuses.includes(status) ? status : 'empty';
+        const result = await db.from('shopboard_parking').insert({
+          po, vehicle, customer, work, status: safeStatus, arrival_date: arrival || null, notes
+        }).select().single();
+
+        if (result.error) { failed++; logError('CSV Import row ' + i, result.error); }
+        else if (result.data) { imported++; }
+      }
+
+      await loadAll();
+      document.getElementById('csvImportModal').style.display = 'none';
+      alert('Import complete: ' + imported + ' added, ' + skipped + ' skipped, ' + failed + ' failed.');
+    } catch(err) {
+      logError('CSV Import', err);
+      alert('CSV import failed. Check Error Log.');
+    }
+  });
+
+  /* -- CLOCK -- */
   function tick() {
     const now = new Date();
     document.getElementById('clock').textContent =
       now.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'}) +
-      '  •  ' + now.toLocaleTimeString('en-US');
+      '  |  ' + now.toLocaleTimeString('en-US');
   }
 
-  loadAll();
+  document.getElementById('techBoardBtn').addEventListener('click', () => {
+    window.open('tech-board.html', '_blank');
+  });
+
+  document.getElementById('refreshBtn').addEventListener('click', () => refreshBoard('Updated'));
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshBoard('Updated after reopen');
+  });
+  window.addEventListener('focus', () => refreshBoard('Updated after focus'));
+  setInterval(() => refreshBoard('Auto refreshed'), 60000);
+
+  refreshBoard('Last updated');
   tick();
   setInterval(tick, 1000);
 </script>

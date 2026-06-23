@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lee Transmission - Shop Flow</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0b1120 url('shop-bg.jpg') center center / cover no-repeat fixed;
+      color: #e0e0e0;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: rgba(7, 10, 22, 0.82);
+      z-index: 0;
+      pointer-events: none;
+    }
+    header, .stats-bar, .flow-outer { position: relative; z-index: 1; }
+
+    /* HEADER */
+    header {
+      text-align: center;
+      padding: 10px 14px 6px;
+      position: relative;
+    }
+    header h1 { font-size: 1.05rem; color: #f5c518; letter-spacing: 2px; text-transform: uppercase; }
+    header p  { font-size: 0.62rem; color: #4b5563; margin-top: 2px; }
+    .header-toolbar { display:flex; gap:6px; justify-content:center; margin-top:6px; flex-wrap:wrap; }
+    .tool-btn {
+      font-size:0.65rem; font-weight:600; padding:4px 12px;
+      border-radius:5px; border:1px solid #374151;
+      background:#1f2937; color:#9ca3af; cursor:pointer;
+    }
+    .tool-btn:hover { background:#374151; color:#e0e0e0; }
+    .tool-btn.blue { background:#0f1f3d; color:#93c5fd; border-color:#2563eb; }
+
+    /* STATS */
+    .stats-bar { display:flex; gap:5px; padding:0 14px 10px; flex-wrap:wrap; }
+    .stat-pill {
+      background:#1f2937; border:1px solid #374151; border-radius:6px;
+      padding:4px 10px; display:flex; flex-direction:column;
+      align-items:center; min-width:66px; flex:1;
+    }
+    .stat-pill .num { font-size:1.2rem; font-weight:800; line-height:1; }
+    .stat-pill .lbl { font-size:0.52rem; text-transform:uppercase; letter-spacing:0.7px; color:#6b7280; margin-top:2px; text-align:center; }
+    .stat-pill.total    .num { color:#f5c518; }
+    .stat-pill.repair   .num { color:#22c55e; }
+    .stat-pill.waiting  .num { color:#f59e0b; }
+    .stat-pill.roadtest .num { color:#a78bfa; }
+    .stat-pill.ready    .num { color:#06b6d4; }
+    .stat-pill.lot      .num { color:#9ca3af; }
+
+    /* CIRCLE LAYOUT */
+    .flow-outer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 0 20px;
+    }
+
+    .flow-circle {
+      position: relative;
+      width: 900px;
+      height: 900px;
+      flex-shrink: 0;
+    }
+
+    /* SVG ring sits behind all cards */
+    .flow-circle svg.ring {
+      position: absolute;
+      top: 0; left: 0;
+      width: 900px; height: 900px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* STAGE CARDS — positioned absolutely around the circle */
+    .stage-card {
+      position: absolute;
+      width: 170px;
+      background: #1e293b;
+      border: 2px solid #374151;
+      border-radius: 10px;
+      padding: 8px 10px;
+      z-index: 1;
+      transition: border-color 0.3s;
+    }
+    .stage-card:hover { z-index: 5; }
+
+    .stage-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 5px;
+    }
+    .stage-name {
+      font-size: 0.6rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .stage-count {
+      font-size: 1.4rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .vehicle-chip {
+      background: #0f172a;
+      border: 1px solid #374151;
+      border-radius: 5px;
+      padding: 3px 6px;
+      margin-top: 3px;
+      font-size: 0.58rem;
+      line-height: 1.35;
+    }
+    .chip-po   { font-weight: 700; color: #f5c518; }
+    .chip-veh  { color: #9ca3af; }
+    .chip-more { font-size: 0.55rem; color: #4b5563; margin-top: 3px; font-style: italic; }
+
+    /* Center panel */
+    .center-panel {
+      position: absolute;
+      width: 220px;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 2;
+      background: #111827;
+      border: 1px solid #374151;
+      border-radius: 14px;
+      padding: 12px 14px;
+      text-align: center;
+    }
+    .center-title {
+      font-size: 0.58rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: #6b7280;
+      margin-bottom: 8px;
+    }
+    .tech-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      margin-bottom: 7px;
+      text-align: left;
+    }
+    .tech-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      flex-shrink: 0; margin-top: 3px;
+    }
+    .tech-info {}
+    .tech-name-label { font-size: 0.72rem; font-weight: 700; color: #e0e0e0; }
+    .tech-vehicle-label { font-size: 0.6rem; color: #9ca3af; }
+    .tech-status-label  { font-size: 0.58rem; font-weight: 600; }
+
+    .ts-working       { color: #86efac; }
+    .ts-waiting-parts { color: #fcd34d; }
+    .ts-waiting-info  { color: #93c5fd; }
+    .ts-road-testing  { color: #c4b5fd; }
+    .ts-finished      { color: #67e8f9; }
+    .ts-available     { color: #4b5563; }
+
+    .dot-working       { background: #16a34a; }
+    .dot-waiting-parts { background: #d97706; }
+    .dot-waiting-info  { background: #2563eb; }
+    .dot-road-testing  { background: #7c3aed; }
+    .dot-finished      { background: #0891b2; }
+    .dot-available     { background: #374151; }
+
+    .no-vehicle-small { font-size:0.6rem; color:#4b5563; font-style:italic; }
+
+    .realtime-dot {
+      display:inline-block; width:6px; height:6px; border-radius:50%;
+      background:#22c55e; margin-right:4px;
+      animation: pulse 2s infinite;
+      vertical-align: middle;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    /* Responsive scale */
+    @media (max-width: 960px) {
+      .flow-circle { transform: scale(0.75); transform-origin: top center; }
+      .flow-outer  { height: 690px; align-items: flex-start; }
+    }
+    @media (max-width: 720px) {
+      .flow-circle { transform: scale(0.55); transform-origin: top center; }
+      .flow-outer  { height: 510px; }
+    }
+    @media (max-width: 500px) {
+      .flow-circle { transform: scale(0.38); transform-origin: top center; }
+      .flow-outer  { height: 360px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1><span class="realtime-dot"></span>Lee Transmission - Shop Flow</h1>
+  <p id="clock"></p>
+  <div class="header-toolbar">
+    <button class="tool-btn blue" onclick="window.open('shop-board.html','_blank')">Shop Board</button>
+    <button class="tool-btn" onclick="loadAll()">Refresh</button>
+  </div>
+</header>
+
+<div class="stats-bar" id="statsBar"></div>
+
+<div class="flow-outer">
+  <div class="flow-circle" id="flowCircle">
+
+    <!-- SVG ring drawn by JS -->
+    <svg class="ring" id="ringSvg"></svg>
+
+    <!-- 8 stage cards, positioned by JS -->
+    <div class="stage-card" id="sc-front-office"></div>
+    <div class="stage-card" id="sc-service-writer"></div>
+    <div class="stage-card" id="sc-parking-lot"></div>
+    <div class="stage-card" id="sc-diagnosis"></div>
+    <div class="stage-card" id="sc-repair"></div>
+    <div class="stage-card" id="sc-waiting"></div>
+    <div class="stage-card" id="sc-road-test"></div>
+    <div class="stage-card" id="sc-ready-pickup"></div>
+
+    <!-- Center panel -->
+    <div class="center-panel" id="centerPanel"></div>
+
+  </div>
+</div>
+
+<script>
+  /* ---- SUPABASE CONFIG ---- */
+  const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+
+  async function sbFetch(path) {
+    const res = await fetch(SUPABASE_URL + path, {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+      }
+    });
+    return res.json();
+  }
+
+  /* ---- CONSTANTS ---- */
+  const FLOW_STAGES = [
+    { key:'front-office',   label:'Front Office',      color:'#f5c518' },
+    { key:'service-writer', label:'Service Writer',     color:'#a78bfa' },
+    { key:'parking-lot',    label:'Parking Lot',        color:'#9ca3af' },
+    { key:'diagnosis',      label:'Diagnosis',          color:'#3b82f6' },
+    { key:'repair',         label:'Repair / On Lift',   color:'#22c55e' },
+    { key:'waiting',        label:'Waiting',            color:'#f59e0b' },
+    { key:'road-test',      label:'Road Test / QC',     color:'#8b5cf6' },
+    { key:'ready-pickup',   label:'Ready Pickup',       color:'#06b6d4' },
+  ];
+
+  const TECH_LIST = ['Unassigned','Capote','Cory','Alex','Cuba'];
+
+  const TECH_STATUS_LABEL = {
+    'available':     'Available',
+    'working':       'Working',
+    'waiting-parts': 'Waiting on Parts',
+    'waiting-info':  'Waiting on Info',
+    'road-testing':  'Road Testing',
+    'finished':      'Finished',
+  };
+
+  /* Card positions (cx=450, cy=450, r=330) for 8 stages clockwise from top */
+  /* angle = stage_index * 45 degrees, card is 170x120 so offset by -85,-60 */
+  const CX = 450, CY = 450, R = 330;
+  const CARD_W = 170, CARD_H_EST = 120;
+
+  function stagePos(idx) {
+    const angle = (idx * 45 - 90) * Math.PI / 180; // start at top = -90deg
+    const x = CX + R * Math.cos(angle) - CARD_W / 2;
+    const y = CY + R * Math.sin(angle) - CARD_H_EST / 2;
+    return { x: Math.round(x), y: Math.round(y) };
+  }
+
+  /* ---- STAGE INFERENCE ---- */
+  function inferStage(vehicle) {
+    if (vehicle.flow_stage) return vehicle.flow_stage;
+    if (vehicle._source === 'parking') return 'parking-lot';
+    if (vehicle._source === 'pickup')  return 'ready-pickup';
+    // lift — infer from vehicle status
+    const s = vehicle.status || '';
+    if (s === 'in-progress')  return 'repair';
+    if (s === 'waiting-part' || s === 'waiting-tech' || s === 'delayed') return 'waiting';
+    if (s === 'done')         return 'road-test';
+    return 'repair';
+  }
+
+  /* ---- STATE ---- */
+  let allVehicles = [];
+
+  async function loadAll() {
+    try {
+      const [lifts, parking, pickup] = await Promise.all([
+        sbFetch('/rest/v1/shopboard_lifts?select=*&order=id'),
+        sbFetch('/rest/v1/shopboard_parking?select=*&order=created_at'),
+        sbFetch('/rest/v1/shopboard_pickup?select=*&order=created_at'),
+      ]);
+
+      allVehicles = [];
+      (lifts || []).forEach((l, idx) => {
+        if ((l.po||'').trim() && (l.vehicle||'').trim())
+          allVehicles.push({ ...l, _source:'lift', _liftNum: idx+1 });
+      });
+      (parking || []).forEach(p => {
+        if ((p.po||'').trim() && (p.vehicle||'').trim())
+          allVehicles.push({ ...p, _source:'parking' });
+      });
+      (pickup || []).forEach(p => {
+        if ((p.po||'').trim() && (p.vehicle||'').trim())
+          allVehicles.push({ ...p, _source:'pickup' });
+      });
+
+      render();
+    } catch(e) { console.error('loadAll failed', e); }
+  }
+
+  /* ---- RENDER ---- */
+  function esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function render() {
+    renderRing();
+    renderStageCards();
+    renderCenter();
+    renderStats();
+  }
+
+  function renderRing() {
+    const svg = document.getElementById('ringSvg');
+    /* Dashed circle arc with clockwise arrow at the top */
+    svg.innerHTML = `
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+          <path d="M1,1 L7,4 L1,7 Z" fill="#374151"/>
+        </marker>
+      </defs>
+      <!-- Main dashed ring -->
+      <circle cx="${CX}" cy="${CY}" r="${R}"
+        fill="none" stroke="#1e293b" stroke-width="2"
+        stroke-dasharray="12 8"/>
+      <!-- Connector dots at each stage position -->
+      ${FLOW_STAGES.map((st, i) => {
+        const a = (i * 45 - 90) * Math.PI / 180;
+        const x = CX + R * Math.cos(a);
+        const y = CY + R * Math.sin(a);
+        return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" fill="${st.color}" opacity="0.5"/>`;
+      }).join('')}
+      <!-- Subtle glow in center -->
+      <circle cx="${CX}" cy="${CY}" r="140" fill="rgba(17,24,39,0.6)" stroke="#1e293b" stroke-width="1"/>
+    `;
+  }
+
+  function renderStageCards() {
+    const stageMap = {};
+    FLOW_STAGES.forEach(st => { stageMap[st.key] = []; });
+
+    allVehicles.forEach(v => {
+      const stage = inferStage(v);
+      if (stageMap[stage]) stageMap[stage].push(v);
+      else stageMap['parking-lot'].push(v);
+    });
+
+    FLOW_STAGES.forEach((st, idx) => {
+      const el = document.getElementById('sc-' + st.key);
+      if (!el) return;
+
+      const pos = stagePos(idx);
+      el.style.left = pos.x + 'px';
+      el.style.top  = pos.y + 'px';
+      el.style.borderColor = st.color;
+
+      const vehicles = stageMap[st.key] || [];
+      const shown = vehicles.slice(0, 3);
+      const extra = vehicles.length - shown.length;
+
+      el.innerHTML = `
+        <div class="stage-header">
+          <div class="stage-name" style="color:${st.color}">${st.label}</div>
+          <div class="stage-count" style="color:${st.color}">${vehicles.length}</div>
+        </div>
+        ${shown.map(v => `
+          <div class="vehicle-chip">
+            <div class="chip-po">${esc(v.po)}</div>
+            <div class="chip-veh">${esc(v.vehicle)}</div>
+          </div>
+        `).join('')}
+        ${extra > 0 ? `<div class="chip-more">+${extra} more</div>` : ''}
+        ${vehicles.length === 0 ? `<div style="font-size:0.58rem;color:#374151;margin-top:4px;font-style:italic">Empty</div>` : ''}
+      `;
+    });
+  }
+
+  function renderCenter() {
+    const panel = document.getElementById('centerPanel');
+
+    const techRows = TECH_LIST.map(tech => {
+      const assigned = allVehicles.filter(v => v.assigned_tech === tech);
+      const current  = assigned.find(v => v.tech_status && v.tech_status !== 'finished' && v.tech_status !== 'available');
+      const ts       = current?.tech_status || (assigned.length ? 'available' : 'available');
+      const tsLabel  = TECH_STATUS_LABEL[ts] || ts;
+      const dotCls   = 'dot-' + ts;
+      const tsCls    = 'ts-' + ts;
+
+      return `
+        <div class="tech-row">
+          <div class="tech-dot ${dotCls}"></div>
+          <div class="tech-info">
+            <div class="tech-name-label">${esc(tech)}</div>
+            ${current
+              ? `<div class="tech-vehicle-label">${esc(current.po)} &mdash; ${esc(current.vehicle)}</div>`
+              : `<div class="no-vehicle-small">No active job</div>`}
+            <div class="tech-status-label ${tsCls}">${tsLabel}</div>
+          </div>
+        </div>
+      `;
+    });
+
+    panel.innerHTML = `
+      <div class="center-title">Current Tech Activity</div>
+      ${techRows.join('')}
+    `;
+  }
+
+  function renderStats() {
+    const total    = allVehicles.length;
+    const onLift   = allVehicles.filter(v => v._source === 'lift').length;
+    const inLot    = allVehicles.filter(v => v._source === 'parking').length;
+    const repair   = allVehicles.filter(v => inferStage(v) === 'repair').length;
+    const waiting  = allVehicles.filter(v => inferStage(v) === 'waiting').length;
+    const roadTest = allVehicles.filter(v => inferStage(v) === 'road-test').length;
+    const ready    = allVehicles.filter(v => v._source === 'pickup').length;
+
+    document.getElementById('statsBar').innerHTML = `
+      <div class="stat-pill total">   <span class="num">${total}</span><span class="lbl">Total</span></div>
+      <div class="stat-pill lot">     <span class="num">${inLot}</span><span class="lbl">In Lot</span></div>
+      <div class="stat-pill repair">  <span class="num">${repair}</span><span class="lbl">On Lift</span></div>
+      <div class="stat-pill waiting"> <span class="num">${waiting}</span><span class="lbl">Waiting</span></div>
+      <div class="stat-pill roadtest"><span class="num">${roadTest}</span><span class="lbl">Road Test</span></div>
+      <div class="stat-pill ready">   <span class="num">${ready}</span><span class="lbl">Pickup</span></div>
+    `;
+  }
+
+  /* ---- REALTIME ---- */
+  function connectRealtime() {
+    try {
+      const wsUrl = SUPABASE_URL.replace('https','wss')
+        + '/realtime/v1/websocket?apikey=' + SUPABASE_KEY + '&vsn=1.0.0';
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        ['shopboard_lifts','shopboard_parking','shopboard_pickup'].forEach(tbl => {
+          ws.send(JSON.stringify({
+            topic: 'realtime:public:' + tbl,
+            event: 'phx_join',
+            payload: {},
+            ref: null
+          }));
+        });
+      };
+      ws.onmessage = (msg) => {
+        try {
+          const d = JSON.parse(msg.data);
+          if (['INSERT','UPDATE','DELETE'].includes(d?.payload?.type)) loadAll();
+        } catch(e) {}
+      };
+      ws.onclose = () => setTimeout(connectRealtime, 5000);
+    } catch(e) { console.warn('Realtime unavailable', e); }
+  }
+
+  /* ---- CLOCK ---- */
+  function tick() {
+    const now = new Date();
+    document.getElementById('clock').textContent =
+      now.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})
+      + '  |  ' + now.toLocaleTimeString('en-US');
+  }
+
+  loadAll();
+  connectRealtime();
+  setInterval(loadAll, 30000);
+  tick();
+  setInterval(tick, 1000);
+</script>
+</body>
+</html>
