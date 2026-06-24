@@ -275,8 +275,11 @@
     grid.innerHTML = NAMED_TECHS.map(tech => {
       const color = TECH_COLOR[tech];
       const assigned = allVehicles.filter(v => v.assigned_tech === tech);
-      const current  = assigned.find(v => v.tech_status && v.tech_status !== 'finished' && v.tech_status !== 'available');
-      const ts       = current?.tech_status || 'available';
+      // Show any assigned vehicle — prioritise active ones, fall back to any assigned
+      const current = assigned.find(v => v.tech_status && v.tech_status !== 'finished' && v.tech_status !== 'available')
+                   || assigned[0]
+                   || null;
+      const ts = current?.tech_status || 'available';
       const tsLabel  = TECH_STATUS_LABEL[ts] || ts;
       const dotColor = { working:'#16a34a','waiting-parts':'#d97706','waiting-info':'#2563eb','road-testing':'#7c3aed','finished':'#0891b2','available':'#374151' }[ts] || '#374151';
       const nextText = whiteboardData[tech] || '';
