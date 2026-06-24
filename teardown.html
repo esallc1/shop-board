@@ -24,313 +24,91 @@
     header, .cards-outer { position: relative; z-index: 1; }
 
     /* ── HEADER ── */
-    header {
-      text-align: center;
-      padding: 12px 14px 8px;
-    }
-    header h1 {
-      font-size: 1.15rem;
-      color: #f5c518;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-    }
-    header p { font-size: 0.65rem; color: #4b5563; margin-top: 2px; }
-    .header-toolbar {
-      display: flex; gap: 8px; justify-content: center;
-      margin-top: 8px; flex-wrap: wrap;
-    }
-    .tool-btn {
-      font-size: 0.65rem; font-weight: 600; padding: 5px 14px;
-      border-radius: 5px; border: 1px solid #374151;
-      background: #1f2937; color: #9ca3af; cursor: pointer;
-    }
+    header { text-align: center; padding: 12px 14px 8px; }
+    header h1 { font-size: 1.15rem; color: #f5c518; letter-spacing: 2px; text-transform: uppercase; }
+    header p  { font-size: 0.65rem; color: #4b5563; margin-top: 2px; }
+    .header-toolbar { display: flex; gap: 8px; justify-content: center; margin-top: 8px; flex-wrap: wrap; }
+    .tool-btn { font-size: 0.65rem; font-weight: 600; padding: 5px 14px; border-radius: 5px; border: 1px solid #374151; background: #1f2937; color: #9ca3af; cursor: pointer; }
     .tool-btn:hover { background: #374151; color: #e0e0e0; }
-    .tool-btn.blue  { background: #0f1f3d; color: #93c5fd; border-color: #2563eb; }
-    .tool-btn.teal  { background: #0a2020; color: #22d3ee; border-color: #0e7490; }
+    .tool-btn.blue { background: #0f1f3d; color: #93c5fd; border-color: #2563eb; }
+    .tool-btn.teal { background: #0a2020; color: #22d3ee; border-color: #0e7490; }
 
     /* ── REALTIME DOT ── */
-    .realtime-dot {
-      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
-      background: #22c55e; margin-right: 5px;
-      animation: pulse 2s infinite; vertical-align: middle;
-    }
+    .realtime-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #22c55e; margin-right: 5px; animation: pulse 2s infinite; vertical-align: middle; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
     /* ── CARDS GRID ── */
-    .cards-outer {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 14px;
-      padding: 14px 16px 20px;
-    }
+    .cards-outer { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; padding: 14px 16px 20px; }
 
     /* ── TEARDOWN CARD ── */
-    .td-card {
-      background: #111827;
-      border: 2px solid #1e2d4a;
-      border-radius: 12px;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      transition: border-color 0.3s;
-      min-height: 520px;
-    }
-    .td-card.active    { border-color: #f59e0b; }
+    .td-card { background: #111827; border: 2px solid #1e2d4a; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; transition: border-color 0.3s; min-height: 520px; }
+    .td-card.active     { border-color: #f59e0b; }
     .td-card.empty-card { border-color: #1e2d4a; opacity: 0.65; }
 
-    /* card header strip */
-    .td-card-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 7px 10px 5px;
-      border-bottom: 1px solid #1e2d4a;
-    }
-    .td-table-label {
-      font-size: 0.7rem;
-      font-weight: 800;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: #f5c518;
-    }
-    .unit-badge {
-      background: rgba(255,255,255,0.12);
-      color: #f8fafc;
-      padding: 4px 10px;
-      border-radius: 999px;
-      font-size: 0.65rem;
-      font-weight: 800;
-    }
+    .td-card-header { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px 5px; border-bottom: 1px solid #1e2d4a; }
+    .td-table-label { font-size: 0.7rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: #f5c518; }
+    .unit-badge { background: rgba(255,255,255,0.12); color: #f8fafc; padding: 4px 10px; border-radius: 999px; font-size: 0.65rem; font-weight: 800; }
 
-    /* ── UNIT IMAGE AREA ── */
-    .bench-scene {
-      width: 100%;
-      background: #0d1220;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 16px;
-      flex-shrink: 0;
-      min-height: 120px;
-    }
-    .unit-image {
-      width: 100%;
-      max-height: 220px;
-      object-fit: contain;
-      display: block;
-      border-radius: 6px;
-    }
-    .td-empty-label {
-      font-size: 0.75rem;
-      font-weight: 800;
-      letter-spacing: 4px;
-      color: #374151;
-      text-transform: uppercase;
-    }
-    .img-soon {
-      width: 100%;
-      min-height: 100px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.7rem;
-      font-weight: 700;
-      color: #d97706;
-      letter-spacing: 1px;
-      background: #0d1220;
-      border-radius: 6px;
-      text-align: center;
-      padding: 16px;
-    }
+    /* ── IMAGE AREA ── */
+    .bench-scene { width: 100%; background: #0d1220; display: flex; align-items: center; justify-content: center; padding: 16px; flex-shrink: 0; min-height: 120px; }
+    .unit-image  { width: 100%; max-height: 220px; object-fit: contain; display: block; border-radius: 6px; }
+    .td-empty-label { font-size: 0.75rem; font-weight: 800; letter-spacing: 4px; color: #374151; text-transform: uppercase; }
+    .img-soon { width: 100%; min-height: 100px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 700; color: #d97706; letter-spacing: 1px; background: #0d1220; border-radius: 6px; text-align: center; padding: 16px; }
 
     /* ── INFO SECTION ── */
-    .td-info {
-      padding: 8px 10px 4px;
-      border-bottom: 1px solid #1e2d4a;
-    }
-    .td-ro-line {
-      font-size: 0.68rem;
-      font-weight: 700;
-      color: #f5c518;
-      margin-bottom: 2px;
-    }
-    .td-customer-line {
-      font-size: 0.62rem;
-      color: #9ca3af;
-      margin-bottom: 1px;
-    }
-    .td-vehicle-line {
-      font-size: 0.62rem;
-      color: #cbd5e1;
-    }
-    .td-tech-line {
-      font-size: 0.6rem;
-      color: #6b7280;
-      margin-top: 3px;
-    }
-    .td-ts-line {
-      font-size: 0.58rem;
-      color: #4b5563;
-      margin-top: 2px;
-    }
+    .td-info { padding: 8px 10px 4px; border-bottom: 1px solid #1e2d4a; }
+    .td-ro-line       { font-size: 0.68rem; font-weight: 700; color: #f5c518; margin-bottom: 2px; }
+    .td-customer-line { font-size: 0.62rem; color: #9ca3af; margin-bottom: 1px; }
+    .td-vehicle-line  { font-size: 0.62rem; color: #cbd5e1; }
+    .td-tech-line     { font-size: 0.6rem;  color: #6b7280; margin-top: 3px; }
+    .td-ts-line       { font-size: 0.58rem; color: #4b5563; margin-top: 2px; }
 
     /* ── PARTS SUMMARY BADGES ── */
-    .td-summary {
-      display: flex;
-      gap: 5px;
-      padding: 6px 10px;
-      border-bottom: 1px solid #1e2d4a;
-      flex-wrap: wrap;
-    }
-    .td-badge {
-      display: flex;
-      align-items: center;
-      gap: 3px;
-      font-size: 0.6rem;
-      font-weight: 700;
-      padding: 2px 6px;
-      border-radius: 20px;
-    }
+    .td-summary { display: flex; gap: 5px; padding: 6px 10px; border-bottom: 1px solid #1e2d4a; flex-wrap: wrap; }
+    .td-badge   { display: flex; align-items: center; gap: 3px; font-size: 0.6rem; font-weight: 700; padding: 2px 6px; border-radius: 20px; }
     .td-badge.failed  { background: #7f1d1d; color: #fca5a5; }
     .td-badge.worn    { background: #78350f; color: #fcd34d; }
     .td-badge.ok      { background: #14532d; color: #86efac; }
     .td-badge.needsid { background: #1e1b4b; color: #a5b4fc; }
 
     /* ── PARTS LIST ── */
-    .td-parts {
-      flex: 1;
-      overflow-y: auto;
-      padding: 6px 8px;
-    }
-    .td-parts-title {
-      font-size: 0.56rem;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      color: #374151;
-      margin-bottom: 4px;
-    }
-    .part-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 3px 0;
-      border-bottom: 1px solid #0d1424;
-      gap: 6px;
-    }
-    .part-name {
-      font-size: 0.6rem;
-      color: #cbd5e1;
-      flex: 1;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .part-badge {
-      font-size: 0.52rem;
-      font-weight: 700;
-      padding: 1px 5px;
-      border-radius: 10px;
-      flex-shrink: 0;
-    }
+    .td-parts       { flex: 1; overflow-y: auto; padding: 6px 8px; }
+    .td-parts-title { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 1px; color: #374151; margin-bottom: 4px; }
+    .part-row  { display: flex; align-items: center; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #0d1424; gap: 6px; }
+    .part-name { font-size: 0.6rem; color: #cbd5e1; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .part-badge          { font-size: 0.52rem; font-weight: 700; padding: 1px 5px; border-radius: 10px; flex-shrink: 0; }
     .part-badge.Failed   { background: #7f1d1d; color: #fca5a5; }
     .part-badge.Worn     { background: #78350f; color: #fcd34d; }
     .part-badge.OK       { background: #14532d; color: #86efac; }
     .part-badge.NeedsID  { background: #1e1b4b; color: #a5b4fc; }
 
-    /* ── LAST EDITED FOOTER ── */
-    .td-footer {
-      padding: 5px 10px 7px;
-      font-size: 0.55rem;
-      color: #374151;
-      border-top: 1px solid #1e2d4a;
-    }
+    /* ── FOOTER ── */
+    .td-footer { padding: 5px 10px 7px; font-size: 0.55rem; color: #374151; border-top: 1px solid #1e2d4a; }
 
-    /* ── ACTION BUTTONS (Clear / Place) ── */
-    .td-actions {
-      display: flex;
-      gap: 6px;
-      padding: 7px 10px;
-      border-top: 1px solid #1e2d4a;
-      justify-content: flex-end;
-    }
-    .action-btn {
-      font-size: 0.6rem;
-      font-weight: 700;
-      padding: 4px 11px;
-      border-radius: 5px;
-      border: 1px solid #374151;
-      background: #1f2937;
-      color: #9ca3af;
-      cursor: pointer;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-    }
-    .action-btn:hover { background: #374151; color: #e0e0e0; }
+    /* ── ACTION BUTTONS ── */
+    .td-actions { display: flex; gap: 6px; padding: 7px 10px; border-top: 1px solid #1e2d4a; justify-content: flex-end; }
+    .action-btn { font-size: 0.6rem; font-weight: 700; padding: 4px 11px; border-radius: 5px; border: 1px solid #374151; background: #1f2937; color: #9ca3af; cursor: pointer; letter-spacing: 0.5px; text-transform: uppercase; }
+    .action-btn:hover   { background: #374151; color: #e0e0e0; }
+    .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .action-btn.danger  { background: #1a0505; color: #f87171; border-color: #7f1d1d; }
-    .action-btn.danger:hover { background: #7f1d1d; color: #fff; }
+    .action-btn.danger:hover  { background: #7f1d1d; color: #fff; }
     .action-btn.primary { background: #1a1200; color: #f5c518; border-color: #78350f; }
     .action-btn.primary:hover { background: #78350f; color: #fff; }
-    .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    /* ── PLACE-UNIT FORM ── */
-    .place-form {
-      padding: 12px 12px 10px;
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
-      flex: 1;
-    }
-    .place-form-title {
-      font-size: 0.58rem;
-      font-weight: 800;
-      letter-spacing: 2px;
-      color: #f5c518;
-      text-transform: uppercase;
-      margin-bottom: 2px;
-    }
-    .place-form label {
-      font-size: 0.58rem;
-      color: #6b7280;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: -3px;
-    }
-    .place-form input,
-    .place-form select {
-      width: 100%;
-      padding: 5px 8px;
-      font-size: 0.68rem;
-      background: #0d1220;
-      color: #e0e0e0;
-      border: 1px solid #374151;
-      border-radius: 5px;
-    }
-    .place-form input:focus,
-    .place-form select:focus { outline: none; border-color: #f59e0b; }
-    .place-form-actions {
-      display: flex;
-      gap: 6px;
-      margin-top: 4px;
-    }
+    /* ── PLACE / EDIT FORM ── */
+    .place-form { padding: 12px 12px 10px; display: flex; flex-direction: column; gap: 7px; flex: 1; }
+    .place-form-title { font-size: 0.58rem; font-weight: 800; letter-spacing: 2px; color: #f5c518; text-transform: uppercase; margin-bottom: 2px; }
+    .place-form label { font-size: 0.58rem; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; margin-bottom: -3px; }
+    .place-form input, .place-form select { width: 100%; padding: 5px 8px; font-size: 0.68rem; background: #0d1220; color: #e0e0e0; border: 1px solid #374151; border-radius: 5px; }
+    .place-form input:focus, .place-form select:focus { outline: none; border-color: #f59e0b; }
+    .place-form-actions { display: flex; gap: 6px; margin-top: 4px; }
 
-    /* ── LOADING SKELETON ── */
-    .skeleton {
-      background: linear-gradient(90deg, #1e293b 25%, #243047 50%, #1e293b 75%);
-      background-size: 200% 100%;
-      animation: shimmer 1.4s infinite;
-      border-radius: 6px;
-      height: 14px;
-    }
+    /* ── SKELETON ── */
+    .skeleton { background: linear-gradient(90deg, #1e293b 25%, #243047 50%, #1e293b 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; border-radius: 6px; height: 14px; }
     @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
 
-    /* ── RESPONSIVE ── */
-    @media (max-width: 900px) {
-      .cards-outer { grid-template-columns: repeat(2, 1fr); }
-    }
-    @media (max-width: 500px) {
-      .cards-outer { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 900px) { .cards-outer { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 500px) { .cards-outer { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -346,30 +124,25 @@
 </header>
 
 <div class="cards-outer" id="cardsGrid">
-  <!-- 4 skeleton cards while loading -->
-  <div class="td-card"><div class="td-card-header"><span class="td-table-label">TABLE 1</span></div><div class="td-img-wrap"></div><div class="td-info" style="padding:12px 10px"><div class="skeleton" style="width:60%;margin-bottom:6px"></div><div class="skeleton" style="width:80%;margin-bottom:4px"></div><div class="skeleton" style="width:50%"></div></div></div>
-  <div class="td-card"><div class="td-card-header"><span class="td-table-label">TABLE 2</span></div><div class="td-img-wrap"></div><div class="td-info" style="padding:12px 10px"><div class="skeleton" style="width:60%;margin-bottom:6px"></div><div class="skeleton" style="width:80%;margin-bottom:4px"></div><div class="skeleton" style="width:50%"></div></div></div>
-  <div class="td-card"><div class="td-card-header"><span class="td-table-label">TABLE 3</span></div><div class="td-img-wrap"></div><div class="td-info" style="padding:12px 10px"><div class="skeleton" style="width:60%;margin-bottom:6px"></div><div class="skeleton" style="width:80%;margin-bottom:4px"></div><div class="skeleton" style="width:50%"></div></div></div>
-  <div class="td-card"><div class="td-card-header"><span class="td-table-label">TABLE 4</span></div><div class="td-img-wrap"></div><div class="td-info" style="padding:12px 10px"><div class="skeleton" style="width:60%;margin-bottom:6px"></div><div class="skeleton" style="width:80%;margin-bottom:4px"></div><div class="skeleton" style="width:50%"></div></div></div>
+  <div class="td-card"><div class="td-card-header"><span class="td-table-label">TABLE 1</span></div><div class="td-info" style="padding:12px 10px"><div class="skeleton" style="width:60%;margin-bottom:6px"></div><div class="skeleton" style="width:80%;margin-bottom:4px"></div><div class="skeleton" style="width:50%"></div></div></div>
+  <div class="td-card"><div class="td-card-header"><span class="td-table-label">TABLE 2</span></div><div class="td-info" style="padding:12px 10px"><div class="skeleton" style="width:60%;margin-bottom:6px"></div><div class="skeleton" style="width:80%;margin-bottom:4px"></div><div class="skeleton" style="width:50%"></div></div></div>
+  <div class="td-card"><div class="td-card-header"><span class="td-table-label">TABLE 3</span></div><div class="td-info" style="padding:12px 10px"><div class="skeleton" style="width:60%;margin-bottom:6px"></div><div class="skeleton" style="width:80%;margin-bottom:4px"></div><div class="skeleton" style="width:50%"></div></div></div>
+  <div class="td-card"><div class="td-card-header"><span class="td-table-label">TABLE 4</span></div><div class="td-info" style="padding:12px 10px"><div class="skeleton" style="width:60%;margin-bottom:6px"></div><div class="skeleton" style="width:80%;margin-bottom:4px"></div><div class="skeleton" style="width:50%"></div></div></div>
 </div>
 
 <script>
-  /* ── SUPABASE CONFIG ── */
+  /* ── SUPABASE ── */
   const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
 
   function sbFetch(path) {
     return fetch(SUPABASE_URL + '/rest/v1/' + path, {
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': 'Bearer ' + SUPABASE_KEY,
-        'Accept': 'application/json',
-      }
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY, 'Accept': 'application/json' }
     }).then(r => r.json());
   }
 
   async function sbMutate(method, path, body) {
-    const opts = {
+    const r = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
       method,
       headers: {
         'apikey': SUPABASE_KEY,
@@ -377,9 +150,8 @@
         'Content-Type': 'application/json',
         'Prefer': 'return=representation',
       },
-    };
-    if (body != null) opts.body = JSON.stringify(body);
-    const r = await fetch(SUPABASE_URL + '/rest/v1/' + path, opts);
+      body: body != null ? JSON.stringify(body) : undefined,
+    });
     return r.json().catch(() => null);
   }
 
@@ -389,32 +161,44 @@
 
   /* ── STATE ── */
   const TECH_LIST = ['Unassigned','Capote','Cory','Alex','Cuba'];
-  let tableData = { 1: null, 2: null, 3: null, 4: null };
-  let txCatalog = []; // [{id, name, cover_image}] — pre-loaded for the Place form dropdown
-  let firstLoad = true;
-  let uiState = { mode: null }; // null | { type:'place'|'edit', table:1-4 }
-  let suppressReload = false; // block realtime loadAll() during mutate ops
+  let tableData   = { 1: null, 2: null, 3: null, 4: null };
+  let txCatalog   = [];      // [{id, name, cover_image}]
+  let firstLoad   = true;
+  let uiState     = { mode: null }; // null | { type:'place'|'edit', table:1-4 }
+  let suppressReload = false;
+
+  /*
+   * DATA MODEL
+   * ---------
+   * Board slot info  → shopboard_tables  (owned by this board, never written by KiKi)
+   * Parts display    → teardowns + teardown_parts  (KiKi-managed, read-only here)
+   * Unit image/name  → transmissions  (shared catalog)
+   *
+   * Each table slot in shopboard_tables always has exactly one row (table_number 1-4).
+   * Place / Edit = PATCH that row.
+   * Clear = PATCH with empty fields.
+   * KiKi's teardowns table is never written from this page.
+   */
 
   /* ── LOAD ALL DATA ── */
   async function loadAll() {
+    if (suppressReload) return;
     try {
-      const [tdRows, lifts] = await Promise.all([
-        sbFetch('teardowns?select=id,table_number,tech_name,ro_number,transmission_id,date,updated_at,teardown_parts(name,status,sort_order)&table_number=in.(1,2,3,4)&order=updated_at.desc'),
+      const [slots, tdRows, lifts] = await Promise.all([
+        sbFetch('shopboard_tables?select=table_number,ro_number,tech_name,transmission_id,updated_at&order=table_number'),
+        sbFetch('teardowns?select=table_number,teardown_parts(name,status,sort_order)&table_number=in.(1,2,3,4)&order=updated_at.desc'),
         sbFetch('shopboard_lifts?select=po,customer,vehicle&order=id'),
       ]);
 
-      // Pick most recent teardown per table (already ordered desc)
-      const byTable = {};
+      // Most-recent teardown parts per table (KiKi-managed, display only)
+      const partsByTable = {};
       (tdRows || []).forEach(td => {
         const t = td.table_number;
-        if (t && !byTable[t]) byTable[t] = td;
+        if (t && !partsByTable[t]) partsByTable[t] = sortParts(td.teardown_parts);
       });
 
-      // Collect unique transmission_ids and fetch them directly
-      const txIds = [...new Set(
-        Object.values(byTable).map(td => td.transmission_id).filter(Boolean)
-      )];
-
+      // Fetch transmissions referenced by slots
+      const txIds = [...new Set((slots || []).map(s => s.transmission_id).filter(Boolean))];
       let txMap = {};
       if (txIds.length > 0) {
         const txRows = await sbFetch('transmissions?select=id,name,cover_image&id=in.(' + txIds.join(',') + ')');
@@ -424,11 +208,12 @@
       const liftMap = buildLiftMap(lifts);
 
       const newTableData = { 1: null, 2: null, 3: null, 4: null };
-      Object.values(byTable).forEach(td => {
-        const tx    = txMap[td.transmission_id] || null;
-        const parts = sortParts(td.teardown_parts);
-        const lift  = liftMap[String(td.ro_number || '').trim().toLowerCase()] || null;
-        newTableData[td.table_number] = { td, parts, tx, lift };
+      (slots || []).forEach(slot => {
+        const n     = slot.table_number;
+        const tx    = txMap[slot.transmission_id] || null;
+        const parts = partsByTable[n] || [];
+        const lift  = liftMap[String(slot.ro_number || '').trim().toLowerCase()] || null;
+        newTableData[n] = { slot, parts, tx, lift };
       });
 
       tableData = newTableData;
@@ -438,46 +223,40 @@
     }
   }
 
-  /* Re-fetch just one table's data — used after Place so we don't wait for a full reload */
+  /* Re-fetch a single table slot after a mutation */
   async function reloadTable(n) {
     try {
-      const [tdRows, lifts] = await Promise.all([
-        sbFetch(`teardowns?select=id,table_number,tech_name,ro_number,transmission_id,date,updated_at,teardown_parts(name,status,sort_order)&table_number=eq.${n}&order=updated_at.desc&limit=1`),
+      const [slots, tdRows, lifts] = await Promise.all([
+        sbFetch(`shopboard_tables?select=table_number,ro_number,tech_name,transmission_id,updated_at&table_number=eq.${n}`),
+        sbFetch(`teardowns?select=table_number,teardown_parts(name,status,sort_order)&table_number=eq.${n}&order=updated_at.desc&limit=1`),
         sbFetch('shopboard_lifts?select=po,customer,vehicle&order=id'),
       ]);
 
-      const td = (tdRows || [])[0] || null;
-      if (!td) {
-        tableData[n] = null;
-        rerenderCard(n);
-        return;
-      }
+      const slot = (slots || [])[0] || null;
+      if (!slot) { tableData[n] = null; rerenderCard(n); return; }
 
       let tx = null;
-      if (td.transmission_id) {
-        const txRows = await sbFetch(`transmissions?select=id,name,cover_image&id=eq.${td.transmission_id}`);
+      if (slot.transmission_id) {
+        const txRows = await sbFetch(`transmissions?select=id,name,cover_image&id=eq.${slot.transmission_id}`);
         tx = (txRows || [])[0] || null;
       }
 
-      const liftMap = buildLiftMap(lifts);
-      const parts   = sortParts(td.teardown_parts);
-      const lift    = liftMap[String(td.ro_number || '').trim().toLowerCase()] || null;
+      const td    = (tdRows || [])[0] || null;
+      const parts = sortParts(td?.teardown_parts);
+      const lift  = buildLiftMap(lifts)[String(slot.ro_number || '').trim().toLowerCase()] || null;
 
-      tableData[n] = { td, parts, tx, lift };
+      tableData[n] = { slot, parts, tx, lift };
       rerenderCard(n);
     } catch(e) {
       console.error('[teardown] reloadTable failed', e);
     }
   }
 
-  /* Load transmission catalog for the Place form dropdown */
   async function loadTxCatalog() {
     try {
       const rows = await sbFetch('transmissions?select=id,name,cover_image&order=name');
       txCatalog = rows || [];
-    } catch(e) {
-      console.warn('[teardown] txCatalog load failed', e);
-    }
+    } catch(e) { console.warn('[teardown] txCatalog load failed', e); }
   }
 
   function buildLiftMap(lifts) {
@@ -490,28 +269,23 @@
     return (parts || []).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   }
 
-  /* ── RENDER — diff per card, no full-grid wipe ── */
+  /* ── RENDER ── */
   function render() {
     const grid = document.getElementById('cardsGrid');
-
     if (firstLoad) {
-      grid.innerHTML = [1, 2, 3, 4].map(n => renderCard(n)).join('');
+      grid.innerHTML = [1,2,3,4].map(n => renderCard(n)).join('');
       firstLoad = false;
       return;
     }
-
-    const existingCards = grid.children;
-    [1, 2, 3, 4].forEach((n, i) => {
-      const newKey  = cardKey(n);
-      const existing = existingCards[i];
+    [1,2,3,4].forEach((n, i) => {
+      const existing = grid.children[i];
+      const newKey   = cardKey(n);
       if (!existing) { grid.appendChild(makeCardEl(n)); return; }
       if (existing.dataset.key !== newKey) {
-        const oldParts = existing.querySelector('.td-parts');
-        const scrollTop = oldParts ? oldParts.scrollTop : 0;
+        const scrollTop = existing.querySelector('.td-parts')?.scrollTop || 0;
         const newEl = makeCardEl(n);
         grid.replaceChild(newEl, existing);
-        const newParts = newEl.querySelector('.td-parts');
-        if (newParts && scrollTop) newParts.scrollTop = scrollTop;
+        if (scrollTop) { const p = newEl.querySelector('.td-parts'); if (p) p.scrollTop = scrollTop; }
       }
     });
   }
@@ -530,19 +304,18 @@
     else grid.appendChild(newEl);
   }
 
-  /* Fingerprint a card so we can skip DOM updates when nothing changed */
   function cardKey(n) {
     const d = tableData[n];
-    const modeFlag = (uiState.mode?.table === n) ? uiState.mode.type : '';
-    if (!d) return 'empty|' + modeFlag;
-    const { td, parts } = d;
-    return [td.id, td.updated_at, td.tech_name, td.ro_number, td.table_number, parts.length, modeFlag].join('|');
+    const mode = uiState.mode?.table === n ? uiState.mode.type : '';
+    if (!d) return `null|${mode}`;
+    const { slot, parts } = d;
+    const active = (slot.ro_number || slot.transmission_id) ? 'active' : 'empty';
+    return [active, slot.updated_at, slot.ro_number, slot.tech_name, slot.transmission_id, parts.length, mode].join('|');
   }
 
-  /* ── IMAGE HTML helper ── */
-  function coverHtml(coverImg, txName) {
-    if (!coverImg) return `<div class="img-soon">📷 Image Coming Soon</div>`;
-    return `<img class="unit-image" src="${esc(coverImg)}" alt="${esc(txName)}"
+  function coverHtml(src, name) {
+    if (!src) return `<div class="img-soon">📷 Image Coming Soon</div>`;
+    return `<img class="unit-image" src="${esc(src)}" alt="${esc(name)}"
       onerror="this.outerHTML='<div class=\\'img-soon\\'>📷 Image Coming Soon</div>'">`;
   }
 
@@ -553,44 +326,53 @@
     const isPlacing = uiState.mode?.table === n && uiState.mode?.type === 'place';
     const isEditing = uiState.mode?.table === n && uiState.mode?.type === 'edit';
 
+    // No slot data yet (shouldn't happen after first load, but guard anyway)
     if (!data) {
-      return `
-        <div class="td-card empty-card" data-key="${key}">
-          <div class="td-card-header">
-            <span class="td-table-label">TABLE ${n}</span>
-            <span style="font-size:0.58rem;color:#374151">OPEN</span>
-          </div>
-          <div class="bench-scene">
-            <div class="td-empty-label">OPEN</div>
-          </div>
-          ${isPlacing
-            ? renderPlaceForm(n)
-            : `<div class="td-info" style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px">
-                 <span style="font-size:0.65rem;color:#374151;letter-spacing:1px">No active teardown</span>
-               </div>
-               <div class="td-actions">
-                 <button class="action-btn primary" onclick="startPlace(${n})">+ Place Unit</button>
-               </div>`
-          }
-        </div>`;
+      return `<div class="td-card empty-card" data-key="${key}">
+        <div class="td-card-header"><span class="td-table-label">TABLE ${n}</span></div>
+        <div class="bench-scene"><div class="td-empty-label">OPEN</div></div>
+        <div class="td-info" style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px">
+          <span style="font-size:0.65rem;color:#374151;letter-spacing:1px">No active teardown</span>
+        </div>
+      </div>`;
     }
 
-    const { td, parts, tx, lift } = data;
+    const { slot, parts, tx, lift } = data;
+    const isActive = !!(slot.ro_number || slot.transmission_id);
+
+    const txName   = tx?.name || '';
+    const imgSrc   = tx?.cover_image || '';
+    const techName = slot.tech_name || '';
+    const roNum    = slot.ro_number || '';
+    const customer = lift?.customer || '';
+    const vehicle  = lift?.vehicle  || '';
+    const editedAt = slot.updated_at ? new Date(slot.updated_at).toLocaleString() : '';
+
+    if (!isActive) {
+      return `<div class="td-card empty-card" data-key="${key}">
+        <div class="td-card-header">
+          <span class="td-table-label">TABLE ${n}</span>
+          <span style="font-size:0.58rem;color:#374151">OPEN</span>
+        </div>
+        <div class="bench-scene"><div class="td-empty-label">OPEN</div></div>
+        ${isPlacing
+          ? renderSlotForm(n, null)
+          : `<div class="td-info" style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px">
+               <span style="font-size:0.65rem;color:#374151;letter-spacing:1px">No active teardown</span>
+             </div>
+             <div class="td-actions">
+               <button class="action-btn primary" onclick="startPlace(${n})">+ Place Unit</button>
+             </div>`}
+      </div>`;
+    }
+
+    // Active card
     const failed  = parts.filter(p => p.status === 'Failed').length;
     const worn    = parts.filter(p => p.status === 'Worn').length;
     const ok      = parts.filter(p => p.status === 'OK').length;
     const needsId = parts.filter(p => p.status === 'Needs ID').length;
 
-    const txName    = tx?.name || '';
-    const imgSrc    = tx?.cover_image || '';
-    const techName  = td.tech_name || '';
-    const roNum     = td.ro_number || '';
-    const customer  = lift?.customer || '';
-    const vehicle   = lift?.vehicle || '';
-    const updatedAt = td.updated_at ? new Date(td.updated_at).toLocaleString() : '';
-    const createdAt = td.date ? new Date(td.date).toLocaleString() : '';
-
-    const summaryBadges = [
+    const badges = [
       failed  > 0 ? `<span class="td-badge failed">🔴 ${failed} Failed</span>`    : '',
       worn    > 0 ? `<span class="td-badge worn">🟡 ${worn} Worn</span>`           : '',
       ok      > 0 ? `<span class="td-badge ok">🟢 ${ok} OK</span>`               : '',
@@ -599,10 +381,7 @@
 
     const partsList = parts.map(p => {
       const cls = p.status === 'Needs ID' ? 'NeedsID' : p.status;
-      return `<div class="part-row">
-        <span class="part-name">${esc(p.name)}</span>
-        <span class="part-badge ${cls}">${esc(p.status)}</span>
-      </div>`;
+      return `<div class="part-row"><span class="part-name">${esc(p.name)}</span><span class="part-badge ${cls}">${esc(p.status)}</span></div>`;
     }).join('');
 
     return `
@@ -611,26 +390,23 @@
           <span class="td-table-label">TABLE ${n}</span>
           ${txName ? `<span class="unit-badge">${esc(txName)}</span>` : ''}
         </div>
-
         <div class="bench-scene">${coverHtml(imgSrc, txName)}</div>
-
         ${isEditing
-          ? renderPlaceForm(n, { ro: roNum, tech: techName || 'Unassigned', txId: td.transmission_id || '' })
-          : isPlacing ? renderPlaceForm(n, null) : `
+          ? renderSlotForm(n, { ro: roNum, tech: techName || 'Unassigned', txId: slot.transmission_id || '' })
+          : `
         <div class="td-info">
           ${roNum    ? `<div class="td-ro-line">RO# ${esc(roNum)}</div>` : ''}
           ${customer ? `<div class="td-customer-line">👤 ${esc(customer)}</div>` : ''}
           ${vehicle  ? `<div class="td-vehicle-line">🚗 ${esc(vehicle)}</div>` : ''}
           ${techName ? `<div class="td-tech-line">🔧 Tech: ${esc(techName)}</div>` : ''}
-          <div class="td-ts-line">Started: ${esc(createdAt)}</div>
         </div>
-        ${summaryBadges ? `<div class="td-summary">${summaryBadges}</div>` : ''}
+        ${badges ? `<div class="td-summary">${badges}</div>` : ''}
         <div class="td-parts">
           ${parts.length > 0
             ? `<div class="td-parts-title">Parts (${parts.length})</div>${partsList}`
             : `<div style="font-size:0.6rem;color:#374151;padding:8px 0;font-style:italic">No parts logged yet</div>`}
         </div>
-        <div class="td-footer">Last edited: ${esc(updatedAt || createdAt)}</div>
+        <div class="td-footer">Last edited: ${esc(editedAt)}</div>
         <div class="td-actions">
           <button class="action-btn primary" onclick="startEdit(${n})">Edit</button>
           <button class="action-btn danger"  onclick="clearTable(${n})">Clear Table</button>
@@ -638,59 +414,85 @@
       </div>`;
   }
 
-  function renderPlaceForm(n, prefill) {
-    // prefill = null (new placement) or { ro, tech, txId } (edit mode)
-    const isEdit = !!prefill;
+  /* Shared form for both Place (prefill=null) and Edit (prefill={ro,tech,txId}) */
+  function renderSlotForm(n, prefill) {
+    const isEdit   = !!prefill;
     const techOpts = TECH_LIST.map(t => {
-      const sel = prefill && (prefill.tech === t || (!prefill.tech && t === 'Unassigned')) ? ' selected' : '';
-      return `<option value="${t}"${sel}>${t}</option>`;
+      const cur = prefill?.tech || 'Unassigned';
+      return `<option value="${t}"${cur === t ? ' selected' : ''}>${t}</option>`;
     }).join('');
     const txOpts = txCatalog.length > 0
       ? `<option value="">— Select unit —</option>` +
-        txCatalog.map(t => {
-          const sel = prefill && prefill.txId === t.id ? ' selected' : '';
-          return `<option value="${esc(t.id)}"${sel}>${esc(t.name)}</option>`;
-        }).join('')
+        txCatalog.map(t => `<option value="${esc(t.id)}"${prefill?.txId === t.id ? ' selected' : ''}>${esc(t.name)}</option>`).join('')
       : `<option value="">Loading catalog…</option>`;
-    const submitFn = isEdit ? `submitEdit(${n})` : `submitPlace(${n})`;
-    const submitId = isEdit ? `edit-submit-${n}` : `place-submit-${n}`;
-    const title    = isEdit ? `Edit Unit — Table ${n}` : `Place Unit — Table ${n}`;
-    const label    = isEdit ? 'Save' : 'Place';
+    const btnId  = `slot-btn-${n}`;
+    const label  = isEdit ? 'Save' : 'Place';
+    const title  = isEdit ? `Edit — Table ${n}` : `Place Unit — Table ${n}`;
     return `
       <div class="place-form">
         <div class="place-form-title">${title}</div>
         <label>RO #</label>
-        <input id="place-ro-${n}" type="text" placeholder="RO Number" value="${esc(prefill?.ro || '')}" />
+        <input id="slot-ro-${n}"   type="text" placeholder="RO Number" value="${esc(prefill?.ro || '')}" />
         <label>Tech</label>
-        <select id="place-tech-${n}">${techOpts}</select>
+        <select id="slot-tech-${n}">${techOpts}</select>
         <label>Transmission Unit</label>
-        <select id="place-tx-${n}">${txOpts}</select>
+        <select id="slot-tx-${n}">${txOpts}</select>
         <div class="place-form-actions">
-          <button class="action-btn primary" id="${submitId}" onclick="${submitFn}">${label}</button>
-          <button class="action-btn" onclick="cancelPlace(${n})">Cancel</button>
+          <button class="action-btn primary" id="${btnId}" onclick="submitSlot(${n})">${label}</button>
+          <button class="action-btn" onclick="cancelSlot(${n})">Cancel</button>
         </div>
       </div>`;
   }
 
   /* ── CARD ACTIONS ── */
-  function startPlace(n) {
-    uiState.mode = { type: 'place', table: n };
-    rerenderCard(n);
-  }
+  function startPlace(n) { uiState.mode = { type:'place', table:n }; rerenderCard(n); }
+  function startEdit(n)  { uiState.mode = { type:'edit',  table:n }; rerenderCard(n); }
+  function cancelSlot(n) { uiState.mode = null; rerenderCard(n); }
 
-  function cancelPlace(n) {
-    uiState.mode = null;
-    rerenderCard(n);
+  async function submitSlot(n) {
+    const ro   = (document.getElementById(`slot-ro-${n}`)?.value   || '').trim();
+    const tech = document.getElementById(`slot-tech-${n}`)?.value  || 'Unassigned';
+    const txId = document.getElementById(`slot-tx-${n}`)?.value    || null;
+
+    if (!ro) { alert('RO # is required.'); return; }
+
+    const btn = document.getElementById(`slot-btn-${n}`);
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+    suppressReload = true;
+    try {
+      const now = new Date().toISOString();
+      await sbMutate('PATCH', `shopboard_tables?table_number=eq.${n}`, {
+        ro_number:       ro,
+        tech_name:       tech === 'Unassigned' ? '' : tech,
+        transmission_id: txId || null,
+        updated_at:      now,
+      });
+      uiState.mode = null;
+      await reloadTable(n);
+    } catch(e) {
+      console.error('[teardown] submitSlot failed', e);
+      alert('Failed to save. Check console.');
+      if (btn) { btn.disabled = false; btn.textContent = uiState.mode?.type === 'edit' ? 'Save' : 'Place'; }
+    } finally {
+      suppressReload = false;
+    }
   }
 
   async function clearTable(n) {
-    if (!confirm(`Clear Table ${n}? This will remove the active teardown.`)) return;
-    const data = tableData[n];
-    if (!data) return;
+    if (!confirm(`Clear Table ${n}? This will remove the unit assignment.`)) return;
     suppressReload = true;
     try {
-      await sbMutate('DELETE', `teardowns?id=eq.${data.td.id}`, null);
-      tableData[n] = null;
+      const now = new Date().toISOString();
+      await sbMutate('PATCH', `shopboard_tables?table_number=eq.${n}`, {
+        ro_number: '', tech_name: '', transmission_id: null, updated_at: now,
+      });
+      // Update local state immediately — no round-trip needed
+      if (tableData[n]) {
+        tableData[n].slot = { ...tableData[n].slot, ro_number: '', tech_name: '', transmission_id: null, updated_at: now };
+        tableData[n].tx   = null;
+        tableData[n].lift = null;
+      }
       rerenderCard(n);
     } catch(e) {
       console.error('[teardown] clearTable failed', e);
@@ -700,99 +502,15 @@
     }
   }
 
-  function startEdit(n) {
-    uiState.mode = { type: 'edit', table: n };
-    rerenderCard(n);
-  }
-
-  async function submitEdit(n) {
-    const ro   = (document.getElementById(`place-ro-${n}`)?.value || '').trim();
-    const tech = document.getElementById(`place-tech-${n}`)?.value || 'Unassigned';
-    const txId = document.getElementById(`place-tx-${n}`)?.value || null;
-
-    if (!ro) { alert('RO # is required.'); return; }
-
-    const btn = document.getElementById(`edit-submit-${n}`);
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-
-    const tdId = tableData[n]?.td?.id;
-    if (!tdId) { alert('No active teardown to edit.'); return; }
-
-    suppressReload = true;
-    try {
-      const now = new Date().toISOString();
-      await sbMutate('PATCH', `teardowns?id=eq.${tdId}`, {
-        ro_number:       ro,
-        tech_name:       tech === 'Unassigned' ? '' : tech,
-        transmission_id: txId || null,
-        updated_at:      now,
-      });
-
-      uiState.mode = null;
-      await reloadTable(n);
-    } catch(e) {
-      console.error('[teardown] submitEdit failed', e);
-      alert('Failed to save. Check console.');
-      if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
-    } finally {
-      suppressReload = false;
-    }
-  }
-
-  async function submitPlace(n) {
-    const ro   = (document.getElementById(`place-ro-${n}`)?.value || '').trim();
-    const tech = document.getElementById(`place-tech-${n}`)?.value || 'Unassigned';
-    const txId = document.getElementById(`place-tx-${n}`)?.value || null;
-
-    if (!ro) { alert('RO # is required.'); return; }
-
-    const btn = document.getElementById(`place-submit-${n}`);
-    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-
-    suppressReload = true;
-    try {
-      // If replacing an active unit, delete the old row first so there's only one per table
-      if (tableData[n]) {
-        await sbMutate('DELETE', `teardowns?id=eq.${tableData[n].td.id}`, null);
-        tableData[n] = null;
-      }
-
-      const now   = new Date().toISOString();
-      const today = now.slice(0, 10);
-      await sbMutate('POST', 'teardowns', {
-        table_number:    n,
-        ro_number:       ro,
-        tech_name:       tech === 'Unassigned' ? '' : tech,
-        transmission_id: txId || null,
-        date:            today,
-        updated_at:      now,
-      });
-
-      uiState.mode = null;
-      await reloadTable(n);
-    } catch(e) {
-      console.error('[teardown] submitPlace failed', e);
-      alert('Failed to place unit. Check console.');
-      if (btn) { btn.disabled = false; btn.textContent = 'Place'; }
-    } finally {
-      suppressReload = false;
-    }
-  }
-
   /* ── REALTIME ── */
   function connectRealtime() {
     try {
-      const wsUrl = SUPABASE_URL.replace('https','wss')
-        + '/realtime/v1/websocket?apikey=' + SUPABASE_KEY + '&vsn=1.0.0';
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(
+        SUPABASE_URL.replace('https','wss') + '/realtime/v1/websocket?apikey=' + SUPABASE_KEY + '&vsn=1.0.0'
+      );
       ws.onopen = () => {
-        ['teardowns','teardown_parts','transmissions'].forEach(tbl => {
-          ws.send(JSON.stringify({
-            topic: 'realtime:public:' + tbl,
-            event: 'phx_join',
-            payload: {},
-            ref: null,
-          }));
+        ['shopboard_tables','teardowns','teardown_parts','transmissions'].forEach(tbl => {
+          ws.send(JSON.stringify({ topic:'realtime:public:'+tbl, event:'phx_join', payload:{}, ref:null }));
         });
       };
       ws.onmessage = (msg) => {
