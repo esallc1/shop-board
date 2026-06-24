@@ -1,3 +1,7 @@
 {
-  "rewrites": [{ "source": "/", "destination": "/shop-board.html" }]
+  "rewrites": [
+    { "source": "/", "destination": "/shop-board.html" },
+    { "source": "/teardown", "destination": "/teardown.html" },
+    { "source": "/tech-board", "destination": "/tech-board.html" }
+  ]
 }
