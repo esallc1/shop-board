@@ -393,6 +393,7 @@
   let txCatalog = []; // [{id, name, cover_image}] — pre-loaded for the Place form dropdown
   let firstLoad = true;
   let uiState = { mode: null }; // null | { type:'place', table:1-4 }
+  let suppressReload = false; // block realtime loadAll() during place/clear ops
 
   /* ── LOAD ALL DATA ── */
   async function loadAll() {
@@ -691,6 +692,7 @@
     const btn = document.getElementById(`place-submit-${n}`);
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
 
+    suppressReload = true;
     try {
       // If replacing an active unit, delete the old row first so there's only one per table
       if (tableData[n]) {
@@ -710,12 +712,13 @@
       });
 
       uiState.mode = null;
-      // Re-fetch just this table rather than all 4 so the card updates immediately
       await reloadTable(n);
     } catch(e) {
       console.error('[teardown] submitPlace failed', e);
       alert('Failed to place unit. Check console.');
       if (btn) { btn.disabled = false; btn.textContent = 'Place'; }
+    } finally {
+      suppressReload = false;
     }
   }
 
@@ -738,7 +741,7 @@
       ws.onmessage = (msg) => {
         try {
           const d = JSON.parse(msg.data);
-          if (['INSERT','UPDATE','DELETE'].includes(d?.payload?.type)) loadAll();
+          if (!suppressReload && ['INSERT','UPDATE','DELETE'].includes(d?.payload?.type)) loadAll();
         } catch(e) {}
       };
       ws.onclose = () => setTimeout(connectRealtime, 5000);
