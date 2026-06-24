@@ -99,35 +99,29 @@
       color: #e0e0e0;
     }
 
-    /* ── TABLE PHOTO + COVER OVERLAY ── */
-    .td-img-wrap {
+    /* ── BENCH SCENE ── */
+    .bench-scene {
       position: relative;
-      width: 100%;
-      aspect-ratio: 4/3;
+      height: 360px;
       overflow: hidden;
-      background: #0d1424;
+      background: #0b1220;
       flex-shrink: 0;
     }
-    .td-table-img {
-      position: absolute;
-      inset: 0;
+    .bench-image {
       width: 100%;
       height: 100%;
       object-fit: cover;
-      object-position: center;
+      object-position: center 30%;
     }
-    .td-cover-img {
+    .unit-image {
       position: absolute;
-      /* center on the table surface — approx middle of image */
-      top: 30%;
       left: 50%;
-      transform: translate(-50%, -50%);
-      width: 52%;
-      max-height: 44%;
-      object-fit: contain;
-      border-radius: 6px;
-      /* subtle drop shadow so it pops against table surface */
-      filter: drop-shadow(0 2px 8px rgba(0,0,0,0.7));
+      top: 28%;
+      width: 55%;
+      transform: translateX(-50%);
+      z-index: 2;
+      filter: drop-shadow(0 22px 26px rgba(0,0,0,0.45));
+      pointer-events: none;
     }
     .td-empty-label {
       position: absolute;
@@ -140,6 +134,11 @@
       color: #374151;
       text-transform: uppercase;
       pointer-events: none;
+      z-index: 2;
+    }
+    @media (max-width: 600px) {
+      .bench-scene { height: 300px; }
+      .unit-image  { width: 68%; top: 24%; }
     }
 
     /* ── INFO SECTION ── */
@@ -424,8 +423,8 @@
             <span class="td-table-label">TABLE ${n}</span>
             <span style="font-size:0.58rem;color:#374151">EMPTY</span>
           </div>
-          <div class="td-img-wrap">
-            <img class="td-table-img" src="teardown-table.png" alt="Table ${n}" onerror="this.style.display='none'"/>
+          <div class="bench-scene">
+            <img class="bench-image" src="teardown-table.png" alt="Table ${n}" onerror="this.style.display='none'"/>
             <div class="td-empty-label">EMPTY</div>
           </div>
           <div class="td-info" style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px">
@@ -480,10 +479,11 @@
           ${txName ? `<span class="td-tx-name">${esc(txName)}</span>` : ''}
         </div>
 
-        <div class="td-img-wrap">
-          <img class="td-table-img" src="teardown-table.png" alt="Table ${n}" onerror="this.style.display='none'"/>
-          ${coverHtml}
-          ${!coverImg ? `<div class="td-empty-label" style="color:#4b5563">NO IMAGE</div>` : ''}
+        <div class="bench-scene">
+          <img class="bench-image" src="teardown-table.png" alt="Table ${n}" onerror="this.style.display='none'"/>
+          ${coverImg
+            ? `<img class="unit-image" src="${esc(coverImg)}" alt="${esc(txName)}" onerror="console.warn('[teardown] cover img failed:', this.src); this.style.display='none'"/>`
+            : `<div class="td-empty-label">NO IMAGE</div>`}
         </div>
 
         <div class="td-info">
