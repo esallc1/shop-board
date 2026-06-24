@@ -285,6 +285,8 @@
 </div>
 
 <script>
+  console.log('teardown script loaded');
+
   /* ── SUPABASE CONFIG ── */
   const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
@@ -310,6 +312,10 @@
   /* ── LOAD DATA ── */
   async function loadAll() {
     try {
+      // Diagnostic: unfiltered teardowns query to confirm RLS + data
+      const probe = await sbFetch('teardowns?select=id,table_number&limit=5');
+      console.log('[teardown] probe (no filter):', JSON.stringify(probe));
+
       // Single query: teardowns + nested transmissions via FK join + parts
       const [tdRows, lifts] = await Promise.all([
         sbFetch('teardowns?select=id,table_number,tech_name,ro_number,transmission_id,date,updated_at,transmissions(name,cover_image),teardown_parts(name,status,sort_order)&table_number=in.(1,2,3,4)&order=updated_at.desc'),
