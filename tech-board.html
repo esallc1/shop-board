@@ -198,6 +198,60 @@
 
     .no-vehicle-small { font-size:0.58rem; color:#374151; font-style:italic; }
 
+    /* TECH WHITEBOARD */
+    .whiteboard-section {
+      position: relative; z-index: 1;
+      padding: 0 14px 36px;
+    }
+    .whiteboard-title {
+      font-size: 0.58rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 2px; color: #4b5563; text-align: center; margin-bottom: 12px;
+    }
+    .whiteboard-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+    }
+    .wb-card {
+      background: #111827; border: 2px solid #1e293b; border-radius: 12px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .wb-card-header {
+      padding: 11px 14px 10px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .wb-tech-name {
+      font-size: 1.1rem; font-weight: 900; text-transform: uppercase; letter-spacing: 1.5px;
+    }
+    .wb-status-dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    }
+    .wb-divider { height: 1px; background: #1e293b; }
+    .wb-block { padding: 9px 14px; }
+    .wb-block-label {
+      font-size: 0.5rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 1.5px; color: #4b5563; margin-bottom: 5px;
+    }
+    .wb-ro   { font-size: 0.85rem; font-weight: 800; color: #f5c518; }
+    .wb-veh  { font-size: 0.7rem; color: #9ca3af; margin-top: 2px; }
+    .wb-badge {
+      display: inline-block; margin-top: 5px;
+      font-size: 0.58rem; font-weight: 700; padding: 2px 7px; border-radius: 4px;
+    }
+    .wb-next-field {
+      width: 100%; background: #0a0e1a; border: 1px solid #1e293b;
+      border-radius: 6px; padding: 7px 9px;
+      font-size: 0.72rem; color: #e0e0e0; font-family: inherit;
+      resize: none; height: 64px; outline: none; box-sizing: border-box;
+      transition: border-color 0.2s;
+    }
+    .wb-next-field:focus { border-color: #374151; }
+    .wb-next-field::placeholder { color: #2d3748; font-style: italic; }
+    @media (max-width: 960px) {
+      .whiteboard-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 500px) {
+      .whiteboard-grid { grid-template-columns: 1fr; }
+    }
+
     .realtime-dot {
       display:inline-block; width:6px; height:6px; border-radius:50%;
       background:#22c55e; margin-right:4px;
@@ -257,6 +311,12 @@
   </div>
 </div>
 
+<!-- TECH WHITEBOARD -->
+<div class="whiteboard-section">
+  <div class="whiteboard-title">⬜ Tech Whiteboard</div>
+  <div class="whiteboard-grid" id="whiteboardGrid"></div>
+</div>
+
 <script>
   /* ---- SUPABASE CONFIG ---- */
   const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
@@ -285,6 +345,8 @@
   ];
 
   const TECH_LIST = ['Unassigned','Capote','Cory','Alex','Cuba'];
+  const NAMED_TECHS = ['Capote','Cory','Alex','Cuba'];
+  const TECH_COLOR = { Capote:'#f59e0b', Cory:'#22d3ee', Alex:'#4ade80', Cuba:'#a78bfa' };
 
   const TECH_STATUS_LABEL = {
     'available':     'Available',
@@ -322,6 +384,7 @@
 
   /* ---- STATE ---- */
   let allVehicles = [];
+  let whiteboardData = {}; // { techName: nextJobText }
 
   async function loadAll() {
     try {
@@ -359,6 +422,7 @@
     renderStageCards();
     renderCenter();
     renderStats();
+    renderWhiteboard();
   }
 
   function renderRing() {
@@ -481,6 +545,96 @@
     `;
   }
 
+  /* ---- WHITEBOARD ---- */
+  async function loadWhiteboard() {
+    try {
+      const rows = await sbFetch('/rest/v1/tech_whiteboard?select=*');
+      if (Array.isArray(rows)) {
+        rows.forEach(r => { whiteboardData[r.tech_name] = r.next_job || ''; });
+      }
+    } catch(e) {}
+    renderWhiteboard();
+  }
+
+  function renderWhiteboard() {
+    const grid = document.getElementById('whiteboardGrid');
+    if (!grid) return;
+
+    const STATUS_BG = {
+      'working':       '#14532d',
+      'waiting-parts': '#78350f',
+      'waiting-info':  '#1e3a5f',
+      'road-testing':  '#4c1d95',
+      'finished':      '#164e63',
+      'available':     '#111827',
+    };
+    const STATUS_COLOR = {
+      'working':       '#86efac',
+      'waiting-parts': '#fcd34d',
+      'waiting-info':  '#93c5fd',
+      'road-testing':  '#c4b5fd',
+      'finished':      '#67e8f9',
+      'available':     '#4b5563',
+    };
+
+    grid.innerHTML = NAMED_TECHS.map(tech => {
+      const color = TECH_COLOR[tech];
+      const assigned = allVehicles.filter(v => v.assigned_tech === tech);
+      const current  = assigned.find(v => v.tech_status && v.tech_status !== 'finished' && v.tech_status !== 'available');
+      const ts       = current?.tech_status || 'available';
+      const tsLabel  = TECH_STATUS_LABEL[ts] || ts;
+      const dotColor = { working:'#16a34a','waiting-parts':'#d97706','waiting-info':'#2563eb','road-testing':'#7c3aed','finished':'#0891b2','available':'#374151' }[ts] || '#374151';
+      const nextText = whiteboardData[tech] || '';
+
+      return `
+        <div class="wb-card" style="border-color:${color}40;">
+          <div class="wb-card-header" style="background:${color}18;">
+            <div class="wb-tech-name" style="color:${color}">${esc(tech)}</div>
+            <div class="wb-status-dot" style="background:${dotColor}"></div>
+          </div>
+          <div class="wb-divider"></div>
+          <div class="wb-block">
+            <div class="wb-block-label">Working On</div>
+            ${current
+              ? `<div class="wb-ro">${esc(current.po)}</div>
+                 <div class="wb-veh">${esc(current.vehicle)}</div>
+                 <span class="wb-badge" style="background:${STATUS_BG[ts]};color:${STATUS_COLOR[ts]}">${tsLabel}</span>`
+              : `<div style="font-size:0.68rem;color:#374151;font-style:italic;">No active job</div>`
+            }
+          </div>
+          <div class="wb-divider"></div>
+          <div class="wb-block" style="flex:1;">
+            <div class="wb-block-label">Up Next</div>
+            <textarea
+              class="wb-next-field"
+              placeholder="Write what's next…"
+              data-tech="${esc(tech)}"
+              onblur="saveNextJob(this)"
+            >${esc(nextText)}</textarea>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function saveNextJob(el) {
+    const tech = el.dataset.tech;
+    const text = el.value;
+    whiteboardData[tech] = text;
+    try {
+      await fetch(SUPABASE_URL + '/rest/v1/tech_whiteboard', {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': 'Bearer ' + SUPABASE_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates',
+        },
+        body: JSON.stringify({ tech_name: tech, next_job: text }),
+      });
+    } catch(e) {}
+  }
+
   /* ---- REALTIME ---- */
   function connectRealtime() {
     try {
@@ -516,6 +670,7 @@
   }
 
   loadAll();
+  loadWhiteboard();
   connectRealtime();
   setInterval(loadAll, 30000);
   tick();
