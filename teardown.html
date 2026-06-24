@@ -230,6 +230,73 @@
       border-top: 1px solid #1e2d4a;
     }
 
+    /* ── ACTION BUTTONS (Clear / Place) ── */
+    .td-actions {
+      display: flex;
+      gap: 6px;
+      padding: 7px 10px;
+      border-top: 1px solid #1e2d4a;
+      justify-content: flex-end;
+    }
+    .action-btn {
+      font-size: 0.6rem;
+      font-weight: 700;
+      padding: 4px 11px;
+      border-radius: 5px;
+      border: 1px solid #374151;
+      background: #1f2937;
+      color: #9ca3af;
+      cursor: pointer;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .action-btn:hover { background: #374151; color: #e0e0e0; }
+    .action-btn.danger  { background: #1a0505; color: #f87171; border-color: #7f1d1d; }
+    .action-btn.danger:hover { background: #7f1d1d; color: #fff; }
+    .action-btn.primary { background: #1a1200; color: #f5c518; border-color: #78350f; }
+    .action-btn.primary:hover { background: #78350f; color: #fff; }
+
+    /* ── PLACE-UNIT FORM ── */
+    .place-form {
+      padding: 12px 12px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      flex: 1;
+    }
+    .place-form-title {
+      font-size: 0.58rem;
+      font-weight: 800;
+      letter-spacing: 2px;
+      color: #f5c518;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+    .place-form label {
+      font-size: 0.58rem;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: -3px;
+    }
+    .place-form input,
+    .place-form select {
+      width: 100%;
+      padding: 5px 8px;
+      font-size: 0.68rem;
+      background: #0d1220;
+      color: #e0e0e0;
+      border: 1px solid #374151;
+      border-radius: 5px;
+    }
+    .place-form input:focus,
+    .place-form select:focus { outline: none; border-color: #f59e0b; }
+    .place-form-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+    }
+
     /* ── LOADING SKELETON ── */
     .skeleton {
       background: linear-gradient(90deg, #1e293b 25%, #243047 50%, #1e293b 75%);
@@ -286,13 +353,30 @@
     }).then(r => r.json());
   }
 
+  async function sbMutate(method, path, body) {
+    const opts = {
+      method,
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      },
+    };
+    if (body != null) opts.body = JSON.stringify(body);
+    const r = await fetch(SUPABASE_URL + '/rest/v1/' + path, opts);
+    return r.json().catch(() => null);
+  }
+
   function esc(s) {
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
   /* ── STATE ── */
+  const TECH_LIST = ['Unassigned','Capote','Cory','Alex','Cuba'];
   let tableData = { 1: null, 2: null, 3: null, 4: null };
   let firstLoad = true;
+  let uiState = { mode: null }; // null | { type:'place', table:1-4 }
 
   /* ── LOAD DATA ── */
   async function loadAll() {
@@ -393,9 +477,10 @@
   /* Fingerprint a card's data so we can skip DOM updates when nothing changed */
   function cardKey(n) {
     const d = tableData[n];
-    if (!d) return 'empty';
+    const modeFlag = (uiState.mode?.table === n) ? uiState.mode.type : '';
+    if (!d) return 'empty|' + modeFlag;
     const { td, parts } = d;
-    return [td.id, td.updated_at, td.tech_name, td.ro_number, td.table_number, parts.length].join('|');
+    return [td.id, td.updated_at, td.tech_name, td.ro_number, td.table_number, parts.length, modeFlag].join('|');
   }
 
   function renderCard(n) {
@@ -403,18 +488,25 @@
     const key   = cardKey(n);
 
     if (!data) {
+      const isPlacing = uiState.mode?.table === n;
       return `
         <div class="td-card empty-card" data-key="${key}">
           <div class="td-card-header">
             <span class="td-table-label">TABLE ${n}</span>
-            <span style="font-size:0.58rem;color:#374151">EMPTY</span>
+            <span style="font-size:0.58rem;color:#374151">OPEN</span>
           </div>
           <div class="bench-scene">
-            <div class="td-empty-label">EMPTY</div>
+            <div class="td-empty-label">OPEN</div>
           </div>
-          <div class="td-info" style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px">
-            <span style="font-size:0.65rem;color:#374151;letter-spacing:1px">No active teardown</span>
-          </div>
+          ${isPlacing
+            ? renderPlaceForm(n)
+            : `<div class="td-info" style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px">
+                 <span style="font-size:0.65rem;color:#374151;letter-spacing:1px">No active teardown</span>
+               </div>
+               <div class="td-actions">
+                 <button class="action-btn primary" onclick="startPlace(${n})">+ Place Unit</button>
+               </div>`
+          }
         </div>
       `;
     }
@@ -457,6 +549,7 @@
       </div>`;
     }).join('');
 
+    const isPlacing = uiState.mode?.table === n;
     return `
       <div class="td-card active" data-key="${esc(key)}">
         <div class="td-card-header">
@@ -470,6 +563,7 @@
             : `<div class="td-empty-label">NO IMAGE</div>`}
         </div>
 
+        ${isPlacing ? renderPlaceForm(n) : `
         <div class="td-info">
           ${roNum    ? `<div class="td-ro-line">RO# ${esc(roNum)}</div>` : ''}
           ${customer ? `<div class="td-customer-line">👤 ${esc(customer)}</div>` : ''}
@@ -489,8 +583,98 @@
         <div class="td-footer">
           Last edited: ${esc(updatedAt || createdAt)}
         </div>
+        <div class="td-actions">
+          <button class="action-btn primary" onclick="startPlace(${n})">Replace Unit</button>
+          <button class="action-btn danger"  onclick="clearTable(${n})">Clear Table</button>
+        </div>
+        `}
       </div>
     `;
+  }
+
+  /* ── CARD ACTION HELPERS ── */
+  function rerenderCard(n) {
+    const grid = document.getElementById('cardsGrid');
+    const existing = grid.children[n - 1];
+    const tmp = document.createElement('div');
+    tmp.innerHTML = renderCard(n);
+    const newEl = tmp.firstElementChild;
+    if (existing) grid.replaceChild(newEl, existing);
+  }
+
+  function renderPlaceForm(n) {
+    const techOpts = TECH_LIST.map(t => `<option value="${t}">${t}</option>`).join('');
+    return `
+      <div class="place-form">
+        <div class="place-form-title">Place Unit — Table ${n}</div>
+        <label>RO #</label>
+        <input id="place-ro-${n}" type="text" placeholder="RO Number" />
+        <label>Tech</label>
+        <select id="place-tech-${n}">${techOpts}</select>
+        <label>Transmission Unit</label>
+        <input id="place-unit-${n}" type="text" placeholder="e.g. 62TE, 6L80" />
+        <div class="place-form-actions">
+          <button class="action-btn primary" onclick="submitPlace(${n})">Place</button>
+          <button class="action-btn" onclick="cancelPlace(${n})">Cancel</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function startPlace(n) {
+    uiState.mode = { type: 'place', table: n };
+    rerenderCard(n);
+  }
+
+  function cancelPlace(n) {
+    uiState.mode = null;
+    rerenderCard(n);
+  }
+
+  async function clearTable(n) {
+    if (!confirm(`Clear Table ${n}? This will remove the active teardown.`)) return;
+    const data = tableData[n];
+    if (!data) return;
+    try {
+      await sbMutate('DELETE', `teardowns?id=eq.${data.td.id}`, null);
+      tableData[n] = null;
+      rerenderCard(n);
+    } catch(e) {
+      console.error('[teardown] clearTable failed', e);
+      alert('Failed to clear table. Check console.');
+    }
+  }
+
+  async function submitPlace(n) {
+    const ro   = (document.getElementById(`place-ro-${n}`)?.value || '').trim();
+    const tech = document.getElementById(`place-tech-${n}`)?.value || 'Unassigned';
+    const unit = (document.getElementById(`place-unit-${n}`)?.value || '').trim();
+
+    if (!ro) { alert('RO # is required.'); return; }
+
+    try {
+      // Look up transmission by name if provided
+      let txId = null;
+      if (unit) {
+        const txRows = await sbFetch('transmissions?select=id,name&name=ilike.' + encodeURIComponent(unit) + '&limit=1');
+        if (txRows && txRows.length > 0) txId = txRows[0].id;
+      }
+
+      const today = new Date().toISOString().slice(0, 10);
+      await sbMutate('POST', 'teardowns', {
+        table_number: n,
+        ro_number: ro,
+        tech_name: tech === 'Unassigned' ? '' : tech,
+        transmission_id: txId,
+        date: today,
+      });
+
+      uiState.mode = null;
+      await loadAll();
+    } catch(e) {
+      console.error('[teardown] submitPlace failed', e);
+      alert('Failed to place unit. Check console.');
+    }
   }
 
   /* ── REALTIME ── */
