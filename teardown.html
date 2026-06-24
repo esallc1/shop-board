@@ -294,6 +294,7 @@
       headers: {
         'apikey': SUPABASE_KEY,
         'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Accept': 'application/json',
       }
     }).then(r => r.json());
   }
@@ -304,71 +305,111 @@
 
   /* ── STATE ── */
   let tableData = { 1: null, 2: null, 3: null, 4: null };
+  let firstLoad = true;
 
   /* ── LOAD DATA ── */
   async function loadAll() {
     try {
-      // 1. Fetch most recent teardown per table_number (1–4)
+      // Single query: teardowns + nested transmissions via FK join + parts
       const [tdRows, lifts] = await Promise.all([
-        sbFetch('teardowns?select=id,table_number,tech_name,ro_number,transmission_id,date,updated_at&table_number=in.(1,2,3,4)&order=updated_at.desc'),
+        sbFetch('teardowns?select=id,table_number,tech_name,ro_number,transmission_id,date,updated_at,transmissions(name,cover_image),teardown_parts(name,status,sort_order)&table_number=in.(1,2,3,4)&order=updated_at.desc'),
         sbFetch('shopboard_lifts?select=po,customer,vehicle&order=id'),
       ]);
 
-      // Pick most recent teardown per table
+      console.log('[teardown] raw rows:', JSON.stringify(tdRows?.slice(0,4), null, 2));
+
+      // Pick most recent teardown per table (already ordered desc)
       const byTable = {};
       (tdRows || []).forEach(td => {
         const t = td.table_number;
-        if (t && !byTable[t]) byTable[t] = td; // already ordered desc, first = most recent
+        if (t && !byTable[t]) byTable[t] = td;
       });
 
-      // 2. For each active teardown, fetch parts + transmission in parallel
-      const activeTds = Object.values(byTable);
-      const [partsResults, txResults] = await Promise.all([
-        Promise.all(activeTds.map(td =>
-          sbFetch('teardown_parts?select=name,status,sort_order&teardown_id=eq.' + td.id + '&order=sort_order')
-        )),
-        Promise.all(activeTds.map(td =>
-          td.transmission_id
-            ? sbFetch('transmissions?select=name,cover_image&id=eq.' + td.transmission_id).then(r => r[0] || null)
-            : Promise.resolve(null)
-        )),
-      ]);
+      console.log('[teardown] byTable:', JSON.stringify(Object.fromEntries(
+        Object.entries(byTable).map(([k,v]) => [k, {
+          id: v.id, tx_id: v.transmission_id,
+          tx: v.transmissions, cover: v.transmissions?.cover_image,
+          parts: v.teardown_parts?.length
+        }])
+      ), null, 2));
 
-      // 3. Build lookup: po → lift row (for customer + vehicle)
+      // Build lift lookup: po → lift row
       const liftMap = {};
       (lifts || []).forEach(l => {
         if (l.po) liftMap[String(l.po).trim().toLowerCase()] = l;
       });
 
-      // 4. Assemble tableData
-      tableData = { 1: null, 2: null, 3: null, 4: null };
-      activeTds.forEach((td, i) => {
-        const parts = partsResults[i] || [];
-        const tx    = txResults[i];
+      // Assemble tableData
+      const newTableData = { 1: null, 2: null, 3: null, 4: null };
+      Object.values(byTable).forEach(td => {
+        const tx    = td.transmissions || null;
+        const parts = (td.teardown_parts || []).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
         const roKey = String(td.ro_number || '').trim().toLowerCase();
         const lift  = liftMap[roKey] || null;
-        tableData[td.table_number] = { td, parts, tx, lift };
+        newTableData[td.table_number] = { td, parts, tx, lift };
       });
 
+      tableData = newTableData;
       render();
     } catch(e) {
-      console.error('loadAll failed', e);
+      console.error('[teardown] loadAll failed', e);
     }
   }
 
-  /* ── RENDER ── */
+  /* ── RENDER — diff per card, no full-grid wipe ── */
   function render() {
     const grid = document.getElementById('cardsGrid');
-    grid.innerHTML = [1, 2, 3, 4].map(n => renderCard(n)).join('');
+
+    if (firstLoad) {
+      // First paint: replace skeletons all at once
+      grid.innerHTML = [1, 2, 3, 4].map(n => renderCard(n)).join('');
+      firstLoad = false;
+      return;
+    }
+
+    // Subsequent updates: diff each card slot individually
+    const existingCards = grid.children;
+    [1, 2, 3, 4].forEach((n, i) => {
+      const newHtml = renderCard(n);
+      // Create a temp wrapper to get the new element
+      const tmp = document.createElement('div');
+      tmp.innerHTML = newHtml;
+      const newEl = tmp.firstElementChild;
+
+      const existing = existingCards[i];
+      if (!existing) {
+        grid.appendChild(newEl);
+        return;
+      }
+
+      // Only swap if content actually changed (compare data-key attributes)
+      const newKey = cardKey(n);
+      if (existing.dataset.key !== newKey) {
+        // Preserve scroll position of parts list before swap
+        const oldParts = existing.querySelector('.td-parts');
+        const scrollTop = oldParts ? oldParts.scrollTop : 0;
+        grid.replaceChild(newEl, existing);
+        const newParts = newEl.querySelector('.td-parts');
+        if (newParts && scrollTop) newParts.scrollTop = scrollTop;
+      }
+    });
+  }
+
+  /* Fingerprint a card's data so we can skip DOM updates when nothing changed */
+  function cardKey(n) {
+    const d = tableData[n];
+    if (!d) return 'empty';
+    const { td, parts } = d;
+    return [td.id, td.updated_at, td.tech_name, td.ro_number, td.table_number, parts.length].join('|');
   }
 
   function renderCard(n) {
-    const data = tableData[n];
-    const isEmpty = !data;
+    const data  = tableData[n];
+    const key   = cardKey(n);
 
-    if (isEmpty) {
+    if (!data) {
       return `
-        <div class="td-card empty-card">
+        <div class="td-card empty-card" data-key="${key}">
           <div class="td-card-header">
             <span class="td-table-label">TABLE ${n}</span>
             <span style="font-size:0.58rem;color:#374151">EMPTY</span>
@@ -386,44 +427,44 @@
 
     const { td, parts, tx, lift } = data;
 
-    // Parts summary counts
     const failed  = parts.filter(p => p.status === 'Failed').length;
     const worn    = parts.filter(p => p.status === 'Worn').length;
     const ok      = parts.filter(p => p.status === 'OK').length;
     const needsId = parts.filter(p => p.status === 'Needs ID').length;
 
-    const txName     = tx?.name || '';
-    const coverImg   = tx?.cover_image || '';
-    const techName   = td.tech_name || '';
-    const roNum      = td.ro_number || '';
-    const customer   = lift?.customer || '';
-    const vehicle    = lift?.vehicle || '';
-    const updatedAt  = td.updated_at ? new Date(td.updated_at).toLocaleString() : '';
-    const createdAt  = td.date ? new Date(td.date).toLocaleString() : '';
+    const txName    = tx?.name || '';
+    const coverImg  = tx?.cover_image || '';
+    const techName  = td.tech_name || '';
+    const roNum     = td.ro_number || '';
+    const customer  = lift?.customer || '';
+    const vehicle   = lift?.vehicle || '';
+    const updatedAt = td.updated_at ? new Date(td.updated_at).toLocaleString() : '';
+    const createdAt = td.date ? new Date(td.date).toLocaleString() : '';
+
+    console.log(`[teardown] card ${n}: tx="${txName}" cover="${coverImg}"`);
 
     const coverHtml = coverImg
-      ? `<img class="td-cover-img" src="${esc(coverImg)}" alt="${esc(txName)}" onerror="this.style.display='none'"/>`
+      ? `<img class="td-cover-img" src="${esc(coverImg)}" alt="${esc(txName)}"
+           onerror="console.warn('[teardown] cover img failed to load:', this.src); this.style.display='none'"/>`
       : '';
 
     const summaryBadges = [
-      failed  > 0 ? `<span class="td-badge failed">🔴 ${failed} Failed</span>`   : '',
-      worn    > 0 ? `<span class="td-badge worn">🟡 ${worn} Worn</span>`          : '',
-      ok      > 0 ? `<span class="td-badge ok">🟢 ${ok} OK</span>`              : '',
+      failed  > 0 ? `<span class="td-badge failed">🔴 ${failed} Failed</span>`    : '',
+      worn    > 0 ? `<span class="td-badge worn">🟡 ${worn} Worn</span>`           : '',
+      ok      > 0 ? `<span class="td-badge ok">🟢 ${ok} OK</span>`               : '',
       needsId > 0 ? `<span class="td-badge needsid">⚪ ${needsId} Needs ID</span>` : '',
     ].filter(Boolean).join('');
 
     const partsList = parts.map(p => {
       const cls = p.status === 'Needs ID' ? 'NeedsID' : p.status;
-      return `
-        <div class="part-row">
-          <span class="part-name">${esc(p.name)}</span>
-          <span class="part-badge ${cls}">${esc(p.status)}</span>
-        </div>
-      `;
+      return `<div class="part-row">
+        <span class="part-name">${esc(p.name)}</span>
+        <span class="part-badge ${cls}">${esc(p.status)}</span>
+      </div>`;
     }).join('');
 
     return `
-      <div class="td-card active">
+      <div class="td-card active" data-key="${esc(key)}">
         <div class="td-card-header">
           <span class="td-table-label">TABLE ${n}</span>
           ${txName ? `<span class="td-tx-name">${esc(txName)}</span>` : ''}
@@ -436,9 +477,9 @@
         </div>
 
         <div class="td-info">
-          ${roNum ? `<div class="td-ro-line">RO# ${esc(roNum)}</div>` : ''}
+          ${roNum    ? `<div class="td-ro-line">RO# ${esc(roNum)}</div>` : ''}
           ${customer ? `<div class="td-customer-line">👤 ${esc(customer)}</div>` : ''}
-          ${vehicle  ? `<div class="td-vehicle-line">🚗 ${esc(vehicle)}</div>`  : ''}
+          ${vehicle  ? `<div class="td-vehicle-line">🚗 ${esc(vehicle)}</div>` : ''}
           ${techName ? `<div class="td-tech-line">🔧 Tech: ${esc(techName)}</div>` : ''}
           <div class="td-ts-line">Started: ${esc(createdAt)}</div>
         </div>
@@ -448,8 +489,7 @@
         <div class="td-parts">
           ${parts.length > 0
             ? `<div class="td-parts-title">Parts (${parts.length})</div>${partsList}`
-            : `<div style="font-size:0.6rem;color:#374151;padding:8px 0;font-style:italic">No parts logged yet</div>`
-          }
+            : `<div style="font-size:0.6rem;color:#374151;padding:8px 0;font-style:italic">No parts logged yet</div>`}
         </div>
 
         <div class="td-footer">
