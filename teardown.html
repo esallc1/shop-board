@@ -102,59 +102,29 @@
       font-weight: 800;
     }
 
-    /* ── BENCH SCENE ── */
+    /* ── UNIT IMAGE AREA ── */
     .bench-scene {
-      position: relative;
-      height: 300px;
-      overflow: hidden;
-      background: linear-gradient(180deg, #111827 0%, #0b1220 100%);
+      width: 100%;
+      background: #0d1220;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
       flex-shrink: 0;
     }
-    .tabletop {
-      position: absolute;
-      left: 4%;
-      right: 4%;
-      bottom: 24px;
-      height: 150px;
-      border-radius: 10px;
-      background: linear-gradient(180deg, #d7dce1 0%, #aab2ba 45%, #747d86 100%);
-      box-shadow:
-        inset 0 2px 0 rgba(255,255,255,0.65),
-        inset 0 -8px 18px rgba(0,0,0,0.28),
-        0 24px 35px rgba(0,0,0,0.45);
-      transform: perspective(600px) rotateX(8deg);
-      transform-origin: center bottom;
-    }
     .unit-image {
-      position: absolute;
-      left: 50%;
-      bottom: 95px;
-      width: 62%;
-      max-height: 190px;
+      width: 100%;
+      max-height: 220px;
       object-fit: contain;
-      transform: translateX(-50%);
-      z-index: 2;
-      filter: drop-shadow(0 24px 22px rgba(0,0,0,0.50));
-      pointer-events: none;
-      mix-blend-mode: multiply;
+      display: block;
+      border-radius: 6px;
     }
     .td-empty-label {
-      position: absolute;
-      top: 44%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       font-weight: 800;
       letter-spacing: 4px;
       color: #374151;
       text-transform: uppercase;
-      pointer-events: none;
-      z-index: 2;
-    }
-    @media (max-width: 700px) {
-      .bench-scene { height: 260px; }
-      .unit-image  { width: 72%; bottom: 82px; }
-      .tabletop    { height: 130px; bottom: 20px; }
     }
 
     /* ── INFO SECTION ── */
@@ -440,7 +410,6 @@
             <span style="font-size:0.58rem;color:#374151">EMPTY</span>
           </div>
           <div class="bench-scene">
-            <div class="tabletop"></div>
             <div class="td-empty-label">EMPTY</div>
           </div>
           <div class="td-info" style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px">
@@ -496,7 +465,6 @@
         </div>
 
         <div class="bench-scene">
-          <div class="tabletop"></div>
           ${coverImg
             ? `<img class="unit-image" src="${esc(coverImg)}" alt="${esc(txName)}" onerror="console.warn('[teardown] cover img failed:', this.src); this.style.display='none'"/>`
             : `<div class="td-empty-label">NO IMAGE</div>`}
