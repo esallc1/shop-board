@@ -404,6 +404,7 @@
         <th style="width:155px">Status</th>
         <th style="width:95px">Arrival</th>
         <th>Notes</th>
+        <th style="width:120px">Tech</th>
         <th style="width:140px">Actions</th>
       </tr></thead>
       <tbody id="parkingBody"></tbody>
@@ -1024,6 +1025,9 @@
         </select></td>
         <td><input type="date" data-id="${car.id}" data-field="arrival_date" value="${esc(car.arrival_date||'')}"/></td>
         <td><textarea placeholder="Notes..." data-id="${car.id}" data-field="notes">${esc(car.notes||'')}</textarea></td>
+        <td><select data-id="${car.id}" data-field="assigned_tech">
+          ${TECH_LIST.map(t=>`<option value="${t}"${(car.assigned_tech||'Unassigned')===t?' selected':''}>${t}</option>`).join('')}
+        </select></td>
         <td style="white-space:nowrap;vertical-align:middle">
           <div style="display:flex;flex-wrap:wrap;gap:3px;align-items:center">
             ${free.length
