@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lee Transmission - Teardown Tables</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0b1120 url('shop-bg.jpg') center center / cover no-repeat fixed;
+      color: #e0e0e0;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: rgba(7, 10, 22, 0.86);
+      z-index: 0;
+      pointer-events: none;
+    }
+    header, .cards-outer { position: relative; z-index: 1; }
+
+    /* ── HEADER ── */
+    header {
+      text-align: center;
+      padding: 12px 14px 8px;
+    }
+    header h1 {
+      font-size: 1.15rem;
+      color: #f5c518;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+    header p { font-size: 0.65rem; color: #4b5563; margin-top: 2px; }
+    .header-toolbar {
+      display: flex; gap: 8px; justify-content: center;
+      margin-top: 8px; flex-wrap: wrap;
+    }
+    .tool-btn {
+      font-size: 0.65rem; font-weight: 600; padding: 5px 14px;
+      border-radius: 5px; border: 1px solid #374151;
+      background: #1f2937; color: #9ca3af; cursor: pointer;
+    }
+    .tool-btn:hover { background: #374151; color: #e0e0e0; }
+    .tool-btn.blue  { background: #0f1f3d; color: #93c5fd; border-color: #2563eb; }
+    .tool-btn.teal  { background: #0a2020; color: #22d3ee; border-color: #0e7490; }
+
+    /* ── REALTIME DOT ── */
+    .realtime-dot {
+      display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+      background: #22c55e; margin-right: 5px;
+      animation: pulse 2s infinite; vertical-align: middle;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    /* ── CARDS GRID ── */
+    .cards-outer {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      padding: 14px 16px 20px;
+    }
+
+    /* ── TEARDOWN CARD ── */
+    .td-card {
+      background: #111827;
+      border: 2px solid #1e2d4a;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: border-color 0.3s;
+      min-height: 520px;
+    }
+    .td-card.active   { border-color: #f59e0b; }
+    .td-card.empty-card { border-color: #1e2d4a; opacity: 0.65; }
+
+    /* card header strip */
+    .td-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 10px 5px;
+      border-bottom: 1px solid #1e2d4a;
+    }
+    .td-table-label {
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: #f5c518;
+    }
+    .td-tx-name {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #e0e0e0;
+    }
+
+    /* ── TABLE PHOTO + COVER OVERLAY ── */
+    .td-img-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4/3;
+      overflow: hidden;
+      background: #0d1424;
+      flex-shrink: 0;
+    }
+    .td-table-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+    }
+    .td-cover-img {
+      position: absolute;
+      /* center on the table surface — approx middle of image */
+      top: 30%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 52%;
+      max-height: 44%;
+      object-fit: contain;
+      border-radius: 6px;
+      /* subtle drop shadow so it pops against table surface */
+      filter: drop-shadow(0 2px 8px rgba(0,0,0,0.7));
+    }
+    .td-empty-label {
+      position: absolute;
+      top: 44%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 0.8rem;
+      font-weight: 800;
+      letter-spacing: 4px;
+      color: #374151;
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+
+    /* ── INFO SECTION ── */
+    .td-info {
+      padding: 8px 10px 4px;
+      border-bottom: 1px solid #1e2d4a;
+    }
+    .td-ro-line {
+      font-size: 0.68rem;
+      font-weight: 700;
+      color: #f5c518;
+      margin-bottom: 2px;
+    }
+    .td-customer-line {
+      font-size: 0.62rem;
+      color: #9ca3af;
+      margin-bottom: 1px;
+    }
+    .td-vehicle-line {
+      font-size: 0.62rem;
+      color: #cbd5e1;
+    }
+    .td-tech-line {
+      font-size: 0.6rem;
+      color: #6b7280;
+      margin-top: 3px;
+    }
+    .td-ts-line {
+      font-size: 0.58rem;
+      color: #4b5563;
+      margin-top: 2px;
+    }
+
+    /* ── PARTS SUMMARY BADGES ── */
+    .td-summary {
+      display: flex;
+      gap: 5px;
+      padding: 6px 10px;
+      border-bottom: 1px solid #1e2d4a;
+      flex-wrap: wrap;
+    }
+    .td-badge {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      font-size: 0.6rem;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 20px;
+    }
+    .td-badge.failed  { background: #7f1d1d; color: #fca5a5; }
+    .td-badge.worn    { background: #78350f; color: #fcd34d; }
+    .td-badge.ok      { background: #14532d; color: #86efac; }
+    .td-badge.needsid { background: #1e1b4b; color: #a5b4fc; }
+
+    /* ── PARTS LIST ── */
+    .td-parts {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 8px;
+    }
+    .td-parts-title {
+      font-size: 0.56rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #374151;
+      margin-bottom: 4px;
+    }
+    .part-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 3px 0;
+      border-bottom: 1px solid #0d1424;
+      gap: 6px;
+    }
+    .part-name {
+      font-size: 0.6rem;
+      color: #cbd5e1;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .part-badge {
+      font-size: 0.52rem;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 10px;
+      flex-shrink: 0;
+    }
+    .part-badge.Failed   { background: #7f1d1d; color: #fca5a5; }
+    .part-badge.Worn     { background: #78350f; color: #fcd34d; }
+    .part-badge.OK       { background: #14532d; color: #86efac; }
+    .part-badge.NeedsID  { background: #1e1b4b; color: #a5b4fc; }
+
+    /* ── LAST EDITED FOOTER ── */
+    .td-footer {
+      padding: 5px 10px 7px;
+      font-size: 0.55rem;
+      color: #374151;
+      border-top: 1px solid #1e2d4a;
+    }
+
+    /* ── LOADING SKELETON ── */
+    .skeleton {
+      background: linear-gradient(90deg, #1e293b 25%, #243047 50%, #1e293b 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+      border-radius: 6px;
+      height: 14px;
+    }
+    @keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 900px) {
+      .cards-outer { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 500px) {
+      .cards-outer { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1><span class="realtime-dot"></span>Lee Transmission — Teardown Tables</h1>
+  <p id="clock"></p>
+  <div class="header-toolbar">
+    <button class="tool-btn blue" onclick="window.open('shop-board.html','_self')">← Shop Board</button>
+    <button class="tool-btn teal" onclick="window.open('tech-board.html','_self')">Flow</button>
+    <button class="tool-btn" onclick="loadAll()">Refresh</button>
+  </div>
+</header>
+
+<div class="cards-outer" id="cardsGrid">
+  <!-- 4 skeleton cards while loading -->
+  <div class="td-card"><div class="td-card-header"><span class="td-table-label">TABLE 1</span></div><div class="td-img-wrap"></div><div class="td-info" style="padding:12px 10px"><div class="skeleton" style="width:60%;margin-bottom:6px"></div><div class="skeleton" style="width:80%;margin-bottom:4px"></div><div class="skeleton" style="width:50%"></div></div></div>
+  <div class="td-card"><div class="td-card-header"><span class="td-table-label">TABLE 2</span></div><div class="td-img-wrap"></div><div class="td-info" style="padding:12px 10px"><div class="skeleton" style="width:60%;margin-bottom:6px"></div><div class="skeleton" style="width:80%;margin-bottom:4px"></div><div class="skeleton" style="width:50%"></div></div></div>
+  <div class="td-card"><div class="td-card-header"><span class="td-table-label">TABLE 3</span></div><div class="td-img-wrap"></div><div class="td-info" style="padding:12px 10px"><div class="skeleton" style="width:60%;margin-bottom:6px"></div><div class="skeleton" style="width:80%;margin-bottom:4px"></div><div class="skeleton" style="width:50%"></div></div></div>
+  <div class="td-card"><div class="td-card-header"><span class="td-table-label">TABLE 4</span></div><div class="td-img-wrap"></div><div class="td-info" style="padding:12px 10px"><div class="skeleton" style="width:60%;margin-bottom:6px"></div><div class="skeleton" style="width:80%;margin-bottom:4px"></div><div class="skeleton" style="width:50%"></div></div></div>
+</div>
+
+<script>
+  /* ── SUPABASE CONFIG ── */
+  const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+
+  function sbFetch(path) {
+    return fetch(SUPABASE_URL + '/rest/v1/' + path, {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+      }
+    }).then(r => r.json());
+  }
+
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  /* ── STATE ── */
+  let tableData = { 1: null, 2: null, 3: null, 4: null };
+
+  /* ── LOAD DATA ── */
+  async function loadAll() {
+    try {
+      // 1. Fetch most recent teardown per table_number (1–4)
+      const [tdRows, lifts] = await Promise.all([
+        sbFetch('teardowns?select=id,table_number,tech_name,ro_number,transmission_id,date,updated_at&table_number=in.(1,2,3,4)&order=updated_at.desc'),
+        sbFetch('shopboard_lifts?select=po,customer,vehicle&order=id'),
+      ]);
+
+      // Pick most recent teardown per table
+      const byTable = {};
+      (tdRows || []).forEach(td => {
+        const t = td.table_number;
+        if (t && !byTable[t]) byTable[t] = td; // already ordered desc, first = most recent
+      });
+
+      // 2. For each active teardown, fetch parts + transmission in parallel
+      const activeTds = Object.values(byTable);
+      const [partsResults, txResults] = await Promise.all([
+        Promise.all(activeTds.map(td =>
+          sbFetch('teardown_parts?select=name,status,sort_order&teardown_id=eq.' + td.id + '&order=sort_order')
+        )),
+        Promise.all(activeTds.map(td =>
+          td.transmission_id
+            ? sbFetch('transmissions?select=name,cover_image&id=eq.' + td.transmission_id).then(r => r[0] || null)
+            : Promise.resolve(null)
+        )),
+      ]);
+
+      // 3. Build lookup: po → lift row (for customer + vehicle)
+      const liftMap = {};
+      (lifts || []).forEach(l => {
+        if (l.po) liftMap[String(l.po).trim().toLowerCase()] = l;
+      });
+
+      // 4. Assemble tableData
+      tableData = { 1: null, 2: null, 3: null, 4: null };
+      activeTds.forEach((td, i) => {
+        const parts = partsResults[i] || [];
+        const tx    = txResults[i];
+        const roKey = String(td.ro_number || '').trim().toLowerCase();
+        const lift  = liftMap[roKey] || null;
+        tableData[td.table_number] = { td, parts, tx, lift };
+      });
+
+      render();
+    } catch(e) {
+      console.error('loadAll failed', e);
+    }
+  }
+
+  /* ── RENDER ── */
+  function render() {
+    const grid = document.getElementById('cardsGrid');
+    grid.innerHTML = [1, 2, 3, 4].map(n => renderCard(n)).join('');
+  }
+
+  function renderCard(n) {
+    const data = tableData[n];
+    const isEmpty = !data;
+
+    if (isEmpty) {
+      return `
+        <div class="td-card empty-card">
+          <div class="td-card-header">
+            <span class="td-table-label">TABLE ${n}</span>
+            <span style="font-size:0.58rem;color:#374151">EMPTY</span>
+          </div>
+          <div class="td-img-wrap">
+            <img class="td-table-img" src="teardown-table.png" alt="Table ${n}" onerror="this.style.display='none'"/>
+            <div class="td-empty-label">EMPTY</div>
+          </div>
+          <div class="td-info" style="flex:1;display:flex;align-items:center;justify-content:center;padding:20px">
+            <span style="font-size:0.65rem;color:#374151;letter-spacing:1px">No active teardown</span>
+          </div>
+        </div>
+      `;
+    }
+
+    const { td, parts, tx, lift } = data;
+
+    // Parts summary counts
+    const failed  = parts.filter(p => p.status === 'Failed').length;
+    const worn    = parts.filter(p => p.status === 'Worn').length;
+    const ok      = parts.filter(p => p.status === 'OK').length;
+    const needsId = parts.filter(p => p.status === 'Needs ID').length;
+
+    const txName     = tx?.name || '';
+    const coverImg   = tx?.cover_image || '';
+    const techName   = td.tech_name || '';
+    const roNum      = td.ro_number || '';
+    const customer   = lift?.customer || '';
+    const vehicle    = lift?.vehicle || '';
+    const updatedAt  = td.updated_at ? new Date(td.updated_at).toLocaleString() : '';
+    const createdAt  = td.date ? new Date(td.date).toLocaleString() : '';
+
+    const coverHtml = coverImg
+      ? `<img class="td-cover-img" src="${esc(coverImg)}" alt="${esc(txName)}" onerror="this.style.display='none'"/>`
+      : '';
+
+    const summaryBadges = [
+      failed  > 0 ? `<span class="td-badge failed">🔴 ${failed} Failed</span>`   : '',
+      worn    > 0 ? `<span class="td-badge worn">🟡 ${worn} Worn</span>`          : '',
+      ok      > 0 ? `<span class="td-badge ok">🟢 ${ok} OK</span>`              : '',
+      needsId > 0 ? `<span class="td-badge needsid">⚪ ${needsId} Needs ID</span>` : '',
+    ].filter(Boolean).join('');
+
+    const partsList = parts.map(p => {
+      const cls = p.status === 'Needs ID' ? 'NeedsID' : p.status;
+      return `
+        <div class="part-row">
+          <span class="part-name">${esc(p.name)}</span>
+          <span class="part-badge ${cls}">${esc(p.status)}</span>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="td-card active">
+        <div class="td-card-header">
+          <span class="td-table-label">TABLE ${n}</span>
+          ${txName ? `<span class="td-tx-name">${esc(txName)}</span>` : ''}
+        </div>
+
+        <div class="td-img-wrap">
+          <img class="td-table-img" src="teardown-table.png" alt="Table ${n}" onerror="this.style.display='none'"/>
+          ${coverHtml}
+          ${!coverImg ? `<div class="td-empty-label" style="color:#4b5563">NO IMAGE</div>` : ''}
+        </div>
+
+        <div class="td-info">
+          ${roNum ? `<div class="td-ro-line">RO# ${esc(roNum)}</div>` : ''}
+          ${customer ? `<div class="td-customer-line">👤 ${esc(customer)}</div>` : ''}
+          ${vehicle  ? `<div class="td-vehicle-line">🚗 ${esc(vehicle)}</div>`  : ''}
+          ${techName ? `<div class="td-tech-line">🔧 Tech: ${esc(techName)}</div>` : ''}
+          <div class="td-ts-line">Started: ${esc(createdAt)}</div>
+        </div>
+
+        ${summaryBadges ? `<div class="td-summary">${summaryBadges}</div>` : ''}
+
+        <div class="td-parts">
+          ${parts.length > 0
+            ? `<div class="td-parts-title">Parts (${parts.length})</div>${partsList}`
+            : `<div style="font-size:0.6rem;color:#374151;padding:8px 0;font-style:italic">No parts logged yet</div>`
+          }
+        </div>
+
+        <div class="td-footer">
+          Last edited: ${esc(updatedAt || createdAt)}
+        </div>
+      </div>
+    `;
+  }
+
+  /* ── REALTIME ── */
+  function connectRealtime() {
+    try {
+      const wsUrl = SUPABASE_URL.replace('https','wss')
+        + '/realtime/v1/websocket?apikey=' + SUPABASE_KEY + '&vsn=1.0.0';
+      const ws = new WebSocket(wsUrl);
+      ws.onopen = () => {
+        ['teardowns','teardown_parts','transmissions'].forEach(tbl => {
+          ws.send(JSON.stringify({
+            topic: 'realtime:public:' + tbl,
+            event: 'phx_join',
+            payload: {},
+            ref: null,
+          }));
+        });
+      };
+      ws.onmessage = (msg) => {
+        try {
+          const d = JSON.parse(msg.data);
+          if (['INSERT','UPDATE','DELETE'].includes(d?.payload?.type)) loadAll();
+        } catch(e) {}
+      };
+      ws.onclose = () => setTimeout(connectRealtime, 5000);
+    } catch(e) { console.warn('Realtime unavailable', e); }
+  }
+
+  /* ── CLOCK ── */
+  function tick() {
+    const now = new Date();
+    document.getElementById('clock').textContent =
+      now.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})
+      + '  |  ' + now.toLocaleTimeString('en-US');
+  }
+
+  loadAll();
+  connectRealtime();
+  setInterval(loadAll, 30000);
+  tick();
+  setInterval(tick, 1000);
+</script>
+</body>
+</html>
