@@ -75,7 +75,7 @@
       transition: border-color 0.3s;
       min-height: 520px;
     }
-    .td-card.active   { border-color: #f59e0b; }
+    .td-card.active    { border-color: #f59e0b; }
     .td-card.empty-card { border-color: #1e2d4a; opacity: 0.65; }
 
     /* card header strip */
@@ -111,6 +111,7 @@
       justify-content: center;
       padding: 16px;
       flex-shrink: 0;
+      min-height: 120px;
     }
     .unit-image {
       width: 100%;
@@ -125,6 +126,21 @@
       letter-spacing: 4px;
       color: #374151;
       text-transform: uppercase;
+    }
+    .img-soon {
+      width: 100%;
+      min-height: 100px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: #d97706;
+      letter-spacing: 1px;
+      background: #0d1220;
+      border-radius: 6px;
+      text-align: center;
+      padding: 16px;
     }
 
     /* ── INFO SECTION ── */
@@ -255,6 +271,7 @@
     .action-btn.danger:hover { background: #7f1d1d; color: #fff; }
     .action-btn.primary { background: #1a1200; color: #f5c518; border-color: #78350f; }
     .action-btn.primary:hover { background: #78350f; color: #fff; }
+    .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     /* ── PLACE-UNIT FORM ── */
     .place-form {
@@ -337,8 +354,6 @@
 </div>
 
 <script>
-  console.log('teardown script loaded');
-
   /* ── SUPABASE CONFIG ── */
   const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
@@ -375,19 +390,17 @@
   /* ── STATE ── */
   const TECH_LIST = ['Unassigned','Capote','Cory','Alex','Cuba'];
   let tableData = { 1: null, 2: null, 3: null, 4: null };
+  let txCatalog = []; // [{id, name, cover_image}] — pre-loaded for the Place form dropdown
   let firstLoad = true;
   let uiState = { mode: null }; // null | { type:'place', table:1-4 }
 
-  /* ── LOAD DATA ── */
+  /* ── LOAD ALL DATA ── */
   async function loadAll() {
     try {
-      // 1. Fetch teardowns + parts (no nested TX join — do it explicitly below)
       const [tdRows, lifts] = await Promise.all([
         sbFetch('teardowns?select=id,table_number,tech_name,ro_number,transmission_id,date,updated_at,teardown_parts(name,status,sort_order)&table_number=in.(1,2,3,4)&order=updated_at.desc'),
         sbFetch('shopboard_lifts?select=po,customer,vehicle&order=id'),
       ]);
-
-      console.log('[teardown] raw rows:', JSON.stringify(tdRows?.slice(0,4), null, 2));
 
       // Pick most recent teardown per table (already ordered desc)
       const byTable = {};
@@ -396,35 +409,24 @@
         if (t && !byTable[t]) byTable[t] = td;
       });
 
-      // 2. Collect unique transmission_ids and fetch them directly
+      // Collect unique transmission_ids and fetch them directly
       const txIds = [...new Set(
         Object.values(byTable).map(td => td.transmission_id).filter(Boolean)
       )];
-      console.log('[teardown] tx_ids to fetch:', txIds);
 
       let txMap = {};
       if (txIds.length > 0) {
-        const txRows = await sbFetch(
-          'transmissions?select=id,name,cover_image&id=in.(' + txIds.join(',') + ')'
-        );
-        console.log('[teardown] transmissions fetched:', JSON.stringify(txRows));
+        const txRows = await sbFetch('transmissions?select=id,name,cover_image&id=in.(' + txIds.join(',') + ')');
         (txRows || []).forEach(tx => { txMap[tx.id] = tx; });
       }
 
-      // Build lift lookup: po → lift row
-      const liftMap = {};
-      (lifts || []).forEach(l => {
-        if (l.po) liftMap[String(l.po).trim().toLowerCase()] = l;
-      });
+      const liftMap = buildLiftMap(lifts);
 
-      // Assemble tableData
       const newTableData = { 1: null, 2: null, 3: null, 4: null };
       Object.values(byTable).forEach(td => {
         const tx    = txMap[td.transmission_id] || null;
-        const parts = (td.teardown_parts || []).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-        const roKey = String(td.ro_number || '').trim().toLowerCase();
-        const lift  = liftMap[roKey] || null;
-        console.log(`[teardown] table ${td.table_number}: tx_id=${td.transmission_id} tx=${JSON.stringify(tx)}`);
+        const parts = sortParts(td.teardown_parts);
+        const lift  = liftMap[String(td.ro_number || '').trim().toLowerCase()] || null;
         newTableData[td.table_number] = { td, parts, tx, lift };
       });
 
@@ -435,38 +437,77 @@
     }
   }
 
+  /* Re-fetch just one table's data — used after Place so we don't wait for a full reload */
+  async function reloadTable(n) {
+    try {
+      const [tdRows, lifts] = await Promise.all([
+        sbFetch(`teardowns?select=id,table_number,tech_name,ro_number,transmission_id,date,updated_at,teardown_parts(name,status,sort_order)&table_number=eq.${n}&order=updated_at.desc&limit=1`),
+        sbFetch('shopboard_lifts?select=po,customer,vehicle&order=id'),
+      ]);
+
+      const td = (tdRows || [])[0] || null;
+      if (!td) {
+        tableData[n] = null;
+        rerenderCard(n);
+        return;
+      }
+
+      let tx = null;
+      if (td.transmission_id) {
+        const txRows = await sbFetch(`transmissions?select=id,name,cover_image&id=eq.${td.transmission_id}`);
+        tx = (txRows || [])[0] || null;
+      }
+
+      const liftMap = buildLiftMap(lifts);
+      const parts   = sortParts(td.teardown_parts);
+      const lift    = liftMap[String(td.ro_number || '').trim().toLowerCase()] || null;
+
+      tableData[n] = { td, parts, tx, lift };
+      rerenderCard(n);
+    } catch(e) {
+      console.error('[teardown] reloadTable failed', e);
+    }
+  }
+
+  /* Load transmission catalog for the Place form dropdown */
+  async function loadTxCatalog() {
+    try {
+      const rows = await sbFetch('transmissions?select=id,name,cover_image&order=name');
+      txCatalog = rows || [];
+    } catch(e) {
+      console.warn('[teardown] txCatalog load failed', e);
+    }
+  }
+
+  function buildLiftMap(lifts) {
+    const m = {};
+    (lifts || []).forEach(l => { if (l.po) m[String(l.po).trim().toLowerCase()] = l; });
+    return m;
+  }
+
+  function sortParts(parts) {
+    return (parts || []).slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  }
+
   /* ── RENDER — diff per card, no full-grid wipe ── */
   function render() {
     const grid = document.getElementById('cardsGrid');
 
     if (firstLoad) {
-      // First paint: replace skeletons all at once
       grid.innerHTML = [1, 2, 3, 4].map(n => renderCard(n)).join('');
       firstLoad = false;
       return;
     }
 
-    // Subsequent updates: diff each card slot individually
     const existingCards = grid.children;
     [1, 2, 3, 4].forEach((n, i) => {
-      const newHtml = renderCard(n);
-      // Create a temp wrapper to get the new element
-      const tmp = document.createElement('div');
-      tmp.innerHTML = newHtml;
-      const newEl = tmp.firstElementChild;
-
+      const newKey  = cardKey(n);
       const existing = existingCards[i];
-      if (!existing) {
-        grid.appendChild(newEl);
-        return;
-      }
-
-      // Only swap if content actually changed (compare data-key attributes)
-      const newKey = cardKey(n);
+      if (!existing) { grid.appendChild(makeCardEl(n)); return; }
       if (existing.dataset.key !== newKey) {
-        // Preserve scroll position of parts list before swap
         const oldParts = existing.querySelector('.td-parts');
         const scrollTop = oldParts ? oldParts.scrollTop : 0;
+        const newEl = makeCardEl(n);
         grid.replaceChild(newEl, existing);
         const newParts = newEl.querySelector('.td-parts');
         if (newParts && scrollTop) newParts.scrollTop = scrollTop;
@@ -474,7 +515,21 @@
     });
   }
 
-  /* Fingerprint a card's data so we can skip DOM updates when nothing changed */
+  function makeCardEl(n) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = renderCard(n);
+    return tmp.firstElementChild;
+  }
+
+  function rerenderCard(n) {
+    const grid = document.getElementById('cardsGrid');
+    const existing = grid.children[n - 1];
+    const newEl = makeCardEl(n);
+    if (existing) grid.replaceChild(newEl, existing);
+    else grid.appendChild(newEl);
+  }
+
+  /* Fingerprint a card so we can skip DOM updates when nothing changed */
   function cardKey(n) {
     const d = tableData[n];
     const modeFlag = (uiState.mode?.table === n) ? uiState.mode.type : '';
@@ -483,12 +538,20 @@
     return [td.id, td.updated_at, td.tech_name, td.ro_number, td.table_number, parts.length, modeFlag].join('|');
   }
 
+  /* ── IMAGE HTML helper ── */
+  function coverHtml(coverImg, txName) {
+    if (!coverImg) return `<div class="img-soon">📷 Image Coming Soon</div>`;
+    return `<img class="unit-image" src="${esc(coverImg)}" alt="${esc(txName)}"
+      onerror="this.outerHTML='<div class=\\'img-soon\\'>📷 Image Coming Soon</div>'">`;
+  }
+
+  /* ── CARD TEMPLATES ── */
   function renderCard(n) {
-    const data  = tableData[n];
-    const key   = cardKey(n);
+    const data = tableData[n];
+    const key  = cardKey(n);
+    const isPlacing = uiState.mode?.table === n;
 
     if (!data) {
-      const isPlacing = uiState.mode?.table === n;
       return `
         <div class="td-card empty-card" data-key="${key}">
           <div class="td-card-header">
@@ -507,32 +570,23 @@
                  <button class="action-btn primary" onclick="startPlace(${n})">+ Place Unit</button>
                </div>`
           }
-        </div>
-      `;
+        </div>`;
     }
 
     const { td, parts, tx, lift } = data;
-
     const failed  = parts.filter(p => p.status === 'Failed').length;
     const worn    = parts.filter(p => p.status === 'Worn').length;
     const ok      = parts.filter(p => p.status === 'OK').length;
     const needsId = parts.filter(p => p.status === 'Needs ID').length;
 
     const txName    = tx?.name || '';
-    const coverImg  = tx?.cover_image || '';
+    const imgSrc    = tx?.cover_image || '';
     const techName  = td.tech_name || '';
     const roNum     = td.ro_number || '';
     const customer  = lift?.customer || '';
     const vehicle   = lift?.vehicle || '';
     const updatedAt = td.updated_at ? new Date(td.updated_at).toLocaleString() : '';
     const createdAt = td.date ? new Date(td.date).toLocaleString() : '';
-
-    console.log(`[teardown] card ${n}: tx="${txName}" cover="${coverImg}"`);
-
-    const coverHtml = coverImg
-      ? `<img class="td-cover-img" src="${esc(coverImg)}" alt="${esc(txName)}"
-           onerror="console.warn('[teardown] cover img failed to load:', this.src); this.style.display='none'"/>`
-      : '';
 
     const summaryBadges = [
       failed  > 0 ? `<span class="td-badge failed">🔴 ${failed} Failed</span>`    : '',
@@ -549,7 +603,6 @@
       </div>`;
     }).join('');
 
-    const isPlacing = uiState.mode?.table === n;
     return `
       <div class="td-card active" data-key="${esc(key)}">
         <div class="td-card-header">
@@ -557,11 +610,7 @@
           ${txName ? `<span class="unit-badge">${esc(txName)}</span>` : ''}
         </div>
 
-        <div class="bench-scene">
-          ${coverImg
-            ? `<img class="unit-image" src="${esc(coverImg)}" alt="${esc(txName)}" onerror="console.warn('[teardown] cover img failed:', this.src); this.style.display='none'"/>`
-            : `<div class="td-empty-label">NO IMAGE</div>`}
-        </div>
+        <div class="bench-scene">${coverHtml(imgSrc, txName)}</div>
 
         ${isPlacing ? renderPlaceForm(n) : `
         <div class="td-info">
@@ -571,39 +620,26 @@
           ${techName ? `<div class="td-tech-line">🔧 Tech: ${esc(techName)}</div>` : ''}
           <div class="td-ts-line">Started: ${esc(createdAt)}</div>
         </div>
-
         ${summaryBadges ? `<div class="td-summary">${summaryBadges}</div>` : ''}
-
         <div class="td-parts">
           ${parts.length > 0
             ? `<div class="td-parts-title">Parts (${parts.length})</div>${partsList}`
             : `<div style="font-size:0.6rem;color:#374151;padding:8px 0;font-style:italic">No parts logged yet</div>`}
         </div>
-
-        <div class="td-footer">
-          Last edited: ${esc(updatedAt || createdAt)}
-        </div>
+        <div class="td-footer">Last edited: ${esc(updatedAt || createdAt)}</div>
         <div class="td-actions">
           <button class="action-btn primary" onclick="startPlace(${n})">Replace Unit</button>
           <button class="action-btn danger"  onclick="clearTable(${n})">Clear Table</button>
-        </div>
-        `}
-      </div>
-    `;
-  }
-
-  /* ── CARD ACTION HELPERS ── */
-  function rerenderCard(n) {
-    const grid = document.getElementById('cardsGrid');
-    const existing = grid.children[n - 1];
-    const tmp = document.createElement('div');
-    tmp.innerHTML = renderCard(n);
-    const newEl = tmp.firstElementChild;
-    if (existing) grid.replaceChild(newEl, existing);
+        </div>`}
+      </div>`;
   }
 
   function renderPlaceForm(n) {
     const techOpts = TECH_LIST.map(t => `<option value="${t}">${t}</option>`).join('');
+    const txOpts   = txCatalog.length > 0
+      ? `<option value="">— Select unit —</option>` +
+        txCatalog.map(t => `<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')
+      : `<option value="">Loading catalog…</option>`;
     return `
       <div class="place-form">
         <div class="place-form-title">Place Unit — Table ${n}</div>
@@ -612,15 +648,15 @@
         <label>Tech</label>
         <select id="place-tech-${n}">${techOpts}</select>
         <label>Transmission Unit</label>
-        <input id="place-unit-${n}" type="text" placeholder="e.g. 62TE, 6L80" />
+        <select id="place-tx-${n}">${txOpts}</select>
         <div class="place-form-actions">
-          <button class="action-btn primary" onclick="submitPlace(${n})">Place</button>
+          <button class="action-btn primary" id="place-submit-${n}" onclick="submitPlace(${n})">Place</button>
           <button class="action-btn" onclick="cancelPlace(${n})">Cancel</button>
         </div>
-      </div>
-    `;
+      </div>`;
   }
 
+  /* ── CARD ACTIONS ── */
   function startPlace(n) {
     uiState.mode = { type: 'place', table: n };
     rerenderCard(n);
@@ -648,32 +684,38 @@
   async function submitPlace(n) {
     const ro   = (document.getElementById(`place-ro-${n}`)?.value || '').trim();
     const tech = document.getElementById(`place-tech-${n}`)?.value || 'Unassigned';
-    const unit = (document.getElementById(`place-unit-${n}`)?.value || '').trim();
+    const txId = document.getElementById(`place-tx-${n}`)?.value || null;
 
     if (!ro) { alert('RO # is required.'); return; }
 
+    const btn = document.getElementById(`place-submit-${n}`);
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
     try {
-      // Look up transmission by name if provided
-      let txId = null;
-      if (unit) {
-        const txRows = await sbFetch('transmissions?select=id,name&name=ilike.' + encodeURIComponent(unit) + '&limit=1');
-        if (txRows && txRows.length > 0) txId = txRows[0].id;
+      // If replacing an active unit, delete the old row first so there's only one per table
+      if (tableData[n]) {
+        await sbMutate('DELETE', `teardowns?id=eq.${tableData[n].td.id}`, null);
+        tableData[n] = null;
       }
 
-      const today = new Date().toISOString().slice(0, 10);
+      const now   = new Date().toISOString();
+      const today = now.slice(0, 10);
       await sbMutate('POST', 'teardowns', {
-        table_number: n,
-        ro_number: ro,
-        tech_name: tech === 'Unassigned' ? '' : tech,
-        transmission_id: txId,
-        date: today,
+        table_number:    n,
+        ro_number:       ro,
+        tech_name:       tech === 'Unassigned' ? '' : tech,
+        transmission_id: txId || null,
+        date:            today,
+        updated_at:      now,
       });
 
       uiState.mode = null;
-      await loadAll();
+      // Re-fetch just this table rather than all 4 so the card updates immediately
+      await reloadTable(n);
     } catch(e) {
       console.error('[teardown] submitPlace failed', e);
       alert('Failed to place unit. Check console.');
+      if (btn) { btn.disabled = false; btn.textContent = 'Place'; }
     }
   }
 
@@ -712,6 +754,7 @@
   }
 
   loadAll();
+  loadTxCatalog();
   connectRealtime();
   setInterval(loadAll, 30000);
   tick();
