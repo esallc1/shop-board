@@ -312,13 +312,9 @@
   /* ── LOAD DATA ── */
   async function loadAll() {
     try {
-      // Diagnostic: unfiltered teardowns query to confirm RLS + data
-      const probe = await sbFetch('teardowns?select=id,table_number&limit=5');
-      console.log('[teardown] probe (no filter):', JSON.stringify(probe));
-
-      // Single query: teardowns + nested transmissions via FK join + parts
+      // 1. Fetch teardowns + parts (no nested TX join — do it explicitly below)
       const [tdRows, lifts] = await Promise.all([
-        sbFetch('teardowns?select=id,table_number,tech_name,ro_number,transmission_id,date,updated_at,transmissions(name,cover_image),teardown_parts(name,status,sort_order)&table_number=in.(1,2,3,4)&order=updated_at.desc'),
+        sbFetch('teardowns?select=id,table_number,tech_name,ro_number,transmission_id,date,updated_at,teardown_parts(name,status,sort_order)&table_number=in.(1,2,3,4)&order=updated_at.desc'),
         sbFetch('shopboard_lifts?select=po,customer,vehicle&order=id'),
       ]);
 
@@ -331,13 +327,20 @@
         if (t && !byTable[t]) byTable[t] = td;
       });
 
-      console.log('[teardown] byTable:', JSON.stringify(Object.fromEntries(
-        Object.entries(byTable).map(([k,v]) => [k, {
-          id: v.id, tx_id: v.transmission_id,
-          tx: v.transmissions, cover: v.transmissions?.cover_image,
-          parts: v.teardown_parts?.length
-        }])
-      ), null, 2));
+      // 2. Collect unique transmission_ids and fetch them directly
+      const txIds = [...new Set(
+        Object.values(byTable).map(td => td.transmission_id).filter(Boolean)
+      )];
+      console.log('[teardown] tx_ids to fetch:', txIds);
+
+      let txMap = {};
+      if (txIds.length > 0) {
+        const txRows = await sbFetch(
+          'transmissions?select=id,name,cover_image&id=in.(' + txIds.join(',') + ')'
+        );
+        console.log('[teardown] transmissions fetched:', JSON.stringify(txRows));
+        (txRows || []).forEach(tx => { txMap[tx.id] = tx; });
+      }
 
       // Build lift lookup: po → lift row
       const liftMap = {};
@@ -348,10 +351,11 @@
       // Assemble tableData
       const newTableData = { 1: null, 2: null, 3: null, 4: null };
       Object.values(byTable).forEach(td => {
-        const tx    = td.transmissions || null;
+        const tx    = txMap[td.transmission_id] || null;
         const parts = (td.teardown_parts || []).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
         const roKey = String(td.ro_number || '').trim().toLowerCase();
         const lift  = liftMap[roKey] || null;
+        console.log(`[teardown] table ${td.table_number}: tx_id=${td.transmission_id} tx=${JSON.stringify(tx)}`);
         newTableData[td.table_number] = { td, parts, tx, lift };
       });
 
