@@ -127,47 +127,67 @@
     /* Center panel */
     .center-panel {
       position: absolute;
-      width: 220px;
+      width: 260px;
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
       z-index: 2;
-      background: #111827;
-      border: 1px solid #374151;
-      border-radius: 14px;
-      padding: 12px 14px;
-      text-align: center;
     }
     .center-title {
-      font-size: 0.58rem;
+      font-size: 0.55rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 1.2px;
-      color: #6b7280;
-      margin-bottom: 8px;
-    }
-    .tech-row {
-      display: flex;
-      align-items: flex-start;
-      gap: 6px;
+      color: #4b5563;
+      text-align: center;
       margin-bottom: 7px;
-      text-align: left;
+    }
+    .tech-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+    .tech-card {
+      background: #111827;
+      border: 1.5px solid #1e293b;
+      border-radius: 10px;
+      padding: 8px 10px;
+      transition: border-color 0.3s;
+    }
+    .tech-card.status-working       { border-color: #16a34a; }
+    .tech-card.status-waiting-parts { border-color: #d97706; }
+    .tech-card.status-waiting-info  { border-color: #2563eb; }
+    .tech-card.status-road-testing  { border-color: #7c3aed; }
+    .tech-card.status-finished      { border-color: #0891b2; }
+    .tech-card.status-available     { border-color: #1e293b; }
+
+    .tc-header {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 5px;
     }
     .tech-dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      flex-shrink: 0; margin-top: 3px;
+      width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
     }
-    .tech-info {}
-    .tech-name-label { font-size: 0.72rem; font-weight: 700; color: #e0e0e0; }
-    .tech-vehicle-label { font-size: 0.6rem; color: #9ca3af; }
-    .tech-status-label  { font-size: 0.58rem; font-weight: 600; }
+    .tech-name-label {
+      font-size: 0.75rem;
+      font-weight: 800;
+      color: #e0e0e0;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .tc-body { }
+    .tech-po-label    { font-size: 0.68rem; font-weight: 700; color: #f5c518; line-height: 1.2; }
+    .tech-vehicle-label { font-size: 0.58rem; color: #9ca3af; line-height: 1.3; }
+    .tech-status-label  { font-size: 0.58rem; font-weight: 600; margin-top: 3px; }
 
     .ts-working       { color: #86efac; }
     .ts-waiting-parts { color: #fcd34d; }
     .ts-waiting-info  { color: #93c5fd; }
     .ts-road-testing  { color: #c4b5fd; }
     .ts-finished      { color: #67e8f9; }
-    .ts-available     { color: #4b5563; }
+    .ts-available     { color: #374151; }
 
     .dot-working       { background: #16a34a; }
     .dot-waiting-parts { background: #d97706; }
@@ -176,7 +196,7 @@
     .dot-finished      { background: #0891b2; }
     .dot-available     { background: #374151; }
 
-    .no-vehicle-small { font-size:0.6rem; color:#4b5563; font-style:italic; }
+    .no-vehicle-small { font-size:0.58rem; color:#374151; font-style:italic; }
 
     .realtime-dot {
       display:inline-block; width:6px; height:6px; border-radius:50%;
@@ -408,22 +428,27 @@
 
   function renderCenter() {
     const panel = document.getElementById('centerPanel');
+    const NAMED_TECHS = ['Capote', 'Cory', 'Alex', 'Cuba'];
 
-    const techRows = TECH_LIST.map(tech => {
+    const cards = NAMED_TECHS.map(tech => {
       const assigned = allVehicles.filter(v => v.assigned_tech === tech);
       const current  = assigned.find(v => v.tech_status && v.tech_status !== 'finished' && v.tech_status !== 'available');
-      const ts       = current?.tech_status || (assigned.length ? 'available' : 'available');
+      const ts       = current?.tech_status || 'available';
       const tsLabel  = TECH_STATUS_LABEL[ts] || ts;
       const dotCls   = 'dot-' + ts;
       const tsCls    = 'ts-' + ts;
+      const statusCls = 'status-' + ts;
 
       return `
-        <div class="tech-row">
-          <div class="tech-dot ${dotCls}"></div>
-          <div class="tech-info">
+        <div class="tech-card ${statusCls}">
+          <div class="tc-header">
+            <div class="tech-dot ${dotCls}"></div>
             <div class="tech-name-label">${esc(tech)}</div>
+          </div>
+          <div class="tc-body">
             ${current
-              ? `<div class="tech-vehicle-label">${esc(current.po)} &mdash; ${esc(current.vehicle)}</div>`
+              ? `<div class="tech-po-label">${esc(current.po)}</div>
+                 <div class="tech-vehicle-label">${esc(current.vehicle)}</div>`
               : `<div class="no-vehicle-small">No active job</div>`}
             <div class="tech-status-label ${tsCls}">${tsLabel}</div>
           </div>
@@ -432,8 +457,8 @@
     });
 
     panel.innerHTML = `
-      <div class="center-title">Current Tech Activity</div>
-      ${techRows.join('')}
+      <div class="center-title">Tech Activity</div>
+      <div class="tech-grid">${cards.join('')}</div>
     `;
   }
 
