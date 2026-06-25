@@ -267,7 +267,6 @@
   /* ---- STATE ---- */
   let allVehicles = [];
   let whiteboardData = {}; // { techName: nextJobText }
-  let techMiscData   = {}; // { techName: miscText }
 
   async function loadAll() {
     try {
@@ -383,12 +382,6 @@
         rows.forEach(r => { whiteboardData[r.tech_name] = r.next_job || ''; });
       }
     } catch(e) {}
-    try {
-      const rows = await sbFetch('/rest/v1/shopboard_techs?select=*');
-      if (Array.isArray(rows)) {
-        rows.forEach(r => { techMiscData[r.tech_name] = r.tech_misc || ''; });
-      }
-    } catch(e) {}
     renderWhiteboard();
   }
 
@@ -438,7 +431,6 @@
       const ts       = primary?.tech_status || 'available';
       const dot      = DOT_COLOR[ts] || '#374151';
       const nextText = whiteboardData[tech] || '';
-      const miscText = techMiscData[tech]   || '';
 
       const jobRows = activeJobs.length === 0
         ? `<div style="font-size:0.68rem;color:#374151;font-style:italic;">No active job</div>`
@@ -482,11 +474,6 @@
             <div class="wb-block-label">Up Next</div>
             <textarea class="wb-next-field" placeholder="Write what's next..." data-tech="${esc(tech)}" onblur="saveNextJob(this)">${esc(nextText)}</textarea>
           </div>
-          <div class="wb-divider"></div>
-          <div class="wb-block">
-            <div class="wb-block-label">Misc</div>
-            <textarea class="wb-next-field" placeholder="Notes, reminders..." data-tech="${esc(tech)}" onblur="saveMisc(this)">${esc(miscText)}</textarea>
-          </div>
         </div>`;
     }).join('');
   }
@@ -526,24 +513,6 @@
       });
     };
     await Promise.all([patch(a, aOrder), patch(b, bOrder)]);
-  }
-
-  async function saveMisc(el) {
-    const tech = el.dataset.tech;
-    const text = el.value;
-    techMiscData[tech] = text;
-    try {
-      await fetch(SUPABASE_URL + '/rest/v1/shopboard_techs', {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': 'Bearer ' + SUPABASE_KEY,
-          'Content-Type': 'application/json',
-          'Prefer': 'resolution=merge-duplicates',
-        },
-        body: JSON.stringify({ tech_name: tech, tech_misc: text }),
-      });
-    } catch(e) {}
   }
 
   async function saveNextJob(el) {
