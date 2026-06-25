@@ -111,6 +111,58 @@
       .whiteboard-grid { grid-template-columns: 1fr; }
     }
 
+    /* UNASSIGNED POOL */
+    .pool-section {
+      position: relative; z-index: 1;
+      padding: 0 14px 36px;
+    }
+    .pool-title {
+      font-size: 0.58rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 2px; color: #4b5563; text-align: center; margin-bottom: 12px;
+    }
+    .pool-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+    }
+    .pool-col {
+      background: #0d1526; border: 1px solid #1e293b; border-radius: 10px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .pool-col-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; background: #111827; border-bottom: 1px solid #1e293b;
+    }
+    .pool-col-title {
+      font-size: 0.65rem; font-weight: 800; text-transform: uppercase;
+      letter-spacing: 1px; color: #9ca3af;
+    }
+    .pool-count-badge {
+      background: #1f2937; color: #6b7280; border: 1px solid #374151;
+      font-size: 0.6rem; font-weight: 800; padding: 1px 7px; border-radius: 10px;
+    }
+    .pool-count-badge.has-jobs { background: #1e3a5f; color: #93c5fd; border-color: #2563eb; }
+    .pool-jobs-list { padding: 6px; display: flex; flex-direction: column; gap: 5px; }
+    .pool-job-card {
+      background: #111827; border: 1px solid #1e293b; border-radius: 7px;
+      padding: 7px 9px;
+    }
+    .pool-card-top {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;
+    }
+    .pool-source-tag {
+      font-size: 0.52rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px;
+      background: #1f2937; color: #6b7280; border: 1px solid #374151;
+      padding: 1px 5px; border-radius: 3px;
+    }
+    .pool-status-badge {
+      font-size: 0.52rem; font-weight: 700; text-transform: uppercase;
+      padding: 1px 5px; border-radius: 3px;
+    }
+    .pool-po  { font-size: 0.82rem; font-weight: 800; color: #f5c518; }
+    .pool-veh { font-size: 0.65rem; color: #6b7280; margin-top: 1px; }
+    .pool-empty { padding: 10px 12px; font-size: 0.65rem; color: #374151; font-style: italic; text-align: center; }
+    @media (max-width: 960px) { .pool-grid { grid-template-columns: repeat(2,1fr); } }
+    @media (max-width: 500px)  { .pool-grid { grid-template-columns: 1fr; } }
+
     .realtime-dot {
       display:inline-block; width:6px; height:6px; border-radius:50%;
       background:#22c55e; margin-right:4px;
@@ -142,6 +194,12 @@
   <div class="whiteboard-grid" id="whiteboardGrid"></div>
 </div>
 
+<!-- UNASSIGNED JOBS POOL -->
+<div class="pool-section">
+  <div class="pool-title">Unassigned Jobs Pool</div>
+  <div class="pool-grid" id="poolGrid"></div>
+</div>
+
 <script>
   /* ---- SUPABASE CONFIG ---- */
   const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
@@ -162,12 +220,22 @@
   const TECH_COLOR = { Capote:'#f59e0b', Cory:'#22d3ee', Alex:'#4ade80', Cuba:'#a78bfa' };
 
   const TECH_STATUS_LABEL = {
-    'available':     'Available',
-    'working':       'Working',
-    'waiting-parts': 'Waiting on Parts',
-    'waiting-info':  'Waiting on Info',
-    'road-testing':  'Road Testing',
-    'finished':      'Finished',
+    'available':        'Available',
+    'working':          'Working',
+    'waiting-pull':     'Waiting on Pull',
+    'waiting-install':  'Waiting Install',
+    'qc':               'QC',
+    'road-testing':     'Road Testing',
+    'finished':         'Finished',
+  };
+
+  const STATUS_DISPLAY = {
+    'in-progress':  { label:'In Progress',   bg:'#052e16', color:'#86efac' },
+    'waiting-part': { label:'Waiting Part',  bg:'#2c1a00', color:'#fcd34d' },
+    'waiting-tech': { label:'Waiting Tech',  bg:'#0f1f3d', color:'#93c5fd' },
+    'delayed':      { label:'Delayed',       bg:'#3b0a0a', color:'#fca5a5' },
+    'done':         { label:'Done/Ready',    bg:'#052630', color:'#67e8f9' },
+    'empty':        { label:'Unassigned',    bg:'#1f2937', color:'#6b7280' },
   };
 
   function inferStage(vehicle) {
@@ -219,6 +287,57 @@
   function render() {
     renderStats();
     renderWhiteboard();
+    renderPool();
+  }
+
+  function renderPool() {
+    const grid = document.getElementById('poolGrid');
+    if (!grid) return;
+
+    const unassigned = allVehicles.filter(v =>
+      (v._source === 'lift' || v._source === 'parking') &&
+      (!v.assigned_tech || v.assigned_tech.trim() === '' || v.assigned_tech === 'Unassigned')
+    );
+
+    const categories = [
+      { key: 'Gen Auto',      label: 'Gen Auto' },
+      { key: 'Rebuild',       label: 'Rebuild' },
+      { key: 'Diag',          label: 'Diag' },
+      { key: '__uncategorized', label: 'Uncategorized' },
+    ];
+
+    grid.innerHTML = categories.map(cat => {
+      const jobs = cat.key === '__uncategorized'
+        ? unassigned.filter(v => !v.job_category || v.job_category.trim() === '')
+        : unassigned.filter(v => v.job_category === cat.key);
+
+      const countClass = jobs.length > 0 ? ' has-jobs' : '';
+
+      const cards = jobs.length === 0
+        ? '<div class="pool-empty">No jobs</div>'
+        : jobs.map(v => {
+            const source = v._source === 'lift' ? `Lift ${v._liftNum}` : 'Lot';
+            const sd = STATUS_DISPLAY[v.status] || STATUS_DISPLAY['empty'];
+            return `
+              <div class="pool-job-card">
+                <div class="pool-card-top">
+                  <span class="pool-source-tag">${esc(source)}</span>
+                  <span class="pool-status-badge" style="background:${sd.bg};color:${sd.color}">${sd.label}</span>
+                </div>
+                <div class="pool-po">${esc(v.po)}</div>
+                <div class="pool-veh">${esc(v.vehicle)}</div>
+              </div>`;
+          }).join('');
+
+      return `
+        <div class="pool-col">
+          <div class="pool-col-header">
+            <span class="pool-col-title">${cat.label}</span>
+            <span class="pool-count-badge${countClass}">${jobs.length}</span>
+          </div>
+          <div class="pool-jobs-list">${cards}</div>
+        </div>`;
+    }).join('');
   }
 
   function renderStats() {
