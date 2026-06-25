@@ -104,6 +104,21 @@
     }
     .wb-next-field:focus { border-color: #374151; }
     .wb-next-field::placeholder { color: #2d3748; font-style: italic; }
+    .wb-vehicle-row {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 6px; margin-bottom: 7px; padding-bottom: 7px;
+      border-bottom: 1px solid #1e293b;
+    }
+    .wb-vehicle-row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+    .wb-vehicle-info { flex: 1; min-width: 0; }
+    .wb-reorder-btns { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
+    .wb-order-btn {
+      background: #1e293b; border: 1px solid #374151; color: #6b7280;
+      border-radius: 3px; cursor: pointer; font-size: 0.6rem; font-weight: 700;
+      padding: 2px 5px; line-height: 1; transition: all 0.15s;
+    }
+    .wb-order-btn:hover:not(:disabled) { background: #374151; color: #e0e0e0; }
+    .wb-order-btn:disabled { opacity: 0.2; cursor: default; }
     @media (max-width: 960px) {
       .whiteboard-grid { grid-template-columns: repeat(2, 1fr); }
     }
@@ -252,6 +267,7 @@
   /* ---- STATE ---- */
   let allVehicles = [];
   let whiteboardData = {}; // { techName: nextJobText }
+  let techMiscData   = {}; // { techName: miscText }
 
   async function loadAll() {
     try {
@@ -367,6 +383,12 @@
         rows.forEach(r => { whiteboardData[r.tech_name] = r.next_job || ''; });
       }
     } catch(e) {}
+    try {
+      const rows = await sbFetch('/rest/v1/shopboard_techs?select=*');
+      if (Array.isArray(rows)) {
+        rows.forEach(r => { techMiscData[r.tech_name] = r.tech_misc || ''; });
+      }
+    } catch(e) {}
     renderWhiteboard();
   }
 
@@ -375,63 +397,153 @@
     if (!grid) return;
 
     const STATUS_BG = {
-      'working':       '#14532d',
-      'waiting-parts': '#78350f',
-      'waiting-info':  '#1e3a5f',
-      'road-testing':  '#4c1d95',
-      'finished':      '#164e63',
-      'available':     '#111827',
+      'working':         '#14532d',
+      'waiting-pull':    '#1a2e05',
+      'waiting-install': '#422006',
+      'qc':              '#0c1a3d',
+      'road-testing':    '#4c1d95',
+      'finished':        '#164e63',
+      'available':       '#111827',
     };
     const STATUS_COLOR = {
-      'working':       '#86efac',
-      'waiting-parts': '#fcd34d',
-      'waiting-info':  '#93c5fd',
-      'road-testing':  '#c4b5fd',
-      'finished':      '#67e8f9',
-      'available':     '#4b5563',
+      'working':         '#86efac',
+      'waiting-pull':    '#a3e635',
+      'waiting-install': '#fde047',
+      'qc':              '#7dd3fc',
+      'road-testing':    '#c4b5fd',
+      'finished':        '#67e8f9',
+      'available':       '#4b5563',
+    };
+    const DOT_COLOR = {
+      'working':         '#16a34a',
+      'waiting-pull':    '#65a30d',
+      'waiting-install': '#ca8a04',
+      'qc':              '#0284c7',
+      'road-testing':    '#7c3aed',
+      'finished':        '#0891b2',
+      'available':       '#374151',
     };
 
     grid.innerHTML = NAMED_TECHS.map(tech => {
       const color = TECH_COLOR[tech];
-      const assigned = allVehicles.filter(v => v.assigned_tech === tech);
-      // Show any assigned vehicle — prioritise active ones, fall back to any assigned
-      const current = assigned.find(v => v.tech_status && v.tech_status !== 'finished' && v.tech_status !== 'available')
-                   || assigned[0]
-                   || null;
-      const ts = current?.tech_status || 'available';
-      const tsLabel  = TECH_STATUS_LABEL[ts] || ts;
-      const dotColor = { working:'#16a34a','waiting-parts':'#d97706','waiting-info':'#2563eb','road-testing':'#7c3aed','finished':'#0891b2','available':'#374151' }[ts] || '#374151';
+      const assigned = allVehicles
+        .filter(v => v.assigned_tech === tech && (v._source === 'lift' || v._source === 'parking'))
+        .sort((a, b) => (a.job_order ?? 9999) - (b.job_order ?? 9999));
+
+      const activeJobs = assigned.filter(v =>
+        v.tech_status && v.tech_status !== 'finished' && v.tech_status !== 'available'
+      );
+
+      const primary  = activeJobs[0] || assigned[0];
+      const ts       = primary?.tech_status || 'available';
+      const dot      = DOT_COLOR[ts] || '#374151';
       const nextText = whiteboardData[tech] || '';
+      const miscText = techMiscData[tech]   || '';
+
+      const jobRows = activeJobs.length === 0
+        ? `<div style="font-size:0.68rem;color:#374151;font-style:italic;">No active job</div>`
+        : activeJobs.map((v, idx) => {
+            const bg  = STATUS_BG[v.tech_status]    || STATUS_BG['available'];
+            const col = STATUS_COLOR[v.tech_status] || STATUS_COLOR['available'];
+            const lbl = TECH_STATUS_LABEL[v.tech_status] || v.tech_status;
+            const src = v._source === 'lift' ? `Lift ${v._liftNum}` : 'Lot';
+            const isFirst = idx === 0;
+            const isLast  = idx === activeJobs.length - 1;
+            return `
+              <div class="wb-vehicle-row">
+                <div class="wb-vehicle-info">
+                  <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
+                    <div class="wb-ro">${esc(v.po)}</div>
+                    <span style="font-size:0.5rem;background:#1e293b;color:#6b7280;padding:1px 4px;border-radius:3px;font-weight:700">${esc(src)}</span>
+                  </div>
+                  <div class="wb-veh">${esc(v.vehicle)}</div>
+                  <span class="wb-badge" style="background:${bg};color:${col}">${lbl}</span>
+                </div>
+                <div class="wb-reorder-btns">
+                  <button class="wb-order-btn" onclick="reorderJob('${v.id}','${v._source}','up','${tech}')" ${isFirst ? 'disabled' : ''}>up</button>
+                  <button class="wb-order-btn" onclick="reorderJob('${v.id}','${v._source}','down','${tech}')" ${isLast ? 'disabled' : ''}>dn</button>
+                </div>
+              </div>`;
+          }).join('');
 
       return `
         <div class="wb-card" style="border-color:${color}40;">
           <div class="wb-card-header" style="background:${color}18;">
             <div class="wb-tech-name" style="color:${color}">${esc(tech)}</div>
-            <div class="wb-status-dot" style="background:${dotColor}"></div>
+            <div class="wb-status-dot" style="background:${dot}"></div>
           </div>
           <div class="wb-divider"></div>
           <div class="wb-block">
             <div class="wb-block-label">Working On</div>
-            ${current
-              ? `<div class="wb-ro">${esc(current.po)}</div>
-                 <div class="wb-veh">${esc(current.vehicle)}</div>
-                 <span class="wb-badge" style="background:${STATUS_BG[ts]};color:${STATUS_COLOR[ts]}">${tsLabel}</span>`
-              : `<div style="font-size:0.68rem;color:#374151;font-style:italic;">No active job</div>`
-            }
+            ${jobRows}
           </div>
           <div class="wb-divider"></div>
-          <div class="wb-block" style="flex:1;">
+          <div class="wb-block">
             <div class="wb-block-label">Up Next</div>
-            <textarea
-              class="wb-next-field"
-              placeholder="Write what's next…"
-              data-tech="${esc(tech)}"
-              onblur="saveNextJob(this)"
-            >${esc(nextText)}</textarea>
+            <textarea class="wb-next-field" placeholder="Write what's next..." data-tech="${esc(tech)}" onblur="saveNextJob(this)">${esc(nextText)}</textarea>
           </div>
-        </div>
-      `;
+          <div class="wb-divider"></div>
+          <div class="wb-block">
+            <div class="wb-block-label">Misc</div>
+            <textarea class="wb-next-field" placeholder="Notes, reminders..." data-tech="${esc(tech)}" onblur="saveMisc(this)">${esc(miscText)}</textarea>
+          </div>
+        </div>`;
     }).join('');
+  }
+
+  async function reorderJob(vehicleId, source, direction, tech) {
+    const assigned = allVehicles
+      .filter(v => v.assigned_tech === tech && (v._source === 'lift' || v._source === 'parking'))
+      .sort((a, b) => (a.job_order ?? 9999) - (b.job_order ?? 9999));
+    const activeJobs = assigned.filter(v =>
+      v.tech_status && v.tech_status !== 'finished' && v.tech_status !== 'available'
+    );
+    const idx = activeJobs.findIndex(v => String(v.id) === String(vehicleId) && v._source === source);
+    if (idx < 0) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= activeJobs.length) return;
+
+    const a = activeJobs[idx];
+    const b = activeJobs[swapIdx];
+    const aOrder = swapIdx + 1;
+    const bOrder = idx + 1;
+    a.job_order = aOrder;
+    b.job_order = bOrder;
+
+    renderWhiteboard();
+
+    const patch = async (v, order) => {
+      const tbl = v._source === 'lift' ? 'shopboard_lifts' : 'shopboard_parking';
+      await fetch(`${SUPABASE_URL}/rest/v1/${tbl}?id=eq.${v.id}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': 'Bearer ' + SUPABASE_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal',
+        },
+        body: JSON.stringify({ job_order: order }),
+      });
+    };
+    await Promise.all([patch(a, aOrder), patch(b, bOrder)]);
+  }
+
+  async function saveMisc(el) {
+    const tech = el.dataset.tech;
+    const text = el.value;
+    techMiscData[tech] = text;
+    try {
+      await fetch(SUPABASE_URL + '/rest/v1/shopboard_techs', {
+        method: 'POST',
+        headers: {
+          'apikey': SUPABASE_KEY,
+          'Authorization': 'Bearer ' + SUPABASE_KEY,
+          'Content-Type': 'application/json',
+          'Prefer': 'resolution=merge-duplicates',
+        },
+        body: JSON.stringify({ tech_name: tech, tech_misc: text }),
+      });
+    } catch(e) {}
   }
 
   async function saveNextJob(el) {
