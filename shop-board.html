@@ -345,6 +345,25 @@
     .error-entry .err-ctx { color:#f87171; font-weight:700; font-size:0.7rem; }
     .error-entry .err-msg { color:#e0e0e0; margin-top:2px; font-size:0.68rem; word-break:break-all; }
     .no-errors { text-align:center; color:#22c55e; padding:16px; font-size:0.78rem; }
+
+    /* -- WARRANTY TOGGLE -- */
+    .warranty-toggle { position:relative; display:inline-block; width:32px; height:16px; flex-shrink:0; }
+    .warranty-toggle input { opacity:0; width:0; height:0; position:absolute; }
+    .warranty-slider { position:absolute; inset:0; background:#374151; border-radius:8px; transition:background 0.2s; cursor:pointer; }
+    .warranty-slider::before { content:''; position:absolute; width:12px; height:12px; left:2px; top:2px; background:#9ca3af; border-radius:50%; transition:transform 0.2s; }
+    .warranty-toggle input:checked + .warranty-slider { background:#7f1d1d; border:1px solid #ef4444; }
+    .warranty-toggle input:checked + .warranty-slider::before { transform:translateX(16px); background:#ef4444; }
+    .comeback-tag { display:inline-block; background:#7f1d1d; color:#fca5a5; font-size:0.55rem; font-weight:800; padding:1px 5px; border-radius:3px; text-transform:uppercase; letter-spacing:0.5px; }
+
+    /* -- WARRANTY ACTIVE (red text) -- */
+    .lift-card.warranty-active .lift-info input,
+    .lift-card.warranty-active .lift-info select,
+    .lift-card.warranty-active .lift-info textarea,
+    .lift-card.warranty-active .lift-info label { color:#ef4444 !important; }
+    .tbl tbody tr.warranty-active td input,
+    .tbl tbody tr.warranty-active td select,
+    .tbl tbody tr.warranty-active td textarea,
+    .tbl tbody tr.warranty-active .row-num { color:#ef4444 !important; }
   </style>
 </head>
 <body>
@@ -402,6 +421,8 @@
         <th style="width:155px">Year / Make / Model</th>
         <th>Work Description</th>
         <th style="width:155px">Status</th>
+        <th style="width:80px">Job Cat</th>
+        <th style="width:75px">Warranty</th>
         <th style="width:95px">Arrival</th>
         <th>Notes</th>
         <th style="width:120px">Tech</th>
@@ -427,6 +448,8 @@
         <th style="width:165px">Year / Make / Model</th>
         <th>Work Done</th>
         <th style="width:115px">Customer</th>
+        <th style="width:80px">Job Cat</th>
+        <th style="width:75px">Warranty</th>
         <th style="width:95px">Arrival</th>
         <th>Notes</th>
         <th style="width:56px">Status</th>
@@ -563,6 +586,13 @@
     'waiting-part':'badge-waiting-part','waiting-tech':'badge-waiting-tech',
     'delayed':'badge-delayed','done':'badge-done'
   };
+
+  const JOB_CATEGORY_OPTIONS = [
+    { value:'',         label:'- Category -' },
+    { value:'Gen Auto', label:'Gen Auto' },
+    { value:'Rebuild',  label:'Rebuild' },
+    { value:'Diag',     label:'Diag' },
+  ];
 
   const TECH_LIST = ['Unassigned','Capote','Cory','Alex','Cuba'];
   const TECH_STATUS_OPTIONS = [
@@ -708,8 +738,8 @@
         alert('Cannot move an incomplete lift to pickup. Add both PO # and Vehicle first.');
         return;
       }
-      liftState[liftIdx] = {...liftState[liftIdx], po:'',vehicle:'',work:'',status:'empty',notes:''};
-      await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:''}).eq('id', liftIdx+1);
+      liftState[liftIdx] = {...liftState[liftIdx], po:'',vehicle:'',work:'',status:'empty',notes:'',job_category:'',warranty:false};
+      await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:'',job_category:'',warranty:false}).eq('id', liftIdx+1);
       renderLifts();
     } else {
       car = parkState.find(c=>String(c.id)===String(carId));
@@ -728,6 +758,7 @@
     const {data} = await db.from('shopboard_pickup').insert({
       po:car.po, vehicle:car.vehicle, work:car.work,
       customer:car.customer||'', notes:car.notes||'', arrival_date:car.arrival_date||null,
+      job_category:car.job_category||'', warranty:car.warranty||false,
       undo_source:source, undo_index:liftIdx??null, undo_car:car
     }).select().single();
     if(data) pickupState.push(data);
@@ -744,11 +775,11 @@
     if (entry.undo_source==='lift' && entry.undo_car) {
       const car = entry.undo_car;
       liftState[entry.undo_index] = {...liftState[entry.undo_index], ...car};
-      await db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:car.status,notes:car.notes||''}).eq('id', entry.undo_index+1);
+      await db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:car.status,notes:car.notes||'',job_category:car.job_category||'',warranty:car.warranty||false}).eq('id', entry.undo_index+1);
       renderLifts();
     } else {
       const car = entry.undo_car || {po:entry.po,vehicle:entry.vehicle,customer:entry.customer||'',work:entry.work,status:'empty',notes:entry.notes||'',arrival_date:entry.arrival_date||null};
-      const {data} = await db.from('shopboard_parking').insert({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:car.status||'empty',notes:car.notes||'',arrival_date:car.arrival_date||null}).select().single();
+      const {data} = await db.from('shopboard_parking').insert({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:car.status||'empty',notes:car.notes||'',arrival_date:car.arrival_date||null,job_category:car.job_category||'',warranty:car.warranty||false}).select().single();
       if(data) parkState.push(data);
       renderParking();
     }
@@ -768,10 +799,10 @@
       return;
     }
     const newStatus = car.status==='empty'?'in-progress':car.status;
-    liftState[liftIdx] = {...liftState[liftIdx], po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null};
+    liftState[liftIdx] = {...liftState[liftIdx], po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null,job_category:car.job_category||'',warranty:car.warranty||false};
     parkState = parkState.filter(c=>String(c.id)!==String(carId));
     await Promise.all([
-      db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null}).eq('id',liftIdx+1),
+      db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null,job_category:car.job_category||'',warranty:car.warranty||false}).eq('id',liftIdx+1),
       db.from('shopboard_parking').delete().eq('id',carId)
     ]);
     renderLifts(); renderParking(); updateStats();
@@ -868,11 +899,14 @@
       }
 
       const displayStatus = lift.status || 'in-progress';
-      card.className = `lift-card s-${displayStatus}`;
+      card.className = `lift-card s-${displayStatus}${lift.warranty ? ' warranty-active' : ''}`;
       card.innerHTML = `
         <div class="lift-top">
           <span class="lift-label">LIFT ${i+1}</span>
-          <span class="status-badge ${BADGE_CLASS[displayStatus]}">${statusLabel(displayStatus)}</span>
+          <div style="display:flex;align-items:center;gap:4px">
+            ${lift.warranty ? '<span class="comeback-tag">COMEBACK</span>' : ''}
+            <span class="status-badge ${BADGE_CLASS[displayStatus]}">${statusLabel(displayStatus)}</span>
+          </div>
         </div>
         ${liftSVG(displayStatus)}
         <div class="lift-info">
@@ -892,6 +926,20 @@
             <select data-i="${i}" data-field="status">
               ${STATUS_OPTIONS.map(o=>`<option value="${o.value}"${lift.status===o.value?' selected':''}>${o.label}</option>`).join('')}
             </select>
+          </div>
+          <div class="field"><label>Job Category</label>
+            <select data-i="${i}" data-field="job_category">
+              ${JOB_CATEGORY_OPTIONS.map(o=>`<option value="${o.value}"${(lift.job_category||'')===o.value?' selected':''}>${o.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field" style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">
+            <label style="margin-bottom:0">Warranty / Comeback</label>
+            <div style="display:flex;align-items:center;gap:5px">
+              <label class="warranty-toggle">
+                <input type="checkbox" data-i="${i}" data-field="warranty"${lift.warranty?' checked':''}/>
+                <span class="warranty-slider"></span>
+              </label>
+            </div>
           </div>
           <div class="field"><label>Arrival Date</label>
             <input type="date" data-i="${i}" data-field="arrival_date" value="${esc(lift.arrival_date||'')}"/>
@@ -928,8 +976,8 @@
     board.querySelectorAll('[data-clear]').forEach(btn => {
       btn.addEventListener('click', async e => {
         const i = +e.currentTarget.dataset.clear;
-        liftState[i] = {...liftState[i], po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,assigned_tech:'',tech_status:'available',tech_notes:''};
-        const {error:clearErr} = await db.from('shopboard_lifts').update({po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,assigned_tech:'',tech_status:'available',tech_notes:''}).eq('id',i+1);
+        liftState[i] = {...liftState[i], po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,assigned_tech:'',tech_status:'available',tech_notes:'',job_category:'',warranty:false};
+        const {error:clearErr} = await db.from('shopboard_lifts').update({po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,assigned_tech:'',tech_status:'available',tech_notes:'',job_category:'',warranty:false}).eq('id',i+1);
         if(clearErr) logError('Clear Lift '+(i+1), clearErr);
         renderLifts(); renderParking(); updateStats();
       });
@@ -943,12 +991,13 @@
           return;
         }
         // clear the lift
-        liftState[i] = {...liftState[i], po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null};
-        await db.from('shopboard_lifts').update({po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null}).eq('id', i+1);
+        liftState[i] = {...liftState[i], po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,job_category:'',warranty:false};
+        await db.from('shopboard_lifts').update({po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,job_category:'',warranty:false}).eq('id', i+1);
         // send car back to parking lot with customer
         const {data} = await db.from('shopboard_parking').insert({
           po:car.po, vehicle:car.vehicle, customer:car.customer||'', work:car.work,
-          status:car.status==='empty'?'empty':car.status, notes:car.notes||'', arrival_date:car.arrival_date||null
+          status:car.status==='empty'?'empty':car.status, notes:car.notes||'', arrival_date:car.arrival_date||null,
+          job_category:car.job_category||'', warranty:car.warranty||false
         }).select().single();
         if(data) parkState.push(data);
         renderLifts(); renderParking(); updateStats();
@@ -982,12 +1031,13 @@
       clearTimeout(debounceTimers[`lift-${i}-po`]);
       return;
     }
-    liftState[i][field] = e.target.value;
-    if (field === 'status') renderLifts();
+    const fieldVal = field === 'warranty' ? e.target.checked : e.target.value;
+    liftState[i][field] = fieldVal;
+    if (field === 'status' || field === 'warranty') renderLifts();
     updateStats();
     debounce(`lift-${i}-${field}`, async () => {
       try {
-        const result = await db.from('shopboard_lifts').update({[field]: e.target.value}).eq('id', i+1);
+        const result = await db.from('shopboard_lifts').update({[field]: fieldVal}).eq('id', i+1);
         if (result.error) logError('Lift save field:'+field, result.error);
       } catch(err) { logError('Lift save field:'+field, err); }
     });
@@ -1005,7 +1055,7 @@
 
     parkState.forEach((car, i) => {
       const tr = document.createElement('tr');
-      tr.className = `s-${car.status}`;
+      tr.className = `s-${car.status}${car.warranty ? ' warranty-active' : ''}`;
       const liftOpts = free.length
         ? `<select class="lift-sel" data-park-liftsel="${i}">
              ${free.map(l=>`<option value="${l.i}">${l.label}</option>`).join('')}
@@ -1023,6 +1073,16 @@
         <td><select data-id="${car.id}" data-field="status">
           ${STATUS_OPTIONS.map(o=>`<option value="${o.value}"${car.status===o.value?' selected':''}>${o.label}</option>`).join('')}
         </select></td>
+        <td><select data-id="${car.id}" data-field="job_category">
+          ${JOB_CATEGORY_OPTIONS.map(o=>`<option value="${o.value}"${(car.job_category||'')===o.value?' selected':''}>${o.label}</option>`).join('')}
+        </select></td>
+        <td style="text-align:center;vertical-align:middle">
+          <label class="warranty-toggle">
+            <input type="checkbox" data-id="${car.id}" data-field="warranty"${car.warranty?' checked':''}/>
+            <span class="warranty-slider"></span>
+          </label>
+          ${car.warranty ? '<div class="comeback-tag" style="margin-top:2px">COMEBACK</div>' : ''}
+        </td>
         <td><input type="date" data-id="${car.id}" data-field="arrival_date" value="${esc(car.arrival_date||'')}"/></td>
         <td><textarea placeholder="Notes..." data-id="${car.id}" data-field="notes">${esc(car.notes||'')}</textarea></td>
         <td><select data-id="${car.id}" data-field="assigned_tech">
@@ -1079,13 +1139,14 @@
       clearTimeout(debounceTimers[`park-${id}-po`]);
       return;
     }
+    const fieldVal = field === 'warranty' ? e.target.checked : e.target.value;
     const car = parkState.find(c=>String(c.id)===id);
-    if (car) car[field] = e.target.value;
-    if (field === 'status') renderParking();
+    if (car) car[field] = fieldVal;
+    if (field === 'status' || field === 'warranty') renderParking();
     updateStats();
     debounce(`park-${id}-${field}`, async () => {
       try {
-        const result = await db.from('shopboard_parking').update({[field]: e.target.value}).eq('id', id);
+        const result = await db.from('shopboard_parking').update({[field]: fieldVal}).eq('id', id);
         if (result.error) logError('Parking save field:'+field, result.error);
       } catch(err) { logError('Parking save field:'+field, err); }
     });
@@ -1114,13 +1175,23 @@
     pickupState.forEach((car, i) => {
       const canUndo = !!(car.undo_source);
       const tr = document.createElement('tr');
-      tr.className = 's-done';
+      tr.className = `s-done${car.warranty ? ' warranty-active' : ''}`;
       tr.innerHTML = `
         <td class="row-num">${i+1}</td>
         <td><input type="text" placeholder="PO #" value="${esc(car.po)}" data-id="${car.id}" data-field="po"/></td>
         <td><input type="text" placeholder="Year / Make / Model" value="${esc(car.vehicle)}" data-id="${car.id}" data-field="vehicle"/></td>
         <td><input type="text" placeholder="Work completed" value="${esc(car.work)}" data-id="${car.id}" data-field="work"/></td>
         <td><input type="text" placeholder="Customer name" value="${esc(car.customer)}" data-id="${car.id}" data-field="customer"/></td>
+        <td><select data-id="${car.id}" data-field="job_category">
+          ${JOB_CATEGORY_OPTIONS.map(o=>`<option value="${o.value}"${(car.job_category||'')===o.value?' selected':''}>${o.label}</option>`).join('')}
+        </select></td>
+        <td style="text-align:center;vertical-align:middle">
+          <label class="warranty-toggle">
+            <input type="checkbox" data-id="${car.id}" data-field="warranty"${car.warranty?' checked':''}/>
+            <span class="warranty-slider"></span>
+          </label>
+          ${car.warranty ? '<div class="comeback-tag" style="margin-top:2px">COMEBACK</div>' : ''}
+        </td>
         <td><input type="date" data-id="${car.id}" data-field="arrival_date" value="${esc(car.arrival_date||'')}"/></td>
         <td><textarea placeholder="Notes..." data-id="${car.id}" data-field="notes">${esc(car.notes||'')}</textarea></td>
         <td><span class="pickup-badge">Ready</span></td>
@@ -1133,7 +1204,7 @@
       `;
       tbody.appendChild(tr);
     });
-    tbody.querySelectorAll('input,textarea').forEach(el => {
+    tbody.querySelectorAll('input,select,textarea').forEach(el => {
       el.addEventListener('change', onPickupChange);
       el.addEventListener('input', onPickupChange);
     });
@@ -1162,11 +1233,13 @@
       clearTimeout(debounceTimers[`pickup-${id}-po`]);
       return;
     }
+    const fieldVal = field === 'warranty' ? e.target.checked : e.target.value;
     const car = pickupState.find(c=>String(c.id)===id);
-    if (car) car[field] = e.target.value;
+    if (car) car[field] = fieldVal;
+    if (field === 'warranty') renderPickup();
     debounce(`pickup-${id}-${field}`, async () => {
       try {
-        const result = await db.from('shopboard_pickup').update({[field]: e.target.value}).eq('id', id);
+        const result = await db.from('shopboard_pickup').update({[field]: fieldVal}).eq('id', id);
         if (result.error) logError('Pickup save field:'+field, result.error);
       } catch(err) { logError('Pickup save field:'+field, err); }
     });
