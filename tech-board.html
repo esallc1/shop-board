@@ -271,9 +271,9 @@
   async function loadAll() {
     try {
       const [lifts, parking, pickup] = await Promise.all([
-        sbFetch('/rest/v1/shopboard_lifts?select=*&order=id'),
-        sbFetch('/rest/v1/shopboard_parking?select=*&order=created_at'),
-        sbFetch('/rest/v1/shopboard_pickup?select=*&order=created_at'),
+        sbFetch('/rest/v1/shopboard_lifts?select=*&order=id&limit=1000'),
+        sbFetch('/rest/v1/shopboard_parking?select=*&order=created_at&limit=1000'),
+        sbFetch('/rest/v1/shopboard_pickup?select=*&order=created_at&limit=1000'),
       ]);
 
       allVehicles = [];
