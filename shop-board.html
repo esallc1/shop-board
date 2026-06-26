@@ -527,10 +527,10 @@
 
 <!-- AI Chat Widget -->
 <style>
-#ai-bubble{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:none;border:2px solid #2563eb;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.5);z-index:9999;padding:0;overflow:hidden;transition:transform .15s ease;}
-#ai-bubble:hover{transform:scale(1.1);}
+#ai-bubble{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:none;border:2px solid #2563eb;cursor:grab;box-shadow:0 4px 12px rgba(0,0,0,.5);z-index:9999;padding:0;overflow:hidden;transition:box-shadow .15s ease;}
+#ai-bubble:hover{box-shadow:0 6px 18px rgba(37,99,235,.5);}
 #ai-bubble img{width:100%;height:100%;object-fit:cover;display:block;}
-#ai-panel{position:fixed;bottom:88px;right:24px;width:340px;max-height:480px;background:#1e2535;border:1px solid #334155;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.6);z-index:9998;display:none;flex-direction:column;overflow:hidden;}
+#ai-panel{position:fixed;width:340px;max-height:480px;background:#1e2535;border:1px solid #334155;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.6);z-index:9998;display:none;flex-direction:column;overflow:hidden;}
 #ai-panel.open{display:flex;}
 #ai-header{background:#162032;padding:10px 14px;font-size:14px;font-weight:600;color:#93c5fd;display:flex;justify-content:space-between;align-items:center;}
 #ai-header-left{display:flex;align-items:center;gap:8px;}
@@ -1470,8 +1470,82 @@ document.getElementById('logoutBtn').addEventListener('click', () => {
   const msgs   = document.getElementById('ai-messages');
   const input  = document.getElementById('ai-input');
   const send   = document.getElementById('ai-send');
+  const SIZE   = 56;
+  const STORE  = 'kiki_bubble_pos';
 
-  bubble.addEventListener('click', () => { panel.classList.toggle('open'); if(panel.classList.contains('open')) input.focus(); });
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function setBubblePos(left, top) {
+    left = clamp(left, 0, window.innerWidth  - SIZE);
+    top  = clamp(top,  0, window.innerHeight - SIZE);
+    bubble.style.left   = left + 'px';
+    bubble.style.top    = top  + 'px';
+    bubble.style.right  = 'auto';
+    bubble.style.bottom = 'auto';
+    return { left, top };
+  }
+
+  function positionPanel() {
+    const r   = bubble.getBoundingClientRect();
+    const pw  = 340, ph = 480, gap = 8, margin = 8;
+    let top  = r.top - ph - gap;
+    if (top < margin) top = r.bottom + gap;
+    let left = r.right - pw;
+    if (left < margin) left = margin;
+    if (left + pw > window.innerWidth - margin) left = window.innerWidth - pw - margin;
+    panel.style.top    = top  + 'px';
+    panel.style.left   = left + 'px';
+    panel.style.bottom = 'auto';
+    panel.style.right  = 'auto';
+  }
+
+  // Restore saved position or default to bottom-right
+  const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
+  if (saved) {
+    setBubblePos(saved.left, saved.top);
+  } else {
+    setBubblePos(window.innerWidth - SIZE - 24, window.innerHeight - SIZE - 24);
+  }
+
+  // Drag state
+  let dragging = false, didDrag = false;
+  let startMX, startMY, startBX, startBY;
+
+  function dragStart(mx, my) {
+    const r = bubble.getBoundingClientRect();
+    dragging = true; didDrag = false;
+    startMX = mx; startMY = my;
+    startBX = r.left; startBY = r.top;
+    bubble.style.cursor = 'grabbing';
+    bubble.style.transition = 'none';
+  }
+  function dragMove(mx, my) {
+    if (!dragging) return;
+    if (Math.abs(mx - startMX) > 3 || Math.abs(my - startMY) > 3) didDrag = true;
+    setBubblePos(startBX + mx - startMX, startBY + my - startMY);
+    if (panel.classList.contains('open')) positionPanel();
+  }
+  function dragEnd() {
+    if (!dragging) return;
+    dragging = false;
+    bubble.style.cursor = 'grab';
+    bubble.style.transition = '';
+    const r = bubble.getBoundingClientRect();
+    localStorage.setItem(STORE, JSON.stringify({ left: r.left, top: r.top }));
+  }
+
+  bubble.addEventListener('mousedown',  (e) => { e.preventDefault(); dragStart(e.clientX, e.clientY); });
+  window.addEventListener('mousemove',  (e) => dragMove(e.clientX, e.clientY));
+  window.addEventListener('mouseup',    ()  => dragEnd());
+  bubble.addEventListener('touchstart', (e) => { const t = e.touches[0]; dragStart(t.clientX, t.clientY); }, { passive: true });
+  window.addEventListener('touchmove',  (e) => { if (dragging) { e.preventDefault(); } const t = e.touches[0]; dragMove(t.clientX, t.clientY); }, { passive: false });
+  window.addEventListener('touchend',   ()  => dragEnd());
+
+  bubble.addEventListener('click', () => {
+    if (didDrag) { didDrag = false; return; }
+    panel.classList.toggle('open');
+    if (panel.classList.contains('open')) { positionPanel(); input.focus(); }
+  });
   close.addEventListener('click', () => panel.classList.remove('open'));
 
   function addMsg(text, cls) {
