@@ -419,44 +419,54 @@
 
     grid.innerHTML = NAMED_TECHS.map(tech => {
       const color = TECH_COLOR[tech];
+
+      // All vehicles assigned to this tech (lifts + parking), active jobs first, then waiting
       const assigned = allVehicles
         .filter(v => v.assigned_tech === tech && (v._source === 'lift' || v._source === 'parking'))
-        .sort((a, b) => (a.job_order ?? 9999) - (b.job_order ?? 9999));
+        .sort((a, b) => {
+          const aActive = a.tech_status && a.tech_status !== 'finished' && a.tech_status !== 'available' ? 0 : 1;
+          const bActive = b.tech_status && b.tech_status !== 'finished' && b.tech_status !== 'available' ? 0 : 1;
+          if (aActive !== bActive) return aActive - bActive;
+          return (a.job_order ?? 9999) - (b.job_order ?? 9999);
+        });
 
-      const activeJobs = assigned.filter(v =>
-        v.tech_status && v.tech_status !== 'finished' && v.tech_status !== 'available'
-      );
+      const primary   = assigned[0];
+      const upNextJobs = assigned.slice(1);
+      const ts        = primary?.tech_status || 'available';
+      const dot       = DOT_COLOR[ts] || '#374151';
+      const nextText  = whiteboardData[tech] || '';
 
-      const primary  = activeJobs[0] || assigned[0];
-      const ts       = primary?.tech_status || 'available';
-      const dot      = DOT_COLOR[ts] || '#374151';
-      const nextText = whiteboardData[tech] || '';
+      function jobRow(v, idx, list) {
+        const bg  = STATUS_BG[v.tech_status]    || STATUS_BG['available'];
+        const col = STATUS_COLOR[v.tech_status] || STATUS_COLOR['available'];
+        const lbl = TECH_STATUS_LABEL[v.tech_status] || (v.tech_status ? v.tech_status : 'Waiting');
+        const src = v._source === 'lift' ? `Lift ${v._liftNum}` : 'Lot';
+        const isFirst = idx === 0;
+        const isLast  = idx === list.length - 1;
+        return `
+          <div class="wb-vehicle-row">
+            <div class="wb-vehicle-info">
+              <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
+                <div class="wb-ro">${esc(v.po)}</div>
+                <span style="font-size:0.5rem;background:#1e293b;color:#6b7280;padding:1px 4px;border-radius:3px;font-weight:700">${esc(src)}</span>
+              </div>
+              <div class="wb-veh">${esc(v.vehicle)}</div>
+              <span class="wb-badge" style="background:${bg};color:${col}">${lbl}</span>
+            </div>
+            <div class="wb-reorder-btns">
+              <button class="wb-order-btn" onclick="reorderJob('${v.id}','${v._source}','up','${tech}')" ${isFirst ? 'disabled' : ''}>up</button>
+              <button class="wb-order-btn" onclick="reorderJob('${v.id}','${v._source}','down','${tech}')" ${isLast ? 'disabled' : ''}>dn</button>
+            </div>
+          </div>`;
+      }
 
-      const jobRows = activeJobs.length === 0
-        ? `<div style="font-size:0.68rem;color:#374151;font-style:italic;">No active job</div>`
-        : activeJobs.map((v, idx) => {
-            const bg  = STATUS_BG[v.tech_status]    || STATUS_BG['available'];
-            const col = STATUS_COLOR[v.tech_status] || STATUS_COLOR['available'];
-            const lbl = TECH_STATUS_LABEL[v.tech_status] || v.tech_status;
-            const src = v._source === 'lift' ? `Lift ${v._liftNum}` : 'Lot';
-            const isFirst = idx === 0;
-            const isLast  = idx === activeJobs.length - 1;
-            return `
-              <div class="wb-vehicle-row">
-                <div class="wb-vehicle-info">
-                  <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
-                    <div class="wb-ro">${esc(v.po)}</div>
-                    <span style="font-size:0.5rem;background:#1e293b;color:#6b7280;padding:1px 4px;border-radius:3px;font-weight:700">${esc(src)}</span>
-                  </div>
-                  <div class="wb-veh">${esc(v.vehicle)}</div>
-                  <span class="wb-badge" style="background:${bg};color:${col}">${lbl}</span>
-                </div>
-                <div class="wb-reorder-btns">
-                  <button class="wb-order-btn" onclick="reorderJob('${v.id}','${v._source}','up','${tech}')" ${isFirst ? 'disabled' : ''}>up</button>
-                  <button class="wb-order-btn" onclick="reorderJob('${v.id}','${v._source}','down','${tech}')" ${isLast ? 'disabled' : ''}>dn</button>
-                </div>
-              </div>`;
-          }).join('');
+      const workingOnHtml = primary
+        ? jobRow(primary, 0, [primary])
+        : `<div style="font-size:0.68rem;color:#374151;font-style:italic;">No active job</div>`;
+
+      const upNextHtml = upNextJobs.length > 0
+        ? upNextJobs.map((v, idx) => jobRow(v, idx, upNextJobs)).join('')
+        : '';
 
       return `
         <div class="wb-card" style="border-color:${color}40;">
@@ -467,24 +477,27 @@
           <div class="wb-divider"></div>
           <div class="wb-block">
             <div class="wb-block-label">Working On</div>
-            ${jobRows}
+            ${workingOnHtml}
           </div>
           <div class="wb-divider"></div>
           <div class="wb-block">
             <div class="wb-block-label">Up Next</div>
-            <textarea class="wb-next-field" placeholder="Write what's next..." data-tech="${esc(tech)}" onblur="saveNextJob(this)">${esc(nextText)}</textarea>
+            ${upNextHtml}
+            <textarea class="wb-next-field" placeholder="Notes..." data-tech="${esc(tech)}" onblur="saveNextJob(this)">${esc(nextText)}</textarea>
           </div>
         </div>`;
     }).join('');
   }
 
   async function reorderJob(vehicleId, source, direction, tech) {
-    const assigned = allVehicles
+    const activeJobs = allVehicles
       .filter(v => v.assigned_tech === tech && (v._source === 'lift' || v._source === 'parking'))
-      .sort((a, b) => (a.job_order ?? 9999) - (b.job_order ?? 9999));
-    const activeJobs = assigned.filter(v =>
-      v.tech_status && v.tech_status !== 'finished' && v.tech_status !== 'available'
-    );
+      .sort((a, b) => {
+        const aActive = a.tech_status && a.tech_status !== 'finished' && a.tech_status !== 'available' ? 0 : 1;
+        const bActive = b.tech_status && b.tech_status !== 'finished' && b.tech_status !== 'available' ? 0 : 1;
+        if (aActive !== bActive) return aActive - bActive;
+        return (a.job_order ?? 9999) - (b.job_order ?? 9999);
+      });
     const idx = activeJobs.findIndex(v => String(v.id) === String(vehicleId) && v._source === source);
     if (idx < 0) return;
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
