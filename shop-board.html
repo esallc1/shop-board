@@ -51,18 +51,28 @@
       background:#1e293b; border:2px solid #374151; border-radius:8px;
       overflow:hidden; display:flex; flex-direction:column; transition:border-color 0.3s;
     }
-    .lift-card.s-in-progress  { border-color:#16a34a; background:linear-gradient(180deg, rgba(22,163,74,0.10), rgba(30,41,59,0.96) 38%), #1e293b; }
-    .lift-card.s-waiting-part { border-color:#d97706; background:linear-gradient(180deg, rgba(217,119,6,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
-    .lift-card.s-waiting-tech { border-color:#2563eb; background:linear-gradient(180deg, rgba(37,99,235,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
-    .lift-card.s-delayed      { border-color:#dc2626; background:linear-gradient(180deg, rgba(220,38,38,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
-    .lift-card.s-done         { border-color:#0891b2; background:linear-gradient(180deg, rgba(8,145,178,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-in-progress     { border-color:#16a34a; background:linear-gradient(180deg, rgba(22,163,74,0.10), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-waiting-part    { border-color:#d97706; background:linear-gradient(180deg, rgba(217,119,6,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-waiting-tech    { border-color:#2563eb; background:linear-gradient(180deg, rgba(37,99,235,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-delayed         { border-color:#dc2626; background:linear-gradient(180deg, rgba(220,38,38,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-done            { border-color:#0891b2; background:linear-gradient(180deg, rgba(8,145,178,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-qc              { border-color:#7c3aed; background:linear-gradient(180deg, rgba(124,58,237,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-waiting-pull    { border-color:#65a30d; background:linear-gradient(180deg, rgba(101,163,13,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-waiting-install { border-color:#ea580c; background:linear-gradient(180deg, rgba(234,88,12,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-waiting-quote   { border-color:#ca8a04; background:linear-gradient(180deg, rgba(202,138,4,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+    .lift-card.s-waiting-auth    { border-color:#db2777; background:linear-gradient(180deg, rgba(219,39,119,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
     .lift-card.s-empty, .lift-card-empty { background:#111827; border-color:#374151; opacity:0.72; }
 
-    .lift-card.s-in-progress  .lift-img-wrap { background:radial-gradient(circle at center, rgba(22,163,74,0.20), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
-    .lift-card.s-waiting-part .lift-img-wrap { background:radial-gradient(circle at center, rgba(217,119,6,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
-    .lift-card.s-waiting-tech .lift-img-wrap { background:radial-gradient(circle at center, rgba(37,99,235,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
-    .lift-card.s-delayed      .lift-img-wrap { background:radial-gradient(circle at center, rgba(220,38,38,0.24), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
-    .lift-card.s-done         .lift-img-wrap { background:radial-gradient(circle at center, rgba(8,145,178,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-in-progress     .lift-img-wrap { background:radial-gradient(circle at center, rgba(22,163,74,0.20),   rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-waiting-part    .lift-img-wrap { background:radial-gradient(circle at center, rgba(217,119,6,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-waiting-tech    .lift-img-wrap { background:radial-gradient(circle at center, rgba(37,99,235,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-delayed         .lift-img-wrap { background:radial-gradient(circle at center, rgba(220,38,38,0.24),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-done            .lift-img-wrap { background:radial-gradient(circle at center, rgba(8,145,178,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-qc              .lift-img-wrap { background:radial-gradient(circle at center, rgba(124,58,237,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-waiting-pull    .lift-img-wrap { background:radial-gradient(circle at center, rgba(101,163,13,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-waiting-install .lift-img-wrap { background:radial-gradient(circle at center, rgba(234,88,12,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-waiting-quote   .lift-img-wrap { background:radial-gradient(circle at center, rgba(202,138,4,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+    .lift-card.s-waiting-auth    .lift-img-wrap { background:radial-gradient(circle at center, rgba(219,39,119,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
 
     .lift-top { padding:4px 6px 0; display:flex; align-items:center; justify-content:space-between; }
     .lift-label { font-size:0.68rem; font-weight:700; color:#f5c518; }
@@ -121,11 +131,16 @@
     }
     .empty-bay-title { color:#9ca3af; font-size:1rem; font-weight:800; text-transform:uppercase; letter-spacing:1.5px; }
     .empty-bay-subtitle { color:#4b5563; font-size:0.68rem; margin-top:6px; }
-    .badge-in-progress  { background:#052e16; color:#86efac; }
-    .badge-waiting-part { background:#2c1a00; color:#fcd34d; }
-    .badge-waiting-tech { background:#0f1f3d; color:#93c5fd; }
-    .badge-delayed      { background:#3b0a0a; color:#fca5a5; }
-    .badge-done         { background:#052630; color:#67e8f9; }
+    .badge-in-progress     { background:#052e16; color:#86efac; }
+    .badge-waiting-part    { background:#2c1a00; color:#fcd34d; }
+    .badge-waiting-tech    { background:#0f1f3d; color:#93c5fd; }
+    .badge-delayed         { background:#3b0a0a; color:#fca5a5; }
+    .badge-done            { background:#052630; color:#67e8f9; }
+    .badge-qc              { background:#2e1065; color:#c4b5fd; }
+    .badge-waiting-pull    { background:#1a2e05; color:#bef264; }
+    .badge-waiting-install { background:#431407; color:#fdba74; }
+    .badge-waiting-quote   { background:#422006; color:#fde68a; }
+    .badge-waiting-auth    { background:#500724; color:#fbcfe8; }
 
     .lift-btn-row { display:flex; gap:3px; margin-top:2px; }
     .clear-btn, .pickup-move-btn, .lot-back-btn {
@@ -598,27 +613,39 @@
   const LIFTS = 6;
 
   const STATUS_OPTIONS = [
-    { value:'empty',        label:'- Unassigned -' },
-    { value:'in-progress',  label:'In Progress' },
-    { value:'waiting-part', label:'Waiting for Part' },
-    { value:'waiting-tech', label:'Waiting for Tech' },
-    { value:'delayed',      label:'Delayed' },
-    { value:'done',         label:'Done / Ready' },
+    { value:'empty',           label:'- Unassigned -' },
+    { value:'in-progress',     label:'In Progress' },
+    { value:'waiting-part',    label:'Waiting for Part' },
+    { value:'waiting-tech',    label:'Waiting for Tech' },
+    { value:'waiting-pull',    label:'Waiting Pull' },
+    { value:'waiting-install', label:'Waiting Install' },
+    { value:'waiting-quote',   label:'Waiting Quote' },
+    { value:'waiting-auth',    label:'Waiting Auth' },
+    { value:'qc',              label:'QC' },
+    { value:'delayed',         label:'Delayed' },
+    { value:'done',            label:'Done / Ready' },
   ];
 
   const STATUS_COLORS = {
-    'empty':        { car:'#374151', post:'#4b5563', arm:'#6b7280' },
-    'in-progress':  { car:'#16a34a', post:'#15803d', arm:'#22c55e' },
-    'waiting-part': { car:'#d97706', post:'#b45309', arm:'#f59e0b' },
-    'waiting-tech': { car:'#2563eb', post:'#1d4ed8', arm:'#3b82f6' },
-    'delayed':      { car:'#dc2626', post:'#b91c1c', arm:'#ef4444' },
-    'done':         { car:'#0891b2', post:'#0e7490', arm:'#06b6d4' },
+    'empty':           { car:'#374151', post:'#4b5563', arm:'#6b7280' },
+    'in-progress':     { car:'#16a34a', post:'#15803d', arm:'#22c55e' },
+    'waiting-part':    { car:'#d97706', post:'#b45309', arm:'#f59e0b' },
+    'waiting-tech':    { car:'#2563eb', post:'#1d4ed8', arm:'#3b82f6' },
+    'waiting-pull':    { car:'#65a30d', post:'#4d7c0f', arm:'#84cc16' },
+    'waiting-install': { car:'#ea580c', post:'#c2410c', arm:'#f97316' },
+    'waiting-quote':   { car:'#ca8a04', post:'#a16207', arm:'#eab308' },
+    'waiting-auth':    { car:'#db2777', post:'#be185d', arm:'#ec4899' },
+    'qc':              { car:'#7c3aed', post:'#6d28d9', arm:'#a78bfa' },
+    'delayed':         { car:'#dc2626', post:'#b91c1c', arm:'#ef4444' },
+    'done':            { car:'#0891b2', post:'#0e7490', arm:'#06b6d4' },
   };
 
   const BADGE_CLASS = {
-    'empty':'badge-empty','in-progress':'badge-in-progress',
-    'waiting-part':'badge-waiting-part','waiting-tech':'badge-waiting-tech',
-    'delayed':'badge-delayed','done':'badge-done'
+    'empty':'badge-empty', 'in-progress':'badge-in-progress',
+    'waiting-part':'badge-waiting-part', 'waiting-tech':'badge-waiting-tech',
+    'waiting-pull':'badge-waiting-pull', 'waiting-install':'badge-waiting-install',
+    'waiting-quote':'badge-waiting-quote', 'waiting-auth':'badge-waiting-auth',
+    'qc':'badge-qc', 'delayed':'badge-delayed', 'done':'badge-done',
   };
 
   const JOB_CATEGORY_OPTIONS = [
@@ -985,11 +1012,6 @@
           <div class="field"><label>Tech</label>
             <select data-i="${i}" data-field="assigned_tech">
               ${TECH_LIST.map(t=>`<option value="${t==='Unassigned'?'':t}"${(lift.assigned_tech||'')===(t==='Unassigned'?'':t)?' selected':''}>${t}</option>`).join('')}
-            </select>
-          </div>
-          <div class="field"><label>Tech Status</label>
-            <select data-i="${i}" data-field="tech_status">
-              ${TECH_STATUS_OPTIONS.map(o=>`<option value="${o.value}"${(lift.tech_status||'available')===o.value?' selected':''}>${o.label}</option>`).join('')}
             </select>
           </div>
           <div class="field"><label>Tech Notes</label>
