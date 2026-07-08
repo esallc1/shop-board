@@ -495,7 +495,7 @@
   let techChart = null;
 
   function hasVehicleData(r) {
-    return !!(r.po && r.po.trim()) || !!(r.vehicle && r.vehicle.trim());
+    return !!(r.po && r.po.trim()) && !!(r.vehicle && r.vehicle.trim());
   }
 
   async function loadAndRender() {
@@ -523,24 +523,37 @@
       wPart > 0 ? wPart + ' waiting for parts' : 'none waiting for parts';
 
     // ── Jobs by Tech chart (live)
+    // Match tech-board.html logic exactly: null/empty/"Unassigned" all count as unassigned
     const techCounts = {};
+    let unassignedCount = 0;
     allActive.forEach(r => {
       const t = (r.assigned_tech || '').trim();
-      if (t) techCounts[t] = (techCounts[t] || 0) + 1;
+      if (!t || t === 'Unassigned') {
+        unassignedCount++;
+      } else {
+        techCounts[t] = (techCounts[t] || 0) + 1;
+      }
     });
-    const techLabels = Object.keys(techCounts).sort();
-    const techData   = techLabels.map(t => techCounts[t]);
+    const namedLabels = Object.keys(techCounts).sort();
+    const techLabels  = unassignedCount > 0 ? [...namedLabels, 'Unassigned'] : namedLabels;
+    const techData    = [
+      ...namedLabels.map(t => techCounts[t]),
+      ...(unassignedCount > 0 ? [unassignedCount] : []),
+    ];
 
     const wrap = document.getElementById('chart-techs-wrap');
     if (!techLabels.length) {
       if (techChart) { techChart.destroy(); techChart = null; }
-      wrap.innerHTML = '<p style="text-align:center;color:#8c93a8;font-size:0.8rem;padding-top:50px">No tech assignments on board yet</p>';
+      wrap.innerHTML = '<p style="text-align:center;color:#8c93a8;font-size:0.8rem;padding-top:50px">No active jobs on board yet</p>';
     } else {
       if (!wrap.querySelector('canvas')) {
         wrap.innerHTML = '<canvas id="chartTechs"></canvas>';
       }
-      const bgColors  = techLabels.map((_, i) => TECH_COLORS[i % TECH_COLORS.length]);
-      const brdColors = techLabels.map((_, i) => TECH_BORDERS[i % TECH_BORDERS.length]);
+      // Named techs get color palette; Unassigned bar gets neutral gray
+      const bgColors  = techLabels.map((lbl, i) =>
+        lbl === 'Unassigned' ? 'rgba(148,163,184,0.65)' : TECH_COLORS[i % TECH_COLORS.length]);
+      const brdColors = techLabels.map((lbl, i) =>
+        lbl === 'Unassigned' ? '#94a3b8' : TECH_BORDERS[i % TECH_BORDERS.length]);
       if (techChart) {
         techChart.data.labels                        = techLabels;
         techChart.data.datasets[0].data             = techData;
