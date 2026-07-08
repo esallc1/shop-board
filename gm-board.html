@@ -228,6 +228,90 @@
   .stub-view h2 { font-size: 1.1rem; color: var(--text); margin-bottom: 10px; }
   .stub-view p  { font-size: 0.85rem; }
 
+  /* ── TECH CARDS ── */
+  .tech-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+  }
+  .tech-card {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+  .tech-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .tech-card-name {
+    font-weight: 800;
+    font-size: 1rem;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text);
+    padding-top: 4px;
+  }
+  .tech-card-count { font-size: 1.8rem; font-weight: 800; color: #5b5ef4; line-height: 1; text-align: right; }
+  .tech-card-count-label { font-size: 0.58rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; text-align: right; }
+  .tech-divider { height: 1px; background: var(--border); margin: 10px 0; }
+  .cat-pills { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+  .cat-pill {
+    font-size: 0.67rem; font-weight: 700; padding: 3px 9px;
+    border-radius: 20px; letter-spacing: 0.3px;
+  }
+  .cat-pill.rebuild { background: rgba(91,94,244,0.12); color: #5b5ef4; }
+  .cat-pill.diag    { background: rgba(16,185,129,0.12); color: #059669; }
+  .cat-pill.gen     { background: rgba(245,158,11,0.12); color: #d97706; }
+  .cat-pill.other   { background: rgba(148,163,184,0.15); color: #64748b; }
+  .tech-statuses { display: flex; flex-wrap: wrap; gap: 5px 14px; font-size: 0.7rem; color: var(--muted); }
+  .tech-status-item { display: flex; align-items: center; gap: 4px; }
+  .tech-status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .tech-pickup-row {
+    margin-top: 11px; font-size: 0.72rem; color: var(--muted);
+    display: flex; align-items: center; gap: 5px;
+    border-top: 1px solid var(--border); padding-top: 10px;
+  }
+  .tech-pickup-count { font-weight: 800; font-size: 0.95rem; color: #10b981; }
+
+  /* ── COMEBACKS TABLE ── */
+  .comebacks-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .comebacks-title {
+    font-size: 0.8rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text);
+  }
+  .comebacks-count {
+    font-size: 0.72rem; color: var(--muted); font-weight: 600;
+  }
+  .comeback-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .comeback-table th {
+    font-size: 0.63rem; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); font-weight: 700; padding: 10px 14px;
+    text-align: left; border-bottom: 2px solid var(--border); white-space: nowrap;
+  }
+  .comeback-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .comeback-table tr:last-child td { border-bottom: none; }
+  .comeback-table tbody tr:hover td { background: #f8f9fc; }
+  .comeback-location-badge {
+    font-size: 0.63rem; font-weight: 700; padding: 2px 8px;
+    border-radius: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .badge-lift    { background: rgba(91,94,244,0.1); color: #5b5ef4; }
+  .badge-parking { background: rgba(245,158,11,0.1); color: #d97706; }
+  .badge-pickup  { background: rgba(16,185,129,0.1); color: #059669; }
+  .comeback-warranty-badge {
+    display: inline-block; font-size: 0.6rem; font-weight: 700;
+    padding: 2px 6px; border-radius: 10px;
+    background: rgba(239,68,68,0.1); color: #dc2626;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+
   /* ── TEAM CHAT WIDGET ── */
   .chat-bubble {
     position: fixed; bottom: 28px; right: 28px; z-index: 9000;
@@ -380,18 +464,12 @@
 
   <!-- ══ TECHNICIANS ══ -->
   <div class="view" id="view-technicians">
-    <div class="stub-view">
-      <h2>Technicians</h2>
-      <p>Individual tech performance, current assignments, and efficiency scores — coming soon.</p>
-    </div>
+    <div id="tech-grid-wrap"><p style="color:var(--muted);padding:20px">Loading…</p></div>
   </div>
 
   <!-- ══ COMEBACKS ══ -->
   <div class="view" id="view-comebacks">
-    <div class="stub-view">
-      <h2>Comebacks</h2>
-      <p>All comeback / warranty jobs, root-cause tracking, and tech accountability — coming soon.</p>
-    </div>
+    <div id="comebacks-wrap"><p style="color:var(--muted);padding:20px">Loading…</p></div>
   </div>
 
   <!-- ══ CASH FLOW ══ -->
@@ -500,9 +578,9 @@
 
   async function loadAndRender() {
     const [{ data: lifts }, { data: parking }, { data: pickup }] = await Promise.all([
-      db.from('shopboard_lifts').select('id,status,assigned_tech,po,vehicle').order('id'),
-      db.from('shopboard_parking').select('id,status,assigned_tech,po,vehicle').order('created_at'),
-      db.from('shopboard_pickup').select('id,po,vehicle').order('created_at'),
+      db.from('shopboard_lifts').select('id,status,assigned_tech,po,vehicle,job_category,warranty').order('id'),
+      db.from('shopboard_parking').select('id,status,assigned_tech,po,vehicle,job_category,warranty').order('created_at'),
+      db.from('shopboard_pickup').select('id,po,vehicle,assigned_tech,job_category,warranty').order('created_at'),
     ]);
 
     const activeLifts   = (lifts   || []).filter(hasVehicleData);
@@ -597,6 +675,145 @@
         });
       }
     }
+
+    // ── Technicians tab
+    renderTechnicians(allActive, pickup);
+
+    // ── Comebacks tab
+    renderComebacks(lifts, parking, pickup);
+  }
+
+  // ── Status dot colors for tech cards
+  const STATUS_DOT_COLOR = {
+    'in-progress':  '#10b981',
+    'waiting-part': '#f59e0b',
+    'waiting-tech': '#3b82f6',
+    'waiting-auth': '#ef4444',
+    'waiting-pull': '#8b5cf6',
+    'delayed':      '#94a3b8',
+  };
+
+  function catClass(cat) {
+    const c = (cat || '').toLowerCase();
+    if (c === 'rebuild') return 'rebuild';
+    if (c === 'diag')    return 'diag';
+    if (c.includes('gen')) return 'gen';
+    return 'other';
+  }
+
+  function renderTechnicians(allActive, pickupData) {
+    const techMap = {};
+    allActive.forEach(r => {
+      const t = (r.assigned_tech || '').trim();
+      if (!t || t === 'Unassigned') return;
+      if (!techMap[t]) techMap[t] = { jobs: [], pickup: [] };
+      techMap[t].jobs.push(r);
+    });
+    (pickupData || []).filter(hasVehicleData).forEach(r => {
+      const t = (r.assigned_tech || '').trim();
+      if (!t || t === 'Unassigned') return;
+      if (!techMap[t]) techMap[t] = { jobs: [], pickup: [] };
+      techMap[t].pickup.push(r);
+    });
+
+    const techNames = Object.keys(techMap).sort();
+    const wrap = document.getElementById('tech-grid-wrap');
+
+    if (!techNames.length) {
+      wrap.innerHTML = '<div class="stub-view"><h2>No Active Jobs</h2><p>No jobs with assigned technicians on the board right now.</p></div>';
+      return;
+    }
+
+    const cards = techNames.map(name => {
+      const { jobs, pickup } = techMap[name];
+
+      // Category breakdown
+      const cats = {};
+      jobs.forEach(j => { const c = (j.job_category || '').trim(); if (c) cats[c] = (cats[c] || 0) + 1; });
+
+      // Status breakdown
+      const statuses = {};
+      jobs.forEach(j => { const s = (j.status || '').trim(); if (s) statuses[s] = (statuses[s] || 0) + 1; });
+
+      const catPills = Object.entries(cats)
+        .map(([c, n]) => `<span class="cat-pill ${catClass(c)}">${c} &middot; ${n}</span>`)
+        .join('');
+
+      const statusItems = Object.entries(statuses)
+        .map(([s, n]) => {
+          const col = STATUS_DOT_COLOR[s] || '#94a3b8';
+          return `<span class="tech-status-item"><span class="tech-status-dot" style="background:${col}"></span>${s.replace(/-/g,' ')}: ${n}</span>`;
+        }).join('');
+
+      return `<div class="tech-card">
+        <div class="tech-card-header">
+          <div class="tech-card-name">${name}</div>
+          <div>
+            <div class="tech-card-count">${jobs.length}</div>
+            <div class="tech-card-count-label">Active</div>
+          </div>
+        </div>
+        ${catPills ? `<div class="cat-pills">${catPills}</div>` : ''}
+        ${statusItems ? `<div class="tech-divider"></div><div class="tech-statuses">${statusItems}</div>` : ''}
+        <div class="tech-pickup-row">🏁 Ready for pickup: <span class="tech-pickup-count">${pickup.length}</span></div>
+      </div>`;
+    }).join('');
+
+    wrap.innerHTML = `<div class="tech-grid">${cards}</div>`;
+  }
+
+  function renderComebacks(lifts, parking, pickupData) {
+    const allWarranty = [
+      ...(lifts   || []).filter(r => hasVehicleData(r) && r.warranty === true).map(r => ({...r, _loc:'Lift'})),
+      ...(parking  || []).filter(r => hasVehicleData(r) && r.warranty === true).map(r => ({...r, _loc:'Parking'})),
+      ...(pickupData || []).filter(r => hasVehicleData(r) && r.warranty === true).map(r => ({...r, _loc:'Pickup', status:'Ready'})),
+    ];
+
+    const wrap = document.getElementById('comebacks-wrap');
+
+    if (!allWarranty.length) {
+      wrap.innerHTML = `
+        <div class="comebacks-header">
+          <div class="comebacks-title">⚑ Warranty / Comeback Jobs</div>
+          <div class="comebacks-count">0 active</div>
+        </div>
+        <div class="stub-view" style="padding:40px 40px">
+          <h2 style="font-size:1rem">No Active Comebacks</h2>
+          <p>No jobs currently flagged as warranty or comeback work.</p>
+        </div>`;
+      return;
+    }
+
+    const LOC_CLASS = { Lift: 'badge-lift', Parking: 'badge-parking', Pickup: 'badge-pickup' };
+
+    const rows = allWarranty.map(r => {
+      const tech   = (r.assigned_tech || '').trim() || '—';
+      const cat    = (r.job_category  || '').trim() || '—';
+      const status = (r.status        || '—').replace(/-/g, ' ');
+      return `<tr>
+        <td><strong>${r.po}</strong></td>
+        <td>${r.vehicle}</td>
+        <td>${tech}</td>
+        <td>${cat}</td>
+        <td><span class="comeback-location-badge ${LOC_CLASS[r._loc]||''}">${r._loc}</span></td>
+        <td>${status}</td>
+      </tr>`;
+    }).join('');
+
+    wrap.innerHTML = `
+      <div class="comebacks-header">
+        <div class="comebacks-title">⚑ Warranty / Comeback Jobs</div>
+        <div class="comebacks-count">${allWarranty.length} active</div>
+      </div>
+      <div class="chart-card" style="padding:0;overflow:hidden">
+        <table class="comeback-table">
+          <thead><tr>
+            <th>PO #</th><th>Vehicle</th><th>Tech</th>
+            <th>Category</th><th>Location</th><th>Status</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
   }
 
   loadAndRender();
