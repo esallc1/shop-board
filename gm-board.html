@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lee Transmission — Manager Board</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0b1120;
+    --surface:   #131c2e;
+    --surface-2: #1a2540;
+    --border:    #1f2f4a;
+    --gold:      #f5c518;
+    --gold-dim:  #a8870f;
+    --text:      #e0e6f0;
+    --muted:     #5a6a88;
+    --radius:    10px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 28px 0;
+  }
+  .header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .header-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+  .header-sub {
+    font-size: 0.7rem;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .live-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .live-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #22c55e;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ── TABS ── */
+  .tabs {
+    display: flex;
+    gap: 2px;
+  }
+  .tab {
+    padding: 9px 22px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    transition: all 0.18s;
+    user-select: none;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--gold);
+    border-bottom-color: var(--gold);
+  }
+
+  /* ── MAIN CONTENT ── */
+  .content { padding: 24px 28px; }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── KPI CARDS ── */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+    margin-bottom: 24px;
+  }
+  @media (max-width: 900px) { .kpi-row { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 600px) { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
+
+  .kpi-card {
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid transparent;
+  }
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0.08;
+    border-radius: var(--radius);
+  }
+  .kpi-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    opacity: 0.85;
+  }
+  .kpi-value {
+    font-size: 2.2rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -1px;
+  }
+  .kpi-delta {
+    font-size: 0.72rem;
+    margin-top: 8px;
+    opacity: 0.7;
+  }
+  .kpi-icon {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 2rem;
+    opacity: 0.12;
+  }
+
+  /* card color themes */
+  .kpi-gold   { background: linear-gradient(135deg,#2a2200,#1a1600); border-color:#3a3010; color:#f5c518; }
+  .kpi-blue   { background: linear-gradient(135deg,#0a1e3d,#071428); border-color:#0f2a50; color:#60a5fa; }
+  .kpi-green  { background: linear-gradient(135deg,#0a2a1a,#061a10); border-color:#0f3a22; color:#34d399; }
+  .kpi-red    { background: linear-gradient(135deg,#2d0a0a,#1e0606); border-color:#3d1010; color:#f87171; }
+  .kpi-purple { background: linear-gradient(135deg,#1a0a2d,#100620); border-color:#280f3d; color:#c084fc; }
+
+  /* ── CHART GRID ── */
+  .chart-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 800px) { .chart-grid { grid-template-columns: 1fr; } }
+
+  .chart-grid-bottom {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 800px) { .chart-grid-bottom { grid-template-columns: 1fr; } }
+
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .chart-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    font-weight: 700;
+    margin-bottom: 16px;
+  }
+  .chart-title span {
+    color: var(--gold);
+    margin-right: 8px;
+  }
+  .chart-wrap { position: relative; height: 220px; }
+
+  /* ── PLACEHOLDER CARDS ── */
+  .placeholder-card {
+    background: var(--surface);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    min-height: 260px;
+    color: var(--muted);
+  }
+  .placeholder-icon { font-size: 2rem; opacity: 0.3; }
+  .placeholder-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* ── STUB VIEWS ── */
+  .stub-view {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 60px 40px;
+    text-align: center;
+    color: var(--muted);
+  }
+  .stub-view h2 { font-size: 1.1rem; color: var(--text); margin-bottom: 10px; }
+  .stub-view p  { font-size: 0.85rem; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <div>
+      <div class="header-title">Lee Transmission — Manager Board</div>
+      <div class="header-sub">General Manager View · Prototype</div>
+    </div>
+    <div class="live-badge"><div class="live-dot"></div>Live</div>
+  </div>
+  <div class="tabs">
+    <div class="tab active" data-view="overview">Overview</div>
+    <div class="tab" data-view="technicians">Technicians</div>
+    <div class="tab" data-view="comebacks">Comebacks</div>
+    <div class="tab" data-view="cashflow">Cash Flow</div>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- ══ OVERVIEW ══ -->
+  <div class="view active" id="view-overview">
+
+    <div class="kpi-row">
+      <div class="kpi-card kpi-gold">
+        <div class="kpi-label">Bay Utilization</div>
+        <div class="kpi-value">78<span style="font-size:1.2rem">%</span></div>
+        <div class="kpi-delta">↑ 4% vs last week</div>
+        <div class="kpi-icon">🔧</div>
+      </div>
+      <div class="kpi-card kpi-green">
+        <div class="kpi-label">Tech Efficiency</div>
+        <div class="kpi-value">91<span style="font-size:1.2rem">%</span></div>
+        <div class="kpi-delta">↑ 2% vs last week</div>
+        <div class="kpi-icon">⚡</div>
+      </div>
+      <div class="kpi-card kpi-blue">
+        <div class="kpi-label">Open Repair Orders</div>
+        <div class="kpi-value">14</div>
+        <div class="kpi-delta">3 waiting for parts</div>
+        <div class="kpi-icon">📋</div>
+      </div>
+      <div class="kpi-card kpi-red">
+        <div class="kpi-label">Comeback Rate</div>
+        <div class="kpi-value">3<span style="font-size:1.2rem">%</span></div>
+        <div class="kpi-delta">↓ 1% vs last month</div>
+        <div class="kpi-icon">↩</div>
+      </div>
+      <div class="kpi-card kpi-purple">
+        <div class="kpi-label">Avg Days to Complete</div>
+        <div class="kpi-value">2.4</div>
+        <div class="kpi-delta">↓ 0.3 days vs last week</div>
+        <div class="kpi-icon">📅</div>
+      </div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-title"><span>▸</span>Bay Utilization This Week</div>
+        <div class="chart-wrap"><canvas id="chartUtilization"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title"><span>▸</span>Jobs Completed by Technician</div>
+        <div class="chart-wrap"><canvas id="chartTechs"></canvas></div>
+      </div>
+    </div>
+
+    <div class="chart-grid-bottom">
+      <div class="placeholder-card">
+        <div class="placeholder-icon">📊</div>
+        <div class="placeholder-label">Revenue by Service Type — coming soon</div>
+      </div>
+      <div class="placeholder-card">
+        <div class="placeholder-icon">🔁</div>
+        <div class="placeholder-label">Job Status Flow / Cycle Time — coming soon</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══ TECHNICIANS ══ -->
+  <div class="view" id="view-technicians">
+    <div class="stub-view">
+      <h2>Technicians</h2>
+      <p>Individual tech performance, current assignments, and efficiency scores — coming soon.</p>
+    </div>
+  </div>
+
+  <!-- ══ COMEBACKS ══ -->
+  <div class="view" id="view-comebacks">
+    <div class="stub-view">
+      <h2>Comebacks</h2>
+      <p>All comeback / warranty jobs, root-cause tracking, and tech accountability — coming soon.</p>
+    </div>
+  </div>
+
+  <!-- ══ CASH FLOW ══ -->
+  <div class="view" id="view-cashflow">
+    <div class="stub-view">
+      <h2>Cash Flow</h2>
+      <p>Daily revenue, parts costs, and labor margin tracking — coming soon.</p>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ── Tab switching
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('view-' + tab.dataset.view).classList.add('active');
+    });
+  });
+
+  // ── Shared chart defaults
+  Chart.defaults.color = '#5a6a88';
+  Chart.defaults.borderColor = '#1f2f4a';
+  Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
+
+  const GOLD = '#f5c518';
+  const GOLD_DIM = 'rgba(245,197,24,0.15)';
+
+  // ── Line chart: Bay Utilization
+  new Chart(document.getElementById('chartUtilization'), {
+    type: 'line',
+    data: {
+      labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      datasets: [{
+        label: 'Bay Utilization %',
+        data: [72, 80, 85, 78, 91, 88, 55],
+        borderColor: GOLD,
+        backgroundColor: GOLD_DIM,
+        borderWidth: 2.5,
+        pointBackgroundColor: GOLD,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        tension: 0.4,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#131c2e',
+          borderColor: '#1f2f4a',
+          borderWidth: 1,
+          callbacks: { label: ctx => ` ${ctx.parsed.y}%` }
+        }
+      },
+      scales: {
+        y: {
+          min: 0, max: 100,
+          grid: { color: '#1a2540' },
+          ticks: { callback: v => v + '%' }
+        },
+        x: { grid: { color: '#1a2540' } }
+      }
+    }
+  });
+
+  // ── Bar chart: Jobs by Tech
+  new Chart(document.getElementById('chartTechs'), {
+    type: 'bar',
+    data: {
+      labels: ['Alex', 'Cory', 'Capote', 'Alnardier'],
+      datasets: [{
+        label: 'Jobs Completed',
+        data: [11, 9, 13, 7],
+        backgroundColor: [
+          'rgba(245,197,24,0.75)',
+          'rgba(96,165,250,0.75)',
+          'rgba(52,211,153,0.75)',
+          'rgba(192,132,252,0.75)',
+        ],
+        borderColor: [
+          '#f5c518', '#60a5fa', '#34d399', '#c084fc'
+        ],
+        borderWidth: 1.5,
+        borderRadius: 5,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#131c2e',
+          borderColor: '#1f2f4a',
+          borderWidth: 1,
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          grid: { color: '#1a2540' },
+          ticks: { stepSize: 2 }
+        },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+</script>
+</body>
+</html>
