@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lee Transmission — Service Advisor Board</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #f5f6fa;
+    --surface:  #ffffff;
+    --border:   #e2e5ee;
+    --text:     #1a1f36;
+    --muted:    #8c93a8;
+    --radius:   10px;
+    --accent:   #5b5ef4;
+    --green:    #10b981;
+    --amber:    #f59e0b;
+    --red:      #ef4444;
+    --blue:     #3b82f6;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    background: #fff;
+    border-bottom: 1px solid var(--border);
+    padding: 14px 28px 0;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .header-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .header-sub { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+  .live-badge {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.7rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .live-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #22c55e; animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* ── TABS ── */
+  .tabs { display: flex; gap: 2px; }
+  .tab {
+    padding: 9px 22px;
+    font-size: 0.8rem; font-weight: 600;
+    letter-spacing: 0.6px; text-transform: uppercase;
+    color: var(--muted); cursor: pointer;
+    border-bottom: 3px solid transparent;
+    transition: all 0.18s; user-select: none;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── CONTENT ── */
+  .content { padding: 24px 28px; }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── SHARED CARD ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); flex-shrink: 0;
+  }
+
+  /* ── BUTTONS ── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 16px; border-radius: 6px;
+    font-size: 0.8rem; font-weight: 600;
+    cursor: pointer; border: none; transition: opacity 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover { opacity: 0.88; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-green   { background: var(--green);  color: #fff; }
+  .btn-amber   { background: var(--amber);  color: #fff; }
+  .btn-red     { background: var(--red);    color: #fff; }
+  .btn-ghost {
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { color: var(--text); border-color: #c5cadc; }
+
+  /* ── INPUTS ── */
+  input, select, textarea {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 11px;
+    font-size: 0.85rem; color: var(--text);
+    font-family: inherit; outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  input[type="number"] { width: 90px; }
+  select { cursor: pointer; }
+  textarea { resize: vertical; width: 100%; min-height: 60px; }
+
+  /* ── BADGES ── */
+  .badge {
+    display: inline-block; padding: 2px 9px;
+    border-radius: 20px; font-size: 0.68rem;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+  }
+  .badge-waiting  { background: #fef3c7; color: #92400e; }
+  .badge-diag     { background: #dbeafe; color: #1e40af; }
+  .badge-approved { background: #d1fae5; color: #065f46; }
+  .badge-parts    { background: #ede9fe; color: #5b21b6; }
+
+  /* ══════════════════════════════════
+     TAB 1 — APPROVAL QUEUE
+  ══════════════════════════════════ */
+  .queue-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 16px;
+  }
+  .job-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    overflow: hidden;
+  }
+  .job-card-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .job-vehicle { font-weight: 700; font-size: 0.95rem; }
+  .job-customer { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+  .job-body { padding: 14px 18px; }
+  .job-section-label {
+    font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--muted); margin-bottom: 6px;
+  }
+  .job-diagnosis {
+    font-size: 0.85rem; line-height: 1.6;
+    color: var(--text); margin-bottom: 14px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 12px;
+  }
+  .photo-row {
+    display: flex; gap: 8px; margin-bottom: 14px;
+  }
+  .photo-thumb {
+    width: 68px; height: 56px;
+    background: #e8eaf2; border-radius: 6px;
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 1.2rem;
+  }
+  .photo-add {
+    width: 68px; height: 56px;
+    background: transparent; border: 2px dashed var(--border);
+    border-radius: 6px; display: flex; align-items: center;
+    justify-content: center; color: var(--muted); font-size: 1.1rem;
+    cursor: pointer; transition: border-color 0.15s;
+  }
+  .photo-add:hover { border-color: var(--accent); color: var(--accent); }
+  .job-footer {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .hours-label { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+
+  /* ══════════════════════════════════
+     TAB 2 — PARTS
+  ══════════════════════════════════ */
+  table {
+    width: 100%; border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  th {
+    text-align: left; padding: 9px 12px;
+    font-size: 0.65rem; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--muted);
+    border-bottom: 2px solid var(--border);
+    font-weight: 700;
+  }
+  td {
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg); }
+
+  .received-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .received-item {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 0.85rem; color: var(--muted);
+  }
+  .received-item::before {
+    content: '✓'; color: var(--green);
+    font-weight: 700; font-size: 0.9rem; flex-shrink: 0;
+  }
+
+  /* ══════════════════════════════════
+     TAB 3 — PAYMENTS
+  ══════════════════════════════════ */
+  .payment-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 640px) { .payment-form { grid-template-columns: 1fr; } }
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
+  .form-group input, .form-group select { width: 100%; }
+  .payment-total {
+    text-align: right; padding: 12px 16px;
+    font-weight: 700; font-size: 0.95rem;
+    border-top: 2px solid var(--border);
+    color: var(--text);
+  }
+  .payment-total span { color: var(--green); font-size: 1.1rem; }
+
+  /* ══════════════════════════════════
+     TAB 4 — CUSTOMER LOG
+  ══════════════════════════════════ */
+  .log-list { list-style: none; display: flex; flex-direction: column; }
+  .log-entry {
+    display: flex; gap: 14px; padding: 13px 0;
+    border-bottom: 1px solid var(--border);
+    align-items: flex-start;
+  }
+  .log-entry:last-child { border-bottom: none; }
+  .log-time {
+    font-size: 0.7rem; color: var(--muted);
+    font-family: 'Courier New', monospace;
+    white-space: nowrap; padding-top: 2px;
+    min-width: 54px;
+  }
+  .log-text { font-size: 0.88rem; line-height: 1.55; }
+  .log-author {
+    font-size: 0.7rem; color: var(--accent);
+    font-weight: 600; margin-top: 3px;
+  }
+  .add-note-row {
+    display: flex; gap: 10px; margin-top: 6px;
+  }
+  .add-note-row input { flex: 1; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <div>
+      <div class="header-title">Lee Transmission — Service Advisor Board</div>
+      <div class="header-sub">Josh · Service Advisor View · Prototype</div>
+    </div>
+    <div class="live-badge"><div class="live-dot"></div>Live</div>
+  </div>
+  <div class="tabs">
+    <div class="tab active" data-view="approval">Approval Queue</div>
+    <div class="tab" data-view="parts">Parts</div>
+    <div class="tab" data-view="payments">Payments</div>
+    <div class="tab" data-view="customer-log">Customer Log</div>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- ══ TAB 1: APPROVAL QUEUE ══ -->
+  <div class="view active" id="view-approval">
+    <div class="queue-grid">
+
+      <!-- Job 1 -->
+      <div class="job-card">
+        <div class="job-card-header">
+          <div>
+            <div class="job-vehicle">2017 Honda Accord — PO #1041</div>
+            <div class="job-customer">Carlos Mendoza · (239) 555-0182</div>
+          </div>
+          <span class="badge badge-waiting">Awaiting Approval</span>
+        </div>
+        <div class="job-body">
+          <div class="job-section-label">Tech Diagnosis — Alex</div>
+          <div class="job-diagnosis">Torque converter shudder confirmed under load. Fluid is dark/burned. Recommend full transmission rebuild — internal clutch pack failure on 3rd/4th. Vehicle slips at highway speed.</div>
+          <div class="job-section-label">Before Photos</div>
+          <div class="photo-row">
+            <div class="photo-thumb">🖼</div>
+            <div class="photo-thumb">🖼</div>
+            <div class="photo-add">＋</div>
+          </div>
+        </div>
+        <div class="job-footer">
+          <span class="hours-label">Flag Hours:</span>
+          <input type="number" value="12" min="0" step="0.5" />
+          <button class="btn btn-green" onclick="approveJob(this)">✓ Approve Job</button>
+          <button class="btn btn-ghost" style="margin-left:auto">Hold</button>
+        </div>
+      </div>
+
+      <!-- Job 2 -->
+      <div class="job-card">
+        <div class="job-card-header">
+          <div>
+            <div class="job-vehicle">2014 Ford F-150 — PO #1038</div>
+            <div class="job-customer">Dana Reyes · (239) 555-0341</div>
+          </div>
+          <span class="badge badge-diag">Diagnosing</span>
+        </div>
+        <div class="job-body">
+          <div class="job-section-label">Tech Diagnosis — Capote</div>
+          <div class="job-diagnosis">No movement in Drive or Reverse. Line pressure check shows 0 psi in reverse circuit — likely failed manual valve or severely worn reverse drum. Pulling pan tomorrow for visual confirmation before quoting rebuild vs. replacement.</div>
+          <div class="job-section-label">Before Photos</div>
+          <div class="photo-row">
+            <div class="photo-thumb">🖼</div>
+            <div class="photo-add">＋</div>
+            <div class="photo-add">＋</div>
+          </div>
+        </div>
+        <div class="job-footer">
+          <span class="hours-label">Flag Hours:</span>
+          <input type="number" value="8" min="0" step="0.5" />
+          <button class="btn btn-green" onclick="approveJob(this)">✓ Approve Job</button>
+          <button class="btn btn-ghost" style="margin-left:auto">Hold</button>
+        </div>
+      </div>
+
+      <!-- Job 3 -->
+      <div class="job-card">
+        <div class="job-card-header">
+          <div>
+            <div class="job-vehicle">2019 Toyota Camry — PO #1043</div>
+            <div class="job-customer">Patricia Gomez · (239) 555-0794</div>
+          </div>
+          <span class="badge badge-waiting">Awaiting Approval</span>
+        </div>
+        <div class="job-body">
+          <div class="job-section-label">Tech Diagnosis — Cory</div>
+          <div class="job-diagnosis">CVT belt wear — unit whines under acceleration above 40 mph. Scanned codes: P0776, P0894. Fluid is milky suggesting a small coolant leak into trans cooler. Recommend CVT flush + cooler inspection first before committing to full replacement.</div>
+          <div class="job-section-label">Before Photos</div>
+          <div class="photo-row">
+            <div class="photo-thumb">🖼</div>
+            <div class="photo-thumb">🖼</div>
+            <div class="photo-thumb">🖼</div>
+            <div class="photo-add">＋</div>
+          </div>
+        </div>
+        <div class="job-footer">
+          <span class="hours-label">Flag Hours:</span>
+          <input type="number" value="6" min="0" step="0.5" />
+          <button class="btn btn-green" onclick="approveJob(this)">✓ Approve Job</button>
+          <button class="btn btn-ghost" style="margin-left:auto">Hold</button>
+        </div>
+      </div>
+
+      <!-- Job 4 -->
+      <div class="job-card">
+        <div class="job-card-header">
+          <div>
+            <div class="job-vehicle">2011 Chevy Silverado — PO #1037</div>
+            <div class="job-customer">James Wicker · (239) 555-0027</div>
+          </div>
+          <span class="badge badge-waiting">Awaiting Approval</span>
+        </div>
+        <div class="job-body">
+          <div class="job-section-label">Tech Diagnosis — Alnardier</div>
+          <div class="job-diagnosis">4L60-E — delayed engagement on cold start, 2–3 sec before drive engages. Suspect worn accumulator springs and 3-4 clutch pack starting to slip. No hard codes, shift quality fair once warm. Recommend rebuild with upgraded clutch kit for longevity.</div>
+          <div class="job-section-label">Before Photos</div>
+          <div class="photo-row">
+            <div class="photo-thumb">🖼</div>
+            <div class="photo-add">＋</div>
+          </div>
+        </div>
+        <div class="job-footer">
+          <span class="hours-label">Flag Hours:</span>
+          <input type="number" value="10" min="0" step="0.5" />
+          <button class="btn btn-green" onclick="approveJob(this)">✓ Approve Job</button>
+          <button class="btn btn-ghost" style="margin-left:auto">Hold</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ TAB 2: PARTS ══ -->
+  <div class="view" id="view-parts">
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--amber)"></div>Waiting for Parts</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Vehicle / PO#</th>
+            <th>Part Needed</th>
+            <th>Ordered</th>
+            <th>Expected</th>
+            <th>Supplier</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>2017 Honda Accord</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1041</span></td>
+            <td>Rebuilt torque converter</td>
+            <td>Jul 6</td>
+            <td><strong style="color:var(--amber)">Jul 9</strong></td>
+            <td>Trans-Works</td>
+            <td><button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px" onclick="markReceived(this)">✓ Received</button></td>
+          </tr>
+          <tr>
+            <td><strong>2011 Chevy Silverado</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1037</span></td>
+            <td>4L60-E clutch pack kit (upgraded)</td>
+            <td>Jul 5</td>
+            <td><strong>Jul 8</strong></td>
+            <td>NAPA Pro</td>
+            <td><button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px" onclick="markReceived(this)">✓ Received</button></td>
+          </tr>
+          <tr>
+            <td><strong>2019 Toyota Camry</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1043</span></td>
+            <td>CVT trans cooler hose kit</td>
+            <td>Jul 7</td>
+            <td><strong style="color:var(--red)">Jul 11</strong></td>
+            <td>Toyota OEM</td>
+            <td><button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px" onclick="markReceived(this)">✓ Received</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--green)"></div>Recently Received</div>
+      <ul class="received-list">
+        <li class="received-item">Rebuilt 4L60-E (reman) — 2014 GMC Sierra PO #1029 · Received Jul 6</li>
+        <li class="received-item">Valve body kit — 2016 Ford Explorer PO #1033 · Received Jul 5</li>
+        <li class="received-item">Solenoid pack (6R80) — 2018 Ford F-150 PO #1031 · Received Jul 4</li>
+        <li class="received-item">Filter &amp; gasket set — 2013 Dodge RAM PO #1028 · Received Jul 3</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══ TAB 3: PAYMENTS ══ -->
+  <div class="view" id="view-payments">
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--green)"></div>Log a Payment</div>
+      <div class="payment-form">
+        <div class="form-group">
+          <label class="form-label">Job / Vehicle</label>
+          <select>
+            <option>PO #1029 — 2014 GMC Sierra (J. Thornton)</option>
+            <option>PO #1033 — 2016 Ford Explorer (M. Castillo)</option>
+            <option>PO #1031 — 2018 Ford F-150 (R. Peña)</option>
+            <option>PO #1028 — 2013 Dodge RAM (A. Williams)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Amount ($)</label>
+          <input type="number" placeholder="0.00" min="0" step="0.01" style="width:100%" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Payment Method</label>
+          <select>
+            <option>Cash</option>
+            <option>Card at Counter</option>
+            <option>Clover</option>
+            <option>Check</option>
+          </select>
+        </div>
+        <div class="form-group" style="justify-content:flex-end">
+          <label class="form-label">&nbsp;</label>
+          <button class="btn btn-primary" onclick="logPayment()" style="align-self:flex-end">Log Payment</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--blue)"></div>Today's Payments</div>
+      <table id="payments-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Vehicle / PO#</th>
+            <th>Customer</th>
+            <th>Method</th>
+            <th style="text-align:right">Amount</th>
+          </tr>
+        </thead>
+        <tbody id="payments-body">
+          <tr>
+            <td style="color:var(--muted);font-size:0.78rem">8:42 AM</td>
+            <td><strong>2014 GMC Sierra</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1029</span></td>
+            <td>J. Thornton</td>
+            <td><span class="badge badge-approved">Clover</span></td>
+            <td style="text-align:right;font-weight:700">$2,450.00</td>
+          </tr>
+          <tr>
+            <td style="color:var(--muted);font-size:0.78rem">10:15 AM</td>
+            <td><strong>2016 Ford Explorer</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1033</span></td>
+            <td>M. Castillo</td>
+            <td><span class="badge badge-waiting">Cash</span></td>
+            <td style="text-align:right;font-weight:700">$680.00</td>
+          </tr>
+          <tr>
+            <td style="color:var(--muted);font-size:0.78rem">11:50 AM</td>
+            <td><strong>2013 Dodge RAM</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1028</span></td>
+            <td>A. Williams</td>
+            <td><span class="badge badge-diag">Card at Counter</span></td>
+            <td style="text-align:right;font-weight:700">$1,875.00</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="payment-total" id="payment-total">Today's Total: <span>$5,005.00</span></div>
+    </div>
+  </div>
+
+  <!-- ══ TAB 4: CUSTOMER LOG ══ -->
+  <div class="view" id="view-customer-log">
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--accent)"></div>Add Note</div>
+      <div class="add-note-row">
+        <input type="text" id="new-note-input" placeholder="e.g. Called J. Smith – left voicemail re: parts ETA" style="font-size:0.88rem" />
+        <button class="btn btn-primary" onclick="addNote()">Add Note</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><div class="dot"></div>Customer Activity Log</div>
+      <ul class="log-list" id="log-list">
+        <li class="log-entry">
+          <div class="log-time">11:47 AM</div>
+          <div>
+            <div class="log-text">Called P. Gomez (Camry PO #1043) — confirmed CVT flush approved, parts on order. Told her 2–3 days out.</div>
+            <div class="log-author">Josh</div>
+          </div>
+        </li>
+        <li class="log-entry">
+          <div class="log-time">10:30 AM</div>
+          <div>
+            <div class="log-text">Left voicemail for J. Wicker (Silverado PO #1037) re: clutch kit approval. Needs callback before end of day.</div>
+            <div class="log-author">Josh</div>
+          </div>
+        </li>
+        <li class="log-entry">
+          <div class="log-time">9:58 AM</div>
+          <div>
+            <div class="log-text">D. Reyes called in — wants update on F-150. Told her still diagnosing, will call back by 2 PM with full quote.</div>
+            <div class="log-author">Josh</div>
+          </div>
+        </li>
+        <li class="log-entry">
+          <div class="log-time">9:12 AM</div>
+          <div>
+            <div class="log-text">C. Mendoza approved Accord rebuild — $2,800 flagged hours. Authorized via phone, note added to RO.</div>
+            <div class="log-author">Josh</div>
+          </div>
+        </li>
+        <li class="log-entry">
+          <div class="log-time">8:35 AM</div>
+          <div>
+            <div class="log-text">A. Williams picked up Dodge RAM PO #1028 — paid in full ($1,875 card). Satisfaction: happy, mentioned timing was fast.</div>
+            <div class="log-author">Josh</div>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // ── Tab switching
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('view-' + tab.dataset.view).classList.add('active');
+    });
+  });
+
+  // ── Approve Job
+  function approveJob(btn) {
+    const card = btn.closest('.job-card');
+    const badge = card.querySelector('.badge');
+    badge.textContent = 'Approved';
+    badge.className = 'badge badge-approved';
+    btn.textContent = '✓ Approved';
+    btn.disabled = true;
+    btn.style.opacity = '0.5';
+  }
+
+  // ── Mark Part Received
+  function markReceived(btn) {
+    const row = btn.closest('tr');
+    row.style.opacity = '0.45';
+    btn.textContent = 'Received ✓';
+    btn.disabled = true;
+  }
+
+  // ── Log Payment
+  let totalCents = 500500; // $5,005.00 in cents
+  function logPayment() {
+    const sel = document.querySelector('#view-payments select');
+    const amtInput = document.querySelectorAll('#view-payments input[type=number]')[0];
+    const methodSel = document.querySelectorAll('#view-payments select')[1];
+    const amt = parseFloat(amtInput.value);
+    if (!amt || amt <= 0) { amtInput.style.borderColor = 'var(--red)'; return; }
+    amtInput.style.borderColor = '';
+
+    const [po, vehicle] = sel.options[sel.selectedIndex].text.split(' — ');
+    const method = methodSel.value;
+    const now = new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+
+    const methodBadge = { Cash:'badge-waiting', 'Card at Counter':'badge-diag', Clover:'badge-approved', Check:'badge-parts' };
+
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td style="color:var(--muted);font-size:0.78rem">${now}</td>
+      <td><strong>${vehicle.trim()}</strong><br><span style="color:var(--muted);font-size:0.78rem">${po.trim()}</span></td>
+      <td>—</td>
+      <td><span class="badge ${methodBadge[method] || 'badge-parts'}">${method}</span></td>
+      <td style="text-align:right;font-weight:700">$${amt.toFixed(2)}</td>
+    `;
+    document.getElementById('payments-body').prepend(row);
+    totalCents += Math.round(amt * 100);
+    document.querySelector('#payment-total span').textContent = '$' + (totalCents / 100).toLocaleString('en-US', {minimumFractionDigits:2});
+    amtInput.value = '';
+  }
+
+  // ── Add Customer Log Note
+  function addNote() {
+    const input = document.getElementById('new-note-input');
+    const text = input.value.trim();
+    if (!text) return;
+    const now = new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+    const li = document.createElement('li');
+    li.className = 'log-entry';
+    li.innerHTML = `
+      <div class="log-time">${now}</div>
+      <div>
+        <div class="log-text">${text.replace(/</g,'&lt;')}</div>
+        <div class="log-author">Josh</div>
+      </div>
+    `;
+    document.getElementById('log-list').prepend(li);
+    input.value = '';
+  }
+
+  document.getElementById('new-note-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') addNote();
+  });
+</script>
+</body>
+</html>
