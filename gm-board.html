@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Lee Transmission — Manager Board</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -323,44 +324,44 @@
     <div class="kpi-row">
       <div class="kpi-card kpi-gold">
         <div class="kpi-label">Bay Utilization</div>
-        <div class="kpi-value">78<span style="font-size:1.2rem">%</span></div>
-        <div class="kpi-delta">↑ 4% vs last week</div>
+        <div class="kpi-value" id="kpi-bay-val">—</div>
+        <div class="kpi-delta" id="kpi-bay-delta">Loading…</div>
         <div class="kpi-icon">🔧</div>
       </div>
       <div class="kpi-card kpi-green">
         <div class="kpi-label">Tech Efficiency</div>
         <div class="kpi-value">91<span style="font-size:1.2rem">%</span></div>
-        <div class="kpi-delta">↑ 2% vs last week</div>
+        <div class="kpi-delta" style="opacity:0.55;font-style:italic">Sample data</div>
         <div class="kpi-icon">⚡</div>
       </div>
       <div class="kpi-card kpi-blue">
         <div class="kpi-label">Open Repair Orders</div>
-        <div class="kpi-value">14</div>
-        <div class="kpi-delta">3 waiting for parts</div>
+        <div class="kpi-value" id="kpi-ro-val">—</div>
+        <div class="kpi-delta" id="kpi-ro-delta">Loading…</div>
         <div class="kpi-icon">📋</div>
       </div>
       <div class="kpi-card kpi-red">
         <div class="kpi-label">Comeback Rate</div>
         <div class="kpi-value">3<span style="font-size:1.2rem">%</span></div>
-        <div class="kpi-delta">↓ 1% vs last month</div>
+        <div class="kpi-delta" style="opacity:0.55;font-style:italic">Sample data</div>
         <div class="kpi-icon">↩</div>
       </div>
       <div class="kpi-card kpi-purple">
         <div class="kpi-label">Avg Days to Complete</div>
         <div class="kpi-value">2.4</div>
-        <div class="kpi-delta">↓ 0.3 days vs last week</div>
+        <div class="kpi-delta" style="opacity:0.55;font-style:italic">Sample data</div>
         <div class="kpi-icon">📅</div>
       </div>
     </div>
 
     <div class="chart-grid">
       <div class="chart-card">
-        <div class="chart-title"><span>▸</span>Bay Utilization This Week</div>
+        <div class="chart-title"><span>▸</span>Bay Utilization This Week <span style="font-size:0.65rem;opacity:0.5;font-style:italic;text-transform:none;letter-spacing:0">(sample data)</span></div>
         <div class="chart-wrap"><canvas id="chartUtilization"></canvas></div>
       </div>
       <div class="chart-card">
-        <div class="chart-title"><span>▸</span>Jobs Completed by Technician</div>
-        <div class="chart-wrap"><canvas id="chartTechs"></canvas></div>
+        <div class="chart-title"><span>▸</span>Current Jobs by Technician</div>
+        <div class="chart-wrap" id="chart-techs-wrap"><canvas id="chartTechs"></canvas></div>
       </div>
     </div>
 
@@ -480,48 +481,119 @@
     }
   });
 
-  // ── Bar chart: Jobs by Tech
-  new Chart(document.getElementById('chartTechs'), {
-    type: 'bar',
-    data: {
-      labels: ['Alex', 'Cory', 'Capote', 'Alnardier'],
-      datasets: [{
-        label: 'Jobs Completed',
-        data: [11, 9, 13, 7],
-        backgroundColor: [
-          'rgba(245,197,24,0.75)',
-          'rgba(96,165,250,0.75)',
-          'rgba(52,211,153,0.75)',
-          'rgba(192,132,252,0.75)',
-        ],
-        borderColor: [
-          '#f5c518', '#60a5fa', '#34d399', '#c084fc'
-        ],
-        borderWidth: 1.5,
-        borderRadius: 5,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#1a1f36',
-          borderColor: '#e2e5ee',
-          borderWidth: 1,
-        }
-      },
-      scales: {
-        y: {
-          beginAtZero: true,
-          grid: { color: '#e2e5ee' },
-          ticks: { stepSize: 2 }
-        },
-        x: { grid: { display: false } }
+  // ── Supabase — READ ONLY (no insert/update/delete anywhere in this file)
+  const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const TOTAL_LIFTS = 6;
+  const TECH_COLORS = [
+    'rgba(245,197,24,0.75)','rgba(96,165,250,0.75)',
+    'rgba(52,211,153,0.75)','rgba(192,132,252,0.75)','rgba(251,146,60,0.75)'
+  ];
+  const TECH_BORDERS = ['#f5c518','#60a5fa','#34d399','#c084fc','#fb923c'];
+
+  let techChart = null;
+
+  function hasVehicleData(r) {
+    return !!(r.po && r.po.trim()) || !!(r.vehicle && r.vehicle.trim());
+  }
+
+  async function loadAndRender() {
+    const [{ data: lifts }, { data: parking }, { data: pickup }] = await Promise.all([
+      db.from('shopboard_lifts').select('id,status,assigned_tech,po,vehicle').order('id'),
+      db.from('shopboard_parking').select('id,status,assigned_tech,po,vehicle').order('created_at'),
+      db.from('shopboard_pickup').select('id,po,vehicle').order('created_at'),
+    ]);
+
+    const activeLifts   = (lifts   || []).filter(hasVehicleData);
+    const activeParking = (parking || []).filter(hasVehicleData);
+    const allActive     = [...activeLifts, ...activeParking];
+
+    // ── Bay Utilization KPI
+    const bayPct = TOTAL_LIFTS > 0 ? Math.round((activeLifts.length / TOTAL_LIFTS) * 100) : 0;
+    document.getElementById('kpi-bay-val').textContent   = bayPct + '%';
+    document.getElementById('kpi-bay-delta').textContent =
+      activeLifts.length + ' of ' + TOTAL_LIFTS + ' bays occupied';
+
+    // ── Open Repair Orders KPI
+    const openRO = activeLifts.length + activeParking.length;
+    const wPart  = allActive.filter(c => c.status === 'waiting-part').length;
+    document.getElementById('kpi-ro-val').textContent   = openRO;
+    document.getElementById('kpi-ro-delta').textContent =
+      wPart > 0 ? wPart + ' waiting for parts' : 'none waiting for parts';
+
+    // ── Jobs by Tech chart (live)
+    const techCounts = {};
+    allActive.forEach(r => {
+      const t = (r.assigned_tech || '').trim();
+      if (t) techCounts[t] = (techCounts[t] || 0) + 1;
+    });
+    const techLabels = Object.keys(techCounts).sort();
+    const techData   = techLabels.map(t => techCounts[t]);
+
+    const wrap = document.getElementById('chart-techs-wrap');
+    if (!techLabels.length) {
+      if (techChart) { techChart.destroy(); techChart = null; }
+      wrap.innerHTML = '<p style="text-align:center;color:#8c93a8;font-size:0.8rem;padding-top:50px">No tech assignments on board yet</p>';
+    } else {
+      if (!wrap.querySelector('canvas')) {
+        wrap.innerHTML = '<canvas id="chartTechs"></canvas>';
+      }
+      const bgColors  = techLabels.map((_, i) => TECH_COLORS[i % TECH_COLORS.length]);
+      const brdColors = techLabels.map((_, i) => TECH_BORDERS[i % TECH_BORDERS.length]);
+      if (techChart) {
+        techChart.data.labels                        = techLabels;
+        techChart.data.datasets[0].data             = techData;
+        techChart.data.datasets[0].backgroundColor  = bgColors;
+        techChart.data.datasets[0].borderColor       = brdColors;
+        techChart.update();
+      } else {
+        techChart = new Chart(document.getElementById('chartTechs'), {
+          type: 'bar',
+          data: {
+            labels: techLabels,
+            datasets: [{
+              label: 'Current Jobs',
+              data: techData,
+              backgroundColor: bgColors,
+              borderColor: brdColors,
+              borderWidth: 1.5,
+              borderRadius: 5,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: '#1a1f36',
+                borderColor: '#e2e5ee',
+                borderWidth: 1,
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                grid: { color: '#e2e5ee' },
+                ticks: { stepSize: 1, precision: 0 }
+              },
+              x: { grid: { display: false } }
+            }
+          }
+        });
       }
     }
-  });
+  }
+
+  loadAndRender();
+
+  // ── Real-time subscription — READ ONLY (no writes)
+  db.channel('gm-board-live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_lifts' },   () => loadAndRender())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_parking' }, () => loadAndRender())
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_pickup' },  () => loadAndRender())
+    .subscribe();
 
   // ── Team Chat (Kevin's view)
   const CHAT_ME = 'Kevin';
