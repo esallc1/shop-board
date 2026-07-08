@@ -228,54 +228,52 @@
   .stub-view h2 { font-size: 1.1rem; color: var(--text); margin-bottom: 10px; }
   .stub-view p  { font-size: 0.85rem; }
 
-  /* ── TECH CARDS ── */
-  .tech-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 12px;
-  }
-  .tech-card {
+  /* ── TECH TABLE ── */
+  .tech-table-wrap {
     background: #fff;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 16px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    overflow: hidden;
   }
-  .tech-card-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    margin-bottom: 10px;
+  .tech-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+  .tech-table th {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); font-weight: 700; padding: 11px 16px;
+    text-align: left; border-bottom: 2px solid var(--border);
+    white-space: nowrap; background: #fafbfd;
   }
-  .tech-card-name {
-    font-weight: 800;
-    font-size: 1rem;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-    color: var(--text);
-    padding-top: 4px;
+  .tech-table th .sample-tag {
+    font-size: 0.55rem; font-weight: 600; color: #f59e0b;
+    letter-spacing: 0.5px; margin-left: 3px; vertical-align: middle;
+    font-style: italic; text-transform: none;
   }
-  .tech-card-count { font-size: 1.8rem; font-weight: 800; color: #5b5ef4; line-height: 1; text-align: right; }
-  .tech-card-count-label { font-size: 0.58rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; text-align: right; }
-  .tech-divider { height: 1px; background: var(--border); margin: 10px 0; }
-  .cat-pills { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
-  .cat-pill {
-    font-size: 0.67rem; font-weight: 700; padding: 3px 9px;
-    border-radius: 20px; letter-spacing: 0.3px;
+  .tech-table td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .tech-table tbody tr:last-child td { border-bottom: none; }
+  .tech-table tbody tr:hover td { background: #f8f9fc; }
+  .tech-name-cell {
+    font-weight: 800; font-size: 0.88rem; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--text); padding-top: 3px;
   }
+  .tech-active-count { font-size: 1.25rem; font-weight: 800; color: #5b5ef4; line-height: 1.1; }
+  .tech-detail-line { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .tech-hours-val { font-size: 1.1rem; font-weight: 700; color: var(--text); }
+  .tech-eff-val { font-size: 1.1rem; font-weight: 800; }
+  .eff-high { color: #10b981; }
+  .eff-mid  { color: #f59e0b; }
+  .eff-low  { color: #ef4444; }
+  .tech-pickup-val { font-size: 1.1rem; font-weight: 800; color: #10b981; }
+
+  /* ── CAT PILLS + STATUS DOTS (shared: table rows + comebacks) ── */
+  .cat-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+  .cat-pill { font-size: 0.67rem; font-weight: 700; padding: 2px 8px; border-radius: 20px; letter-spacing: 0.3px; }
   .cat-pill.rebuild { background: rgba(91,94,244,0.12); color: #5b5ef4; }
   .cat-pill.diag    { background: rgba(16,185,129,0.12); color: #059669; }
   .cat-pill.gen     { background: rgba(245,158,11,0.12); color: #d97706; }
   .cat-pill.other   { background: rgba(148,163,184,0.15); color: #64748b; }
-  .tech-statuses { display: flex; flex-wrap: wrap; gap: 5px 14px; font-size: 0.7rem; color: var(--muted); }
+  .tech-statuses { display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 0.68rem; color: var(--muted); }
   .tech-status-item { display: flex; align-items: center; gap: 4px; }
   .tech-status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-  .tech-pickup-row {
-    margin-top: 11px; font-size: 0.72rem; color: var(--muted);
-    display: flex; align-items: center; gap: 5px;
-    border-top: 1px solid var(--border); padding-top: 10px;
-  }
-  .tech-pickup-count { font-weight: 800; font-size: 0.95rem; color: #10b981; }
 
   /* ── COMEBACKS TABLE ── */
   .comebacks-header {
@@ -701,6 +699,16 @@
     return 'other';
   }
 
+  function dummyHours(name) {
+    // Deterministic seed from name so same tech always gets same sample hours
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+    const billed  = 28 + (h % 15);                      // 28–42 h
+    const offset  = ((h >> 4) & 7) - 3;                 // –3 to +4
+    const clocked = Math.max(22, billed + offset);
+    return { billed, clocked };
+  }
+
   function renderTechnicians(allActive, pickupData) {
     const techMap = {};
     allActive.forEach(r => {
@@ -724,14 +732,12 @@
       return;
     }
 
-    const cards = techNames.map(name => {
+    const rows = techNames.map(name => {
       const { jobs, pickup } = techMap[name];
 
-      // Category breakdown
       const cats = {};
       jobs.forEach(j => { const c = (j.job_category || '').trim(); if (c) cats[c] = (cats[c] || 0) + 1; });
 
-      // Status breakdown
       const statuses = {};
       jobs.forEach(j => { const s = (j.status || '').trim(); if (s) statuses[s] = (statuses[s] || 0) + 1; });
 
@@ -745,21 +751,38 @@
           return `<span class="tech-status-item"><span class="tech-status-dot" style="background:${col}"></span>${s.replace(/-/g,' ')}: ${n}</span>`;
         }).join('');
 
-      return `<div class="tech-card">
-        <div class="tech-card-header">
-          <div class="tech-card-name">${name}</div>
-          <div>
-            <div class="tech-card-count">${jobs.length}</div>
-            <div class="tech-card-count-label">Active</div>
-          </div>
-        </div>
-        ${catPills ? `<div class="cat-pills">${catPills}</div>` : ''}
-        ${statusItems ? `<div class="tech-divider"></div><div class="tech-statuses">${statusItems}</div>` : ''}
-        <div class="tech-pickup-row">🏁 Ready for pickup: <span class="tech-pickup-count">${pickup.length}</span></div>
-      </div>`;
+      const { billed, clocked } = dummyHours(name);
+      const eff = Math.round((billed / clocked) * 100);
+      const effClass = eff >= 100 ? 'eff-high' : eff >= 85 ? 'eff-mid' : 'eff-low';
+
+      return `<tr>
+        <td class="tech-name-cell">${name}</td>
+        <td>
+          <div class="tech-active-count">${jobs.length}</div>
+          ${catPills  ? `<div class="tech-detail-line">${catPills}</div>` : ''}
+          ${statusItems ? `<div class="tech-detail-line" style="margin-top:4px">${statusItems}</div>` : ''}
+        </td>
+        <td><div class="tech-hours-val">${billed}h</div></td>
+        <td><div class="tech-hours-val">${clocked}h</div></td>
+        <td><div class="tech-eff-val ${effClass}">${eff}%</div></td>
+        <td><div class="tech-pickup-val">${pickup.length}</div></td>
+      </tr>`;
     }).join('');
 
-    wrap.innerHTML = `<div class="tech-grid">${cards}</div>`;
+    wrap.innerHTML = `
+      <div class="tech-table-wrap">
+        <table class="tech-table">
+          <thead><tr>
+            <th>Technician</th>
+            <th>Active Jobs</th>
+            <th>Billed Hrs <span class="sample-tag">sample</span></th>
+            <th>Clocked Hrs <span class="sample-tag">sample</span></th>
+            <th>Efficiency <span class="sample-tag">sample</span></th>
+            <th>Ready for Pickup</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
   }
 
   function renderComebacks(lifts, parking, pickupData) {
