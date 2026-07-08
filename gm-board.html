@@ -9,14 +9,14 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg:        #0b1120;
-    --surface:   #131c2e;
-    --surface-2: #1a2540;
-    --border:    #1f2f4a;
-    --gold:      #f5c518;
-    --gold-dim:  #a8870f;
-    --text:      #e0e6f0;
-    --muted:     #5a6a88;
+    --bg:        #f5f6fa;
+    --surface:   #ffffff;
+    --surface-2: #f0f1f5;
+    --border:    #e2e5ee;
+    --gold:      #e6b800;
+    --gold-dim:  #c9a800;
+    --text:      #1a1f36;
+    --muted:     #8c93a8;
     --radius:    10px;
   }
 
@@ -30,9 +30,10 @@
 
   /* ── HEADER ── */
   .header {
-    background: var(--surface);
+    background: #ffffff;
     border-bottom: 1px solid var(--border);
     padding: 14px 28px 0;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   }
   .header-top {
     display: flex;
@@ -45,7 +46,7 @@
     font-weight: 700;
     letter-spacing: 2px;
     text-transform: uppercase;
-    color: var(--gold);
+    color: var(--text);
   }
   .header-sub {
     font-size: 0.7rem;
@@ -88,8 +89,8 @@
   }
   .tab:hover { color: var(--text); }
   .tab.active {
-    color: var(--gold);
-    border-bottom-color: var(--gold);
+    color: #5b5ef4;
+    border-bottom-color: #5b5ef4;
   }
 
   /* ── MAIN CONTENT ── */
@@ -149,12 +150,14 @@
     opacity: 0.12;
   }
 
-  /* card color themes */
-  .kpi-gold   { background: linear-gradient(135deg,#2a2200,#1a1600); border-color:#3a3010; color:#f5c518; }
-  .kpi-blue   { background: linear-gradient(135deg,#0a1e3d,#071428); border-color:#0f2a50; color:#60a5fa; }
-  .kpi-green  { background: linear-gradient(135deg,#0a2a1a,#061a10); border-color:#0f3a22; color:#34d399; }
-  .kpi-red    { background: linear-gradient(135deg,#2d0a0a,#1e0606); border-color:#3d1010; color:#f87171; }
-  .kpi-purple { background: linear-gradient(135deg,#1a0a2d,#100620); border-color:#280f3d; color:#c084fc; }
+  /* card color themes — solid vibrant fills, white text */
+  .kpi-card { color: #ffffff; border: none; }
+  .kpi-card .kpi-icon { opacity: 0.18; }
+  .kpi-gold   { background: linear-gradient(135deg,#f59e0b,#d97706); }
+  .kpi-blue   { background: linear-gradient(135deg,#3b82f6,#2563eb); }
+  .kpi-green  { background: linear-gradient(135deg,#10b981,#059669); }
+  .kpi-red    { background: linear-gradient(135deg,#ef4444,#dc2626); }
+  .kpi-purple { background: linear-gradient(135deg,#8b5cf6,#7c3aed); }
 
   /* ── CHART GRID ── */
   .chart-grid {
@@ -173,29 +176,30 @@
   @media (max-width: 800px) { .chart-grid-bottom { grid-template-columns: 1fr; } }
 
   .chart-card {
-    background: var(--surface);
+    background: #ffffff;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
   }
   .chart-title {
     font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 1px;
-    color: var(--muted);
+    color: var(--text);
     font-weight: 700;
     margin-bottom: 16px;
   }
   .chart-title span {
-    color: var(--gold);
+    color: #5b5ef4;
     margin-right: 8px;
   }
   .chart-wrap { position: relative; height: 220px; }
 
   /* ── PLACEHOLDER CARDS ── */
   .placeholder-card {
-    background: var(--surface);
-    border: 1px dashed var(--border);
+    background: #ffffff;
+    border: 2px dashed var(--border);
     border-radius: var(--radius);
     padding: 20px;
     display: flex;
@@ -205,18 +209,20 @@
     gap: 10px;
     min-height: 260px;
     color: var(--muted);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
   }
   .placeholder-icon { font-size: 2rem; opacity: 0.3; }
   .placeholder-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; }
 
   /* ── STUB VIEWS ── */
   .stub-view {
-    background: var(--surface);
+    background: #ffffff;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 60px 40px;
     text-align: center;
     color: var(--muted);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
   }
   .stub-view h2 { font-size: 1.1rem; color: var(--text); margin-bottom: 10px; }
   .stub-view p  { font-size: 0.85rem; }
@@ -340,12 +346,12 @@
   });
 
   // ── Shared chart defaults
-  Chart.defaults.color = '#5a6a88';
-  Chart.defaults.borderColor = '#1f2f4a';
+  Chart.defaults.color = '#8c93a8';
+  Chart.defaults.borderColor = '#e2e5ee';
   Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
 
-  const GOLD = '#f5c518';
-  const GOLD_DIM = 'rgba(245,197,24,0.15)';
+  const GOLD = '#5b5ef4';
+  const GOLD_DIM = 'rgba(91,94,244,0.10)';
 
   // ── Line chart: Bay Utilization
   new Chart(document.getElementById('chartUtilization'), {
@@ -380,10 +386,10 @@
       scales: {
         y: {
           min: 0, max: 100,
-          grid: { color: '#1a2540' },
+          grid: { color: '#e2e5ee' },
           ticks: { callback: v => v + '%' }
         },
-        x: { grid: { color: '#1a2540' } }
+        x: { grid: { color: '#e2e5ee' } }
       }
     }
   });
@@ -415,15 +421,15 @@
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: '#131c2e',
-          borderColor: '#1f2f4a',
+          backgroundColor: '#1a1f36',
+          borderColor: '#e2e5ee',
           borderWidth: 1,
         }
       },
       scales: {
         y: {
           beginAtZero: true,
-          grid: { color: '#1a2540' },
+          grid: { color: '#e2e5ee' },
           ticks: { stepSize: 2 }
         },
         x: { grid: { display: false } }
