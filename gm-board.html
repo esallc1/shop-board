@@ -403,6 +403,23 @@
 
 </div>
 
+<!-- Team Chat Widget -->
+<div class="chat-bubble" id="chat-bubble">
+  💬
+  <div class="chat-unread" id="chat-unread">1</div>
+</div>
+<div class="chat-panel" id="chat-panel">
+  <div class="chat-header">
+    <span>Team Chat — Kevin &amp; Josh</span>
+    <span class="chat-close" id="chat-close">✕</span>
+  </div>
+  <div class="chat-messages" id="chat-messages"></div>
+  <div class="chat-input-row">
+    <input type="text" id="chat-input" placeholder="Message Josh…" />
+    <button class="chat-send-btn" id="chat-send">➤</button>
+  </div>
+</div>
+
 <script>
   // ── Tab switching
   document.querySelectorAll('.tab').forEach(tab => {
@@ -575,22 +592,5 @@
     document.addEventListener('mouseup', () => { dragging = false; });
   })();
 </script>
-
-<!-- Team Chat Widget -->
-<div class="chat-bubble" id="chat-bubble">
-  💬
-  <div class="chat-unread" id="chat-unread">1</div>
-</div>
-<div class="chat-panel" id="chat-panel">
-  <div class="chat-header">
-    <span>Team Chat — Kevin &amp; Josh</span>
-    <span class="chat-close" id="chat-close">✕</span>
-  </div>
-  <div class="chat-messages" id="chat-messages"></div>
-  <div class="chat-input-row">
-    <input type="text" id="chat-input" placeholder="Message Josh…" />
-    <button class="chat-send-btn" id="chat-send">➤</button>
-  </div>
-</div>
 </body>
 </html>
