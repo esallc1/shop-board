@@ -818,6 +818,23 @@ function bindDetail(){
 /* ---------------- Boot ---------------- */
 (async function boot(){
   await initData();
+
+  // Pass-through login from CrisData: if arriving with ?u=phone&p=pin, try to
+  // auto-authenticate instead of showing the login screen again.
+  const params = new URLSearchParams(window.location.search);
+  const passPhone = params.get('u');
+  const passPin = params.get('p');
+  if(passPhone && passPin){
+    const tech = STATE.techs.find(t => t.phone === passPhone && t.pin === passPin);
+    if(tech){
+      STATE.currentTechId = tech.id;
+      STATE.view = 'list';
+      STATE.activeTab = 'up_next';
+      // Clean the URL so credentials don't linger visibly in the address bar / history
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }
+
   render();
 })();
 </script>
