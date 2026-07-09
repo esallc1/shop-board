@@ -630,9 +630,11 @@ function jobsFlaggedThisWeekCount(){
 }
 
 const CLOCK_BTN_KEYS   = ['clockIn','clockOutLunch','clockBackLunch','clockOutEod'];
-const PUNCH_LABEL_KEYS = ['punchLabelIn','punchLabelLunch','punchLabelBack','punchLabelEod'];
 const CLOCK_BTN_CLASS  = ['clock-btn-in','clock-btn-out','clock-btn-back','clock-btn-eod'];
 const PUNCH_DOT_COLORS = ['var(--safety-orange)','var(--hold-blue)','var(--go-green)','var(--danger)'];
+// Stable type identifiers stored per punch — looked up via t() at render time so language switches re-translate all entries
+const PUNCH_TYPES      = ['clock_in','lunch_out','lunch_in','clock_out'];
+const PUNCH_TYPE_KEYS  = { clock_in:'punchLabelIn', lunch_out:'punchLabelLunch', lunch_in:'punchLabelBack', clock_out:'punchLabelEod' };
 
 function renderClock(){
   const btnClass = CLOCK_BTN_CLASS[CLOCK_STATE.step];
@@ -640,7 +642,7 @@ function renderClock(){
   const punchRows = CLOCK_STATE.punches.map((p, i) => `
     <div class="clock-punch-row">
       <div class="clock-punch-dot" style="background:${PUNCH_DOT_COLORS[i % 4]}"></div>
-      <span>${p.label} — ${p.time}</span>
+      <span>${t(PUNCH_TYPE_KEYS[p.type])} — ${p.time}</span>
     </div>`).join('');
   return `
     <div class="clock-card">
@@ -659,8 +661,8 @@ function bindClock(){
   if(!btn) return;
   btn.addEventListener('click', () => {
     const now   = new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
-    const label = t(PUNCH_LABEL_KEYS[CLOCK_STATE.step]);
-    CLOCK_STATE.punches.push({ label, time: now });
+    const type = PUNCH_TYPES[CLOCK_STATE.step];
+    CLOCK_STATE.punches.push({ type, time: now });
     CLOCK_STATE.step = (CLOCK_STATE.step + 1) % 4;
     render();
   });
