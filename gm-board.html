@@ -275,6 +275,49 @@
   .tech-status-item { display: flex; align-items: center; gap: 4px; }
   .tech-status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
+  /* ── PUNCH DETAIL ROWS ── */
+  .tech-row-clickable { cursor: pointer; }
+  .tech-row-clickable:hover td { background: #f0f2ff !important; }
+  .tech-chevron { font-size: 0.7rem; color: var(--muted); margin-left: 6px; transition: transform 0.15s; display: inline-block; }
+  .punch-detail-row { background: #f8f9fc; }
+  .punch-detail-row.hidden { display: none; }
+  .punch-detail-wrap { padding: 12px 20px 14px; }
+  .punch-mgr-note {
+    font-size: 0.67rem; color: #94a3b8; margin-bottom: 10px;
+    font-style: italic; display: flex; align-items: center; gap: 5px;
+  }
+  .punch-entry {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 0; border-bottom: 1px solid var(--border);
+    font-size: 0.82rem;
+  }
+  .punch-entry:last-child { border-bottom: none; }
+  .punch-dot-sm { width: 8px; height: 8px; border-radius: 50%; background: #5b5ef4; flex-shrink: 0; }
+  .punch-lbl { color: var(--muted); min-width: 130px; }
+  .punch-time { font-weight: 600; color: var(--text); }
+  .punch-edit-btn {
+    margin-left: auto; font-size: 0.65rem; font-weight: 700;
+    padding: 3px 10px; border-radius: 6px;
+    border: 1px solid var(--border); background: #fff;
+    color: #5b5ef4; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .punch-edit-btn:hover { background: rgba(91,94,244,0.08); }
+  .punch-edit-input {
+    font-size: 0.82rem; padding: 3px 8px; border-radius: 6px;
+    border: 1.5px solid #5b5ef4; color: var(--text);
+    font-family: inherit; outline: none; width: 90px;
+  }
+  .punch-save-btn, .punch-cancel-btn {
+    font-size: 0.65rem; font-weight: 700; padding: 3px 10px;
+    border-radius: 6px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .punch-save-btn { background: #5b5ef4; color: #fff; border: none; }
+  .punch-save-btn:hover { opacity: 0.88; }
+  .punch-cancel-btn { background: #fff; border: 1px solid var(--border); color: var(--muted); }
+  .punch-cancel-btn:hover { background: #f5f6fa; }
+
   /* ── COMEBACKS TABLE ── */
   .comebacks-header {
     display: flex; align-items: center; justify-content: space-between;
@@ -691,6 +734,20 @@
     'delayed':      '#94a3b8',
   };
 
+  // ── Time punch prototype data (dummy/local only — no Supabase writes)
+  const DUMMY_PUNCHES = {
+    Alex:      [{label:'Clocked In', time:'7:52 AM'}, {label:'Lunch Out', time:'12:01 PM'}, {label:'Back from Lunch', time:'12:44 PM'}],
+    Cory:      [{label:'Clocked In', time:'8:05 AM'}, {label:'Lunch Out', time:'11:58 AM'}, {label:'Back from Lunch', time:'12:41 PM'}],
+    Cuba:      [{label:'Clocked In', time:'7:48 AM'}, {label:'Lunch Out', time:'12:10 PM'}],
+    Capote:    [{label:'Clocked In', time:'8:12 AM'}],
+    Alnardier: [{label:'Clocked In', time:'7:55 AM'}, {label:'Lunch Out', time:'12:05 PM'}, {label:'Back from Lunch', time:'12:50 PM'}],
+  };
+  function getDummyPunches(name) {
+    return DUMMY_PUNCHES[name] || [{label:'Clocked In', time:'8:00 AM'}];
+  }
+  const EXPANDED_TECHS = new Set(); // tracks which rows are expanded
+  const PUNCH_EDITS = {};           // { 'TechName:punchIndex': 'corrected time' }
+
   function catClass(cat) {
     const c = (cat || '').toLowerCase();
     if (c === 'rebuild') return 'rebuild';
@@ -734,6 +791,7 @@
 
     const rows = techNames.map(name => {
       const { jobs, pickup } = techMap[name];
+      const expanded = EXPANDED_TECHS.has(name);
 
       const cats = {};
       jobs.forEach(j => { const c = (j.job_category || '').trim(); if (c) cats[c] = (cats[c] || 0) + 1; });
@@ -755,11 +813,33 @@
       const eff = Math.round((billed / clocked) * 100);
       const effClass = eff >= 100 ? 'eff-high' : eff >= 85 ? 'eff-mid' : 'eff-low';
 
-      return `<tr>
-        <td class="tech-name-cell">${name}</td>
+      // Build punch detail sub-row
+      const punches = getDummyPunches(name);
+      const punchEntries = punches.map((p, i) => {
+        const key = name + ':' + i;
+        const displayTime = PUNCH_EDITS[key] || p.time;
+        return `<div class="punch-entry">
+          <span class="punch-dot-sm"></span>
+          <span class="punch-lbl">${p.label}</span>
+          <span class="punch-time" data-tech="${name}" data-idx="${i}">${displayTime}</span>
+          <button class="punch-edit-btn" data-tech="${name}" data-idx="${i}" data-lbl="${p.label}">Edit</button>
+        </div>`;
+      }).join('');
+
+      const detailRow = `<tr class="punch-detail-row${expanded ? '' : ' hidden'}" data-for="${name}">
+        <td colspan="6">
+          <div class="punch-detail-wrap">
+            <div class="punch-mgr-note">🔒 Only managers can correct time punches</div>
+            ${punchEntries}
+          </div>
+        </td>
+      </tr>`;
+
+      const techRow = `<tr class="tech-row-clickable" data-tech="${name}">
+        <td class="tech-name-cell">${name}<span class="tech-chevron">${expanded ? '▾' : '▸'}</span></td>
         <td>
           <div class="tech-active-count">${jobs.length}</div>
-          ${catPills  ? `<div class="tech-detail-line">${catPills}</div>` : ''}
+          ${catPills   ? `<div class="tech-detail-line">${catPills}</div>` : ''}
           ${statusItems ? `<div class="tech-detail-line" style="margin-top:4px">${statusItems}</div>` : ''}
         </td>
         <td><div class="tech-hours-val">${billed}h</div></td>
@@ -767,6 +847,8 @@
         <td><div class="tech-eff-val ${effClass}">${eff}%</div></td>
         <td><div class="tech-pickup-val">${pickup.length}</div></td>
       </tr>`;
+
+      return techRow + detailRow;
     }).join('');
 
     wrap.innerHTML = `
@@ -783,6 +865,71 @@
           <tbody>${rows}</tbody>
         </table>
       </div>`;
+
+    bindTechTable(wrap);
+  }
+
+  function bindTechTable(wrap) {
+    const tbody = wrap.querySelector('tbody');
+    if (!tbody) return;
+    tbody.addEventListener('click', e => {
+      const editBtn   = e.target.closest('.punch-edit-btn');
+      const saveBtn   = e.target.closest('.punch-save-btn');
+      const cancelBtn = e.target.closest('.punch-cancel-btn');
+      const techRow   = e.target.closest('tr.tech-row-clickable');
+
+      if (editBtn) {
+        e.stopPropagation();
+        const entry = editBtn.closest('.punch-entry');
+        const tech  = editBtn.dataset.tech;
+        const idx   = editBtn.dataset.idx;
+        const lbl   = editBtn.dataset.lbl;
+        const time  = entry.querySelector('.punch-time').textContent;
+        entry.innerHTML = `
+          <span class="punch-dot-sm"></span>
+          <span class="punch-lbl">${lbl}</span>
+          <input class="punch-edit-input" type="text" value="${time}">
+          <button class="punch-save-btn"   data-tech="${tech}" data-idx="${idx}" data-lbl="${lbl}">Save</button>
+          <button class="punch-cancel-btn" data-tech="${tech}" data-idx="${idx}" data-lbl="${lbl}" data-time="${time}">Cancel</button>`;
+
+      } else if (saveBtn) {
+        e.stopPropagation();
+        const entry   = saveBtn.closest('.punch-entry');
+        const tech    = saveBtn.dataset.tech;
+        const idx     = saveBtn.dataset.idx;
+        const lbl     = saveBtn.dataset.lbl;
+        const newTime = entry.querySelector('.punch-edit-input').value.trim();
+        if (newTime) PUNCH_EDITS[tech + ':' + idx] = newTime;
+        const display = newTime || entry.querySelector('.punch-edit-input').value;
+        entry.innerHTML = `
+          <span class="punch-dot-sm"></span>
+          <span class="punch-lbl">${lbl}</span>
+          <span class="punch-time" data-tech="${tech}" data-idx="${idx}">${newTime || display}</span>
+          <button class="punch-edit-btn" data-tech="${tech}" data-idx="${idx}" data-lbl="${lbl}">Edit</button>`;
+
+      } else if (cancelBtn) {
+        e.stopPropagation();
+        const entry   = cancelBtn.closest('.punch-entry');
+        const tech    = cancelBtn.dataset.tech;
+        const idx     = cancelBtn.dataset.idx;
+        const lbl     = cancelBtn.dataset.lbl;
+        const origTime = cancelBtn.dataset.time;
+        entry.innerHTML = `
+          <span class="punch-dot-sm"></span>
+          <span class="punch-lbl">${lbl}</span>
+          <span class="punch-time" data-tech="${tech}" data-idx="${idx}">${origTime}</span>
+          <button class="punch-edit-btn" data-tech="${tech}" data-idx="${idx}" data-lbl="${lbl}">Edit</button>`;
+
+      } else if (techRow) {
+        const name = techRow.dataset.tech;
+        if (EXPANDED_TECHS.has(name)) EXPANDED_TECHS.delete(name);
+        else EXPANDED_TECHS.add(name);
+        const detailRow = wrap.querySelector(`tr.punch-detail-row[data-for="${name}"]`);
+        const chevron   = techRow.querySelector('.tech-chevron');
+        if (detailRow) detailRow.classList.toggle('hidden');
+        if (chevron)   chevron.textContent = EXPANDED_TECHS.has(name) ? '▾' : '▸';
+      }
+    });
   }
 
   function renderComebacks(lifts, parking, pickupData) {

@@ -246,6 +246,30 @@
   .lang-switch-top .lang-btn{ padding:5px 9px; font-size:9.5px; }
 
   ::-webkit-scrollbar{ width:0; height:0; }
+
+  /* ---------- Time Clock ---------- */
+  .clock-card{
+    margin:12px 16px 0; padding:16px 18px;
+    background:var(--panel); border:1px solid var(--stroke); border-radius:12px;
+  }
+  .clock-card-label{
+    font-size:11px; color:var(--gauge); text-transform:uppercase;
+    letter-spacing:0.1em; margin-bottom:10px;
+  }
+  .clock-btn{
+    display:block; width:100%; text-align:center; padding:13px;
+    border-radius:9px; border:none; font-family:'Oswald',sans-serif;
+    font-size:15px; letter-spacing:0.05em; text-transform:uppercase;
+    font-weight:600; cursor:pointer;
+  }
+  .clock-btn-in  { background:var(--safety-orange); color:#1C1000; }
+  .clock-btn-out { background:var(--hold-blue); color:#fff; }
+  .clock-btn-back{ background:var(--go-green); color:#08210C; }
+  .clock-btn-eod { background:var(--danger); color:#fff; }
+  .clock-punches{ margin-top:12px; display:flex; flex-direction:column; gap:6px; }
+  .clock-punch-row{ display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--gauge); }
+  .clock-punch-dot{ width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .clock-no-punches{ font-size:12px; color:var(--stroke); text-align:center; padding:4px 0 2px; }
 </style>
 </head>
 <body>
@@ -308,7 +332,17 @@ const I18N = {
     toastPhotoAdded: "Photo added",
     toastNeedDiagnosis: "Add your diagnostic notes first",
     toastSentWriter: "Sent to service writer",
-    toastJobComplete: "Job marked complete"
+    toastJobComplete: "Job marked complete",
+    clockSectionLabel: "Time Clock",
+    clockIn: "Clock In",
+    clockOutLunch: "Clock Out — Lunch",
+    clockBackLunch: "Clock In — Back from Lunch",
+    clockOutEod: "Clock Out — End of Day",
+    punchLabelIn: "Clocked In",
+    punchLabelLunch: "Lunch Out",
+    punchLabelBack: "Back from Lunch",
+    punchLabelEod: "End of Day",
+    clockNoPunches: "No punches recorded yet today"
   },
   es: {
     loginSubtitle: "Inicia sesión con tu número de teléfono y PIN",
@@ -352,7 +386,17 @@ const I18N = {
     toastPhotoAdded: "Foto agregada",
     toastNeedDiagnosis: "Agrega tus notas de diagnóstico primero",
     toastSentWriter: "Enviado al asesor de servicio",
-    toastJobComplete: "Trabajo marcado como completo"
+    toastJobComplete: "Trabajo marcado como completo",
+    clockSectionLabel: "Reloj de Tiempo",
+    clockIn: "Registrar Entrada",
+    clockOutLunch: "Salida — Almuerzo",
+    clockBackLunch: "Entrada — Regreso del Almuerzo",
+    clockOutEod: "Salida — Fin del Día",
+    punchLabelIn: "Entrada",
+    punchLabelLunch: "Salida Almuerzo",
+    punchLabelBack: "Regreso del Almuerzo",
+    punchLabelEod: "Fin del Día",
+    clockNoPunches: "Sin registros hoy"
   },
   ht: {
     loginSubtitle: "Konekte avèk nimewo telefòn ak PIN ou",
@@ -396,7 +440,17 @@ const I18N = {
     toastPhotoAdded: "Foto ajoute",
     toastNeedDiagnosis: "Ajoute nòt dyagnostik ou anvan",
     toastSentWriter: "Voye bay konseye sèvis la",
-    toastJobComplete: "Travay make fini"
+    toastJobComplete: "Travay make fini",
+    clockSectionLabel: "Klòch Tan",
+    clockIn: "Antre",
+    clockOutLunch: "Sòti — Manje Midi",
+    clockBackLunch: "Antre — Retou Nan Travay",
+    clockOutEod: "Sòti — Fen Jounen",
+    punchLabelIn: "Antre",
+    punchLabelLunch: "Sòti pou Manje",
+    punchLabelBack: "Retou Nan Travay",
+    punchLabelEod: "Fen Jounen",
+    clockNoPunches: "Pa gen anrejistrement jodi a"
   }
 };
 function t(key){
@@ -446,6 +500,9 @@ const SEED_JOBS = [
     beforePhotos:[], partPhotos:[], createdAt: Date.now()-432000000
   },
 ];
+
+// In-memory only — resets on reload (no Supabase writes)
+const CLOCK_STATE = { step: 0, punches: [] };
 
 let STATE = {
   techs: [],
@@ -572,6 +629,43 @@ function jobsFlaggedThisWeekCount(){
   return myJobs().filter(j => j.flagHours != null && (now - j.createdAt) <= WEEK_MS).length;
 }
 
+const CLOCK_BTN_KEYS   = ['clockIn','clockOutLunch','clockBackLunch','clockOutEod'];
+const PUNCH_LABEL_KEYS = ['punchLabelIn','punchLabelLunch','punchLabelBack','punchLabelEod'];
+const CLOCK_BTN_CLASS  = ['clock-btn-in','clock-btn-out','clock-btn-back','clock-btn-eod'];
+const PUNCH_DOT_COLORS = ['var(--safety-orange)','var(--hold-blue)','var(--go-green)','var(--danger)'];
+
+function renderClock(){
+  const btnClass = CLOCK_BTN_CLASS[CLOCK_STATE.step];
+  const btnKey   = CLOCK_BTN_KEYS[CLOCK_STATE.step];
+  const punchRows = CLOCK_STATE.punches.map((p, i) => `
+    <div class="clock-punch-row">
+      <div class="clock-punch-dot" style="background:${PUNCH_DOT_COLORS[i % 4]}"></div>
+      <span>${p.label} — ${p.time}</span>
+    </div>`).join('');
+  return `
+    <div class="clock-card">
+      <div class="clock-card-label">${t('clockSectionLabel')}</div>
+      <button class="clock-btn ${btnClass}" id="clockBtn">${t(btnKey)}</button>
+      <div class="clock-punches">
+        ${CLOCK_STATE.punches.length === 0
+          ? `<div class="clock-no-punches">${t('clockNoPunches')}</div>`
+          : punchRows}
+      </div>
+    </div>`;
+}
+
+function bindClock(){
+  const btn = document.getElementById('clockBtn');
+  if(!btn) return;
+  btn.addEventListener('click', () => {
+    const now   = new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+    const label = t(PUNCH_LABEL_KEYS[CLOCK_STATE.step]);
+    CLOCK_STATE.punches.push({ label, time: now });
+    CLOCK_STATE.step = (CLOCK_STATE.step + 1) % 4;
+    render();
+  });
+}
+
 function renderList(){
   const tech = STATE.techs.find(t => t.id === STATE.currentTechId);
   const upNextCount = jobsForTab('up_next').length;
@@ -594,6 +688,7 @@ function renderList(){
       <div class="value">${flaggedHoursThisWeek().toFixed(1)}<span>hrs</span></div>
       <div class="sub"><b>${jobsFlaggedThisWeekCount()}</b> ${jobsFlaggedThisWeekCount()===1?t('flagHeroSubJob'):t('flagHeroSubJobs')} ${t('flagHeroSubSuffix')}</div>
     </div>
+    ${renderClock()}
     <div class="tabs">
       <div class="tab ${STATE.activeTab==='up_next'?'active':''}" data-tab="up_next">${t('tabUpNext')} <span class="count">${upNextCount}</span></div>
       <div class="tab ${STATE.activeTab==='history'?'active':''}" data-tab="history">${t('tabHistory')} <span class="count">${historyCount}</span></div>
@@ -629,6 +724,7 @@ function renderList(){
 
 function bindList(){
   bindLangSwitch();
+  bindClock();
   document.getElementById('btnLogout').addEventListener('click', () => {
     STATE.view = 'login';
     STATE.currentTechId = null;
