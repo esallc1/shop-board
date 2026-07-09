@@ -380,6 +380,7 @@
   }
   .chat-send-btn:hover { opacity: 0.85; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
@@ -403,181 +404,16 @@
 
   <!-- ══ TAB 1: APPROVAL QUEUE ══ -->
   <div class="view active" id="view-approval">
-    <div class="queue-grid">
-
-      <!-- Job 1 -->
-      <div class="job-card">
-        <div class="job-card-header">
-          <div>
-            <div class="job-vehicle">2017 Honda Accord — PO #1041</div>
-            <div class="job-customer">Carlos Mendoza · (239) 555-0182</div>
-          </div>
-          <span class="badge badge-waiting">Awaiting Approval</span>
-        </div>
-        <div class="job-body">
-          <div class="job-section-label">Tech Diagnosis — Alex</div>
-          <div class="job-diagnosis">Torque converter shudder confirmed under load. Fluid is dark/burned. Recommend full transmission rebuild — internal clutch pack failure on 3rd/4th. Vehicle slips at highway speed.</div>
-          <div class="job-section-label">Before Photos</div>
-          <div class="photo-row">
-            <div class="photo-thumb">🖼</div>
-            <div class="photo-thumb">🖼</div>
-            <div class="photo-add">＋</div>
-          </div>
-          <div class="job-notes">
-            <div class="job-section-label">Internal Notes</div>
-            <div class="job-notes-list">
-              <div class="job-note">
-                <div class="job-note-meta"><span class="job-note-author">Kevin</span><span>9:14 AM</span></div>
-                Check if we have the solenoid kit in stock before ordering — might save 2 days wait.
-              </div>
-              <div class="job-note">
-                <div class="job-note-meta"><span class="job-note-author">Josh</span><span>9:31 AM</span></div>
-                Checked — we don't. Will order from Trans-Works today. ETA Thursday.
-              </div>
-            </div>
-            <div class="job-note-input-row">
-              <input type="text" placeholder="Add a note…" />
-              <button class="btn btn-ghost" onclick="addJobNote(this)">Add</button>
-            </div>
-          </div>
-        </div>
-        <div class="job-footer">
-          <span class="hours-label">Flag Hours:</span>
-          <input type="number" value="12" min="0" step="0.5" />
-          <button class="btn btn-green" onclick="approveJob(this)">✓ Approve Job</button>
-          <button class="btn btn-ghost" style="margin-left:auto">Hold</button>
-        </div>
-      </div>
-
-      <!-- Job 2 -->
-      <div class="job-card">
-        <div class="job-card-header">
-          <div>
-            <div class="job-vehicle">2014 Ford F-150 — PO #1038</div>
-            <div class="job-customer">Dana Reyes · (239) 555-0341</div>
-          </div>
-          <span class="badge badge-diag">Diagnosing</span>
-        </div>
-        <div class="job-body">
-          <div class="job-section-label">Tech Diagnosis — Capote</div>
-          <div class="job-diagnosis">No movement in Drive or Reverse. Line pressure check shows 0 psi in reverse circuit — likely failed manual valve or severely worn reverse drum. Pulling pan tomorrow for visual confirmation before quoting rebuild vs. replacement.</div>
-          <div class="job-section-label">Before Photos</div>
-          <div class="photo-row">
-            <div class="photo-thumb">🖼</div>
-            <div class="photo-add">＋</div>
-            <div class="photo-add">＋</div>
-          </div>
-          <div class="job-notes">
-            <div class="job-section-label">Internal Notes</div>
-            <div class="job-notes-list">
-              <div class="job-note">
-                <div class="job-note-meta"><span class="job-note-author">Josh</span><span>10:05 AM</span></div>
-                Customer said she needs the truck back by Friday — flag if estimate goes over $1,800.
-              </div>
-            </div>
-            <div class="job-note-input-row">
-              <input type="text" placeholder="Add a note…" />
-              <button class="btn btn-ghost" onclick="addJobNote(this)">Add</button>
-            </div>
-          </div>
-        </div>
-        <div class="job-footer">
-          <span class="hours-label">Flag Hours:</span>
-          <input type="number" value="8" min="0" step="0.5" />
-          <button class="btn btn-green" onclick="approveJob(this)">✓ Approve Job</button>
-          <button class="btn btn-ghost" style="margin-left:auto">Hold</button>
-        </div>
-      </div>
-
-      <!-- Job 3 -->
-      <div class="job-card">
-        <div class="job-card-header">
-          <div>
-            <div class="job-vehicle">2019 Toyota Camry — PO #1043</div>
-            <div class="job-customer">Patricia Gomez · (239) 555-0794</div>
-          </div>
-          <span class="badge badge-waiting">Awaiting Approval</span>
-        </div>
-        <div class="job-body">
-          <div class="job-section-label">Tech Diagnosis — Cory</div>
-          <div class="job-diagnosis">CVT belt wear — unit whines under acceleration above 40 mph. Scanned codes: P0776, P0894. Fluid is milky suggesting a small coolant leak into trans cooler. Recommend CVT flush + cooler inspection first before committing to full replacement.</div>
-          <div class="job-section-label">Before Photos</div>
-          <div class="photo-row">
-            <div class="photo-thumb">🖼</div>
-            <div class="photo-thumb">🖼</div>
-            <div class="photo-thumb">🖼</div>
-            <div class="photo-add">＋</div>
-          </div>
-          <div class="job-notes">
-            <div class="job-section-label">Internal Notes</div>
-            <div class="job-notes-list">
-              <div class="job-note">
-                <div class="job-note-meta"><span class="job-note-author">Kevin</span><span>8:50 AM</span></div>
-                CVT coolant contamination — make sure Cory pressure-tests the cooler before we quote the flush. Don't want to flush and have it happen again.
-              </div>
-              <div class="job-note">
-                <div class="job-note-meta"><span class="job-note-author">Josh</span><span>9:02 AM</span></div>
-                Understood. Will hold the quote until cooler test is done.
-              </div>
-            </div>
-            <div class="job-note-input-row">
-              <input type="text" placeholder="Add a note…" />
-              <button class="btn btn-ghost" onclick="addJobNote(this)">Add</button>
-            </div>
-          </div>
-        </div>
-        <div class="job-footer">
-          <span class="hours-label">Flag Hours:</span>
-          <input type="number" value="6" min="0" step="0.5" />
-          <button class="btn btn-green" onclick="approveJob(this)">✓ Approve Job</button>
-          <button class="btn btn-ghost" style="margin-left:auto">Hold</button>
-        </div>
-      </div>
-
-      <!-- Job 4 -->
-      <div class="job-card">
-        <div class="job-card-header">
-          <div>
-            <div class="job-vehicle">2011 Chevy Silverado — PO #1037</div>
-            <div class="job-customer">James Wicker · (239) 555-0027</div>
-          </div>
-          <span class="badge badge-waiting">Awaiting Approval</span>
-        </div>
-        <div class="job-body">
-          <div class="job-section-label">Tech Diagnosis — Alnardier</div>
-          <div class="job-diagnosis">4L60-E — delayed engagement on cold start, 2–3 sec before drive engages. Suspect worn accumulator springs and 3-4 clutch pack starting to slip. No hard codes, shift quality fair once warm. Recommend rebuild with upgraded clutch kit for longevity.</div>
-          <div class="job-section-label">Before Photos</div>
-          <div class="photo-row">
-            <div class="photo-thumb">🖼</div>
-            <div class="photo-add">＋</div>
-          </div>
-          <div class="job-notes">
-            <div class="job-section-label">Internal Notes</div>
-            <div class="job-notes-list">
-              <div class="job-note">
-                <div class="job-note-meta"><span class="job-note-author">Kevin</span><span>11:20 AM</span></div>
-                Use the upgraded Alto clutch kit, not the standard one — customer wants longevity over price.
-              </div>
-            </div>
-            <div class="job-note-input-row">
-              <input type="text" placeholder="Add a note…" />
-              <button class="btn btn-ghost" onclick="addJobNote(this)">Add</button>
-            </div>
-          </div>
-        </div>
-        <div class="job-footer">
-          <span class="hours-label">Flag Hours:</span>
-          <input type="number" value="10" min="0" step="0.5" />
-          <button class="btn btn-green" onclick="approveJob(this)">✓ Approve Job</button>
-          <button class="btn btn-ghost" style="margin-left:auto">Hold</button>
-        </div>
-      </div>
-
+    <div class="queue-grid" id="queue-grid">
+      <div style="color:var(--muted);padding:24px;grid-column:1/-1">Loading…</div>
     </div>
   </div>
 
   <!-- ══ TAB 2: PARTS ══ -->
   <div class="view" id="view-parts">
+    <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px 18px;margin-bottom:16px;font-size:0.83rem;color:#92400e;">
+      <strong>Not yet wired to live data</strong> — no <code>parts_orders</code> (or equivalent) table exists in Supabase. Sample data shown below. Dev must create the table before this tab can be wired.
+    </div>
     <div class="card">
       <div class="card-title"><div class="dot" style="background:var(--amber)"></div>Waiting for Parts</div>
       <table>
@@ -633,6 +469,9 @@
 
   <!-- ══ TAB 3: PAYMENTS ══ -->
   <div class="view" id="view-payments">
+    <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px 18px;margin-bottom:16px;font-size:0.83rem;color:#92400e;">
+      <strong>Not yet wired to live data</strong> — no <code>payments</code> table exists in Supabase. Sample data shown below. Dev must create the table before this tab can be wired.
+    </div>
     <div class="card">
       <div class="card-title"><div class="dot" style="background:var(--green)"></div>Log a Payment</div>
       <div class="payment-form">
@@ -707,6 +546,9 @@
 
   <!-- ══ TAB 4: CUSTOMER LOG ══ -->
   <div class="view" id="view-customer-log">
+    <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px 18px;margin-bottom:16px;font-size:0.83rem;color:#92400e;">
+      <strong>Not yet wired to live data</strong> — no <code>customer_log</code> (or equivalent) table exists in Supabase. Notes added here are not persisted. Dev must create the table before this tab can be wired.
+    </div>
     <div class="card">
       <div class="card-title"><div class="dot" style="background:var(--accent)"></div>Add Note</div>
       <div class="add-note-row">
@@ -777,6 +619,113 @@
 </div>
 
 <script>
+  // ── Supabase
+  const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  function hasVehicleData(r) {
+    return !!(r.po && r.po.trim()) && !!(r.vehicle && r.vehicle.trim());
+  }
+
+  const STATUS_BADGE = {
+    'waiting-auth': '<span class="badge badge-waiting">Awaiting Approval</span>',
+    'waiting-tech': '<span class="badge badge-diag">Diagnosing</span>',
+    'waiting-part': '<span class="badge badge-parts">Waiting for Parts</span>',
+  };
+
+  function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  // ── Approval Queue — load from Supabase
+  async function loadAndRenderQueue() {
+    const QUEUE_STATUSES = ['waiting-auth', 'waiting-tech'];
+    const SELECT = 'id,po,vehicle,status,assigned_tech,customer,work,notes,job_category';
+
+    const [{ data: lifts }, { data: parking }] = await Promise.all([
+      db.from('shopboard_lifts').select(SELECT).in('status', QUEUE_STATUSES).order('id'),
+      db.from('shopboard_parking').select(SELECT).in('status', QUEUE_STATUSES).order('created_at'),
+    ]);
+
+    const all = [
+      ...(lifts   || []).filter(hasVehicleData).map(r => ({ ...r, _table: 'shopboard_lifts' })),
+      ...(parking || []).filter(hasVehicleData).map(r => ({ ...r, _table: 'shopboard_parking' })),
+    ];
+
+    const grid = document.getElementById('queue-grid');
+
+    if (all.length === 0) {
+      grid.innerHTML = '<div style="color:var(--muted);padding:32px;grid-column:1/-1;text-align:center">No jobs awaiting approval right now.</div>';
+      return;
+    }
+
+    grid.innerHTML = all.map(job => `
+      <div class="job-card" data-id="${esc(String(job.id))}" data-table="${esc(job._table)}">
+        <div class="job-card-header">
+          <div>
+            <div class="job-vehicle">${esc(job.vehicle)} — PO #${esc(job.po)}</div>
+            <div class="job-customer">${esc(job.customer || '—')}</div>
+          </div>
+          ${STATUS_BADGE[job.status] || `<span class="badge">${esc(job.status)}</span>`}
+        </div>
+        <div class="job-body">
+          <div class="job-section-label">Tech Diagnosis${job.assigned_tech && job.assigned_tech !== 'Unassigned' ? ' — ' + esc(job.assigned_tech) : ''}</div>
+          <div class="job-diagnosis">${esc(job.work || job.notes || '(No diagnosis notes yet)')}</div>
+          <div class="job-notes">
+            <div class="job-section-label">Internal Notes</div>
+            <div class="job-notes-list"></div>
+            <div class="job-note-input-row">
+              <input type="text" placeholder="Add a note…" />
+              <button class="btn btn-ghost" onclick="addJobNote(this)">Add</button>
+            </div>
+          </div>
+        </div>
+        <div class="job-footer">
+          <span class="hours-label">Flag Hours:</span>
+          <input type="number" value="" min="0" step="0.5" placeholder="0" />
+          <button class="btn btn-green" onclick="approveJob(this)">✓ Approve Job</button>
+          <button class="btn btn-ghost" style="margin-left:auto">Hold</button>
+        </div>
+      </div>`).join('');
+  }
+
+  // ── Approve Job — writes to Supabase (advisor/manager only action)
+  async function approveJob(btn) {
+    const card = btn.closest('.job-card');
+    const table = card.dataset.table;
+    const id = card.dataset.id;
+
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    const { error } = await db.from(table).update({
+      status: 'approved',
+      approved_at: new Date().toISOString(),
+    }).eq('id', id);
+
+    if (error) {
+      console.error('Approve failed:', error);
+      btn.disabled = false;
+      btn.textContent = '✓ Approve Job';
+      alert('Save failed: ' + error.message);
+      return;
+    }
+
+    const badge = card.querySelector('.badge');
+    badge.textContent = 'Approved';
+    badge.className = 'badge badge-approved';
+    btn.textContent = '✓ Approved';
+    btn.style.opacity = '0.5';
+  }
+
+  // ── Real-time: reload queue on any lifts/parking change
+  db.channel('advisor-board-live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_lifts' },   loadAndRenderQueue)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_parking' }, loadAndRenderQueue)
+    .subscribe();
+
+  // ── Initial load
+  loadAndRenderQueue();
+
   // ── Tab switching
   document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', () => {
@@ -787,18 +736,7 @@
     });
   });
 
-  // ── Approve Job
-  function approveJob(btn) {
-    const card = btn.closest('.job-card');
-    const badge = card.querySelector('.badge');
-    badge.textContent = 'Approved';
-    badge.className = 'badge badge-approved';
-    btn.textContent = '✓ Approved';
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
-  }
-
-  // ── Mark Part Received
+  // ── Mark Part Received (local only — no parts table)
   function markReceived(btn) {
     const row = btn.closest('tr');
     row.style.opacity = '0.45';
@@ -806,8 +744,8 @@
     btn.disabled = true;
   }
 
-  // ── Log Payment
-  let totalCents = 500500; // $5,005.00 in cents
+  // ── Log Payment (local only — no payments table)
+  let totalCents = 500500;
   function logPayment() {
     const sel = document.querySelector('#view-payments select');
     const amtInput = document.querySelectorAll('#view-payments input[type=number]')[0];
@@ -815,28 +753,24 @@
     const amt = parseFloat(amtInput.value);
     if (!amt || amt <= 0) { amtInput.style.borderColor = 'var(--red)'; return; }
     amtInput.style.borderColor = '';
-
     const [po, vehicle] = sel.options[sel.selectedIndex].text.split(' — ');
     const method = methodSel.value;
     const now = new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
-
     const methodBadge = { Cash:'badge-waiting', 'Card at Counter':'badge-diag', Clover:'badge-approved', Check:'badge-parts' };
-
     const row = document.createElement('tr');
     row.innerHTML = `
       <td style="color:var(--muted);font-size:0.78rem">${now}</td>
-      <td><strong>${vehicle.trim()}</strong><br><span style="color:var(--muted);font-size:0.78rem">${po.trim()}</span></td>
+      <td><strong>${esc(vehicle.trim())}</strong><br><span style="color:var(--muted);font-size:0.78rem">${esc(po.trim())}</span></td>
       <td>—</td>
-      <td><span class="badge ${methodBadge[method] || 'badge-parts'}">${method}</span></td>
-      <td style="text-align:right;font-weight:700">$${amt.toFixed(2)}</td>
-    `;
+      <td><span class="badge ${methodBadge[method] || 'badge-parts'}">${esc(method)}</span></td>
+      <td style="text-align:right;font-weight:700">$${amt.toFixed(2)}</td>`;
     document.getElementById('payments-body').prepend(row);
     totalCents += Math.round(amt * 100);
     document.querySelector('#payment-total span').textContent = '$' + (totalCents / 100).toLocaleString('en-US', {minimumFractionDigits:2});
     amtInput.value = '';
   }
 
-  // ── Add Customer Log Note
+  // ── Add Customer Log Note (local only — no customer_log table)
   function addNote() {
     const input = document.getElementById('new-note-input');
     const text = input.value.trim();
@@ -847,10 +781,9 @@
     li.innerHTML = `
       <div class="log-time">${now}</div>
       <div>
-        <div class="log-text">${text.replace(/</g,'&lt;')}</div>
+        <div class="log-text">${esc(text)}</div>
         <div class="log-author">Josh</div>
-      </div>
-    `;
+      </div>`;
     document.getElementById('log-list').prepend(li);
     input.value = '';
   }
@@ -859,7 +792,7 @@
     if (e.key === 'Enter') addNote();
   });
 
-  // ── Job-linked notes
+  // ── Job-linked notes (local only)
   function addJobNote(btn) {
     const row = btn.closest('.job-note-input-row');
     const input = row.querySelector('input');
@@ -869,12 +802,12 @@
     const now = new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
     const note = document.createElement('div');
     note.className = 'job-note';
-    note.innerHTML = `<div class="job-note-meta"><span class="job-note-author">Josh</span><span>${now}</span></div>${text.replace(/</g,'&lt;')}`;
+    note.innerHTML = `<div class="job-note-meta"><span class="job-note-author">Josh</span><span>${now}</span></div>${esc(text)}`;
     list.appendChild(note);
     input.value = '';
   }
 
-  // ── Team Chat
+  // ── Team Chat (in-memory)
   const CHAT_ME = 'Josh';
   const chatMessages = [
     { sender:'Kevin', text:'Morning — Accord rebuild approved by customer. Flag it as 12 hrs.', time:'8:55 AM' },
@@ -887,8 +820,8 @@
     const box = document.getElementById('chat-messages');
     box.innerHTML = chatMessages.map(m => `
       <div class="chat-msg ${m.sender === CHAT_ME ? 'me' : 'them'}">
-        <div class="chat-msg-sender">${m.sender}</div>
-        <div class="chat-msg-bubble">${m.text.replace(/</g,'&lt;')}</div>
+        <div class="chat-msg-sender">${esc(m.sender)}</div>
+        <div class="chat-msg-bubble">${esc(m.text)}</div>
         <div class="chat-msg-time">${m.time}</div>
       </div>`).join('');
     box.scrollTop = box.scrollHeight;
