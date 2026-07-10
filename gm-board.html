@@ -54,6 +54,7 @@
     color: var(--muted);
     margin-top: 2px;
   }
+  .header-controls { display: flex; align-items: center; gap: 14px; }
   .live-badge {
     display: flex;
     align-items: center;
@@ -62,6 +63,21 @@
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 1px;
+  }
+  .settings-gear-btn {
+    width: 30px; height: 30px; border-radius: 8px;
+    background: transparent; border: 1px solid transparent;
+    color: var(--muted); font-size: 15px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.15s;
+  }
+  .settings-gear-btn:hover { background: var(--surface-2); border-color: var(--border); color: var(--text); }
+  .greeting-wrap { display: none; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 600; color: var(--text); }
+  .greeting-avatar { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+  .greeting-avatar-fallback {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: #5b5ef4; color: #fff; font-weight: 800; font-size: 0.72rem;
+    display: flex; align-items: center; justify-content: center;
   }
   .live-dot {
     width: 7px; height: 7px;
@@ -389,6 +405,17 @@
   }
   .chat-close { cursor: pointer; opacity: 0.8; font-size: 1rem; }
   .chat-close:hover { opacity: 1; }
+  .chat-channels {
+    display: flex; gap: 6px; padding: 8px 12px;
+    border-bottom: 1px solid var(--border); background: #fff;
+  }
+  .chat-channel-btn {
+    flex: 1; font-size: 0.66rem; font-weight: 700; padding: 6px 4px;
+    border-radius: 6px; border: 1px solid var(--border); background: var(--bg);
+    color: var(--muted); cursor: pointer; text-align: center; transition: all 0.15s;
+  }
+  .chat-channel-btn.active { background: #5b5ef4; border-color: #5b5ef4; color: #fff; }
+  .chat-channel-btn:hover:not(.active) { background: var(--surface-2); }
   .chat-messages {
     flex: 1; overflow-y: auto; padding: 12px;
     display: flex; flex-direction: column; gap: 8px;
@@ -421,6 +448,436 @@
     flex-shrink: 0; transition: opacity 0.15s;
   }
   .chat-send-btn:hover { opacity: 0.85; }
+
+  /* ══════════════════════════════════════════════════════════════
+     SHOP FLOOR TAB — ported as-is from shop-board.html (v1 tool).
+     First pass: exact layout/behavior, dark theme kept as-is and
+     scoped to #view-shopfloor only (does not leak into other tabs).
+     Restyling to match GM Board's light theme is a deliberate
+     follow-up, not part of this pass.
+     ══════════════════════════════════════════════════════════════ */
+  #view-shopfloor {
+    background: #0b1120;
+    color: #e0e0e0;
+    font-size: 14.5px;
+    padding: 20px;
+    border-radius: var(--radius);
+    margin: 0 -28px;
+  }
+
+  #view-shopfloor .stats-bar { display:flex; gap:12px; margin-bottom:24px; flex-wrap:wrap; }
+  #view-shopfloor .stat-pill {
+    background:#1f2937; border:1px solid #374151; border-radius:10px;
+    padding:12px 16px; display:flex; flex-direction:column;
+    align-items:center; min-width:100px; flex:1;
+  }
+  #view-shopfloor .stat-pill .num { font-size:1.7rem; font-weight:800; line-height:1; }
+  #view-shopfloor .stat-pill .lbl { font-size:0.66rem; text-transform:uppercase; letter-spacing:0.8px; color:#6b7280; margin-top:5px; text-align:center; }
+  #view-shopfloor .stat-pill.total   .num { color:#f5c518; }
+  #view-shopfloor .stat-pill.on-lift .num { color:#a78bfa; }
+  #view-shopfloor .stat-pill.in-lot  .num { color:#9ca3af; }
+  #view-shopfloor .stat-pill.working .num { color:#22c55e; }
+  #view-shopfloor .stat-pill.w-part  .num { color:#f59e0b; }
+  #view-shopfloor .stat-pill.w-tech  .num { color:#3b82f6; }
+  #view-shopfloor .stat-pill.delayed .num { color:#ef4444; }
+  #view-shopfloor .stat-pill.pickup  .num { color:#06b6d4; }
+
+  #view-shopfloor .section-title {
+    font-size:0.75rem; font-weight:700; text-transform:uppercase;
+    letter-spacing:1.5px; color:#6b7280; margin-bottom:14px; margin-top:8px;
+    display:flex; align-items:center; gap:8px;
+  }
+  #view-shopfloor .section-title::after { content:''; flex:1; height:1px; background:#374151; }
+
+  #view-shopfloor .board { display:grid; grid-template-columns:repeat(auto-fit, minmax(210px,1fr)); gap:16px; margin-bottom:26px; }
+
+  #view-shopfloor .lift-card {
+    background:#1e293b; border:2px solid #374151; border-radius:8px;
+    overflow:hidden; display:flex; flex-direction:column; transition:border-color 0.3s;
+  }
+  #view-shopfloor .lift-card.s-in-progress     { border-color:#16a34a; background:linear-gradient(180deg, rgba(22,163,74,0.10), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-waiting-part    { border-color:#d97706; background:linear-gradient(180deg, rgba(217,119,6,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-waiting-tech    { border-color:#2563eb; background:linear-gradient(180deg, rgba(37,99,235,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-delayed         { border-color:#dc2626; background:linear-gradient(180deg, rgba(220,38,38,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-done            { border-color:#0891b2; background:linear-gradient(180deg, rgba(8,145,178,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-qc              { border-color:#7c3aed; background:linear-gradient(180deg, rgba(124,58,237,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-waiting-pull    { border-color:#65a30d; background:linear-gradient(180deg, rgba(101,163,13,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-waiting-install { border-color:#ea580c; background:linear-gradient(180deg, rgba(234,88,12,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-waiting-quote   { border-color:#ca8a04; background:linear-gradient(180deg, rgba(202,138,4,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-waiting-auth    { border-color:#db2777; background:linear-gradient(180deg, rgba(219,39,119,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-empty, #view-shopfloor .lift-card-empty { background:#111827; border-color:#374151; opacity:0.72; }
+
+  #view-shopfloor .lift-card.s-in-progress     .lift-img-wrap { background:radial-gradient(circle at center, rgba(22,163,74,0.20),   rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-waiting-part    .lift-img-wrap { background:radial-gradient(circle at center, rgba(217,119,6,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-waiting-tech    .lift-img-wrap { background:radial-gradient(circle at center, rgba(37,99,235,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-delayed         .lift-img-wrap { background:radial-gradient(circle at center, rgba(220,38,38,0.24),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-done            .lift-img-wrap { background:radial-gradient(circle at center, rgba(8,145,178,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-qc              .lift-img-wrap { background:radial-gradient(circle at center, rgba(124,58,237,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-waiting-pull    .lift-img-wrap { background:radial-gradient(circle at center, rgba(101,163,13,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-waiting-install .lift-img-wrap { background:radial-gradient(circle at center, rgba(234,88,12,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-waiting-quote   .lift-img-wrap { background:radial-gradient(circle at center, rgba(202,138,4,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-waiting-auth    .lift-img-wrap { background:radial-gradient(circle at center, rgba(219,39,119,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+
+  #view-shopfloor .lift-top { padding:10px 12px 0; display:flex; align-items:center; justify-content:space-between; }
+  #view-shopfloor .lift-label { font-size:0.82rem; font-weight:700; color:#f5c518; }
+  #view-shopfloor .lift-img-wrap {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 2px 0;
+  }
+  #view-shopfloor .lift-img {
+    width: 100%;
+    height: auto;
+    display: block;
+    transition: filter 0.35s ease;
+  }
+  #view-shopfloor .lift-empty-label {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #374151;
+    text-transform: uppercase;
+  }
+  #view-shopfloor .lift-info { padding:10px 12px 12px; display:flex; flex-direction:column; gap:8px; }
+
+  #view-shopfloor .field label {
+    display:block; font-size:0.64rem; text-transform:uppercase;
+    letter-spacing:0.7px; color:#6b7280; margin-bottom:3px;
+  }
+  #view-shopfloor .field input, #view-shopfloor .field select, #view-shopfloor .field textarea {
+    width:100%; background:#0f172a; border:1px solid #374151;
+    border-radius:5px; color:#e0e0e0; padding:6px 8px;
+    font-size:0.82rem; outline:none; transition:border-color 0.2s; font-family:inherit;
+  }
+  #view-shopfloor .field input:focus, #view-shopfloor .field select:focus, #view-shopfloor .field textarea:focus { border-color:#f5c518; }
+  #view-shopfloor .field select option { background:#111827; }
+  #view-shopfloor .field textarea { resize:none; height:48px; line-height:1.4; }
+
+  #view-shopfloor .status-badge {
+    font-size:0.58rem; font-weight:800; text-transform:uppercase;
+    padding:2px 7px; border-radius:20px; white-space:nowrap;
+  }
+  #view-shopfloor .badge-empty        { background:#1f2937; color:#4b5563; border:1px solid #374151; }
+
+  #view-shopfloor .lift-card-empty { min-height:260px; opacity:0.75; }
+  #view-shopfloor .empty-bay {
+    flex:1; min-height:230px; margin:8px;
+    border:1px dashed #374151; border-radius:8px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; background:rgba(17,24,39,0.45);
+  }
+  #view-shopfloor .empty-bay-title { color:#9ca3af; font-size:1rem; font-weight:800; text-transform:uppercase; letter-spacing:1.5px; }
+  #view-shopfloor .empty-bay-subtitle { color:#4b5563; font-size:0.68rem; margin-top:6px; }
+  #view-shopfloor .badge-in-progress     { background:#052e16; color:#86efac; }
+  #view-shopfloor .badge-waiting-part    { background:#2c1a00; color:#fcd34d; }
+  #view-shopfloor .badge-waiting-tech    { background:#0f1f3d; color:#93c5fd; }
+  #view-shopfloor .badge-delayed         { background:#3b0a0a; color:#fca5a5; }
+  #view-shopfloor .badge-done            { background:#052630; color:#67e8f9; }
+  #view-shopfloor .badge-qc              { background:#2e1065; color:#c4b5fd; }
+  #view-shopfloor .badge-waiting-pull    { background:#1a2e05; color:#bef264; }
+  #view-shopfloor .badge-waiting-install { background:#431407; color:#fdba74; }
+  #view-shopfloor .badge-waiting-quote   { background:#422006; color:#fde68a; }
+  #view-shopfloor .badge-waiting-auth    { background:#500724; color:#fbcfe8; }
+
+  #view-shopfloor .lift-btn-row { display:flex; gap:6px; margin-top:8px; }
+  #view-shopfloor .clear-btn, #view-shopfloor .pickup-move-btn, #view-shopfloor .lot-back-btn {
+    border-radius:5px; cursor:pointer; font-size:0.68rem;
+    flex:1; padding:6px 4px; transition:all 0.2s; font-weight:600;
+  }
+  #view-shopfloor .clear-btn { background:transparent; border:1px solid #374151; color:#4b5563; }
+  #view-shopfloor .clear-btn:hover { border-color:#ef4444; color:#ef4444; }
+  #view-shopfloor .pickup-move-btn { background:#083344; border:1px solid #0e7490; color:#22d3ee; }
+  #view-shopfloor .pickup-move-btn:hover { background:#0e7490; color:#fff; }
+  #view-shopfloor .pickup-move-btn:disabled { opacity:0.25; cursor:default; }
+  #view-shopfloor .lot-back-btn { background:#2d1a03; border:1px solid #92400e; color:#fbbf24; }
+  #view-shopfloor .lot-back-btn:hover { background:#92400e; color:#fff; }
+  #view-shopfloor .lot-back-btn:disabled { opacity:0.25; cursor:default; }
+
+  #view-shopfloor .table-section { margin-bottom:24px; }
+  #view-shopfloor .table-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  #view-shopfloor .table-header .section-title { margin-bottom:0; flex:1; }
+
+  #view-shopfloor .add-btn {
+    border:none; border-radius:5px; padding:3px 10px;
+    font-size:0.68rem; font-weight:700; cursor:pointer;
+    white-space:nowrap; transition:background 0.2s;
+  }
+  #view-shopfloor .add-btn.yellow { background:#f5c518; color:#111827; }
+  #view-shopfloor .add-btn.yellow:hover { background:#fde047; }
+  #view-shopfloor .add-btn.teal { background:#0e7490; color:#e0f7fa; }
+  #view-shopfloor .add-btn.teal:hover { background:#06b6d4; color:#111827; }
+
+  #view-shopfloor .table-wrap {
+    background:#1f2937; border:1px solid #374151; border-radius:8px;
+    overflow:hidden; max-height:280px; overflow-y:auto;
+  }
+
+  #view-shopfloor .tbl { width:100%; border-collapse:collapse; }
+  #view-shopfloor .tbl thead { position:sticky; top:0; z-index:2; }
+  #view-shopfloor .tbl thead tr { background:#111827; }
+  #view-shopfloor .tbl thead th {
+    padding:10px 12px; font-size:0.68rem; text-transform:uppercase;
+    letter-spacing:0.8px; color:#9ca3af; text-align:left;
+    font-weight:600; border-bottom:1px solid #374151;
+  }
+  #view-shopfloor .tbl tbody tr { border-bottom:1px solid #263041; transition:background 0.15s; }
+  #view-shopfloor .tbl tbody tr:last-child { border-bottom:none; }
+  #view-shopfloor .tbl tbody tr:hover { background:#263041; }
+
+  #view-shopfloor .tbl tbody tr.s-in-progress  td:first-child { border-left:3px solid #16a34a; }
+  #view-shopfloor .tbl tbody tr.s-waiting-part td:first-child { border-left:3px solid #d97706; }
+  #view-shopfloor .tbl tbody tr.s-waiting-tech td:first-child { border-left:3px solid #2563eb; }
+  #view-shopfloor .tbl tbody tr.s-delayed      td:first-child { border-left:3px solid #dc2626; }
+  #view-shopfloor .tbl tbody tr.s-done         td:first-child { border-left:3px solid #0891b2; }
+  #view-shopfloor .tbl tbody tr.s-empty        td:first-child { border-left:3px solid #374151; }
+
+  #view-shopfloor .tbl tbody td { padding:8px 12px; vertical-align:middle; }
+  #view-shopfloor .tbl tbody td input, #view-shopfloor .tbl tbody td select, #view-shopfloor .tbl tbody td textarea {
+    width:100%; background:transparent; border:1px solid transparent;
+    border-radius:5px; color:#e0e0e0; padding:6px 8px;
+    font-size:0.85rem; outline:none; transition:border-color 0.2s, background 0.2s; font-family:inherit;
+  }
+  #view-shopfloor .tbl tbody td input:hover, #view-shopfloor .tbl tbody td select:hover,
+  #view-shopfloor .tbl tbody td textarea:hover { border-color:#374151; background:#111827; }
+  #view-shopfloor .tbl tbody td input:focus, #view-shopfloor .tbl tbody td select:focus,
+  #view-shopfloor .tbl tbody td textarea:focus { border-color:#f5c518; background:#111827; }
+  #view-shopfloor .tbl tbody td select option { background:#111827; }
+  #view-shopfloor .tbl tbody td textarea { resize:none; height:30px; line-height:1.3; }
+
+  #view-shopfloor .row-num { font-size:0.62rem; color:#4b5563; font-weight:700; text-align:center; min-width:20px; }
+
+  #view-shopfloor .del-btn {
+    background:transparent; border:none; color:#4b5563;
+    cursor:pointer; font-size:0.82rem; padding:1px 4px;
+    border-radius:3px; transition:color 0.2s; line-height:1;
+  }
+  #view-shopfloor .del-btn:hover { color:#ef4444; }
+
+  #view-shopfloor .move-btn {
+    background:#083344; border:1px solid #0e7490; color:#22d3ee;
+    border-radius:4px; cursor:pointer; font-size:0.62rem; font-weight:700;
+    padding:2px 5px; white-space:nowrap; transition:all 0.2s; line-height:1.4;
+  }
+  #view-shopfloor .move-btn:hover { background:#0e7490; color:#fff; }
+
+  #view-shopfloor .lift-sel {
+    background:#111827; border:1px solid #374151; border-radius:4px;
+    color:#e0e0e0; padding:2px 4px; font-size:0.7rem; outline:none;
+    cursor:pointer; max-width:80px;
+  }
+  #view-shopfloor .lift-sel option { background:#111827; }
+  #view-shopfloor .place-btn {
+    background:#2d1a6e; border:1px solid #7c3aed; color:#c4b5fd;
+    border-radius:4px; cursor:pointer; font-size:0.62rem; font-weight:700;
+    padding:2px 5px; white-space:nowrap; transition:all 0.2s; line-height:1.4;
+  }
+  #view-shopfloor .place-btn:hover { background:#7c3aed; color:#fff; }
+  #view-shopfloor .place-btn:disabled { opacity:0.3; cursor:default; }
+
+  #view-shopfloor .undo-row-btn {
+    background:#451a03; border:1px solid #92400e; color:#fbbf24;
+    border-radius:4px; cursor:pointer; font-size:0.62rem; font-weight:700;
+    padding:2px 5px; white-space:nowrap; transition:all 0.2s; line-height:1.4;
+  }
+  #view-shopfloor .undo-row-btn:hover { background:#92400e; color:#fff; }
+
+  #view-shopfloor .pickup-badge {
+    display:inline-block; background:#083344; color:#22d3ee;
+    font-size:0.6rem; font-weight:700; text-transform:uppercase;
+    padding:2px 7px; border-radius:20px;
+  }
+
+  #view-shopfloor .empty-msg { text-align:center; padding:12px; color:#4b5563; font-size:0.78rem; }
+
+  #view-shopfloor .legend { display:flex; flex-wrap:wrap; gap:16px; justify-content:center; margin-top:20px; margin-bottom:12px; }
+  #view-shopfloor .legend-item { display:flex; align-items:center; gap:6px; font-size:0.75rem; color:#9ca3af; }
+  #view-shopfloor .legend-dot { width:7px; height:7px; border-radius:50%; }
+  #view-shopfloor .dot-empty        { background:#4b5563; }
+  #view-shopfloor .dot-in-progress  { background:#16a34a; }
+  #view-shopfloor .dot-waiting-part { background:#d97706; }
+  #view-shopfloor .dot-waiting-tech { background:#2563eb; }
+  #view-shopfloor .dot-delayed      { background:#dc2626; }
+  #view-shopfloor .dot-done         { background:#0891b2; }
+
+  #view-shopfloor .warranty-toggle { position:relative; display:inline-block; width:32px; height:16px; flex-shrink:0; }
+  #view-shopfloor .warranty-toggle input { opacity:0; width:0; height:0; position:absolute; }
+  #view-shopfloor .warranty-slider { position:absolute; inset:0; background:#374151; border-radius:8px; transition:background 0.2s; cursor:pointer; }
+  #view-shopfloor .warranty-slider::before { content:''; position:absolute; width:12px; height:12px; left:2px; top:2px; background:#9ca3af; border-radius:50%; transition:transform 0.2s; }
+  #view-shopfloor .warranty-toggle input:checked + .warranty-slider { background:#7f1d1d; border:1px solid #ef4444; }
+  #view-shopfloor .warranty-toggle input:checked + .warranty-slider::before { transform:translateX(16px); background:#ef4444; }
+  #view-shopfloor .comeback-tag { display:inline-block; background:#7f1d1d; color:#fca5a5; font-size:0.55rem; font-weight:800; padding:1px 5px; border-radius:3px; text-transform:uppercase; letter-spacing:0.5px; }
+
+  #view-shopfloor .lift-card.warranty-active .lift-info input,
+  #view-shopfloor .lift-card.warranty-active .lift-info select,
+  #view-shopfloor .lift-card.warranty-active .lift-info textarea,
+  #view-shopfloor .lift-card.warranty-active .lift-info label { color:#ef4444 !important; }
+  #view-shopfloor .tbl tbody tr.warranty-active td input,
+  #view-shopfloor .tbl tbody tr.warranty-active td select,
+  #view-shopfloor .tbl tbody tr.warranty-active td textarea,
+  #view-shopfloor .tbl tbody tr.warranty-active .row-num { color:#ef4444 !important; }
+
+  /* Shop Floor CSV import modal (shares .modal-* look from shop-board.html) */
+  #sf-csvImportModal.modal-overlay {
+    position:fixed; inset:0; background:rgba(0,0,0,0.75);
+    z-index:2000; display:flex; align-items:center; justify-content:center;
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+  #sf-csvImportModal .modal-box {
+    background:#1f2937; border:1px solid #374151; border-radius:12px;
+    padding:24px; min-width:340px; max-width:620px; width:92%;
+    max-height:82vh; overflow-y:auto; color:#e0e0e0;
+  }
+  #sf-csvImportModal h3 { color:#f5c518; font-size:0.9rem; margin-bottom:14px; text-transform:uppercase; letter-spacing:1px; }
+  #sf-csvImportModal .modal-close { float:right; background:none; border:none; color:#6b7280; font-size:1.2rem; cursor:pointer; margin-top:-4px; }
+  #sf-csvImportModal .modal-close:hover { color:#ef4444; }
+  #sf-csvImportModal .modal-field { margin-bottom:12px; }
+  #sf-csvImportModal .modal-field label { display:block; font-size:0.62rem; color:#6b7280; text-transform:uppercase; margin-bottom:4px; letter-spacing:0.5px; }
+  #sf-csvImportModal .modal-field textarea {
+    width:100%; background:#111827; border:1px solid #374151;
+    border-radius:6px; color:#e0e0e0; padding:8px 10px; font-size:0.78rem; outline:none; font-family:inherit;
+  }
+  #sf-csvImportModal .modal-field textarea:focus { border-color:#f5c518; }
+  #sf-csvImportModal .modal-note { font-size:0.68rem; color:#6b7280; margin-bottom:10px; line-height:1.5; }
+  #sf-csvImportModal .modal-note code { background:#111827; padding:1px 5px; border-radius:3px; font-size:0.65rem; color:#a78bfa; }
+  #sf-csvImportModal .modal-btn {
+    background:#f5c518; color:#111827; border:none; border-radius:6px;
+    padding:8px 16px; font-size:0.78rem; font-weight:700; cursor:pointer; margin-right:6px;
+  }
+  #sf-csvImportModal .modal-btn:hover { background:#fde047; }
+  #sf-csvImportModal .modal-btn.sec { background:#374151; color:#e0e0e0; }
+  #sf-csvImportModal .modal-btn.sec:hover { background:#4b5563; }
+
+  /* ══════════════════════════════════════════════════════════════
+     SETTINGS — Employee Management
+     ══════════════════════════════════════════════════════════════ */
+  .settings-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .settings-title {
+    font-size: 0.9rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text);
+  }
+  .btn-add-employee {
+    background: #5b5ef4; color: #fff; border: none; border-radius: 8px;
+    padding: 9px 18px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn-add-employee:hover { opacity: 0.88; }
+  .settings-back-link {
+    font-size: 0.75rem; color: var(--muted); cursor: pointer;
+    margin-bottom: 14px; display: inline-block;
+  }
+  .settings-back-link:hover { color: var(--text); }
+
+  .emp-table td { vertical-align: middle; }
+  .emp-avatar {
+    width: 34px; height: 34px; border-radius: 50%; object-fit: cover;
+    display: block; background: var(--surface-2);
+  }
+  .emp-avatar-fallback {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #5b5ef4; color: #fff; font-weight: 800; font-size: 0.8rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .emp-name-cell { font-weight: 700; color: var(--text); }
+  .role-pill {
+    font-size: 0.65rem; font-weight: 700; padding: 3px 9px; border-radius: 20px;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .role-tech    { background: rgba(91,94,244,0.12); color: #5b5ef4; }
+  .role-advisor { background: rgba(16,185,129,0.12); color: #059669; }
+  .role-manager { background: rgba(245,158,11,0.12); color: #d97706; }
+  .role-owner   { background: rgba(124,58,237,0.12); color: #7c3aed; }
+  .active-pill {
+    font-size: 0.65rem; font-weight: 700; padding: 3px 9px; border-radius: 20px;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .active-yes { background: rgba(16,185,129,0.12); color: #059669; }
+  .active-no  { background: rgba(148,163,184,0.18); color: #64748b; }
+  .emp-edit-btn, .emp-del-btn {
+    font-size: 0.68rem; font-weight: 700; padding: 5px 11px; border-radius: 6px;
+    cursor: pointer; border: 1px solid var(--border); background: #fff;
+    margin-right: 6px; transition: all 0.15s;
+  }
+  .emp-edit-btn { color: #5b5ef4; }
+  .emp-edit-btn:hover { background: rgba(91,94,244,0.08); }
+  .emp-del-btn { color: #dc2626; }
+  .emp-del-btn:hover { background: rgba(220,38,38,0.08); }
+
+  /* Generic light-theme modal (used by Settings; coexists with the
+     dark #sf-csvImportModal rules above via ID-selector specificity) */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(20,22,40,0.45);
+    z-index: 3000; display: flex; align-items: center; justify-content: center;
+  }
+  .modal-box {
+    background: #fff; border: 1px solid var(--border); border-radius: 12px;
+    padding: 26px; min-width: 340px; max-width: 440px; width: 92%;
+    max-height: 86vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(20,22,40,0.18);
+  }
+  .modal-box h3 { font-size: 1rem; color: var(--text); margin-bottom: 16px; }
+  .modal-close {
+    float: right; background: none; border: none; color: var(--muted);
+    font-size: 1.3rem; cursor: pointer; margin-top: -6px; line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-btn {
+    background: #5b5ef4; color: #fff; border: none; border-radius: 8px;
+    padding: 10px 18px; font-size: 0.82rem; font-weight: 700; cursor: pointer;
+    margin-right: 8px; margin-top: 6px;
+  }
+  .modal-btn:hover { opacity: 0.9; }
+  .modal-btn.sec { background: var(--surface-2); color: var(--text); }
+  .modal-btn.danger { background: #dc2626; }
+
+  .emp-form-photo-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+  .emp-avatar-lg {
+    width: 64px; height: 64px; border-radius: 50%; object-fit: cover;
+    background: #5b5ef4; color: #fff; font-weight: 800; font-size: 1.4rem;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .emp-avatar-lg img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+  .emp-photo-label {
+    font-size: 0.75rem; font-weight: 700; color: #5b5ef4; cursor: pointer;
+    border: 1px solid #5b5ef4; border-radius: 7px; padding: 7px 14px; display: inline-block;
+  }
+  .emp-photo-label:hover { background: rgba(91,94,244,0.08); }
+
+  .emp-field { margin-bottom: 14px; }
+  .emp-field label {
+    display: block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); font-weight: 700; margin-bottom: 5px;
+  }
+  .emp-field input, .emp-field select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; font-size: 0.85rem; color: var(--text);
+    outline: none; font-family: inherit;
+  }
+  .emp-field input:focus, .emp-field select:focus { border-color: #5b5ef4; }
+  .emp-field-row { display: flex; align-items: center; justify-content: space-between; }
+  .emp-form-error { color: #dc2626; font-size: 0.78rem; min-height: 16px; margin-bottom: 4px; }
+
+  .emp-toggle { position: relative; display: inline-block; width: 38px; height: 20px; }
+  .emp-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .emp-toggle-slider {
+    position: absolute; inset: 0; background: #cbd0dc; border-radius: 20px;
+    transition: background 0.2s; cursor: pointer;
+  }
+  .emp-toggle-slider::before {
+    content: ''; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px;
+    background: #fff; border-radius: 50%; transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  }
+  .emp-toggle input:checked + .emp-toggle-slider { background: #5b5ef4; }
+  .emp-toggle input:checked + .emp-toggle-slider::before { transform: translateX(18px); }
 </style>
 </head>
 <body>
@@ -431,13 +888,18 @@
       <div class="header-title">Lee Transmission — Manager Board</div>
       <div class="header-sub">General Manager View · Prototype</div>
     </div>
-    <div class="live-badge"><div class="live-dot"></div>Live</div>
+    <div class="header-controls">
+      <div class="greeting-wrap" id="greetingWrap"></div>
+      <div class="live-badge"><div class="live-dot"></div>Live</div>
+      <button class="settings-gear-btn" id="settingsGearBtn" title="Settings">⚙️</button>
+    </div>
   </div>
   <div class="tabs">
     <div class="tab active" data-view="overview">Overview</div>
     <div class="tab" data-view="technicians">Technicians</div>
     <div class="tab" data-view="comebacks">Comebacks</div>
     <div class="tab" data-view="cashflow">Cash Flow</div>
+    <div class="tab" data-view="shopfloor">Shop Floor</div>
   </div>
 </div>
 
@@ -521,21 +983,183 @@
     </div>
   </div>
 
+  <!-- ══ SHOP FLOOR — ported from shop-board.html (v1 tool), first pass ══ -->
+  <div class="view" id="view-shopfloor">
+
+    <div class="stats-bar" id="sf-statsBar"></div>
+
+    <div class="section-title">Lifts</div>
+    <div class="board" id="sf-board"></div>
+
+    <!-- PARKING LOT -->
+    <div class="table-section">
+      <div class="table-header">
+        <div class="section-title">Parking Lot - Waiting</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="add-btn" style="background:#1f2937;color:#9ca3af;border:1px solid #374151" id="sf-importCsvBtn">Import CSV</button>
+          <button class="add-btn yellow" id="sf-addCarBtn">+ Add Car</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th style="width:24px">#</th>
+            <th style="width:76px">PO #</th>
+            <th style="width:110px">Customer</th>
+            <th style="width:155px">Year / Make / Model</th>
+            <th>Work Description</th>
+            <th style="width:155px">Status</th>
+            <th style="width:80px">Job Cat</th>
+            <th style="width:75px">Warranty</th>
+            <th style="width:95px">Arrival</th>
+            <th>Notes</th>
+            <th style="width:120px">Tech</th>
+            <th style="width:140px">Actions</th>
+          </tr></thead>
+          <tbody id="sf-parkingBody"></tbody>
+        </table>
+        <div class="empty-msg" id="sf-parkingEmpty" style="display:none">No cars in lot - tap "+ Add Car".</div>
+      </div>
+    </div>
+
+    <!-- READY FOR PICKUP -->
+    <div class="table-section">
+      <div class="table-header">
+        <div class="section-title">Ready - Waiting for Customer Pickup</div>
+        <button class="add-btn teal" id="sf-addPickupBtn">+ Add Vehicle</button>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th style="width:24px">#</th>
+            <th style="width:76px">PO #</th>
+            <th style="width:165px">Year / Make / Model</th>
+            <th>Work Done</th>
+            <th style="width:115px">Customer</th>
+            <th style="width:80px">Job Cat</th>
+            <th style="width:75px">Warranty</th>
+            <th style="width:95px">Arrival</th>
+            <th>Notes</th>
+            <th style="width:56px">Status</th>
+            <th style="width:90px">Actions</th>
+          </tr></thead>
+          <tbody id="sf-pickupBody"></tbody>
+        </table>
+        <div class="empty-msg" id="sf-pickupEmpty" style="display:none">No vehicles waiting for pickup.</div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot dot-empty"></div> Empty</div>
+      <div class="legend-item"><div class="legend-dot dot-in-progress"></div> In Progress</div>
+      <div class="legend-item"><div class="legend-dot dot-waiting-part"></div> Waiting for Part</div>
+      <div class="legend-item"><div class="legend-dot dot-waiting-tech"></div> Waiting for Tech</div>
+      <div class="legend-item"><div class="legend-dot dot-delayed"></div> Delayed</div>
+      <div class="legend-item"><div class="legend-dot dot-done"></div> Done / Ready</div>
+    </div>
+
+  </div>
+
+  <!-- ══ SETTINGS — Employee Management ══ -->
+  <div class="view" id="view-settings">
+    <span class="settings-back-link" id="settingsBackBtn">← Back to Board</span>
+    <div class="settings-header">
+      <div class="settings-title">Employee Management</div>
+      <button class="btn-add-employee" id="btnAddEmployee">+ Add Employee</button>
+    </div>
+    <div id="employee-list-wrap"><p style="color:var(--muted);padding:20px">Loading…</p></div>
+  </div>
+
+</div>
+
+<!-- Add/Edit Employee Modal — outside .content so it isn't hidden by an inactive .view -->
+<div class="modal-overlay" id="employeeFormModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="closeEmployeeFormX">&times;</button>
+    <h3 id="employeeFormTitle">Add Employee</h3>
+    <div class="emp-form-photo-row">
+      <div class="emp-avatar-lg" id="empFormAvatarPreview">?</div>
+      <div>
+        <label class="emp-photo-label" for="empPhotoInput">Upload Photo</label>
+        <input type="file" id="empPhotoInput" accept="image/*" style="display:none">
+      </div>
+    </div>
+    <div class="emp-field">
+      <label>Name</label>
+      <input type="text" id="empNameInput" placeholder="Full name">
+    </div>
+    <div class="emp-field">
+      <label>Phone</label>
+      <input type="tel" inputmode="numeric" id="empPhoneInput" placeholder="2395550101" maxlength="10">
+    </div>
+    <div class="emp-field">
+      <label>PIN</label>
+      <input type="text" inputmode="numeric" id="empPinInput" placeholder="1234" maxlength="4">
+    </div>
+    <div class="emp-field">
+      <label>Role</label>
+      <select id="empRoleInput">
+        <option value="tech">Technician</option>
+        <option value="advisor">Service Advisor</option>
+        <option value="manager">Manager</option>
+        <option value="owner">Owner</option>
+      </select>
+    </div>
+    <div class="emp-field emp-field-row">
+      <label style="margin-bottom:0">Active</label>
+      <label class="emp-toggle">
+        <input type="checkbox" id="empActiveInput" checked>
+        <span class="emp-toggle-slider"></span>
+      </label>
+    </div>
+    <div class="emp-form-error" id="empFormError"></div>
+    <button class="modal-btn" id="saveEmployeeBtn">Save</button>
+    <button class="modal-btn sec" id="cancelEmployeeForm">Cancel</button>
+  </div>
+</div>
+
+<!-- Delete Employee Confirm Modal -->
+<div class="modal-overlay" id="employeeDeleteModal" style="display:none">
+  <div class="modal-box" style="max-width:400px">
+    <h3>Delete Employee</h3>
+    <p id="empDeleteMsg" style="font-size:0.85rem;color:var(--text);margin-bottom:18px;line-height:1.5"></p>
+    <button class="modal-btn danger" id="confirmDeleteEmployeeBtn">Yes, Delete Permanently</button>
+    <button class="modal-btn sec" id="cancelDeleteEmployeeBtn">Cancel</button>
+  </div>
+</div>
+
+<!-- Shop Floor CSV Import Modal — outside .content so it isn't hidden by an inactive .view -->
+<div class="modal-overlay" id="sf-csvImportModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="sf-closeCsvModal">x</button>
+    <h3>Import Parking Lot CSV</h3>
+    <p class="modal-note">Paste your CSV data below. Expected columns:<br>
+      <code>PO, Vehicle, Customer, Work, Status, Arrival, Notes</code><br>
+      First row must be the header row. Status values: empty, in-progress, waiting-part, waiting-tech, delayed, done.
+    </p>
+    <div class="modal-field">
+      <label>Paste CSV data here</label>
+      <textarea id="sf-csvPasteArea" style="height:200px;font-family:monospace;font-size:0.7rem" placeholder="PO,Vehicle,Customer,Work,Status,Arrival,Notes&#10;1234,2019 Honda Accord,John Smith,Trans Removal,in-progress,2026-06-18,"></textarea>
+    </div>
+    <button class="modal-btn" id="sf-runCsvImportBtn">Import</button>
+    <button class="modal-btn sec" id="sf-closeCsvModal2">Cancel</button>
+  </div>
 </div>
 
 <!-- Team Chat Widget -->
 <div class="chat-bubble" id="chat-bubble">
   💬
-  <div class="chat-unread" id="chat-unread">1</div>
+  <div class="chat-unread" id="chat-unread" style="display:none"></div>
 </div>
 <div class="chat-panel" id="chat-panel">
   <div class="chat-header">
-    <span>Team Chat — Kevin &amp; Josh</span>
+    <span>Team Chat</span>
     <span class="chat-close" id="chat-close">✕</span>
   </div>
+  <div class="chat-channels" id="chat-channels"></div>
   <div class="chat-messages" id="chat-messages"></div>
   <div class="chat-input-row">
-    <input type="text" id="chat-input" placeholder="Message Josh…" />
+    <input type="text" id="chat-input" placeholder="Message…" />
     <button class="chat-send-btn" id="chat-send">➤</button>
   </div>
 </div>
@@ -995,34 +1619,106 @@
     .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_pickup' },  () => loadAndRender())
     .subscribe();
 
-  // ── Team Chat (Kevin's view)
-  const CHAT_ME = 'Kevin';
-  const chatMessages = [
-    { sender:'Kevin', text:'Morning — Accord rebuild approved by customer. Flag it as 12 hrs.', time:'8:55 AM' },
-    { sender:'Josh',  text:'Got it, flagged. Also the Camry cooler test is on hold until Cory finishes the F-150 diag.', time:'9:05 AM' },
-    { sender:'Kevin', text:'Makes sense. Let me know the Silverado quote before you call Wicker — I want to review it first.', time:'9:18 AM' },
-    { sender:'Josh',  text:'Will do. Should have it by noon.', time:'9:19 AM' },
+  // ── Team Chat (real, Supabase-backed — gm-board = Manager's view)
+  // CHAT_IDENTITY is populated by captureSessionAndGreet() below once the
+  // session's phone resolves against `employees`; sending is blocked until then.
+  let CHAT_IDENTITY = { name: null, role: null };
+
+  const CHAT_CHANNELS = [
+    { key: 'group',           label: 'Group' },
+    { key: 'owner_manager',   label: 'Owner' },
+    { key: 'manager_advisor', label: 'Advisor' },
   ];
+  let CURRENT_CHANNEL = 'group';
+  let chatMessages = [];
+  let chatRealtimeChannel = null;
+
+  function chatEsc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function formatChatTime(iso) {
+    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function renderChannelTabs() {
+    const wrap = document.getElementById('chat-channels');
+    wrap.innerHTML = CHAT_CHANNELS.map(c =>
+      `<button class="chat-channel-btn${c.key === CURRENT_CHANNEL ? ' active' : ''}" data-channel="${c.key}">${chatEsc(c.label)}</button>`
+    ).join('');
+    wrap.querySelectorAll('[data-channel]').forEach(btn => {
+      btn.addEventListener('click', () => switchChatChannel(btn.dataset.channel));
+    });
+  }
+
+  // Same dynamic-source pattern as the Tech dropdown: pull the real owner's
+  // name from `employees` instead of hardcoding it. Falls back to the
+  // generic "Owner" label if no active owner record exists yet.
+  async function loadOwnerChannelLabel() {
+    const { data, error } = await db
+      .from('employees').select('name')
+      .eq('role', 'owner').eq('active', true)
+      .order('name').limit(1);
+    if (error) { console.error('[Chat] load owner label failed', error); return; }
+    const entry = CHAT_CHANNELS.find(c => c.key === 'owner_manager');
+    if (entry) entry.label = (data && data[0] && data[0].name) ? data[0].name : 'Owner';
+    renderChannelTabs();
+  }
+
+  async function loadChatMessages(channel) {
+    const { data, error } = await db.from('chat_messages').select('*').eq('channel', channel).order('created_at');
+    if (error) { console.error('[Chat] load failed', error); chatMessages = []; }
+    else chatMessages = data || [];
+    renderChat();
+  }
+
+  function subscribeChatChannel(channel) {
+    if (chatRealtimeChannel) {
+      db.removeChannel(chatRealtimeChannel);
+      chatRealtimeChannel = null;
+    }
+    chatRealtimeChannel = db.channel('chat-live')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `channel=eq.${channel}` },
+        ({ new: rec }) => { if (rec) { chatMessages.push(rec); renderChat(); } }
+      )
+      .subscribe();
+  }
+
+  function switchChatChannel(channel) {
+    CURRENT_CHANNEL = channel;
+    renderChannelTabs();
+    loadChatMessages(channel);
+    subscribeChatChannel(channel);
+  }
 
   function renderChat() {
     const box = document.getElementById('chat-messages');
     box.innerHTML = chatMessages.map(m => `
-      <div class="chat-msg ${m.sender === CHAT_ME ? 'me' : 'them'}">
-        <div class="chat-msg-sender">${m.sender}</div>
-        <div class="chat-msg-bubble">${m.text.replace(/</g,'&lt;')}</div>
-        <div class="chat-msg-time">${m.time}</div>
+      <div class="chat-msg ${m.sender_name === CHAT_IDENTITY.name ? 'me' : 'them'}">
+        <div class="chat-msg-sender">${chatEsc(m.sender_name)}</div>
+        <div class="chat-msg-bubble">${chatEsc(m.message)}</div>
+        <div class="chat-msg-time">${formatChatTime(m.created_at)}</div>
       </div>`).join('');
     box.scrollTop = box.scrollHeight;
   }
 
-  function sendChatMsg() {
+  async function sendChatMsg() {
     const input = document.getElementById('chat-input');
     const text = input.value.trim();
     if (!text) return;
-    const now = new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
-    chatMessages.push({ sender: CHAT_ME, text, time: now });
-    renderChat();
+    if (!CHAT_IDENTITY.name || !CHAT_IDENTITY.role) {
+      alert('Could not identify you on this board yet — try reopening it from CrisData.');
+      return;
+    }
     input.value = '';
+    const { error } = await db.from('chat_messages').insert({
+      channel: CURRENT_CHANNEL,
+      sender_role: CHAT_IDENTITY.role,
+      sender_name: CHAT_IDENTITY.name,
+      message: text,
+    });
+    if (error) {
+      console.error('[Chat] send failed', error);
+      alert('Message failed to send: ' + error.message);
+    }
   }
 
   document.getElementById('chat-bubble').addEventListener('click', () => {
@@ -1030,7 +1726,6 @@
     panel.classList.toggle('open');
     if (panel.classList.contains('open')) {
       document.getElementById('chat-unread').style.display = 'none';
-      renderChat();
     }
   });
 
@@ -1043,6 +1738,11 @@
   document.getElementById('chat-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') sendChatMsg();
   });
+
+  renderChannelTabs();
+  loadChatMessages(CURRENT_CHANNEL);
+  subscribeChatChannel(CURRENT_CHANNEL);
+  loadOwnerChannelLabel();
 
   // ── Draggable chat panel
   (function() {
@@ -1062,6 +1762,999 @@
       panel.style.top  = (e.clientY - oy) + 'px';
     });
     document.addEventListener('mouseup', () => { dragging = false; });
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // SHOP FLOOR TAB — ported from shop-board.html (v1 tool), first pass.
+  // Reads/writes shopboard_lifts / shopboard_parking / shopboard_pickup
+  // directly via the shared `db` client above. This is a deliberate
+  // exception to the "read only, no writes" note on the rest of this
+  // file — full CRUD, matching shop-board.html's exact behavior.
+  // Settings/Sheets sync, Error Log, Kiki chat, Teardown, Sync button,
+  // and a second Log Out were intentionally not ported (out of scope).
+  // ══════════════════════════════════════════════════════════════
+  (function () {
+    const SF_STATUS_OPTIONS = [
+      { value:'empty',           label:'- Unassigned -' },
+      { value:'in-progress',     label:'In Progress' },
+      { value:'waiting-part',    label:'Waiting for Part' },
+      { value:'waiting-tech',    label:'Waiting for Tech' },
+      { value:'waiting-pull',    label:'Waiting Pull' },
+      { value:'waiting-install', label:'Waiting Install' },
+      { value:'waiting-quote',   label:'Waiting Quote' },
+      { value:'waiting-auth',    label:'Waiting Auth' },
+      { value:'qc',              label:'QC' },
+      { value:'delayed',         label:'Delayed' },
+      { value:'done',            label:'Done / Ready' },
+    ];
+
+    const SF_BADGE_CLASS = {
+      'empty':'badge-empty', 'in-progress':'badge-in-progress',
+      'waiting-part':'badge-waiting-part', 'waiting-tech':'badge-waiting-tech',
+      'waiting-pull':'badge-waiting-pull', 'waiting-install':'badge-waiting-install',
+      'waiting-quote':'badge-waiting-quote', 'waiting-auth':'badge-waiting-auth',
+      'qc':'badge-qc', 'delayed':'badge-delayed', 'done':'badge-done',
+    };
+
+    const SF_JOB_CATEGORY_OPTIONS = [
+      { value:'',         label:'- Category -' },
+      { value:'Gen Auto', label:'Gen Auto' },
+      { value:'Rebuild',  label:'Rebuild' },
+      { value:'Diag',     label:'Diag' },
+    ];
+
+    const SF_TECH_LIST = ['Unassigned','Capote','Cory','Alex','Cuba'];
+
+    const SF_STATUS_FILTER = {
+      'empty':        'grayscale(1) brightness(0.18) contrast(0.9)',
+      'in-progress':  'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+      'waiting-part': 'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+      'waiting-tech': 'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+      'delayed':      'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+      'done':         'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+    };
+
+    let sfLiftState   = [];
+    let sfParkState   = [];
+    let sfPickupState = [];
+
+    const sfDebounceTimers = {};
+    function sfDebounce(key, fn, delay = 1000) {
+      clearTimeout(sfDebounceTimers[key]);
+      sfDebounceTimers[key] = setTimeout(fn, delay);
+    }
+
+    let sfIsUserEditing = false;
+    let sfEditingTimeout = null;
+    let sfPendingRealtimeRefresh = null;
+
+    document.addEventListener('focusin', (e) => {
+      if (e.target.closest && e.target.closest('#view-shopfloor') && e.target.matches('input, textarea, select')) sfIsUserEditing = true;
+    });
+    document.addEventListener('focusout', (e) => {
+      if (e.target.closest && e.target.closest('#view-shopfloor') && e.target.matches('input, textarea, select')) {
+        clearTimeout(sfEditingTimeout);
+        sfEditingTimeout = setTimeout(() => { sfIsUserEditing = false; }, 800);
+      }
+    });
+
+    function sfSafeRealtimeRefresh() {
+      if (sfIsUserEditing) {
+        clearTimeout(sfPendingRealtimeRefresh);
+        sfPendingRealtimeRefresh = setTimeout(() => {
+          if (!sfIsUserEditing) sfLoadAll();
+        }, 1500);
+        return;
+      }
+      sfLoadAll();
+    }
+
+    async function sfLoadAll() {
+      const [l, p, k] = await Promise.all([
+        db.from('shopboard_lifts').select('*').order('id'),
+        db.from('shopboard_parking').select('*').order('created_at'),
+        db.from('shopboard_pickup').select('*').order('created_at'),
+      ]);
+      sfLiftState   = l.data || Array.from({length:6},(_,i)=>({id:i+1,po:'',vehicle:'',work:'',status:'empty',notes:''}));
+      sfParkState   = p.data || [];
+      sfPickupState = k.data || [];
+      sfRenderLifts(); sfRenderParking(); sfRenderPickup(); sfUpdateStats();
+    }
+
+    function sfEmptyLifts() {
+      return sfLiftState
+        .map((l, i) => ({ i, label: `Lift ${i + 1}` }))
+        .filter(l => !hasVehicleData(sfLiftState[l.i]));
+    }
+
+    async function sfMoveToPickup(source, liftIdx, carId) {
+      let car;
+      if (source === 'lift') {
+        car = {...sfLiftState[liftIdx]};
+        if (!hasVehicleData(car)) {
+          alert('Cannot move an incomplete lift to pickup. Add both PO # and Vehicle first.');
+          return;
+        }
+        sfLiftState[liftIdx] = {...sfLiftState[liftIdx], po:'',vehicle:'',work:'',status:'empty',notes:'',job_category:'',warranty:false};
+        await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:'',job_category:'',warranty:false}).eq('id', liftIdx+1);
+        sfRenderLifts();
+      } else {
+        car = sfParkState.find(c=>String(c.id)===String(carId));
+        if (!hasVehicleData(car)) {
+          alert('Cannot move an incomplete parking lot vehicle to pickup. Add both PO # and Vehicle first.');
+          return;
+        }
+        if (car && car.po && sfIsDuplicatePO(car.po, 'park', carId)) {
+          alert(`PO # "${car.po}" already exists on the board. Update it before moving to pickup.`);
+          return;
+        }
+        sfParkState = sfParkState.filter(c=>c.id!==carId);
+        await db.from('shopboard_parking').delete().eq('id', carId);
+        sfRenderParking();
+      }
+      const {data} = await db.from('shopboard_pickup').insert({
+        po:car.po, vehicle:car.vehicle, work:car.work,
+        customer:car.customer||'', notes:car.notes||'', arrival_date:car.arrival_date||null,
+        job_category:car.job_category||'', warranty:car.warranty||false,
+        undo_source:source, undo_index:liftIdx??null, undo_car:car
+      }).select().single();
+      if(data) sfPickupState.push(data);
+      sfRenderPickup(); sfUpdateStats();
+      document.getElementById('sf-pickupBody').lastElementChild?.scrollIntoView({behavior:'smooth',block:'center'});
+    }
+
+    async function sfUndoPickup(carId) {
+      const entry = sfPickupState.find(c=>String(c.id)===String(carId));
+      if (!entry) return;
+      sfPickupState = sfPickupState.filter(c=>String(c.id)!==String(carId));
+      await db.from('shopboard_pickup').delete().eq('id', carId);
+      if (entry.undo_source==='lift' && entry.undo_car) {
+        const car = entry.undo_car;
+        sfLiftState[entry.undo_index] = {...sfLiftState[entry.undo_index], ...car};
+        await db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:car.status,notes:car.notes||'',job_category:car.job_category||'',warranty:car.warranty||false}).eq('id', entry.undo_index+1);
+        sfRenderLifts();
+      } else {
+        const car = entry.undo_car || {po:entry.po,vehicle:entry.vehicle,customer:entry.customer||'',work:entry.work,status:'empty',notes:entry.notes||'',arrival_date:entry.arrival_date||null};
+        const {data} = await db.from('shopboard_parking').insert({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:car.status||'empty',notes:car.notes||'',arrival_date:car.arrival_date||null,job_category:car.job_category||'',warranty:car.warranty||false}).select().single();
+        if(data) sfParkState.push(data);
+        sfRenderParking();
+      }
+      sfRenderPickup(); sfUpdateStats();
+    }
+
+    async function sfPlaceOnLift(carId, liftIdx) {
+      const car = sfParkState.find(c=>String(c.id)===String(carId));
+      if (!car) return;
+      if (!hasVehicleData(car)) {
+        alert('Cannot place an incomplete parking lot vehicle on a lift. Add both PO # and Vehicle first.');
+        return;
+      }
+      if (car.po && sfIsDuplicatePO(car.po, 'park', carId)) {
+        alert(`PO # "${car.po}" already exists on the board. Update it before placing on a lift.`);
+        return;
+      }
+      const newStatus = car.status==='empty'?'in-progress':car.status;
+      sfLiftState[liftIdx] = {...sfLiftState[liftIdx], po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null,job_category:car.job_category||'',warranty:car.warranty||false};
+      sfParkState = sfParkState.filter(c=>String(c.id)!==String(carId));
+      await Promise.all([
+        db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null,job_category:car.job_category||'',warranty:car.warranty||false}).eq('id',liftIdx+1),
+        db.from('shopboard_parking').delete().eq('id',carId)
+      ]);
+      sfRenderLifts(); sfRenderParking(); sfUpdateStats();
+    }
+
+    function sfUpdateStats() {
+      const activeLifts   = sfLiftState.filter(hasVehicleData);
+      const activeParking = sfParkState.filter(hasVehicleData);
+      const activePickup  = sfPickupState.filter(hasVehicleData);
+      const totalInProg = [...activeLifts,...activeParking].filter(c=>c.status==='in-progress').length;
+      const totalWPart  = [...activeLifts,...activeParking].filter(c=>c.status==='waiting-part').length;
+      const totalWTech  = [...activeLifts,...activeParking].filter(c=>c.status==='waiting-tech').length;
+      const totalDel    = [...activeLifts,...activeParking].filter(c=>c.status==='delayed').length;
+      const total       = activeLifts.length + activeParking.length + activePickup.length;
+
+      document.getElementById('sf-statsBar').innerHTML = `
+        <div class="stat-pill total">  <span class="num">${total}</span>                    <span class="lbl">Total Vehicles</span></div>
+        <div class="stat-pill on-lift"><span class="num">${activeLifts.length}</span>        <span class="lbl">On Lifts</span></div>
+        <div class="stat-pill in-lot"> <span class="num">${activeParking.length}</span>      <span class="lbl">In Lot</span></div>
+        <div class="stat-pill working"><span class="num">${totalInProg}</span>               <span class="lbl">In Progress</span></div>
+        <div class="stat-pill w-part"> <span class="num">${totalWPart}</span>                <span class="lbl">Waiting Part</span></div>
+        <div class="stat-pill w-tech"> <span class="num">${totalWTech}</span>                <span class="lbl">Waiting Tech</span></div>
+        <div class="stat-pill delayed"><span class="num">${totalDel}</span>                  <span class="lbl">Delayed</span></div>
+        <div class="stat-pill pickup"> <span class="num">${activePickup.length}</span>       <span class="lbl">Ready Pickup</span></div>
+      `;
+    }
+
+    function sfIsDuplicatePO(po, excludeSource, excludeId) {
+      if (!po || !po.trim()) return false;
+      const norm = po.trim().toLowerCase();
+      const inLifts   = sfLiftState.some((l, i) => {
+        if (excludeSource==='lift' && excludeId===i) return false;
+        return (l.po||'').trim().toLowerCase() === norm;
+      });
+      const inParking = sfParkState.some(c => {
+        if (excludeSource==='park' && String(c.id)===String(excludeId)) return false;
+        return (c.po||'').trim().toLowerCase() === norm;
+      });
+      const inPickup  = sfPickupState.some(c => {
+        if (excludeSource==='pickup' && String(c.id)===String(excludeId)) return false;
+        return (c.po||'').trim().toLowerCase() === norm;
+      });
+      return inLifts || inParking || inPickup;
+    }
+
+    function sfLiftSVG(status) {
+      const isEmpty   = status === 'empty';
+      const imgFilter = SF_STATUS_FILTER[status] || SF_STATUS_FILTER['empty'];
+
+      return `<div class="lift-img-wrap${isEmpty ? ' empty-lift' : ''}">
+        <img src="lift_vehicle_icon.png" class="lift-img" style="filter:${imgFilter};"/>
+        ${isEmpty ? '<div class="lift-empty-label">EMPTY</div>' : ''}
+      </div>`;
+    }
+
+    function sfStatusLabel(s) { return SF_STATUS_OPTIONS.find(o=>o.value===s)?.label||'-'; }
+    function sfEsc(s) { return (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+    /* -- LIFTS -- */
+    function sfRenderLifts() {
+      const board = document.getElementById('sf-board');
+      board.innerHTML = '';
+      sfLiftState.forEach((lift, i) => {
+        const hasVehicle = hasVehicleData(lift);
+        const card = document.createElement('div');
+
+        if (!hasVehicle) {
+          card.className = 'lift-card s-empty lift-card-empty';
+          card.innerHTML = `
+            <div class="lift-top">
+              <span class="lift-label">LIFT ${i+1}</span>
+              <span class="status-badge badge-empty">EMPTY</span>
+            </div>
+            <div class="empty-bay">
+              <div class="empty-bay-title">Open Bay</div>
+              <div class="empty-bay-subtitle">Assign vehicle from Parking Lot</div>
+            </div>
+          `;
+          board.appendChild(card);
+          return;
+        }
+
+        const displayStatus = lift.status || 'in-progress';
+        card.className = `lift-card s-${displayStatus}${lift.warranty ? ' warranty-active' : ''}`;
+        card.innerHTML = `
+          <div class="lift-top">
+            <span class="lift-label">LIFT ${i+1}</span>
+            <div style="display:flex;align-items:center;gap:4px">
+              ${lift.warranty ? '<span class="comeback-tag">COMEBACK</span>' : ''}
+              <span class="status-badge ${SF_BADGE_CLASS[displayStatus]}">${sfStatusLabel(displayStatus)}</span>
+            </div>
+          </div>
+          ${sfLiftSVG(displayStatus)}
+          <div class="lift-info">
+            <div class="field"><label>PO #</label>
+              <input type="text" placeholder="PO #" value="${sfEsc(lift.po)}" data-i="${i}" data-field="po"/>
+            </div>
+            <div class="field"><label>Vehicle</label>
+              <input type="text" placeholder="Year / Make / Model" value="${sfEsc(lift.vehicle)}" data-i="${i}" data-field="vehicle"/>
+            </div>
+            <div class="field"><label>Customer</label>
+              <input type="text" placeholder="Customer name" value="${sfEsc(lift.customer||'')}" data-i="${i}" data-field="customer"/>
+            </div>
+            <div class="field"><label>Work</label>
+              <input type="text" placeholder="Work description" value="${sfEsc(lift.work)}" data-i="${i}" data-field="work"/>
+            </div>
+            <div class="field"><label>Status</label>
+              <select data-i="${i}" data-field="status">
+                ${SF_STATUS_OPTIONS.map(o=>`<option value="${o.value}"${lift.status===o.value?' selected':''}>${o.label}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label>Job Category</label>
+              <select data-i="${i}" data-field="job_category">
+                ${SF_JOB_CATEGORY_OPTIONS.map(o=>`<option value="${o.value}"${(lift.job_category||'')===o.value?' selected':''}>${o.label}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field" style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">
+              <label style="margin-bottom:0">Warranty / Comeback</label>
+              <div style="display:flex;align-items:center;gap:5px">
+                <label class="warranty-toggle">
+                  <input type="checkbox" data-i="${i}" data-field="warranty"${lift.warranty?' checked':''}/>
+                  <span class="warranty-slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="field"><label>Arrival Date</label>
+              <input type="date" data-i="${i}" data-field="arrival_date" value="${sfEsc(lift.arrival_date||'')}"/>
+            </div>
+            <div class="field"><label>Notes</label>
+              <textarea placeholder="Notes..." data-i="${i}" data-field="notes">${sfEsc(lift.notes||'')}</textarea>
+            </div>
+            <div class="field"><label>Tech</label>
+              <select data-i="${i}" data-field="assigned_tech">
+                ${SF_TECH_LIST.map(t=>`<option value="${t==='Unassigned'?'':t}"${(lift.assigned_tech||'')===(t==='Unassigned'?'':t)?' selected':''}>${t}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label>Tech Notes</label>
+              <textarea placeholder="Tech notes..." data-i="${i}" data-field="tech_notes">${sfEsc(lift.tech_notes||'')}</textarea>
+            </div>
+            <div class="lift-btn-row">
+              <button class="clear-btn" data-clear="${i}">x Clear</button>
+              <button class="lot-back-btn" data-lot-back="${i}">&lt;- Lot</button>
+              <button class="pickup-move-btn" data-lift-pickup="${i}">Pickup</button>
+            </div>
+          </div>
+        `;
+        board.appendChild(card);
+      });
+      board.querySelectorAll('input,select,textarea').forEach(el => {
+        el.addEventListener('change', sfOnLiftChange);
+        el.addEventListener('input', sfOnLiftChange);
+      });
+      board.querySelectorAll('[data-clear]').forEach(btn => {
+        btn.addEventListener('click', async e => {
+          const i = +e.currentTarget.dataset.clear;
+          sfLiftState[i] = {...sfLiftState[i], po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,assigned_tech:'',tech_status:'available',tech_notes:'',job_category:'',warranty:false};
+          await db.from('shopboard_lifts').update({po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,assigned_tech:'',tech_status:'available',tech_notes:'',job_category:'',warranty:false}).eq('id',i+1);
+          sfRenderLifts(); sfRenderParking(); sfUpdateStats();
+        });
+      });
+      board.querySelectorAll('[data-lot-back]').forEach(btn => {
+        btn.addEventListener('click', async e => {
+          const i = +e.currentTarget.dataset.lotBack;
+          const car = {...sfLiftState[i]};
+          if (!hasVehicleData(car)) {
+            alert('Cannot move an incomplete lift to the parking lot. Add both PO # and Vehicle first.');
+            return;
+          }
+          sfLiftState[i] = {...sfLiftState[i], po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,job_category:'',warranty:false};
+          await db.from('shopboard_lifts').update({po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,job_category:'',warranty:false}).eq('id', i+1);
+          const {data} = await db.from('shopboard_parking').insert({
+            po:car.po, vehicle:car.vehicle, customer:car.customer||'', work:car.work,
+            status:car.status==='empty'?'empty':car.status, notes:car.notes||'', arrival_date:car.arrival_date||null,
+            job_category:car.job_category||'', warranty:car.warranty||false
+          }).select().single();
+          if(data) sfParkState.push(data);
+          sfRenderLifts(); sfRenderParking(); sfUpdateStats();
+        });
+      });
+      board.querySelectorAll('[data-lift-pickup]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          sfMoveToPickup('lift', +e.currentTarget.dataset.liftPickup, null);
+        });
+      });
+    }
+
+    function sfOnLiftChange(e) {
+      const i = +e.target.dataset.i, field = e.target.dataset.field;
+      const currentLift = sfLiftState[i];
+      const hasAnyVehicleIdentity = Boolean(
+        (currentLift?.po || '').trim() ||
+        (currentLift?.vehicle || '').trim()
+      );
+      if (!hasAnyVehicleIdentity) {
+        console.warn('Blocked manual edit on empty lift', { lift: i + 1, field });
+        sfRenderLifts();
+        sfUpdateStats();
+        return;
+      }
+      if (field === 'po' && e.type === 'change' && sfIsDuplicatePO(e.target.value, 'lift', i)) {
+        alert(`PO # "${e.target.value}" already exists on the board. Please use a different number.`);
+        const prev = sfLiftState[i].po || '';
+        e.target.value = prev;
+        sfLiftState[i].po = prev;
+        clearTimeout(sfDebounceTimers[`lift-${i}-po`]);
+        return;
+      }
+      const fieldVal = field === 'warranty' ? e.target.checked : e.target.value;
+      sfLiftState[i][field] = fieldVal;
+      if (field === 'status' || field === 'warranty') sfRenderLifts();
+      sfUpdateStats();
+      sfDebounce(`lift-${i}-${field}`, async () => {
+        try {
+          const result = await db.from('shopboard_lifts').update({[field]: fieldVal}).eq('id', i+1);
+          if (result.error) console.error('[ShopFloor] Lift save field:'+field, result.error);
+        } catch(err) { console.error('[ShopFloor] Lift save field:'+field, err); }
+      });
+    }
+
+    /* -- PARKING -- */
+    function sfRenderParking() {
+      const tbody = document.getElementById('sf-parkingBody');
+      const emptyMsg = document.getElementById('sf-parkingEmpty');
+      tbody.innerHTML = '';
+      if (sfParkState.length === 0) { emptyMsg.style.display='block'; return; }
+      emptyMsg.style.display = 'none';
+      const free = sfEmptyLifts();
+
+      sfParkState.forEach((car, i) => {
+        const tr = document.createElement('tr');
+        tr.className = `s-${car.status}${car.warranty ? ' warranty-active' : ''}`;
+
+        const liftSelId = `sf-ls-${car.id}`;
+        tr.innerHTML = `
+          <td class="row-num">${i+1}</td>
+          <td><input type="text" placeholder="PO #" value="${sfEsc(car.po)}" data-id="${car.id}" data-field="po"/></td>
+          <td><input type="text" placeholder="Customer name" value="${sfEsc(car.customer||'')}" data-id="${car.id}" data-field="customer"/></td>
+          <td><input type="text" placeholder="Year / Make / Model" value="${sfEsc(car.vehicle)}" data-id="${car.id}" data-field="vehicle"/></td>
+          <td><input type="text" placeholder="Transmission Removal" value="${sfEsc(car.work)}" data-id="${car.id}" data-field="work"/></td>
+          <td><select data-id="${car.id}" data-field="status">
+            ${SF_STATUS_OPTIONS.map(o=>`<option value="${o.value}"${car.status===o.value?' selected':''}>${o.label}</option>`).join('')}
+          </select></td>
+          <td><select data-id="${car.id}" data-field="job_category">
+            ${SF_JOB_CATEGORY_OPTIONS.map(o=>`<option value="${o.value}"${(car.job_category||'')===o.value?' selected':''}>${o.label}</option>`).join('')}
+          </select></td>
+          <td style="text-align:center;vertical-align:middle">
+            <label class="warranty-toggle">
+              <input type="checkbox" data-id="${car.id}" data-field="warranty"${car.warranty?' checked':''}/>
+              <span class="warranty-slider"></span>
+            </label>
+            ${car.warranty ? '<div class="comeback-tag" style="margin-top:2px">COMEBACK</div>' : ''}
+          </td>
+          <td><input type="date" data-id="${car.id}" data-field="arrival_date" value="${sfEsc(car.arrival_date||'')}"/></td>
+          <td><textarea placeholder="Notes..." data-id="${car.id}" data-field="notes">${sfEsc(car.notes||'')}</textarea></td>
+          <td><select data-id="${car.id}" data-field="assigned_tech">
+            ${SF_TECH_LIST.map(t=>`<option value="${t}"${(car.assigned_tech||'Unassigned')===t?' selected':''}>${t}</option>`).join('')}
+          </select></td>
+          <td style="white-space:nowrap;vertical-align:middle">
+            <div style="display:flex;flex-wrap:wrap;gap:3px;align-items:center">
+              ${free.length
+                ? `<select class="lift-sel" id="${liftSelId}">${free.map(l=>`<option value="${l.i}">${l.label}</option>`).join('')}</select>
+                   <button class="place-btn" data-place-id="${car.id}" data-liftsel="${liftSelId}">Place</button>`
+                : `<span style="font-size:0.62rem;color:#4b5563">No free lift</span>`}
+              <button class="move-btn" data-park-pickup="${car.id}" title="Move to Ready">Ready</button>
+              <button class="del-btn" data-del="${car.id}" title="Remove">x</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll('input,select,textarea').forEach(el => {
+        el.addEventListener('change', sfOnParkChange);
+        el.addEventListener('input', sfOnParkChange);
+      });
+      tbody.querySelectorAll('[data-place-id]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          const carId  = e.currentTarget.dataset.placeId;
+          const selId  = e.currentTarget.dataset.liftsel;
+          const liftIdx = +document.getElementById(selId).value;
+          sfPlaceOnLift(carId, liftIdx);
+        });
+      });
+      tbody.querySelectorAll('[data-park-pickup]').forEach(btn => {
+        btn.addEventListener('click', e => sfMoveToPickup('park', null, e.currentTarget.dataset.parkPickup));
+      });
+      tbody.querySelectorAll('[data-del]').forEach(btn => {
+        btn.addEventListener('click', async e => {
+          const id = e.currentTarget.dataset.del;
+          sfParkState = sfParkState.filter(c=>String(c.id)!==id);
+          await db.from('shopboard_parking').delete().eq('id', id);
+          sfRenderParking(); sfUpdateStats();
+        });
+      });
+    }
+
+    function sfOnParkChange(e) {
+      const id = e.target.dataset.id, field = e.target.dataset.field;
+      if (!field || !id) return;
+      if (field === 'po' && e.type === 'change' && sfIsDuplicatePO(e.target.value, 'park', id)) {
+        alert(`PO # "${e.target.value}" already exists on the board. Please use a different number.`);
+        const car = sfParkState.find(c=>String(c.id)===id);
+        const prev = car?.po || '';
+        e.target.value = prev;
+        if (car) car.po = prev;
+        clearTimeout(sfDebounceTimers[`park-${id}-po`]);
+        return;
+      }
+      const fieldVal = field === 'warranty' ? e.target.checked : e.target.value;
+      const car = sfParkState.find(c=>String(c.id)===id);
+      if (car) car[field] = fieldVal;
+      if (field === 'status' || field === 'warranty') sfRenderParking();
+      sfUpdateStats();
+      sfDebounce(`park-${id}-${field}`, async () => {
+        try {
+          const result = await db.from('shopboard_parking').update({[field]: fieldVal}).eq('id', id);
+          if (result.error) console.error('[ShopFloor] Parking save field:'+field, result.error);
+        } catch(err) { console.error('[ShopFloor] Parking save field:'+field, err); }
+      });
+    }
+
+    /* -- PICKUP -- */
+    function sfRenderPickup() {
+      const tbody = document.getElementById('sf-pickupBody');
+      const emptyMsg = document.getElementById('sf-pickupEmpty');
+      tbody.innerHTML = '';
+      if (sfPickupState.length === 0) { emptyMsg.style.display='block'; return; }
+      emptyMsg.style.display = 'none';
+      sfPickupState.forEach((car, i) => {
+        const canUndo = !!(car.undo_source);
+        const tr = document.createElement('tr');
+        tr.className = `s-done${car.warranty ? ' warranty-active' : ''}`;
+        tr.innerHTML = `
+          <td class="row-num">${i+1}</td>
+          <td><input type="text" placeholder="PO #" value="${sfEsc(car.po)}" data-id="${car.id}" data-field="po"/></td>
+          <td><input type="text" placeholder="Year / Make / Model" value="${sfEsc(car.vehicle)}" data-id="${car.id}" data-field="vehicle"/></td>
+          <td><input type="text" placeholder="Work completed" value="${sfEsc(car.work)}" data-id="${car.id}" data-field="work"/></td>
+          <td><input type="text" placeholder="Customer name" value="${sfEsc(car.customer)}" data-id="${car.id}" data-field="customer"/></td>
+          <td><select data-id="${car.id}" data-field="job_category">
+            ${SF_JOB_CATEGORY_OPTIONS.map(o=>`<option value="${o.value}"${(car.job_category||'')===o.value?' selected':''}>${o.label}</option>`).join('')}
+          </select></td>
+          <td style="text-align:center;vertical-align:middle">
+            <label class="warranty-toggle">
+              <input type="checkbox" data-id="${car.id}" data-field="warranty"${car.warranty?' checked':''}/>
+              <span class="warranty-slider"></span>
+            </label>
+            ${car.warranty ? '<div class="comeback-tag" style="margin-top:2px">COMEBACK</div>' : ''}
+          </td>
+          <td><input type="date" data-id="${car.id}" data-field="arrival_date" value="${sfEsc(car.arrival_date||'')}"/></td>
+          <td><textarea placeholder="Notes..." data-id="${car.id}" data-field="notes">${sfEsc(car.notes||'')}</textarea></td>
+          <td><span class="pickup-badge">Ready</span></td>
+          <td style="white-space:nowrap;vertical-align:middle">
+            <div style="display:flex;gap:3px;align-items:center">
+              ${canUndo ? `<button class="undo-row-btn" data-undo="${car.id}" title="Send back">&lt;- Undo</button>` : ''}
+              <button class="del-btn" data-rdel="${car.id}" title="Picked up - remove">x</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+      tbody.querySelectorAll('input,select,textarea').forEach(el => {
+        el.addEventListener('change', sfOnPickupChange);
+        el.addEventListener('input', sfOnPickupChange);
+      });
+      tbody.querySelectorAll('[data-undo]').forEach(btn => {
+        btn.addEventListener('click', e => sfUndoPickup(e.currentTarget.dataset.undo));
+      });
+      tbody.querySelectorAll('[data-rdel]').forEach(btn => {
+        btn.addEventListener('click', async e => {
+          const id = e.currentTarget.dataset.rdel;
+          sfPickupState = sfPickupState.filter(c=>String(c.id)!==id);
+          await db.from('shopboard_pickup').delete().eq('id', id);
+          sfRenderPickup(); sfUpdateStats();
+        });
+      });
+    }
+
+    function sfOnPickupChange(e) {
+      const id = e.target.dataset.id, field = e.target.dataset.field;
+      if (!field || !id) return;
+      if (field === 'po' && e.type === 'change' && sfIsDuplicatePO(e.target.value, 'pickup', id)) {
+        alert(`PO # "${e.target.value}" already exists on the board. Please use a different number.`);
+        const car = sfPickupState.find(c=>String(c.id)===id);
+        const prev = car?.po || '';
+        e.target.value = prev;
+        if (car) car.po = prev;
+        clearTimeout(sfDebounceTimers[`pickup-${id}-po`]);
+        return;
+      }
+      const fieldVal = field === 'warranty' ? e.target.checked : e.target.value;
+      const car = sfPickupState.find(c=>String(c.id)===id);
+      if (car) car[field] = fieldVal;
+      if (field === 'warranty') sfRenderPickup();
+      sfDebounce(`pickup-${id}-${field}`, async () => {
+        try {
+          const result = await db.from('shopboard_pickup').update({[field]: fieldVal}).eq('id', id);
+          if (result.error) console.error('[ShopFloor] Pickup save field:'+field, result.error);
+        } catch(err) { console.error('[ShopFloor] Pickup save field:'+field, err); }
+      });
+    }
+
+    document.getElementById('sf-addCarBtn').addEventListener('click', async () => {
+      const today = new Date().toISOString().slice(0,10);
+      const {data} = await db.from('shopboard_parking').insert({po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:today}).select().single();
+      if(data) sfParkState.push(data);
+      sfRenderParking(); sfUpdateStats();
+      const tbody = document.getElementById('sf-parkingBody');
+      if (tbody.lastElementChild) {
+        tbody.lastElementChild.scrollIntoView({behavior:'smooth',block:'center'});
+        tbody.lastElementChild.querySelector('input')?.focus();
+      }
+    });
+
+    document.getElementById('sf-addPickupBtn').addEventListener('click', async () => {
+      const {data} = await db.from('shopboard_pickup').insert({po:'',vehicle:'',work:'',customer:'',notes:''}).select().single();
+      if(data) sfPickupState.push(data);
+      sfRenderPickup(); sfUpdateStats();
+      const tbody = document.getElementById('sf-pickupBody');
+      if (tbody.lastElementChild) {
+        tbody.lastElementChild.scrollIntoView({behavior:'smooth',block:'center'});
+        tbody.lastElementChild.querySelector('input')?.focus();
+      }
+    });
+
+    /* -- CSV IMPORT -- */
+    document.getElementById('sf-importCsvBtn').addEventListener('click', () => {
+      document.getElementById('sf-csvPasteArea').value = '';
+      document.getElementById('sf-csvImportModal').style.display = 'flex';
+    });
+    document.getElementById('sf-closeCsvModal').addEventListener('click', () => document.getElementById('sf-csvImportModal').style.display = 'none');
+    document.getElementById('sf-closeCsvModal2').addEventListener('click', () => document.getElementById('sf-csvImportModal').style.display = 'none');
+
+    document.getElementById('sf-runCsvImportBtn').addEventListener('click', async function() {
+      try {
+        const text = document.getElementById('sf-csvPasteArea').value.trim();
+        if (!text) { alert('Please paste CSV data first.'); return; }
+
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) { alert('CSV has no data rows.'); return; }
+
+        const headers = lines[0].split(',').map(h => h.replace(/"/g,'').trim().toLowerCase());
+        const getCol = (row, ...keys) => {
+          for (const k of keys) {
+            const idx = headers.findIndex(h => h.includes(k));
+            if (idx >= 0) return (row[idx] || '').replace(/"/g,'').trim();
+          }
+          return '';
+        };
+
+        const allowedStatuses = ['empty','in-progress','waiting-part','waiting-tech','delayed','done'];
+        let imported = 0, skipped = 0, failed = 0;
+
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i].split(',');
+          const po       = getCol(row, 'po');
+          const vehicle  = getCol(row, 'vehicle', 'make', 'model', 'year');
+          const customer = getCol(row, 'customer', 'client', 'owner');
+          const work     = getCol(row, 'work', 'description', 'desc');
+          const status   = getCol(row, 'status') || 'empty';
+          const arrival  = getCol(row, 'arrival', 'date') || null;
+          const notes    = getCol(row, 'note');
+
+          if (!po || !vehicle) { skipped++; continue; }
+          if (po && sfIsDuplicatePO(po, null, null)) { skipped++; continue; }
+
+          const safeStatus = allowedStatuses.includes(status) ? status : 'empty';
+          const result = await db.from('shopboard_parking').insert({
+            po, vehicle, customer, work, status: safeStatus, arrival_date: arrival || null, notes
+          }).select().single();
+
+          if (result.error) { failed++; console.error('[ShopFloor] CSV Import row ' + i, result.error); }
+          else if (result.data) { imported++; }
+        }
+
+        await sfLoadAll();
+        document.getElementById('sf-csvImportModal').style.display = 'none';
+        alert('Import complete: ' + imported + ' added, ' + skipped + ' skipped, ' + failed + ' failed.');
+      } catch(err) {
+        console.error('[ShopFloor] CSV Import', err);
+        alert('CSV import failed. See browser console for details.');
+      }
+    });
+
+    /* -- REALTIME SUBSCRIPTIONS -- */
+    db.channel('gm-board-shopfloor-live')
+      .on('postgres_changes',{event:'*',schema:'public',table:'shopboard_lifts'}, ()=>{
+        sfSafeRealtimeRefresh();
+      })
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'shopboard_parking'}, ({new:rec})=>{
+        if(rec && !sfParkState.some(c=>String(c.id)===String(rec.id))) sfParkState.push(rec);
+        if (!sfIsUserEditing) { sfRenderParking(); sfUpdateStats(); }
+        else sfSafeRealtimeRefresh();
+      })
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'shopboard_parking'}, ({new:rec})=>{
+        if(rec){ const idx=sfParkState.findIndex(c=>String(c.id)===String(rec.id)); if(idx>=0) sfParkState[idx]=rec; }
+        if (!sfIsUserEditing) { sfRenderParking(); sfUpdateStats(); }
+        else sfSafeRealtimeRefresh();
+      })
+      .on('postgres_changes',{event:'DELETE',schema:'public',table:'shopboard_parking'}, ({old:rec})=>{
+        if(rec) sfParkState=sfParkState.filter(c=>String(c.id)!==String(rec.id));
+        if (!sfIsUserEditing) { sfRenderParking(); sfUpdateStats(); }
+        else sfSafeRealtimeRefresh();
+      })
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'shopboard_pickup'}, ({new:rec})=>{
+        if(rec && !sfPickupState.some(c=>String(c.id)===String(rec.id))) sfPickupState.push(rec);
+        if (!sfIsUserEditing) { sfRenderPickup(); sfUpdateStats(); }
+        else sfSafeRealtimeRefresh();
+      })
+      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'shopboard_pickup'}, ({new:rec})=>{
+        if(rec){ const idx=sfPickupState.findIndex(c=>String(c.id)===String(rec.id)); if(idx>=0) sfPickupState[idx]=rec; }
+        if (!sfIsUserEditing) { sfRenderPickup(); sfUpdateStats(); }
+        else sfSafeRealtimeRefresh();
+      })
+      .on('postgres_changes',{event:'DELETE',schema:'public',table:'shopboard_pickup'}, ({old:rec})=>{
+        if(rec) sfPickupState=sfPickupState.filter(c=>String(c.id)!==String(rec.id));
+        if (!sfIsUserEditing) { sfRenderPickup(); sfUpdateStats(); }
+        else sfSafeRealtimeRefresh();
+      })
+      .subscribe();
+
+    sfLoadAll();
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // SETTINGS — Employee Management (Step 2 of 3). Reads/writes the
+  // `employees` table and the `employee-photos` storage bucket via
+  // the shared `db` client above.
+  // ══════════════════════════════════════════════════════════════
+  (function () {
+    const ROLE_LABEL_MAP = { tech: 'Technician', advisor: 'Service Advisor', manager: 'Manager', owner: 'Owner' };
+
+    let EMPLOYEES = [];
+    let EMP_EDITING_ID = null;   // null = form closed, 'new' = add, else = employee id being edited
+    let EMP_PHOTO_FILE = null;   // pending photo file selected in the open form
+    let EMP_DELETE_ID = null;    // employee id pending delete confirmation
+
+    function escHtml(s) {
+      return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function formatPhone(p) {
+      const d = (p || '').replace(/\D/g, '');
+      if (d.length !== 10) return p || '';
+      return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+    }
+
+    async function loadEmployees() {
+      const { data, error } = await db.from('employees').select('*').order('name');
+      if (error) {
+        console.error('[Settings] Load employees failed', error);
+        document.getElementById('employee-list-wrap').innerHTML =
+          '<div class="stub-view"><h2>Could not load employees</h2><p>' + escHtml(error.message) + '</p></div>';
+        return;
+      }
+      EMPLOYEES = data || [];
+      renderEmployeeList();
+    }
+
+    function renderEmployeeList() {
+      const wrap = document.getElementById('employee-list-wrap');
+      if (!EMPLOYEES.length) {
+        wrap.innerHTML = '<div class="stub-view"><h2>No Employees</h2><p>Add your first employee to get started.</p></div>';
+        return;
+      }
+      const rows = EMPLOYEES.map(e => {
+        const initial = escHtml((e.name || '?').trim().charAt(0).toUpperCase() || '?');
+        const avatar = e.photo_url
+          ? `<img class="emp-avatar" src="${escHtml(e.photo_url)}" alt="${escHtml(e.name)}">`
+          : `<div class="emp-avatar-fallback">${initial}</div>`;
+        return `<tr>
+          <td>${avatar}</td>
+          <td class="emp-name-cell">${escHtml(e.name)}</td>
+          <td>${escHtml(formatPhone(e.phone))}</td>
+          <td><span class="role-pill role-${escHtml(e.role)}">${escHtml(ROLE_LABEL_MAP[e.role] || e.role)}</span></td>
+          <td>${e.active ? '<span class="active-pill active-yes">Active</span>' : '<span class="active-pill active-no">Inactive</span>'}</td>
+          <td>
+            <button class="emp-edit-btn" data-edit="${e.id}">Edit</button>
+            <button class="emp-del-btn" data-del="${e.id}">Delete</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+      wrap.innerHTML = `
+        <div class="tech-table-wrap">
+          <table class="tech-table emp-table">
+            <thead><tr><th></th><th>Name</th><th>Phone</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+
+      wrap.querySelectorAll('[data-edit]').forEach(btn => {
+        btn.addEventListener('click', () => openEditEmployee(btn.dataset.edit));
+      });
+      wrap.querySelectorAll('[data-del]').forEach(btn => {
+        btn.addEventListener('click', () => openDeleteConfirm(btn.dataset.del));
+      });
+    }
+
+    function setAvatarPreview(url, name) {
+      const el = document.getElementById('empFormAvatarPreview');
+      if (url) {
+        el.innerHTML = `<img src="${escHtml(url)}" alt="">`;
+      } else {
+        const initial = ((name || '?').trim().charAt(0).toUpperCase()) || '?';
+        el.textContent = initial;
+      }
+    }
+
+    function openAddEmployee() {
+      EMP_EDITING_ID = 'new';
+      EMP_PHOTO_FILE = null;
+      document.getElementById('employeeFormTitle').textContent = 'Add Employee';
+      document.getElementById('empNameInput').value = '';
+      document.getElementById('empPhoneInput').value = '';
+      document.getElementById('empPinInput').value = '';
+      document.getElementById('empRoleInput').value = 'tech';
+      document.getElementById('empActiveInput').checked = true;
+      document.getElementById('empFormError').textContent = '';
+      document.getElementById('empPhotoInput').value = '';
+      setAvatarPreview(null, '');
+      document.getElementById('employeeFormModal').style.display = 'flex';
+    }
+
+    function openEditEmployee(id) {
+      const emp = EMPLOYEES.find(e => String(e.id) === String(id));
+      if (!emp) return;
+      EMP_EDITING_ID = emp.id;
+      EMP_PHOTO_FILE = null;
+      document.getElementById('employeeFormTitle').textContent = 'Edit Employee';
+      document.getElementById('empNameInput').value = emp.name || '';
+      document.getElementById('empPhoneInput').value = emp.phone || '';
+      document.getElementById('empPinInput').value = emp.pin || '';
+      document.getElementById('empRoleInput').value = emp.role || 'tech';
+      document.getElementById('empActiveInput').checked = !!emp.active;
+      document.getElementById('empFormError').textContent = '';
+      document.getElementById('empPhotoInput').value = '';
+      setAvatarPreview(emp.photo_url, emp.name);
+      document.getElementById('employeeFormModal').style.display = 'flex';
+    }
+
+    function closeEmployeeForm() {
+      EMP_EDITING_ID = null;
+      EMP_PHOTO_FILE = null;
+      document.getElementById('employeeFormModal').style.display = 'none';
+    }
+
+    async function saveEmployee() {
+      const name = document.getElementById('empNameInput').value.trim();
+      const phone = document.getElementById('empPhoneInput').value.trim();
+      const pin = document.getElementById('empPinInput').value.trim();
+      const role = document.getElementById('empRoleInput').value;
+      const active = document.getElementById('empActiveInput').checked;
+      const errEl = document.getElementById('empFormError');
+      errEl.textContent = '';
+
+      if (!name || !phone || !pin || !role) {
+        errEl.textContent = 'Name, phone, PIN, and role are all required.';
+        return;
+      }
+
+      const saveBtn = document.getElementById('saveEmployeeBtn');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      try {
+        const isNew = EMP_EDITING_ID === 'new';
+        const employeeId = isNew ? crypto.randomUUID() : EMP_EDITING_ID;
+        let photoUrl = isNew ? null : (EMPLOYEES.find(e => e.id === EMP_EDITING_ID)?.photo_url || null);
+
+        if (EMP_PHOTO_FILE) {
+          const ext = (EMP_PHOTO_FILE.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+          const path = `${employeeId}/${Date.now()}.${ext}`;
+          const { error: uploadErr } = await db.storage.from('employee-photos').upload(path, EMP_PHOTO_FILE, { upsert: true });
+          if (uploadErr) throw uploadErr;
+          const { data: pub } = db.storage.from('employee-photos').getPublicUrl(path);
+          photoUrl = pub.publicUrl;
+        }
+
+        const payload = { name, phone, pin, role, active, photo_url: photoUrl };
+
+        if (isNew) {
+          const { error: insErr } = await db.from('employees').insert({ id: employeeId, ...payload });
+          if (insErr) throw insErr;
+        } else {
+          const { error: updErr } = await db.from('employees').update(payload).eq('id', employeeId);
+          if (updErr) throw updErr;
+        }
+
+        closeEmployeeForm();
+        await loadEmployees();
+      } catch (err) {
+        console.error('[Settings] Save employee failed', err);
+        errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
+    }
+
+    function openDeleteConfirm(id) {
+      const emp = EMPLOYEES.find(e => String(e.id) === String(id));
+      if (!emp) return;
+      EMP_DELETE_ID = emp.id;
+      document.getElementById('empDeleteMsg').innerHTML =
+        `Permanently delete <strong>${escHtml(emp.name)}</strong>? This removes their login and cannot be undone. ` +
+        `If you just want to disable their login, use Edit → Active instead.`;
+      document.getElementById('employeeDeleteModal').style.display = 'flex';
+    }
+
+    function closeDeleteConfirm() {
+      EMP_DELETE_ID = null;
+      document.getElementById('employeeDeleteModal').style.display = 'none';
+    }
+
+    async function doDeleteEmployee() {
+      if (!EMP_DELETE_ID) return;
+      const btn = document.getElementById('confirmDeleteEmployeeBtn');
+      btn.disabled = true;
+      btn.textContent = 'Deleting…';
+      const { error } = await db.from('employees').delete().eq('id', EMP_DELETE_ID);
+      btn.disabled = false;
+      btn.textContent = 'Yes, Delete Permanently';
+      if (error) {
+        console.error('[Settings] Delete employee failed', error);
+        alert('Delete failed: ' + error.message);
+        return;
+      }
+      closeDeleteConfirm();
+      await loadEmployees();
+    }
+
+    // ── Entry point: gear icon opens Settings, hiding whichever tab/view was active
+    document.getElementById('settingsGearBtn').addEventListener('click', () => {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.getElementById('view-settings').classList.add('active');
+      loadEmployees();
+    });
+    document.getElementById('settingsBackBtn').addEventListener('click', () => {
+      document.getElementById('view-settings').classList.remove('active');
+      document.querySelector('.tab[data-view="overview"]').classList.add('active');
+      document.getElementById('view-overview').classList.add('active');
+    });
+
+    // ── Add/Edit form wiring
+    document.getElementById('btnAddEmployee').addEventListener('click', openAddEmployee);
+    document.getElementById('closeEmployeeFormX').addEventListener('click', closeEmployeeForm);
+    document.getElementById('cancelEmployeeForm').addEventListener('click', closeEmployeeForm);
+    document.getElementById('saveEmployeeBtn').addEventListener('click', saveEmployee);
+    document.getElementById('empPhotoInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        alert('Please choose an image file.');
+        e.target.value = '';
+        return;
+      }
+      EMP_PHOTO_FILE = file;
+      const reader = new FileReader();
+      reader.onload = () => setAvatarPreview(reader.result, '');
+      reader.readAsDataURL(file);
+    });
+
+    // ── Delete confirm wiring
+    document.getElementById('confirmDeleteEmployeeBtn').addEventListener('click', doDeleteEmployee);
+    document.getElementById('cancelDeleteEmployeeBtn').addEventListener('click', closeDeleteConfirm);
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // SESSION CAPTURE + GREETING (Step 3 of 3, employee management).
+  // Passive identity only — never blocks the board from loading or
+  // functioning. If nothing is known, no greeting shows, nothing else changes.
+  // ══════════════════════════════════════════════════════════════
+  (async function captureSessionAndGreet() {
+    const SESSION_PHONE_KEY = 'gmBoardPhone';
+    function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+    async function renderGreeting(phone) {
+      if (!phone) return;
+      const { data: emp } = await db.from('employees').select('name, photo_url, role').eq('phone', phone).maybeSingle();
+      if (!emp) return;
+      CHAT_IDENTITY = { name: emp.name, role: emp.role };
+      const avatar = emp.photo_url
+        ? `<img class="greeting-avatar" src="${esc(emp.photo_url)}" alt="">`
+        : `<div class="greeting-avatar-fallback">${esc((emp.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;
+      const wrap = document.getElementById('greetingWrap');
+      wrap.innerHTML = `${avatar}<span>Hi, ${esc(emp.name)}</span>`;
+      wrap.style.display = 'flex';
+    }
+
+    let phone = null;
+
+    // Fresh passthrough from CrisData: ?u=phone&p=pin
+    const params = new URLSearchParams(window.location.search);
+    const passPhone = params.get('u');
+    const passPin = params.get('p');
+    if (passPhone && passPin) {
+      const { data: match } = await db
+        .from('employees').select('phone')
+        .eq('phone', passPhone).eq('pin', passPin).eq('active', true)
+        .maybeSingle();
+      if (match) {
+        phone = match.phone;
+        localStorage.setItem(SESSION_PHONE_KEY, phone);
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+
+    // Restore a persisted session if no fresh passthrough matched
+    if (!phone) {
+      phone = localStorage.getItem(SESSION_PHONE_KEY);
+    }
+
+    if (phone) {
+      await renderGreeting(phone);
+    }
+    // No match anywhere: board already loaded normally above, just no greeting.
   })();
 </script>
 </body>

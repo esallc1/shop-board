@@ -66,11 +66,6 @@
     text-align:center; font-size:12.5px; color:var(--muted); margin-top:18px;
     line-height:1.5;
   }
-  .demo-box{
-    margin-top:26px; padding:14px 16px; background:var(--indigo-dim);
-    border-radius:10px; font-size:11.5px; color:#4548c9; line-height:1.6;
-  }
-  .demo-box b{ display:block; margin-bottom:4px; font-size:11px; text-transform:uppercase; letter-spacing:0.05em; }
   .success-panel{ text-align:center; }
   .success-panel .check{
     width:56px; height:56px; border-radius:50%; background:var(--indigo-dim);
@@ -80,25 +75,22 @@
   .success-panel h2{ font-size:18px; margin-bottom:6px; }
   .success-panel p{ font-size:13px; color:var(--muted); }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
 <div class="card" id="cardRoot"></div>
 
 <script>
-/* ---------------- Directory (dummy — role source of truth to be replaced later) ---------------- */
-const DIRECTORY = [
-  { name:'Alex',      phone:'2395550101', pin:'1111', role:'tech',    dest:'my-numbers.html' },
-  { name:'Cory',      phone:'2395550102', pin:'2222', role:'tech',    dest:'my-numbers.html' },
-  { name:'Capote',    phone:'2395550103', pin:'3333', role:'tech',    dest:'my-numbers.html' },
-  { name:'Alnardier', phone:'2395550104', pin:'4444', role:'tech',    dest:'my-numbers.html' },
-  { name:'Josh',      phone:'2395559001', pin:'5555', role:'advisor', dest:'advisor-board.html' },
-  { name:'Kevin',     phone:'2395559002', pin:'6666', role:'manager', dest:'gm-board.html' },
-];
+const ROLE_LABEL = { tech:'Technician', advisor:'Service Advisor', manager:'Manager', owner:'Owner' };
+const ROLE_DEST  = { tech:'my-numbers.html', advisor:'advisor-board.html', manager:'gm-board.html', owner:'owner-board.html' };
 
-const ROLE_LABEL = { tech:'Technician', advisor:'Service Advisor', manager:'Manager' };
+/* ---------------- Supabase ---------------- */
+const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-let STATE = { phone:'', pin:'', error:'', matched:null };
+let STATE = { phone:'', pin:'', error:'', matched:null, loading:false };
 
 function render(){
   const root = document.getElementById('cardRoot');
@@ -127,14 +119,8 @@ function render(){
       <input type="password" inputmode="numeric" id="pinInput" placeholder="••••" maxlength="4" value="${STATE.pin}">
     </div>
     <div class="error">${STATE.error}</div>
-    <button class="btn" id="loginBtn">Log In</button>
+    <button class="btn" id="loginBtn" ${STATE.loading ? 'disabled' : ''}>${STATE.loading ? 'Verifying…' : 'Log In'}</button>
     <div class="redirect-note">You'll be taken to the view built for your role — Technician, Service Advisor, or Manager.</div>
-    <div class="demo-box">
-      <b>Prototype test logins</b>
-      Tech (Alex): 2395550101 / 1111<br>
-      Advisor (Josh): 2395559001 / 5555<br>
-      Manager (Kevin): 2395559002 / 6666
-    </div>
   `;
 
   const phoneInput = document.getElementById('phoneInput');
@@ -145,18 +131,36 @@ function render(){
   document.getElementById('loginBtn').addEventListener('click', doLogin);
 }
 
-function doLogin(){
-  const match = DIRECTORY.find(p => p.phone === STATE.phone && p.pin === STATE.pin);
+async function doLogin(){
+  if(STATE.loading) return;
+  STATE.loading = true;
+  STATE.error = '';
+  render();
+
+  const { data: match, error } = await db
+    .from('employees')
+    .select('name, phone, pin, role')
+    .eq('phone', STATE.phone)
+    .eq('pin', STATE.pin)
+    .eq('active', true)
+    .maybeSingle();
+
+  STATE.loading = false;
+
+  if(error){
+    STATE.error = 'Could not verify login — check your connection and try again';
+    render();
+    return;
+  }
   if(!match){
     STATE.error = 'Phone number or PIN not recognized';
     render();
     return;
   }
-  STATE.error = '';
   STATE.matched = match;
   render();
   setTimeout(() => {
-    const dest = new URL(match.dest, window.location.href);
+    const dest = new URL(ROLE_DEST[match.role], window.location.href);
     dest.searchParams.set('u', match.phone);
     dest.searchParams.set('p', match.pin);
     window.location.href = dest.toString();
