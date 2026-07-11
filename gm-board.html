@@ -1552,6 +1552,7 @@
     { id: 'open_repair_orders',   domId: 'ro',  label: 'Open Repair Orders',         group: 'Shop Floor',        status: 'live',       icon: '📋', theme: 'kpi-blue'   },
     { id: 'jobs_by_technician',   chart: true,  label: 'Jobs by Technician',         group: 'Shop Floor',        status: 'live'                                          },
     { id: 'ro_aging',             label: `RO Aging (${RO_AGING_THRESHOLD_DAYS_LABEL})`, group: 'Shop Floor',     status: 'live',       icon: '⏳', theme: 'kpi-red'    },
+    { id: 'new_jobs_week',        label: 'New Jobs This Week',         group: 'Shop Floor',     status: 'live', icon: '🆕', theme: 'kpi-purple' },
 
     { id: 'comeback_rate',        label: 'Comeback Rate',              group: 'Completed Jobs', status: 'live', icon: '↩',  theme: 'kpi-red'    },
     { id: 'avg_days_to_complete', label: 'Avg Days to Complete',       group: 'Completed Jobs', status: 'live', icon: '📅', theme: 'kpi-purple' },
@@ -1559,7 +1560,6 @@
     { id: 'jobs_completed_month', label: 'Jobs Completed This Month',  group: 'Completed Jobs', status: 'live', icon: '✅', theme: 'kpi-green'  },
     { id: 'jobs_by_category',     label: 'Jobs by Category',           group: 'Completed Jobs', status: 'live', icon: '🗂',  theme: 'kpi-blue'   },
     { id: 'warranty_job_count',   label: 'Warranty Job Count',         group: 'Completed Jobs', status: 'live', icon: '🛡',  theme: 'kpi-gold'   },
-    { id: 'new_jobs_week',        label: 'New Jobs This Week',         group: 'Completed Jobs', status: 'live', icon: '🆕', theme: 'kpi-purple' },
 
     { id: 'techs_clocked_in',        label: 'Techs Currently Clocked In',     group: 'Labor',   status: 'comingSoon', icon: '🕐' },
     { id: 'tech_efficiency_pct',     label: 'Tech Efficiency %',              group: 'Labor',   status: 'comingSoon', icon: '⚡' },
@@ -1692,9 +1692,9 @@
     }
 
     const [{ data: lifts }, { data: parking }, { data: pickup }, { data: completedJobsData }] = await Promise.all([
-      db.from('shopboard_lifts').select('id,status,assigned_tech,po,vehicle,job_category,warranty,arrival_date').order('id'),
-      db.from('shopboard_parking').select('id,status,assigned_tech,po,vehicle,job_category,warranty,arrival_date').order('created_at'),
-      db.from('shopboard_pickup').select('id,po,vehicle,assigned_tech,job_category,warranty').order('created_at'),
+      db.from('shopboard_lifts').select('id,status,assigned_tech,po,vehicle,job_category,warranty,arrival_date,created_at').order('id'),
+      db.from('shopboard_parking').select('id,status,assigned_tech,po,vehicle,job_category,warranty,arrival_date,created_at').order('created_at'),
+      db.from('shopboard_pickup').select('id,po,vehicle,assigned_tech,job_category,warranty,created_at').order('created_at'),
       db.from('completed_jobs').select('id,warranty,comeback_flagged_at,job_category,created_at,picked_up_at'),
     ]);
 
@@ -1774,11 +1774,14 @@
       ? warrantyCount + ' of ' + completedJobs.length + ' jobs'
       : 'No completed jobs yet');
 
-    // New Jobs This Week — jobs created this week that have since been
-    // archived (completed_jobs.created_at is copied from the original
-    // intake timestamp). Most jobs created this week won't show here
-    // yet since they likely haven't reached Picked Up — expected.
-    const newJobsWeek = completedJobs.filter(j => j.created_at && new Date(j.created_at) >= weekStart).length;
+    // New Jobs This Week — sourced from the live tables (not
+    // completed_jobs), since a job should count the moment it enters
+    // the shop, not once it's done. A job only ever sits in one of
+    // lifts/parking/pickup at a time, so summing across all three
+    // can't double-count the same job.
+    const activePickup = (pickup || []).filter(hasVehicleData);
+    const newJobsWeek = [...allActive, ...activePickup]
+      .filter(r => r.created_at && new Date(r.created_at) >= weekStart).length;
     setText('kpi-new_jobs_week-val', String(newJobsWeek));
     setText('kpi-new_jobs_week-delta', 'since ' + weekStart.toLocaleDateString());
 
@@ -2578,7 +2581,7 @@
         assigned_tech:car.assigned_tech||'', tech_status:car.tech_status||'', tech_notes:car.tech_notes||'',
         tech_started_at:car.tech_started_at||null, tech_finished_at:car.tech_finished_at||null,
         diagnosing_at:car.diagnosing_at||null, waiting_at:car.waiting_at||null, approved_at:car.approved_at||null,
-        comeback_flagged_at:car.comeback_flagged_at||null,
+        comeback_flagged_at:car.comeback_flagged_at||null, created_at:car.created_at||null,
         undo_source:source, undo_index:liftIdx??null, undo_car:car
       }).select().single();
       if(data) sfPickupState.push(data);
@@ -2617,10 +2620,10 @@
         return;
       }
       const newStatus = car.status==='empty'?'in-progress':car.status;
-      sfLiftState[liftIdx] = {...sfLiftState[liftIdx], po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null,job_category:car.job_category||'',warranty:car.warranty||false};
+      sfLiftState[liftIdx] = {...sfLiftState[liftIdx], po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null,job_category:car.job_category||'',warranty:car.warranty||false,created_at:car.created_at||null};
       sfParkState = sfParkState.filter(c=>String(c.id)!==String(carId));
       await Promise.all([
-        db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null,job_category:car.job_category||'',warranty:car.warranty||false}).eq('id',liftIdx+1),
+        db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null,job_category:car.job_category||'',warranty:car.warranty||false,created_at:car.created_at||null}).eq('id',liftIdx+1),
         db.from('shopboard_parking').delete().eq('id',carId)
       ]);
       sfRenderLifts(); sfRenderParking(); sfUpdateStats();
