@@ -87,6 +87,14 @@
     background: var(--accent); color: #fff; font-weight: 800; font-size: 0.72rem;
     display: flex; align-items: center; justify-content: center;
   }
+  .logout-btn {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.7rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px;
+    background: none; border: none; padding: 0;
+    font-family: inherit; cursor: pointer; text-align: left;
+  }
+  .logout-btn:hover { color: var(--text); }
   .live-dot {
     width: 7px; height: 7px; border-radius: 50%;
     background: #22c55e; animation: pulse 2s infinite;
@@ -537,6 +545,7 @@
     <div class="sidebar-status">
       <div class="greeting-wrap" id="greetingWrap"></div>
       <div class="live-badge"><div class="live-dot"></div>Live</div>
+      <button type="button" class="logout-btn" id="logoutBtn">Log Out</button>
     </div>
     <div class="sidebar-scroll">
       <div class="sidebar-group">
@@ -1238,6 +1247,35 @@
       await renderGreeting(phone);
     }
     // No match anywhere: board already loaded normally above, just no greeting.
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // LOGOUT — manual button + 120-minute idle auto-logout.
+  // Clears the local session and returns to the CrisData employee
+  // login screen. Also calls supabase auth signOut defensively in
+  // case a GoTrue session is ever introduced.
+  // ══════════════════════════════════════════════════════════════
+  (function initLogout() {
+    const SESSION_PHONE_KEY = 'advisorBoardPhone';
+    const IDLE_LIMIT_MS = 120 * 60 * 1000;
+    const CHECK_INTERVAL_MS = 30 * 1000;
+    let lastActivity = Date.now();
+
+    async function logOut() {
+      try { await db.auth.signOut(); } catch (e) {}
+      localStorage.removeItem(SESSION_PHONE_KEY);
+      window.location.href = 'crisdata.html';
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', logOut);
+
+    ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => {
+      window.addEventListener(evt, () => { lastActivity = Date.now(); }, { passive: true });
+    });
+
+    setInterval(() => {
+      if (Date.now() - lastActivity >= IDLE_LIMIT_MS) logOut();
+    }, CHECK_INTERVAL_MS);
   })();
 
   // ══════════════════════════════════════════════════════════════
