@@ -1038,6 +1038,66 @@
   }
   .emp-toggle input:checked + .emp-toggle-slider { background: #5b5ef4; }
   .emp-toggle input:checked + .emp-toggle-slider::before { transform: translateX(18px); }
+
+  /* ── TEARDOWN — 4 fixed bench cards ── */
+  .td-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 1100px) { .td-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px)  { .td-grid { grid-template-columns: 1fr; } }
+
+  .td-card {
+    background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    display: flex; flex-direction: column; overflow: hidden; min-height: 220px;
+  }
+  .td-card.td-empty { opacity: 0.85; }
+  .td-card-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+  }
+  .td-card-label { font-size: 0.68rem; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+  .td-card-unit {
+    font-size: 0.7rem; font-weight: 700; color: #5b5ef4; background: rgba(91,94,244,0.08);
+    padding: 3px 9px; border-radius: 20px; display: flex; align-items: center; gap: 5px; max-width: 65%;
+  }
+  .td-unit-thumb { width: 18px; height: 18px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+
+  .td-card-body { flex: 1; padding: 14px; display: flex; flex-direction: column; gap: 5px; }
+  .td-empty-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+  .td-empty-msg { font-size: 0.78rem; color: var(--muted); letter-spacing: 0.3px; }
+
+  .td-line-po       { font-size: 0.8rem; font-weight: 700; color: var(--text); }
+  .td-line-customer { font-size: 0.74rem; color: var(--muted); }
+  .td-line-vehicle  { font-size: 0.74rem; color: var(--text); }
+  .td-line-tech     { font-size: 0.74rem; color: var(--muted); }
+  .td-line-updated  { font-size: 0.66rem; color: var(--muted); margin-top: auto; padding-top: 8px; }
+
+  .td-card-actions { display: flex; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--border); }
+
+  .td-btn {
+    font-size: 0.65rem; font-weight: 700; padding: 6px 12px; border-radius: 6px;
+    cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px;
+    white-space: nowrap; font-family: inherit; display: inline-flex; align-items: center; gap: 4px;
+  }
+  .td-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+  .td-btn-primary { background: #5b5ef4; color: #fff; border: none; }
+  .td-btn-primary:hover { opacity: 0.88; }
+  .td-btn-outline { background: #fff; border: 1px solid var(--border); color: var(--muted); }
+  .td-btn-outline:hover { background: var(--surface-2); color: var(--text); }
+  .td-btn-danger { background: #fff; border: 1px solid #dc2626; color: #dc2626; }
+  .td-btn-danger:hover { background: #dc2626; color: #fff; }
+
+  .td-field { margin-bottom: 14px; }
+  .td-field label {
+    display: block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); font-weight: 700; margin-bottom: 5px;
+  }
+  .td-field input, .td-field select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; font-size: 0.85rem; color: var(--text);
+    outline: none; font-family: inherit;
+  }
+  .td-field input:focus, .td-field select:focus { border-color: #5b5ef4; }
+  .td-form-error { color: #dc2626; font-size: 0.78rem; min-height: 16px; margin-bottom: 4px; }
 </style>
 </head>
 <body>
@@ -1076,7 +1136,7 @@
         <div class="sidebar-item active" data-view="overview" data-label="Overview"><span class="icon">📊</span>Overview</div>
         <div class="sidebar-item" data-view="shopfloor" data-label="Shop Floor"><span class="icon">🔧</span>Shop Floor</div>
         <div class="sidebar-item" data-view="techstatus" data-label="Tech Status"><span class="icon">👨‍🔧</span>Tech Status</div>
-        <div class="sidebar-item" data-view="teardown" data-label="Teardown"><span class="icon">🔩</span>Teardown<span class="sidebar-soon-badge">Soon</span></div>
+        <div class="sidebar-item" data-view="teardown" data-label="Teardown"><span class="icon">🔩</span>Teardown</div>
         <div class="sidebar-item" data-view="comebacks" data-label="Comebacks"><span class="icon">↩️</span>Comebacks</div>
         <div class="sidebar-item" data-view="reports" data-label="Reports"><span class="icon">📈</span>Reports<span class="sidebar-soon-badge">Soon</span></div>
       </div>
@@ -1274,12 +1334,9 @@
     <div class="pool-grid" id="ts-poolGrid"></div>
   </div>
 
-  <!-- ══ TEARDOWN — placeholder ══ -->
+  <!-- ══ TEARDOWN — 4 fixed bench cards; unit placement only (parts tracker deferred) ══ -->
   <div class="view" id="view-teardown">
-    <div class="stub-view">
-      <h2>Teardown</h2>
-      <p>Teardown documentation and photo log — coming soon.</p>
-    </div>
+    <div class="td-grid" id="td-grid"></div>
   </div>
 
   <!-- ══ REPORTS — placeholder ══ -->
@@ -1364,6 +1421,29 @@
     <p id="empDeleteMsg" style="font-size:0.85rem;color:var(--text);margin-bottom:18px;line-height:1.5"></p>
     <button class="modal-btn danger" id="confirmDeleteEmployeeBtn">Yes, Delete Permanently</button>
     <button class="modal-btn sec" id="cancelDeleteEmployeeBtn">Cancel</button>
+  </div>
+</div>
+
+<!-- Teardown Place/Edit Unit Modal -->
+<div class="modal-overlay" id="teardownFormModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="td-closeFormX">&times;</button>
+    <h3 id="td-formTitle">Place Unit — Table 1</h3>
+    <div class="td-field">
+      <label>PO #</label>
+      <input type="text" id="td-roInput" placeholder="PO Number">
+    </div>
+    <div class="td-field">
+      <label>Tech</label>
+      <select id="td-techInput"></select>
+    </div>
+    <div class="td-field">
+      <label>Transmission Unit</label>
+      <select id="td-txInput"></select>
+    </div>
+    <div class="td-form-error" id="td-formError"></div>
+    <button class="modal-btn" id="td-saveBtn">Place</button>
+    <button class="modal-btn sec" id="td-cancelBtn">Cancel</button>
   </div>
 </div>
 
@@ -3003,6 +3083,239 @@
     }
 
     document.querySelector('.sidebar-item[data-view="techstatus"]').addEventListener('click', tsInit);
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // TEARDOWN — ported from teardown.html (v1 tool). This pass covers
+  // 4-bench visual + unit placement only: reads/writes shopboard_tables
+  // (table_number 1-4, rows always exist, never inserted/deleted here —
+  // same assumption v1 made), joins shopboard_lifts read-only for
+  // customer/vehicle (po ↔ ro_number), and reads the transmissions
+  // catalog for the unit dropdown. Tech list is live from `employees`
+  // (role='tech', active=true) instead of v1's hardcoded TECH_LIST array
+  // — same fix pattern as Tech Status. Kiki's parts-ordering tracker
+  // (teardowns / teardown_parts, Failed/Worn/OK badges) is explicitly
+  // out of scope for this pass — never read or written here. Realtime
+  // translated from v1's raw Phoenix WebSocket + 30s poll to a
+  // supabase-js channel on shopboard_tables, wired into VIEW_REFRESH
+  // like every other view. Lazy-loaded on first visit to the Teardown
+  // tab, same pattern as Tech Status/Settings.
+  // ══════════════════════════════════════════════════════════════
+  (function () {
+    let tdSlots = { 1: null, 2: null, 3: null, 4: null }; // { slot, tx, lift }
+    let tdTxCatalog = [];       // [{ id, name, cover_image }]
+    let tdTechs = [];           // live tech names from employees
+    let tdInitialized = false;
+    let tdEditingTable = null;  // table_number currently open in the modal
+
+    function tdEsc(s) {
+      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    async function tdLoadTechs() {
+      const { data, error } = await db.from('employees').select('name').eq('role','tech').eq('active',true).order('name');
+      if (error) { console.error('[Teardown] Load techs failed', error); tdTechs = []; return; }
+      tdTechs = (data || []).map(t => t.name);
+    }
+
+    async function tdLoadTxCatalog() {
+      const { data, error } = await db.from('transmissions').select('id,name,cover_image').order('name');
+      if (error) { console.error('[Teardown] Load transmissions failed', error); tdTxCatalog = []; return; }
+      tdTxCatalog = data || [];
+    }
+
+    function tdBuildLiftMap(lifts) {
+      const m = {};
+      (lifts || []).forEach(l => { if (l.po) m[String(l.po).trim().toLowerCase()] = l; });
+      return m;
+    }
+
+    async function tdLoadAll() {
+      const [{ data: slots, error: slotsErr }, { data: lifts, error: liftsErr }] = await Promise.all([
+        db.from('shopboard_tables').select('table_number,ro_number,tech_name,transmission_id,updated_at').order('table_number'),
+        db.from('shopboard_lifts').select('po,customer,vehicle').order('id'),
+        tdLoadTechs(),
+        tdLoadTxCatalog(),
+      ]);
+      if (slotsErr) { console.error('[Teardown] Load slots failed', slotsErr); return; }
+      if (liftsErr) console.error('[Teardown] Load lifts failed', liftsErr);
+
+      const txIds = [...new Set((slots || []).map(s => s.transmission_id).filter(Boolean))];
+      let txMap = {};
+      if (txIds.length > 0) {
+        const { data: txRows, error: txErr } = await db.from('transmissions').select('id,name,cover_image').in('id', txIds);
+        if (txErr) console.error('[Teardown] Load unit lookup failed', txErr);
+        (txRows || []).forEach(tx => { txMap[tx.id] = tx; });
+      }
+
+      const liftMap = tdBuildLiftMap(lifts);
+      const next = { 1: null, 2: null, 3: null, 4: null };
+      (slots || []).forEach(slot => {
+        const tx   = txMap[slot.transmission_id] || null;
+        const lift = liftMap[String(slot.ro_number || '').trim().toLowerCase()] || null;
+        next[slot.table_number] = { slot, tx, lift };
+      });
+      tdSlots = next;
+      tdRenderGrid();
+    }
+
+    function tdRenderGrid() {
+      const grid = document.getElementById('td-grid');
+      grid.innerHTML = [1,2,3,4].map(n => tdRenderCard(n)).join('');
+      grid.querySelectorAll('[data-place]').forEach(btn => btn.addEventListener('click', () => tdOpenModal(Number(btn.dataset.place), 'place')));
+      grid.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', () => tdOpenModal(Number(btn.dataset.edit), 'edit')));
+      grid.querySelectorAll('[data-clear]').forEach(btn => btn.addEventListener('click', () => tdClearTable(Number(btn.dataset.clear))));
+    }
+
+    function tdRenderCard(n) {
+      const data = tdSlots[n];
+      const isActive = !!(data && (data.slot.ro_number || data.slot.transmission_id));
+
+      if (!isActive) {
+        return `
+          <div class="td-card td-empty" data-key="empty-${n}">
+            <div class="td-card-header">
+              <span class="td-card-label">Table ${n} · Open</span>
+            </div>
+            <div class="td-card-body td-empty-body">
+              <span class="td-empty-msg">No active teardown</span>
+              <button class="td-btn td-btn-primary" data-place="${n}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M12 5l0 14" /><path d="M5 12l14 0" /></svg>
+                Place Unit
+              </button>
+            </div>
+          </div>`;
+      }
+
+      const { slot, tx, lift } = data;
+      const txName   = tx?.name || '';
+      const imgSrc   = tx?.cover_image || '';
+      const roNum    = slot.ro_number || '';
+      const customer = lift?.customer || '';
+      const vehicle  = lift?.vehicle || '';
+      const techName = slot.tech_name || '';
+      const updated  = slot.updated_at ? new Date(slot.updated_at).toLocaleString() : '';
+
+      return `
+        <div class="td-card" data-key="active-${n}-${slot.updated_at}">
+          <div class="td-card-header">
+            <span class="td-card-label">Table ${n}</span>
+            ${txName ? `<span class="td-card-unit">${imgSrc ? `<img class="td-unit-thumb" src="${tdEsc(imgSrc)}" alt="" onerror="this.remove()">` : ''}${tdEsc(txName)}</span>` : ''}
+          </div>
+          <div class="td-card-body">
+            ${roNum    ? `<div class="td-line-po">PO #${tdEsc(roNum)}</div>` : ''}
+            ${customer ? `<div class="td-line-customer">${tdEsc(customer)}</div>` : ''}
+            ${vehicle  ? `<div class="td-line-vehicle">${tdEsc(vehicle)}</div>` : ''}
+            <div class="td-line-tech">Tech: ${tdEsc(techName || 'Unassigned')}</div>
+            <div class="td-line-updated">Last updated: ${tdEsc(updated)}</div>
+          </div>
+          <div class="td-card-actions">
+            <button class="td-btn td-btn-outline" data-edit="${n}">Edit</button>
+            <button class="td-btn td-btn-danger" data-clear="${n}">Clear Table</button>
+          </div>
+        </div>`;
+    }
+
+    function tdPopulateTechSelect(selected) {
+      const sel = document.getElementById('td-techInput');
+      sel.innerHTML = '<option value="">Unassigned</option>' +
+        tdTechs.map(name => `<option value="${tdEsc(name)}"${name === selected ? ' selected' : ''}>${tdEsc(name)}</option>`).join('');
+    }
+
+    function tdPopulateTxSelect(selectedId) {
+      const sel = document.getElementById('td-txInput');
+      sel.innerHTML = '<option value="">— Select unit —</option>' +
+        tdTxCatalog.map(t => `<option value="${tdEsc(t.id)}"${t.id === selectedId ? ' selected' : ''}>${tdEsc(t.name)}</option>`).join('');
+    }
+
+    function tdOpenModal(n, mode) {
+      tdEditingTable = n;
+      const data = tdSlots[n];
+      const isEdit = mode === 'edit' && !!data;
+      document.getElementById('td-formTitle').textContent = (isEdit ? 'Edit — Table ' : 'Place Unit — Table ') + n;
+      document.getElementById('td-roInput').value = isEdit ? (data.slot.ro_number || '') : '';
+      tdPopulateTechSelect(isEdit ? (data.slot.tech_name || '') : '');
+      tdPopulateTxSelect(isEdit ? (data.slot.transmission_id || '') : '');
+      document.getElementById('td-formError').textContent = '';
+      document.getElementById('td-saveBtn').textContent = isEdit ? 'Save' : 'Place';
+      document.getElementById('teardownFormModal').style.display = 'flex';
+    }
+
+    function tdCloseModal() {
+      tdEditingTable = null;
+      document.getElementById('teardownFormModal').style.display = 'none';
+    }
+
+    async function tdSaveSlot() {
+      const n = tdEditingTable;
+      if (!n) return;
+      const ro   = document.getElementById('td-roInput').value.trim();
+      const tech = document.getElementById('td-techInput').value;
+      const txId = document.getElementById('td-txInput').value || null;
+      const errEl = document.getElementById('td-formError');
+      errEl.textContent = '';
+
+      if (!ro) { errEl.textContent = 'PO # is required.'; return; }
+
+      const wasEdit = !!tdSlots[n];
+      const saveBtn = document.getElementById('td-saveBtn');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      try {
+        const { error } = await db.from('shopboard_tables')
+          .update({ ro_number: ro, tech_name: tech, transmission_id: txId, updated_at: new Date().toISOString() })
+          .eq('table_number', n);
+        if (error) throw error;
+        tdCloseModal();
+        await tdLoadAll();
+      } catch (err) {
+        console.error('[Teardown] Save slot failed', err);
+        errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = wasEdit ? 'Save' : 'Place';
+      }
+    }
+
+    async function tdClearTable(n) {
+      if (!confirm(`Clear Table ${n}? This will remove the unit assignment.`)) return;
+      try {
+        const { error } = await db.from('shopboard_tables')
+          .update({ ro_number: '', tech_name: '', transmission_id: null, updated_at: new Date().toISOString() })
+          .eq('table_number', n);
+        if (error) throw error;
+        await tdLoadAll();
+      } catch (err) {
+        console.error('[Teardown] Clear table failed', err);
+        alert('Failed to clear table. Check console.');
+      }
+    }
+
+    let tdChannel = null;
+    function tdSubscribeRealtime() {
+      if (tdChannel) db.removeChannel(tdChannel);
+      tdChannel = db.channel('gm-board-teardown-live')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_tables' }, tdLoadAll)
+        .subscribe();
+    }
+
+    function tdInit() {
+      if (tdInitialized) return;
+      tdInitialized = true;
+      tdLoadAll();
+      tdSubscribeRealtime();
+      VIEW_REFRESH.teardown = {
+        refetch: tdLoadAll,
+        getChannel: () => tdChannel,
+        resubscribe: tdSubscribeRealtime,
+      };
+    }
+
+    document.querySelector('.sidebar-item[data-view="teardown"]').addEventListener('click', tdInit);
+    document.getElementById('td-closeFormX').addEventListener('click', tdCloseModal);
+    document.getElementById('td-cancelBtn').addEventListener('click', tdCloseModal);
+    document.getElementById('td-saveBtn').addEventListener('click', tdSaveSlot);
   })();
 
   // ══════════════════════════════════════════════════════════════
