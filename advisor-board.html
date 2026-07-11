@@ -12,17 +12,18 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg:       #f5f6fa;
-    --surface:  #ffffff;
-    --border:   #e2e5ee;
-    --text:     #1a1f36;
-    --muted:    #8c93a8;
-    --radius:   10px;
-    --accent:   #5b5ef4;
-    --green:    #10b981;
-    --amber:    #f59e0b;
-    --red:      #ef4444;
-    --blue:     #3b82f6;
+    --bg:        #f5f6fa;
+    --surface:   #ffffff;
+    --surface-2: #f0f1f5;
+    --border:    #e2e5ee;
+    --text:      #1a1f36;
+    --muted:     #8c93a8;
+    --radius:    10px;
+    --accent:    #5b5ef4;
+    --green:     #10b981;
+    --amber:     #f59e0b;
+    --red:       #ef4444;
+    --blue:      #3b82f6;
   }
 
   body {
@@ -33,28 +34,52 @@
     min-height: 100vh;
   }
 
-  /* ── HEADER ── */
-  .header {
-    background: #fff;
-    border-bottom: 1px solid var(--border);
-    padding: 14px 28px 0;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-  }
-  .header-top {
+  /* ── APP SHELL / SIDEBAR ── */
+  .app-shell {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 14px;
+    min-height: 100vh;
+    align-items: stretch;
   }
-  .header-title {
-    font-size: 1.05rem;
+  .sidebar {
+    width: 232px;
+    flex-shrink: 0;
+    background: #ffffff;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .sidebar-brand {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-brand-title {
+    font-size: 0.92rem;
     font-weight: 700;
-    letter-spacing: 2px;
+    letter-spacing: 1.4px;
     text-transform: uppercase;
     color: var(--text);
   }
-  .header-sub { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
-  .header-controls { display: flex; align-items: center; gap: 14px; }
+  .sidebar-brand-sub {
+    font-size: 0.66rem;
+    color: var(--muted);
+    margin-top: 3px;
+    letter-spacing: 0.4px;
+  }
+  .sidebar-status {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .live-badge {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.7rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px;
+  }
   .greeting-wrap { display: none; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 600; color: var(--text); }
   .greeting-avatar { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
   .greeting-avatar-fallback {
@@ -62,29 +87,75 @@
     background: var(--accent); color: #fff; font-weight: 800; font-size: 0.72rem;
     display: flex; align-items: center; justify-content: center;
   }
-  .live-badge {
-    display: flex; align-items: center; gap: 6px;
-    font-size: 0.7rem; color: var(--muted);
-    text-transform: uppercase; letter-spacing: 1px;
-  }
   .live-dot {
     width: 7px; height: 7px; border-radius: 50%;
     background: #22c55e; animation: pulse 2s infinite;
   }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
-  /* ── TABS ── */
-  .tabs { display: flex; gap: 2px; }
-  .tab {
-    padding: 9px 22px;
-    font-size: 0.8rem; font-weight: 600;
-    letter-spacing: 0.6px; text-transform: uppercase;
-    color: var(--muted); cursor: pointer;
-    border-bottom: 3px solid transparent;
-    transition: all 0.18s; user-select: none;
+  .sidebar-scroll { flex: 1; overflow-y: auto; padding: 10px 0 20px; }
+  .sidebar-group { margin-bottom: 18px; }
+  .sidebar-group-label {
+    padding: 0 20px 6px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    opacity: 0.75;
   }
-  .tab:hover { color: var(--text); }
-  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 20px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+    opacity: 0.72;
+    cursor: pointer;
+    text-decoration: none;
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .sidebar-item .icon { font-size: 0.95rem; flex-shrink: 0; width: 18px; text-align: center; }
+  .sidebar-item:hover { opacity: 1; background: var(--surface-2); }
+  .sidebar-item.active {
+    opacity: 1;
+    color: var(--accent);
+    background: rgba(91,94,244,0.08);
+    border-left-color: var(--accent);
+  }
+  .sidebar-soon-badge {
+    margin-left: auto;
+    font-size: 0.55rem;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 2px 7px;
+    flex-shrink: 0;
+  }
+
+  /* ── MAIN CONTENT ── */
+  .main-area { flex: 1; min-width: 0; }
+  .view-topbar {
+    background: #ffffff;
+    border-bottom: 1px solid var(--border);
+    padding: 16px 28px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .view-topbar-title {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text);
+  }
 
   /* ── CONTENT ── */
   .content { padding: 24px 28px; }
@@ -319,42 +390,18 @@
   .job-note-input-row input { flex: 1; font-size: 0.8rem; padding: 5px 9px; }
   .job-note-input-row .btn { padding: 5px 12px; font-size: 0.75rem; }
 
-  /* ── TEAM CHAT WIDGET ── */
-  .chat-bubble {
-    position: fixed; bottom: 28px; right: 28px; z-index: 9000;
-    width: 48px; height: 48px; border-radius: 50%;
-    background: var(--accent); color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1.3rem; cursor: pointer;
-    box-shadow: 0 4px 16px rgba(91,94,244,0.35);
-    transition: transform 0.15s, box-shadow 0.15s;
-    user-select: none;
-  }
-  .chat-bubble:hover { transform: scale(1.07); box-shadow: 0 6px 20px rgba(91,94,244,0.45); }
-  .chat-unread {
-    position: absolute; top: -3px; right: -3px;
-    width: 17px; height: 17px; border-radius: 50%;
-    background: var(--red); color: #fff;
-    font-size: 0.6rem; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
-    border: 2px solid #fff;
-  }
+  /* ── TEAM CHAT (embedded view, re-homed from the old floating widget) ── */
   .chat-panel {
-    position: fixed; bottom: 88px; right: 28px; z-index: 8999;
-    width: 320px; max-height: 420px;
+    width: 100%; height: 68vh; max-height: 640px;
     background: #fff; border: 1px solid var(--border);
-    border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.13);
+    border-radius: var(--radius); box-shadow: 0 2px 8px rgba(0,0,0,0.05);
     display: none; flex-direction: column; overflow: hidden;
   }
   .chat-panel.open { display: flex; }
   .chat-header {
     padding: 12px 16px; background: var(--accent); color: #fff;
     font-size: 0.82rem; font-weight: 700; letter-spacing: 0.5px;
-    display: flex; align-items: center; justify-content: space-between;
-    cursor: move; user-select: none;
   }
-  .chat-close { cursor: pointer; opacity: 0.8; font-size: 1rem; }
-  .chat-close:hover { opacity: 1; }
   .chat-channels {
     display: flex; gap: 6px; padding: 8px 12px;
     border-bottom: 1px solid var(--border); background: #fff;
@@ -425,14 +472,6 @@
   }
   .chat-send-btn:hover { opacity: 0.85; }
 
-  /* ── New Vehicle intake ── */
-  .btn-new-vehicle {
-    background: var(--accent); color: #fff; border: none; border-radius: 8px;
-    padding: 9px 16px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
-    transition: opacity 0.15s;
-  }
-  .btn-new-vehicle:hover { opacity: 0.88; }
-
   .modal-overlay {
     position: fixed; inset: 0; background: rgba(20,22,40,0.45);
     z-index: 3000; display: flex; align-items: center; justify-content: center;
@@ -489,27 +528,38 @@
 </head>
 <body>
 
-<div class="header">
-  <div class="header-top">
-    <div>
-      <div class="header-title">Lee Transmission — Service Advisor Board</div>
-      <div class="header-sub">Josh · Service Advisor View · Prototype</div>
+<div class="app-shell">
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-title">Lee Transmission</div>
+      <div class="sidebar-brand-sub">Advisor Board · Prototype</div>
     </div>
-    <div class="header-controls">
-      <button class="btn-new-vehicle" id="btnNewVehicle">+ New Vehicle</button>
+    <div class="sidebar-status">
       <div class="greeting-wrap" id="greetingWrap"></div>
       <div class="live-badge"><div class="live-dot"></div>Live</div>
     </div>
-  </div>
-  <div class="tabs">
-    <div class="tab active" data-view="approval">Approval Queue</div>
-    <div class="tab" data-view="parts">Parts</div>
-    <div class="tab" data-view="payments">Payments</div>
-    <div class="tab" data-view="customer-log">Customer Log</div>
-  </div>
-</div>
+    <div class="sidebar-scroll">
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Main</div>
+        <div class="sidebar-item active" data-view="approval" data-label="Approval Queue"><span class="icon">📋</span>Approval Queue</div>
+        <div class="sidebar-item" id="navNewVehicle"><span class="icon">🚗</span>New Vehicle Intake</div>
+        <div class="sidebar-item" data-view="parts" data-label="Parts"><span class="icon">🔩</span>Parts</div>
+        <div class="sidebar-item" data-view="payments" data-label="Payments"><span class="icon">💳</span>Payments</div>
+        <div class="sidebar-item" data-view="customer-log" data-label="Customer Log"><span class="icon">📇</span>Customer Log</div>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Manage</div>
+        <div class="sidebar-item" data-view="teamchat" data-label="Team Chat"><span class="icon">💬</span>Team Chat</div>
+      </div>
+    </div>
+  </nav>
 
-<div class="content">
+  <main class="main-area">
+    <div class="view-topbar">
+      <div class="view-topbar-title" id="viewTopbarTitle">Approval Queue</div>
+    </div>
+
+    <div class="content">
 
   <!-- ══ TAB 1: APPROVAL QUEUE ══ -->
   <div class="view active" id="view-approval">
@@ -708,6 +758,25 @@
     </div>
   </div>
 
+  <!-- ══ TEAM CHAT — re-homed from the old floating chat widget ══ -->
+  <div class="view" id="view-teamchat">
+    <div class="chat-panel open" id="chat-panel">
+      <div class="chat-header"><span>Team Chat</span></div>
+      <div class="chat-channels" id="chat-channels"></div>
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-row">
+        <div class="emoji-picker-wrap">
+          <button class="emoji-btn" id="emoji-btn" type="button" title="Emoji">😊</button>
+          <div class="emoji-popover" id="emoji-popover" style="display:none"></div>
+        </div>
+        <input type="text" id="chat-input" placeholder="Message…" />
+        <button class="chat-send-btn" id="chat-send">➤</button>
+      </div>
+    </div>
+  </div>
+
+    </div>
+  </main>
 </div>
 
 <!-- New Vehicle Intake Modal — outside .content so it isn't hidden by an inactive .view -->
@@ -764,28 +833,6 @@
     <div class="intake-form-error" id="nvFormError"></div>
     <button class="modal-btn" id="nvSaveBtn">Add Vehicle</button>
     <button class="modal-btn sec" id="nvCancelBtn">Cancel</button>
-  </div>
-</div>
-
-<!-- Team Chat Widget -->
-<div class="chat-bubble" id="chat-bubble">
-  💬
-  <div class="chat-unread" id="chat-unread" style="display:none"></div>
-</div>
-<div class="chat-panel" id="chat-panel">
-  <div class="chat-header">
-    <span>Team Chat</span>
-    <span class="chat-close" id="chat-close">✕</span>
-  </div>
-  <div class="chat-channels" id="chat-channels"></div>
-  <div class="chat-messages" id="chat-messages"></div>
-  <div class="chat-input-row">
-    <div class="emoji-picker-wrap">
-      <button class="emoji-btn" id="emoji-btn" type="button" title="Emoji">😊</button>
-      <div class="emoji-popover" id="emoji-popover" style="display:none"></div>
-    </div>
-    <input type="text" id="chat-input" placeholder="Message…" />
-    <button class="chat-send-btn" id="chat-send">➤</button>
   </div>
 </div>
 
@@ -916,13 +963,14 @@
   // ── Initial load
   loadAndRenderQueue();
 
-  // ── Tab switching
-  document.querySelectorAll('.tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  // ── Sidebar navigation
+  document.querySelectorAll('.sidebar-item[data-view]').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.sidebar-item[data-view]').forEach(i => i.classList.remove('active'));
       document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-      tab.classList.add('active');
-      document.getElementById('view-' + tab.dataset.view).classList.add('active');
+      item.classList.add('active');
+      document.getElementById('view-' + item.dataset.view).classList.add('active');
+      document.getElementById('viewTopbarTitle').textContent = item.dataset.label || item.textContent.trim();
     });
   });
 
@@ -1098,19 +1146,6 @@
     }
   }
 
-  document.getElementById('chat-bubble').addEventListener('click', () => {
-    const panel = document.getElementById('chat-panel');
-    panel.classList.toggle('open');
-    if (panel.classList.contains('open')) {
-      document.getElementById('chat-unread').style.display = 'none';
-    }
-  });
-
-  document.getElementById('chat-close').addEventListener('click', e => {
-    e.stopPropagation();
-    document.getElementById('chat-panel').classList.remove('open');
-  });
-
   document.getElementById('chat-send').addEventListener('click', sendChatMsg);
   document.getElementById('chat-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') sendChatMsg();
@@ -1154,26 +1189,6 @@
   });
 
   renderEmojiPopover();
-
-  // ── Draggable chat panel
-  (function() {
-    const panel = document.getElementById('chat-panel');
-    const handle = panel.querySelector('.chat-header');
-    let dragging = false, ox = 0, oy = 0;
-    handle.addEventListener('mousedown', e => {
-      dragging = true;
-      const r = panel.getBoundingClientRect();
-      ox = e.clientX - r.left; oy = e.clientY - r.top;
-      panel.style.right = 'auto';
-      panel.style.bottom = 'auto';
-    });
-    document.addEventListener('mousemove', e => {
-      if (!dragging) return;
-      panel.style.left = (e.clientX - ox) + 'px';
-      panel.style.top  = (e.clientY - oy) + 'px';
-    });
-    document.addEventListener('mouseup', () => { dragging = false; });
-  })();
 
   // ══════════════════════════════════════════════════════════════
   // SESSION CAPTURE + GREETING (Step 3 of 3, employee management).
@@ -1328,7 +1343,7 @@
       }
     }
 
-    document.getElementById('btnNewVehicle').addEventListener('click', openNewVehicleModal);
+    document.getElementById('navNewVehicle').addEventListener('click', openNewVehicleModal);
     document.getElementById('closeNewVehicleModal').addEventListener('click', closeNewVehicleModal);
     document.getElementById('nvCancelBtn').addEventListener('click', closeNewVehicleModal);
     document.getElementById('nvSaveBtn').addEventListener('click', saveNewVehicle);
