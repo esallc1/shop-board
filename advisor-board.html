@@ -1501,6 +1501,7 @@
         const { error } = await db.from('shopboard_parking').insert({
           po, vehicle, customer, work, status: 'waiting-tech',
           job_category, warranty, arrival_date, notes, assigned_tech,
+          comeback_flagged_at: warranty ? new Date().toISOString() : null,
         });
         if (error) throw error;
 

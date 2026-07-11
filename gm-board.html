@@ -759,6 +759,13 @@
     padding:2px 7px; border-radius:20px;
   }
 
+  #view-shopfloor .picked-up-btn {
+    background:#052e16; border:1px solid #16a34a; color:#4ade80;
+    border-radius:4px; cursor:pointer; font-size:0.62rem; font-weight:700;
+    padding:2px 6px; white-space:nowrap; transition:all 0.2s; line-height:1.4;
+  }
+  #view-shopfloor .picked-up-btn:hover { background:#16a34a; color:#fff; }
+
   #view-shopfloor .empty-msg { text-align:center; padding:12px; color:#4b5563; font-size:0.78rem; }
 
   #view-shopfloor .legend { display:flex; flex-wrap:wrap; gap:16px; justify-content:center; margin-top:20px; margin-bottom:12px; }
@@ -2185,6 +2192,23 @@
       sfDebounceTimers[key] = setTimeout(fn, delay);
     }
 
+    // Comeback flag: when the warranty/comeback toggle is checked on,
+    // stamp comeback_flagged_at once (first time only). Unchecking never
+    // erases the historical stamp. Checkboxes fire both 'input' and
+    // 'change' on a single click, so this must be idempotent across two
+    // calls in the same tick: reusing record.comeback_flagged_at (rather
+    // than gating on its absence) makes both calls agree on the same
+    // stamp instead of the second call silently dropping the field.
+    function sfWarrantyStampPayload(record, field, fieldVal) {
+      const payload = { [field]: fieldVal };
+      if (field === 'warranty' && fieldVal === true) {
+        const stamp = record.comeback_flagged_at || new Date().toISOString();
+        record.comeback_flagged_at = stamp;
+        payload.comeback_flagged_at = stamp;
+      }
+      return payload;
+    }
+
     let sfIsUserEditing = false;
     let sfEditingTimeout = null;
     let sfPendingRealtimeRefresh = null;
@@ -2257,6 +2281,10 @@
         po:car.po, vehicle:car.vehicle, work:car.work,
         customer:car.customer||'', notes:car.notes||'', arrival_date:car.arrival_date||null,
         job_category:car.job_category||'', warranty:car.warranty||false,
+        assigned_tech:car.assigned_tech||'', tech_status:car.tech_status||'', tech_notes:car.tech_notes||'',
+        tech_started_at:car.tech_started_at||null, tech_finished_at:car.tech_finished_at||null,
+        diagnosing_at:car.diagnosing_at||null, waiting_at:car.waiting_at||null, approved_at:car.approved_at||null,
+        comeback_flagged_at:car.comeback_flagged_at||null,
         undo_source:source, undo_index:liftIdx??null, undo_car:car
       }).select().single();
       if(data) sfPickupState.push(data);
@@ -2508,11 +2536,12 @@
       }
       const fieldVal = field === 'warranty' ? e.target.checked : e.target.value;
       sfLiftState[i][field] = fieldVal;
+      const payload = sfWarrantyStampPayload(sfLiftState[i], field, fieldVal);
       if (field === 'status' || field === 'warranty') sfRenderLifts();
       sfUpdateStats();
       sfDebounce(`lift-${i}-${field}`, async () => {
         try {
-          const result = await db.from('shopboard_lifts').update({[field]: fieldVal}).eq('id', i+1);
+          const result = await db.from('shopboard_lifts').update(payload).eq('id', i+1);
           if (result.error) console.error('[ShopFloor] Lift save field:'+field, result.error);
         } catch(err) { console.error('[ShopFloor] Lift save field:'+field, err); }
       });
@@ -2610,11 +2639,12 @@
       const fieldVal = field === 'warranty' ? e.target.checked : e.target.value;
       const car = sfParkState.find(c=>String(c.id)===id);
       if (car) car[field] = fieldVal;
+      const payload = car ? sfWarrantyStampPayload(car, field, fieldVal) : {[field]: fieldVal};
       if (field === 'status' || field === 'warranty') sfRenderParking();
       sfUpdateStats();
       sfDebounce(`park-${id}-${field}`, async () => {
         try {
-          const result = await db.from('shopboard_parking').update({[field]: fieldVal}).eq('id', id);
+          const result = await db.from('shopboard_parking').update(payload).eq('id', id);
           if (result.error) console.error('[ShopFloor] Parking save field:'+field, result.error);
         } catch(err) { console.error('[ShopFloor] Parking save field:'+field, err); }
       });
@@ -2653,7 +2683,7 @@
           <td style="white-space:nowrap;vertical-align:middle">
             <div style="display:flex;gap:3px;align-items:center">
               ${canUndo ? `<button class="undo-row-btn" data-undo="${car.id}" title="Send back">&lt;- Undo</button>` : ''}
-              <button class="del-btn" data-rdel="${car.id}" title="Picked up - remove">x</button>
+              <button class="picked-up-btn" data-picked-up="${car.id}" title="Mark as picked up (archives job)">Picked Up</button>
             </div>
           </td>
         `;
@@ -2666,14 +2696,62 @@
       tbody.querySelectorAll('[data-undo]').forEach(btn => {
         btn.addEventListener('click', e => sfUndoPickup(e.currentTarget.dataset.undo));
       });
-      tbody.querySelectorAll('[data-rdel]').forEach(btn => {
-        btn.addEventListener('click', async e => {
-          const id = e.currentTarget.dataset.rdel;
-          sfPickupState = sfPickupState.filter(c=>String(c.id)!==id);
-          await db.from('shopboard_pickup').delete().eq('id', id);
-          sfRenderPickup(); sfUpdateStats();
-        });
+      tbody.querySelectorAll('[data-picked-up]').forEach(btn => {
+        btn.addEventListener('click', e => sfArchivePickup(e.currentTarget.dataset.pickedUp));
       });
+    }
+
+    // Customer picked up the vehicle: copy the full record into
+    // completed_jobs (the permanent RO/invoice history), then remove it
+    // from shopboard_pickup. Only the pickup lane's terminal "done" state
+    // triggers this — sfUndoPickup (send-back) is untouched and still
+    // works right up until this fires.
+    async function sfArchivePickup(carId) {
+      const car = sfPickupState.find(c=>String(c.id)===String(carId));
+      if (!car) return;
+      if (!confirm(`Mark PO #${car.po || '(no PO)'} as picked up? This archives the job.`)) return;
+
+      // shopboard_pickup has no flag_hours column; fall back to the
+      // undo_car snapshot captured when the job was moved into pickup.
+      const flagHours = car.flag_hours != null
+        ? car.flag_hours
+        : (car.undo_car && car.undo_car.flag_hours != null ? car.undo_car.flag_hours : null);
+
+      const { error } = await db.from('completed_jobs').insert({
+        source_table: 'shopboard_pickup',
+        source_id: String(car.id),
+        po: car.po || null,
+        vehicle: car.vehicle || null,
+        customer: car.customer || null,
+        work: car.work || null,
+        notes: car.notes || null,
+        tech_notes: car.tech_notes || null,
+        job_category: car.job_category || null,
+        assigned_tech: car.assigned_tech || null,
+        tech_status: car.tech_status || null,
+        warranty: car.warranty || false,
+        job_order: car.job_order ?? null,
+        arrival_date: car.arrival_date || null,
+        status: car.status || null,
+        created_at: car.created_at || null,
+        diagnosing_at: car.diagnosing_at || null,
+        waiting_at: car.waiting_at || null,
+        approved_at: car.approved_at || null,
+        tech_started_at: car.tech_started_at || null,
+        tech_finished_at: car.tech_finished_at || null,
+        comeback_flagged_at: car.comeback_flagged_at || null,
+        flag_hours: flagHours,
+      });
+
+      if (error) {
+        console.error('[ShopFloor] Archive to completed_jobs failed', error);
+        alert('Could not archive this job: ' + error.message);
+        return;
+      }
+
+      sfPickupState = sfPickupState.filter(c=>String(c.id)!==String(carId));
+      await db.from('shopboard_pickup').delete().eq('id', carId);
+      sfRenderPickup(); sfUpdateStats();
     }
 
     function sfOnPickupChange(e) {
@@ -2691,10 +2769,11 @@
       const fieldVal = field === 'warranty' ? e.target.checked : e.target.value;
       const car = sfPickupState.find(c=>String(c.id)===id);
       if (car) car[field] = fieldVal;
+      const payload = car ? sfWarrantyStampPayload(car, field, fieldVal) : {[field]: fieldVal};
       if (field === 'warranty') sfRenderPickup();
       sfDebounce(`pickup-${id}-${field}`, async () => {
         try {
-          const result = await db.from('shopboard_pickup').update({[field]: fieldVal}).eq('id', id);
+          const result = await db.from('shopboard_pickup').update(payload).eq('id', id);
           if (result.error) console.error('[ShopFloor] Pickup save field:'+field, result.error);
         } catch(err) { console.error('[ShopFloor] Pickup save field:'+field, err); }
       });
