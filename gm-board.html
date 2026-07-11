@@ -1,0 +1,3888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script
+  src="https://js.sentry-cdn.com/30920ab10a8854c9c52e401554d0998f.min.js"
+  crossorigin="anonymous"
+></script>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lee Transmission — Manager Board</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #f5f6fa;
+    --surface:   #ffffff;
+    --surface-2: #f0f1f5;
+    --border:    #e2e5ee;
+    --gold:      #e6b800;
+    --gold-dim:  #c9a800;
+    --text:      #1a1f36;
+    --muted:     #8c93a8;
+    --radius:    10px;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  /* ── APP SHELL / SIDEBAR ── */
+  .app-shell {
+    display: flex;
+    min-height: 100vh;
+    align-items: stretch;
+  }
+  .sidebar {
+    width: 232px;
+    flex-shrink: 0;
+    background: #ffffff;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .sidebar-brand {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-brand-title {
+    font-size: 0.92rem;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .sidebar-brand-sub {
+    font-size: 0.66rem;
+    color: var(--muted);
+    margin-top: 3px;
+    letter-spacing: 0.4px;
+  }
+  .sidebar-status {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .live-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.7rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .greeting-wrap { display: none; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 600; color: var(--text); }
+  .greeting-avatar { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+  .greeting-avatar-fallback {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: #5b5ef4; color: #fff; font-weight: 800; font-size: 0.72rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logout-btn {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.7rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px;
+    background: transparent;
+    border: 0.5px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-family: inherit; cursor: pointer; text-align: left;
+    transition: background 0.15s;
+  }
+  .logout-btn:hover { background: var(--surface-2); }
+  .logout-btn-icon { width: 14px; height: 14px; flex-shrink: 0; }
+  .sidebar-btn-row { display: flex; gap: 8px; }
+  .refresh-btn { flex-shrink: 0; }
+  @keyframes sidebarIconSpin { to { transform: rotate(360deg); } }
+  .logout-btn-icon.spinning { animation: sidebarIconSpin 0.7s linear infinite; }
+  .live-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: #22c55e;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .sidebar-scroll { flex: 1; overflow-y: auto; padding: 10px 0 20px; }
+  .sidebar-group { margin-bottom: 18px; }
+  .sidebar-group-label {
+    padding: 0 20px 6px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    opacity: 0.75;
+  }
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 20px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+    opacity: 0.72;
+    cursor: pointer;
+    text-decoration: none;
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .sidebar-item .icon { font-size: 0.95rem; flex-shrink: 0; width: 18px; text-align: center; }
+  .sidebar-item:hover { opacity: 1; background: var(--surface-2); }
+  .sidebar-item.active {
+    opacity: 1;
+    color: #5b5ef4;
+    background: rgba(91,94,244,0.08);
+    border-left-color: #5b5ef4;
+  }
+  .sidebar-soon-badge {
+    margin-left: auto;
+    font-size: 0.55rem;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 2px 7px;
+    flex-shrink: 0;
+  }
+
+  /* ── MAIN CONTENT ── */
+  .main-area { flex: 1; min-width: 0; }
+  .view-topbar {
+    background: #ffffff;
+    border-bottom: 1px solid var(--border);
+    padding: 16px 28px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .view-topbar-title {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .content { padding: 14px 28px; }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── KPI CARDS ── */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  @media (max-width: 900px) { .kpi-row { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 600px) { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
+
+  .kpi-card {
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid transparent;
+  }
+  .kpi-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0.08;
+    border-radius: var(--radius);
+  }
+  .kpi-label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    font-weight: 700;
+    margin-bottom: 10px;
+    opacity: 0.85;
+  }
+  .kpi-value {
+    font-size: 1.8rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -1px;
+  }
+  .kpi-delta {
+    font-size: 0.68rem;
+    margin-top: 5px;
+    opacity: 0.7;
+  }
+  .kpi-icon {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 2rem;
+    opacity: 0.12;
+  }
+
+  /* card color themes — solid vibrant fills, white text */
+  .kpi-card { color: #ffffff; border: none; }
+  .kpi-card .kpi-icon { opacity: 0.18; }
+  .kpi-gold   { background: linear-gradient(135deg,#f59e0b,#d97706); }
+  .kpi-blue   { background: linear-gradient(135deg,#3b82f6,#2563eb); }
+  .kpi-green  { background: linear-gradient(135deg,#10b981,#059669); }
+  .kpi-red    { background: linear-gradient(135deg,#ef4444,#dc2626); }
+  .kpi-purple { background: linear-gradient(135deg,#8b5cf6,#7c3aed); }
+
+  /* ── CHART GRID ── */
+  .chart-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  @media (max-width: 800px) { .chart-grid { grid-template-columns: 1fr; } }
+
+  .chart-grid-bottom {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  @media (max-width: 800px) { .chart-grid-bottom { grid-template-columns: 1fr; } }
+
+  .chart-card {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+  .chart-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text);
+    font-weight: 700;
+    margin-bottom: 10px;
+  }
+  .chart-title span {
+    color: #5b5ef4;
+    margin-right: 8px;
+  }
+  .chart-wrap { position: relative; height: 150px; }
+
+  /* ── PLACEHOLDER CARDS ── */
+  .placeholder-card {
+    background: #ffffff;
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 178px;
+    color: var(--muted);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  }
+  .placeholder-icon { font-size: 2rem; opacity: 0.3; }
+  .placeholder-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* ── STUB VIEWS ── */
+  .stub-view {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 60px 40px;
+    text-align: center;
+    color: var(--muted);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+  .stub-view h2 { font-size: 1.1rem; color: var(--text); margin-bottom: 10px; }
+  .stub-view p  { font-size: 0.85rem; }
+
+  /* ── TECH TABLE ── */
+  .tech-table-wrap {
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    overflow: hidden;
+  }
+  .tech-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+  .tech-table th {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); font-weight: 700; padding: 11px 16px;
+    text-align: left; border-bottom: 2px solid var(--border);
+    white-space: nowrap; background: #fafbfd;
+  }
+  .tech-table th .sample-tag {
+    font-size: 0.55rem; font-weight: 600; color: #f59e0b;
+    letter-spacing: 0.5px; margin-left: 3px; vertical-align: middle;
+    font-style: italic; text-transform: none;
+  }
+  .tech-table td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .tech-table tbody tr:last-child td { border-bottom: none; }
+  .tech-table tbody tr:hover td { background: #f8f9fc; }
+  .tech-name-cell {
+    font-weight: 800; font-size: 0.88rem; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--text); padding-top: 3px;
+  }
+  .tech-active-count { font-size: 1.25rem; font-weight: 800; color: #5b5ef4; line-height: 1.1; }
+  .tech-detail-line { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .tech-hours-val { font-size: 1.1rem; font-weight: 700; color: var(--text); }
+  .tech-eff-val { font-size: 1.1rem; font-weight: 800; }
+  .eff-high { color: #10b981; }
+  .eff-mid  { color: #f59e0b; }
+  .eff-low  { color: #ef4444; }
+  .tech-pickup-val { font-size: 1.1rem; font-weight: 800; color: #10b981; }
+
+  /* ── CAT PILLS + STATUS DOTS (shared: table rows + comebacks) ── */
+  .cat-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+  .cat-pill { font-size: 0.67rem; font-weight: 700; padding: 2px 8px; border-radius: 20px; letter-spacing: 0.3px; }
+  .cat-pill.rebuild { background: rgba(91,94,244,0.12); color: #5b5ef4; }
+  .cat-pill.diag    { background: rgba(16,185,129,0.12); color: #059669; }
+  .cat-pill.gen     { background: rgba(245,158,11,0.12); color: #d97706; }
+  .cat-pill.other   { background: rgba(148,163,184,0.15); color: #64748b; }
+  .tech-statuses { display: flex; flex-wrap: wrap; gap: 5px 12px; font-size: 0.68rem; color: var(--muted); }
+  .tech-status-item { display: flex; align-items: center; gap: 4px; }
+  .tech-status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+  /* ── PUNCH DETAIL ROWS ── */
+  .tech-row-clickable { cursor: pointer; }
+  .tech-row-clickable:hover td { background: #f0f2ff !important; }
+  .tech-chevron { font-size: 0.7rem; color: var(--muted); margin-left: 6px; transition: transform 0.15s; display: inline-block; }
+  .punch-detail-row { background: #f8f9fc; }
+  .punch-detail-row.hidden { display: none; }
+  .punch-detail-wrap { padding: 12px 20px 14px; }
+  .punch-mgr-note {
+    font-size: 0.67rem; color: #94a3b8; margin-bottom: 10px;
+    font-style: italic; display: flex; align-items: center; gap: 5px;
+  }
+  .punch-entry {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 0; border-bottom: 1px solid var(--border);
+    font-size: 0.82rem;
+  }
+  .punch-entry:last-child { border-bottom: none; }
+  .punch-dot-sm { width: 8px; height: 8px; border-radius: 50%; background: #5b5ef4; flex-shrink: 0; }
+  .punch-lbl { color: var(--muted); min-width: 130px; }
+  .punch-time { font-weight: 600; color: var(--text); }
+  .punch-edit-btn {
+    margin-left: auto; font-size: 0.65rem; font-weight: 700;
+    padding: 3px 10px; border-radius: 6px;
+    border: 1px solid var(--border); background: #fff;
+    color: #5b5ef4; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .punch-edit-btn:hover { background: rgba(91,94,244,0.08); }
+  .punch-edit-input {
+    font-size: 0.82rem; padding: 3px 8px; border-radius: 6px;
+    border: 1.5px solid #5b5ef4; color: var(--text);
+    font-family: inherit; outline: none; width: 90px;
+  }
+  .punch-save-btn, .punch-cancel-btn {
+    font-size: 0.65rem; font-weight: 700; padding: 3px 10px;
+    border-radius: 6px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .punch-save-btn { background: #5b5ef4; color: #fff; border: none; }
+  .punch-save-btn:hover { opacity: 0.88; }
+  .punch-cancel-btn { background: #fff; border: 1px solid var(--border); color: var(--muted); }
+  .punch-cancel-btn:hover { background: #f5f6fa; }
+
+  /* ── COMEBACKS TABLE ── */
+  .comebacks-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .comebacks-title {
+    font-size: 0.8rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text);
+  }
+  .comebacks-count {
+    font-size: 0.72rem; color: var(--muted); font-weight: 600;
+  }
+  .comeback-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .comeback-table th {
+    font-size: 0.63rem; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--muted); font-weight: 700; padding: 10px 14px;
+    text-align: left; border-bottom: 2px solid var(--border); white-space: nowrap;
+  }
+  .comeback-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .comeback-table tr:last-child td { border-bottom: none; }
+  .comeback-table tbody tr:hover td { background: #f8f9fc; }
+  .comeback-location-badge {
+    font-size: 0.63rem; font-weight: 700; padding: 2px 8px;
+    border-radius: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .badge-lift    { background: rgba(91,94,244,0.1); color: #5b5ef4; }
+  .badge-parking { background: rgba(245,158,11,0.1); color: #d97706; }
+  .badge-pickup  { background: rgba(16,185,129,0.1); color: #059669; }
+  .comeback-warranty-badge {
+    display: inline-block; font-size: 0.6rem; font-weight: 700;
+    padding: 2px 6px; border-radius: 10px;
+    background: rgba(239,68,68,0.1); color: #dc2626;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+
+  /* ── TEAM CHAT (embedded view, re-homed from the old floating widget) ── */
+  .chat-panel {
+    width: 100%; height: 68vh; max-height: 640px;
+    background: #fff; border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    display: none; flex-direction: column; overflow: hidden;
+  }
+  .chat-panel.open { display: flex; }
+  .chat-header {
+    padding: 12px 16px; background: #5b5ef4; color: #fff;
+    font-size: 0.82rem; font-weight: 700; letter-spacing: 0.5px;
+  }
+  .chat-channels {
+    display: flex; gap: 6px; padding: 8px 12px;
+    border-bottom: 1px solid var(--border); background: #fff;
+  }
+  .chat-channel-btn {
+    flex: 1; font-size: 0.66rem; font-weight: 700; padding: 6px 4px;
+    border-radius: 6px; border: 1px solid var(--border); background: var(--bg);
+    color: var(--muted); cursor: pointer; text-align: center; transition: all 0.15s;
+  }
+  .chat-channel-btn.active { background: #5b5ef4; border-color: #5b5ef4; color: #fff; }
+  .chat-channel-btn:hover:not(.active) { background: var(--surface-2); }
+  .chat-messages {
+    flex: 1; overflow-y: auto; padding: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+    background: #f8f9fc;
+  }
+  .chat-msg { max-width: 82%; display: flex; flex-direction: column; }
+  .chat-msg.me { align-self: flex-end; align-items: flex-end; }
+  .chat-msg.them { align-self: flex-start; align-items: flex-start; }
+  .chat-msg-sender { font-size: 0.65rem; font-weight: 700; color: #8c93a8; margin-bottom: 2px; padding: 0 4px; }
+  .chat-msg-bubble { padding: 8px 12px; border-radius: 14px; font-size: 0.83rem; line-height: 1.45; }
+  .chat-msg.me .chat-msg-bubble { background: #5b5ef4; color: #fff; border-bottom-right-radius: 4px; }
+  .chat-msg.them .chat-msg-bubble { background: #fff; color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+  .chat-msg-time { font-size: 0.62rem; color: #8c93a8; margin-top: 3px; padding: 0 4px; }
+  .chat-input-row {
+    display: flex; gap: 8px; padding: 10px 12px;
+    border-top: 1px solid var(--border); background: #fff;
+  }
+  .chat-input-row input {
+    flex: 1; font-size: 0.82rem; padding: 7px 10px;
+    border-radius: 20px; background: #f0f1f7;
+    border: 1px solid var(--border); outline: none;
+    font-family: inherit;
+  }
+  .chat-input-row input:focus { border-color: #5b5ef4; }
+  .emoji-picker-wrap { position: relative; flex-shrink: 0; }
+  .emoji-btn {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #f0f1f7; border: 1px solid var(--border);
+    cursor: pointer; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .emoji-btn:hover { background: var(--surface-2); }
+  .emoji-popover {
+    position: absolute; bottom: 42px; left: 0;
+    width: 216px; max-height: 176px; overflow-y: auto;
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    padding: 8px; z-index: 10;
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px;
+  }
+  .emoji-popover button {
+    background: none; border: none; font-size: 1.15rem; cursor: pointer;
+    padding: 4px; border-radius: 6px; line-height: 1.3;
+  }
+  .emoji-popover button:hover { background: var(--surface-2); }
+  .chat-send-btn {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #5b5ef4; color: #fff;
+    border: none; cursor: pointer; font-size: 0.9rem;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: opacity 0.15s;
+  }
+  .chat-send-btn:hover { opacity: 0.85; }
+
+  /* ══════════════════════════════════════════════════════════════
+     SHOP FLOOR TAB — ported as-is from shop-board.html (v1 tool).
+     First pass: exact layout/behavior, dark theme kept as-is and
+     scoped to #view-shopfloor only (does not leak into other tabs).
+     Restyling to match GM Board's light theme is a deliberate
+     follow-up, not part of this pass.
+     ══════════════════════════════════════════════════════════════ */
+  #view-shopfloor {
+    background: #0b1120;
+    color: #e0e0e0;
+    font-size: 14.5px;
+    padding: 20px;
+    border-radius: var(--radius);
+    margin: 0 -28px;
+  }
+
+  #view-shopfloor .stats-bar { display:flex; gap:12px; margin-bottom:24px; flex-wrap:wrap; }
+  #view-shopfloor .stat-pill {
+    background:#1f2937; border:1px solid #374151; border-radius:10px;
+    padding:12px 16px; display:flex; flex-direction:column;
+    align-items:center; min-width:100px; flex:1;
+  }
+  #view-shopfloor .stat-pill .num { font-size:1.7rem; font-weight:800; line-height:1; }
+  #view-shopfloor .stat-pill .lbl { font-size:0.66rem; text-transform:uppercase; letter-spacing:0.8px; color:#6b7280; margin-top:5px; text-align:center; }
+  #view-shopfloor .stat-pill.total   .num { color:#f5c518; }
+  #view-shopfloor .stat-pill.on-lift .num { color:#a78bfa; }
+  #view-shopfloor .stat-pill.in-lot  .num { color:#9ca3af; }
+  #view-shopfloor .stat-pill.working .num { color:#22c55e; }
+  #view-shopfloor .stat-pill.w-part  .num { color:#f59e0b; }
+  #view-shopfloor .stat-pill.w-tech  .num { color:#3b82f6; }
+  #view-shopfloor .stat-pill.delayed .num { color:#ef4444; }
+  #view-shopfloor .stat-pill.pickup  .num { color:#06b6d4; }
+
+  #view-shopfloor .section-title {
+    font-size:0.75rem; font-weight:700; text-transform:uppercase;
+    letter-spacing:1.5px; color:#6b7280; margin-bottom:14px; margin-top:8px;
+    display:flex; align-items:center; gap:8px;
+  }
+  #view-shopfloor .section-title::after { content:''; flex:1; height:1px; background:#374151; }
+
+  #view-shopfloor .board { display:grid; grid-template-columns:repeat(auto-fit, minmax(168px,1fr)); gap:12px; margin-bottom:26px; }
+
+  #view-shopfloor .lift-card {
+    background:#1e293b; border:2px solid #374151; border-radius:8px;
+    overflow:hidden; display:flex; flex-direction:column; transition:border-color 0.3s;
+  }
+  #view-shopfloor .lift-card.s-in-progress     { border-color:#16a34a; background:linear-gradient(180deg, rgba(22,163,74,0.10), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-waiting-part    { border-color:#d97706; background:linear-gradient(180deg, rgba(217,119,6,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-waiting-tech    { border-color:#2563eb; background:linear-gradient(180deg, rgba(37,99,235,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-delayed         { border-color:#dc2626; background:linear-gradient(180deg, rgba(220,38,38,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-done            { border-color:#0891b2; background:linear-gradient(180deg, rgba(8,145,178,0.12), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-qc              { border-color:#7c3aed; background:linear-gradient(180deg, rgba(124,58,237,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-waiting-pull    { border-color:#65a30d; background:linear-gradient(180deg, rgba(101,163,13,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-waiting-install { border-color:#ea580c; background:linear-gradient(180deg, rgba(234,88,12,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-waiting-quote   { border-color:#ca8a04; background:linear-gradient(180deg, rgba(202,138,4,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-waiting-auth    { border-color:#db2777; background:linear-gradient(180deg, rgba(219,39,119,0.13), rgba(30,41,59,0.96) 38%), #1e293b; }
+  #view-shopfloor .lift-card.s-empty, #view-shopfloor .lift-card-empty { background:#111827; border-color:#374151; opacity:0.72; }
+
+  #view-shopfloor .lift-card.s-in-progress     .lift-img-wrap { background:radial-gradient(circle at center, rgba(22,163,74,0.20),   rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-waiting-part    .lift-img-wrap { background:radial-gradient(circle at center, rgba(217,119,6,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-waiting-tech    .lift-img-wrap { background:radial-gradient(circle at center, rgba(37,99,235,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-delayed         .lift-img-wrap { background:radial-gradient(circle at center, rgba(220,38,38,0.24),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-done            .lift-img-wrap { background:radial-gradient(circle at center, rgba(8,145,178,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-qc              .lift-img-wrap { background:radial-gradient(circle at center, rgba(124,58,237,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-waiting-pull    .lift-img-wrap { background:radial-gradient(circle at center, rgba(101,163,13,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-waiting-install .lift-img-wrap { background:radial-gradient(circle at center, rgba(234,88,12,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-waiting-quote   .lift-img-wrap { background:radial-gradient(circle at center, rgba(202,138,4,0.22),  rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+  #view-shopfloor .lift-card.s-waiting-auth    .lift-img-wrap { background:radial-gradient(circle at center, rgba(219,39,119,0.22), rgba(17,24,39,0.12) 58%, rgba(17,24,39,0) 100%); }
+
+  #view-shopfloor .lift-top { padding:8px 10px 0; display:flex; align-items:center; justify-content:space-between; }
+  #view-shopfloor .lift-label { font-size:0.74rem; font-weight:700; color:#f5c518; }
+  #view-shopfloor .lift-img-wrap {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    padding: 2px 0;
+  }
+  #view-shopfloor .lift-img {
+    width: 100%;
+    height: auto;
+    display: block;
+    transition: filter 0.35s ease;
+  }
+  #view-shopfloor .lift-empty-label {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: #374151;
+    text-transform: uppercase;
+  }
+  #view-shopfloor .lift-info { padding:8px 10px 10px; display:flex; flex-direction:column; gap:6px; }
+
+  #view-shopfloor .field label {
+    display:block; font-size:0.6rem; text-transform:uppercase;
+    letter-spacing:0.6px; color:#6b7280; margin-bottom:2px;
+  }
+  #view-shopfloor .field input, #view-shopfloor .field select, #view-shopfloor .field textarea {
+    width:100%; background:#0f172a; border:1px solid #374151;
+    border-radius:5px; color:#e0e0e0; padding:5px 7px;
+    font-size:0.76rem; outline:none; transition:border-color 0.2s; font-family:inherit;
+  }
+  #view-shopfloor .field input:focus, #view-shopfloor .field select:focus, #view-shopfloor .field textarea:focus { border-color:#f5c518; }
+  #view-shopfloor .field select option { background:#111827; }
+  #view-shopfloor .field textarea { resize:none; height:38px; line-height:1.35; }
+
+  #view-shopfloor .status-badge {
+    font-size:0.54rem; font-weight:800; text-transform:uppercase;
+    padding:2px 6px; border-radius:20px; white-space:nowrap;
+  }
+  #view-shopfloor .badge-empty        { background:#1f2937; color:#4b5563; border:1px solid #374151; }
+
+  #view-shopfloor .lift-card-empty { min-height:260px; opacity:0.75; }
+  #view-shopfloor .empty-bay {
+    flex:1; min-height:230px; margin:8px;
+    border:1px dashed #374151; border-radius:8px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; background:rgba(17,24,39,0.45);
+  }
+  #view-shopfloor .empty-bay-title { color:#9ca3af; font-size:1rem; font-weight:800; text-transform:uppercase; letter-spacing:1.5px; }
+  #view-shopfloor .empty-bay-subtitle { color:#4b5563; font-size:0.68rem; margin-top:6px; }
+  #view-shopfloor .badge-in-progress     { background:#052e16; color:#86efac; }
+  #view-shopfloor .badge-waiting-part    { background:#2c1a00; color:#fcd34d; }
+  #view-shopfloor .badge-waiting-tech    { background:#0f1f3d; color:#93c5fd; }
+  #view-shopfloor .badge-delayed         { background:#3b0a0a; color:#fca5a5; }
+  #view-shopfloor .badge-done            { background:#052630; color:#67e8f9; }
+  #view-shopfloor .badge-qc              { background:#2e1065; color:#c4b5fd; }
+  #view-shopfloor .badge-waiting-pull    { background:#1a2e05; color:#bef264; }
+  #view-shopfloor .badge-waiting-install { background:#431407; color:#fdba74; }
+  #view-shopfloor .badge-waiting-quote   { background:#422006; color:#fde68a; }
+  #view-shopfloor .badge-waiting-auth    { background:#500724; color:#fbcfe8; }
+
+  #view-shopfloor .lift-btn-row { display:flex; gap:4px; margin-top:6px; }
+  #view-shopfloor .clear-btn, #view-shopfloor .pickup-move-btn, #view-shopfloor .lot-back-btn {
+    border-radius:5px; cursor:pointer; font-size:0.62rem;
+    flex:1; padding:5px 3px; transition:all 0.2s; font-weight:600;
+  }
+  #view-shopfloor .clear-btn { background:transparent; border:1px solid #374151; color:#4b5563; }
+  #view-shopfloor .clear-btn:hover { border-color:#ef4444; color:#ef4444; }
+  #view-shopfloor .pickup-move-btn { background:#083344; border:1px solid #0e7490; color:#22d3ee; }
+  #view-shopfloor .pickup-move-btn:hover { background:#0e7490; color:#fff; }
+  #view-shopfloor .pickup-move-btn:disabled { opacity:0.25; cursor:default; }
+  #view-shopfloor .lot-back-btn { background:#2d1a03; border:1px solid #92400e; color:#fbbf24; }
+  #view-shopfloor .lot-back-btn:hover { background:#92400e; color:#fff; }
+  #view-shopfloor .lot-back-btn:disabled { opacity:0.25; cursor:default; }
+
+  #view-shopfloor .table-section { margin-bottom:24px; }
+  #view-shopfloor .table-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  #view-shopfloor .table-header .section-title { margin-bottom:0; flex:1; }
+
+  #view-shopfloor .add-btn {
+    border:none; border-radius:5px; padding:3px 10px;
+    font-size:0.68rem; font-weight:700; cursor:pointer;
+    white-space:nowrap; transition:background 0.2s;
+  }
+  #view-shopfloor .add-btn.yellow { background:#f5c518; color:#111827; }
+  #view-shopfloor .add-btn.yellow:hover { background:#fde047; }
+  #view-shopfloor .add-btn.teal { background:#0e7490; color:#e0f7fa; }
+  #view-shopfloor .add-btn.teal:hover { background:#06b6d4; color:#111827; }
+
+  #view-shopfloor .table-wrap {
+    background:#1f2937; border:1px solid #374151; border-radius:8px;
+    overflow:hidden; max-height:280px; overflow-y:auto;
+  }
+
+  #view-shopfloor .tbl { width:100%; border-collapse:collapse; }
+  #view-shopfloor .tbl thead { position:sticky; top:0; z-index:2; }
+  #view-shopfloor .tbl thead tr { background:#111827; }
+  #view-shopfloor .tbl thead th {
+    padding:10px 12px; font-size:0.68rem; text-transform:uppercase;
+    letter-spacing:0.8px; color:#9ca3af; text-align:left;
+    font-weight:600; border-bottom:1px solid #374151;
+  }
+  #view-shopfloor .tbl tbody tr { border-bottom:1px solid #263041; transition:background 0.15s; }
+  #view-shopfloor .tbl tbody tr:last-child { border-bottom:none; }
+  #view-shopfloor .tbl tbody tr:hover { background:#263041; }
+
+  #view-shopfloor .tbl tbody tr.s-in-progress  td:first-child { border-left:3px solid #16a34a; }
+  #view-shopfloor .tbl tbody tr.s-waiting-part td:first-child { border-left:3px solid #d97706; }
+  #view-shopfloor .tbl tbody tr.s-waiting-tech td:first-child { border-left:3px solid #2563eb; }
+  #view-shopfloor .tbl tbody tr.s-delayed      td:first-child { border-left:3px solid #dc2626; }
+  #view-shopfloor .tbl tbody tr.s-done         td:first-child { border-left:3px solid #0891b2; }
+  #view-shopfloor .tbl tbody tr.s-empty        td:first-child { border-left:3px solid #374151; }
+
+  #view-shopfloor .tbl tbody td { padding:8px 12px; vertical-align:middle; }
+  #view-shopfloor .tbl tbody td input, #view-shopfloor .tbl tbody td select, #view-shopfloor .tbl tbody td textarea {
+    width:100%; background:transparent; border:1px solid transparent;
+    border-radius:5px; color:#e0e0e0; padding:6px 8px;
+    font-size:0.85rem; outline:none; transition:border-color 0.2s, background 0.2s; font-family:inherit;
+  }
+  #view-shopfloor .tbl tbody td input:hover, #view-shopfloor .tbl tbody td select:hover,
+  #view-shopfloor .tbl tbody td textarea:hover { border-color:#374151; background:#111827; }
+  #view-shopfloor .tbl tbody td input:focus, #view-shopfloor .tbl tbody td select:focus,
+  #view-shopfloor .tbl tbody td textarea:focus { border-color:#f5c518; background:#111827; }
+  #view-shopfloor .tbl tbody td select option { background:#111827; }
+  #view-shopfloor .tbl tbody td textarea { resize:none; height:30px; line-height:1.3; }
+
+  #view-shopfloor .row-num { font-size:0.62rem; color:#4b5563; font-weight:700; text-align:center; min-width:20px; }
+
+  #view-shopfloor .del-btn {
+    background:transparent; border:none; color:#4b5563;
+    cursor:pointer; font-size:0.82rem; padding:1px 4px;
+    border-radius:3px; transition:color 0.2s; line-height:1;
+  }
+  #view-shopfloor .del-btn:hover { color:#ef4444; }
+
+  #view-shopfloor .move-btn {
+    background:#083344; border:1px solid #0e7490; color:#22d3ee;
+    border-radius:4px; cursor:pointer; font-size:0.62rem; font-weight:700;
+    padding:2px 5px; white-space:nowrap; transition:all 0.2s; line-height:1.4;
+  }
+  #view-shopfloor .move-btn:hover { background:#0e7490; color:#fff; }
+
+  #view-shopfloor .lift-sel {
+    background:#111827; border:1px solid #374151; border-radius:4px;
+    color:#e0e0e0; padding:2px 4px; font-size:0.7rem; outline:none;
+    cursor:pointer; max-width:80px;
+  }
+  #view-shopfloor .lift-sel option { background:#111827; }
+  #view-shopfloor .place-btn {
+    background:#2d1a6e; border:1px solid #7c3aed; color:#c4b5fd;
+    border-radius:4px; cursor:pointer; font-size:0.62rem; font-weight:700;
+    padding:2px 5px; white-space:nowrap; transition:all 0.2s; line-height:1.4;
+  }
+  #view-shopfloor .place-btn:hover { background:#7c3aed; color:#fff; }
+  #view-shopfloor .place-btn:disabled { opacity:0.3; cursor:default; }
+
+  #view-shopfloor .undo-row-btn {
+    background:#451a03; border:1px solid #92400e; color:#fbbf24;
+    border-radius:4px; cursor:pointer; font-size:0.62rem; font-weight:700;
+    padding:2px 5px; white-space:nowrap; transition:all 0.2s; line-height:1.4;
+  }
+  #view-shopfloor .undo-row-btn:hover { background:#92400e; color:#fff; }
+
+  #view-shopfloor .pickup-badge {
+    display:inline-block; background:#083344; color:#22d3ee;
+    font-size:0.6rem; font-weight:700; text-transform:uppercase;
+    padding:2px 7px; border-radius:20px;
+  }
+
+  #view-shopfloor .empty-msg { text-align:center; padding:12px; color:#4b5563; font-size:0.78rem; }
+
+  #view-shopfloor .legend { display:flex; flex-wrap:wrap; gap:16px; justify-content:center; margin-top:20px; margin-bottom:12px; }
+  #view-shopfloor .legend-item { display:flex; align-items:center; gap:6px; font-size:0.75rem; color:#9ca3af; }
+  #view-shopfloor .legend-dot { width:7px; height:7px; border-radius:50%; }
+  #view-shopfloor .dot-empty        { background:#4b5563; }
+  #view-shopfloor .dot-in-progress  { background:#16a34a; }
+  #view-shopfloor .dot-waiting-part { background:#d97706; }
+  #view-shopfloor .dot-waiting-tech { background:#2563eb; }
+  #view-shopfloor .dot-delayed      { background:#dc2626; }
+  #view-shopfloor .dot-done         { background:#0891b2; }
+
+  #view-shopfloor .warranty-toggle { position:relative; display:inline-block; width:32px; height:16px; flex-shrink:0; }
+  #view-shopfloor .warranty-toggle input { opacity:0; width:0; height:0; position:absolute; }
+  #view-shopfloor .warranty-slider { position:absolute; inset:0; background:#374151; border-radius:8px; transition:background 0.2s; cursor:pointer; }
+  #view-shopfloor .warranty-slider::before { content:''; position:absolute; width:12px; height:12px; left:2px; top:2px; background:#9ca3af; border-radius:50%; transition:transform 0.2s; }
+  #view-shopfloor .warranty-toggle input:checked + .warranty-slider { background:#7f1d1d; border:1px solid #ef4444; }
+  #view-shopfloor .warranty-toggle input:checked + .warranty-slider::before { transform:translateX(16px); background:#ef4444; }
+  #view-shopfloor .comeback-tag { display:inline-block; background:#7f1d1d; color:#fca5a5; font-size:0.55rem; font-weight:800; padding:1px 5px; border-radius:3px; text-transform:uppercase; letter-spacing:0.5px; }
+
+  #view-shopfloor .lift-card.warranty-active .lift-info input,
+  #view-shopfloor .lift-card.warranty-active .lift-info select,
+  #view-shopfloor .lift-card.warranty-active .lift-info textarea,
+  #view-shopfloor .lift-card.warranty-active .lift-info label { color:#ef4444 !important; }
+  #view-shopfloor .tbl tbody tr.warranty-active td input,
+  #view-shopfloor .tbl tbody tr.warranty-active td select,
+  #view-shopfloor .tbl tbody tr.warranty-active td textarea,
+  #view-shopfloor .tbl tbody tr.warranty-active .row-num { color:#ef4444 !important; }
+
+  /* Shop Floor CSV import modal (shares .modal-* look from shop-board.html) */
+  #sf-csvImportModal.modal-overlay {
+    position:fixed; inset:0; background:rgba(0,0,0,0.75);
+    z-index:2000; display:flex; align-items:center; justify-content:center;
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+  #sf-csvImportModal .modal-box {
+    background:#1f2937; border:1px solid #374151; border-radius:12px;
+    padding:24px; min-width:340px; max-width:620px; width:92%;
+    max-height:82vh; overflow-y:auto; color:#e0e0e0;
+  }
+  #sf-csvImportModal h3 { color:#f5c518; font-size:0.9rem; margin-bottom:14px; text-transform:uppercase; letter-spacing:1px; }
+  #sf-csvImportModal .modal-close { float:right; background:none; border:none; color:#6b7280; font-size:1.2rem; cursor:pointer; margin-top:-4px; }
+  #sf-csvImportModal .modal-close:hover { color:#ef4444; }
+  #sf-csvImportModal .modal-field { margin-bottom:12px; }
+  #sf-csvImportModal .modal-field label { display:block; font-size:0.62rem; color:#6b7280; text-transform:uppercase; margin-bottom:4px; letter-spacing:0.5px; }
+  #sf-csvImportModal .modal-field textarea {
+    width:100%; background:#111827; border:1px solid #374151;
+    border-radius:6px; color:#e0e0e0; padding:8px 10px; font-size:0.78rem; outline:none; font-family:inherit;
+  }
+  #sf-csvImportModal .modal-field textarea:focus { border-color:#f5c518; }
+  #sf-csvImportModal .modal-note { font-size:0.68rem; color:#6b7280; margin-bottom:10px; line-height:1.5; }
+  #sf-csvImportModal .modal-note code { background:#111827; padding:1px 5px; border-radius:3px; font-size:0.65rem; color:#a78bfa; }
+  #sf-csvImportModal .modal-btn {
+    background:#f5c518; color:#111827; border:none; border-radius:6px;
+    padding:8px 16px; font-size:0.78rem; font-weight:700; cursor:pointer; margin-right:6px;
+  }
+  #sf-csvImportModal .modal-btn:hover { background:#fde047; }
+  #sf-csvImportModal .modal-btn.sec { background:#374151; color:#e0e0e0; }
+  #sf-csvImportModal .modal-btn.sec:hover { background:#4b5563; }
+
+  /* ══════════════════════════════════════════════════════════════
+     TECH STATUS — ported from tech-board.html (v1 tool). Same dark
+     theme treatment as Shop Floor, scoped to #view-techstatus.
+     ══════════════════════════════════════════════════════════════ */
+  #view-techstatus {
+    background: #0b1120;
+    color: #e0e0e0;
+    font-size: 14.5px;
+    padding: 20px;
+    border-radius: var(--radius);
+    margin: 0 -28px;
+  }
+  #view-techstatus .ts-title {
+    font-size:0.58rem; font-weight:700; text-transform:uppercase;
+    letter-spacing:2px; color:#4b5563; text-align:center; margin-bottom:12px;
+  }
+  #view-techstatus .whiteboard-grid {
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:12px;
+  }
+  #view-techstatus .wb-card {
+    background:#111827; border:2px solid #1e293b; border-radius:12px;
+    overflow:hidden; display:flex; flex-direction:column;
+  }
+  #view-techstatus .wb-card-header { padding:11px 14px 10px; display:flex; align-items:center; justify-content:space-between; }
+  #view-techstatus .wb-tech-name { font-size:1.1rem; font-weight:900; text-transform:uppercase; letter-spacing:1.5px; }
+  #view-techstatus .wb-status-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  #view-techstatus .wb-divider { height:1px; background:#1e293b; }
+  #view-techstatus .wb-block { padding:9px 14px; }
+  #view-techstatus .wb-block-label {
+    font-size:0.5rem; font-weight:700; text-transform:uppercase;
+    letter-spacing:1.5px; color:#4b5563; margin-bottom:5px;
+  }
+  #view-techstatus .wb-ro { font-size:0.85rem; font-weight:800; color:#f5c518; }
+  #view-techstatus .wb-veh { font-size:0.7rem; color:#9ca3af; margin-top:2px; }
+  #view-techstatus .wb-badge {
+    display:inline-block; margin-top:5px;
+    font-size:0.58rem; font-weight:700; padding:2px 7px; border-radius:4px;
+  }
+  #view-techstatus .wb-next-field {
+    width:100%; background:#0a0e1a; border:1px solid #1e293b;
+    border-radius:6px; padding:7px 9px;
+    font-size:0.72rem; color:#e0e0e0; font-family:inherit;
+    resize:none; height:64px; outline:none; box-sizing:border-box;
+    transition:border-color 0.2s;
+  }
+  #view-techstatus .wb-next-field:focus { border-color:#374151; }
+  #view-techstatus .wb-next-field::placeholder { color:#2d3748; font-style:italic; }
+  #view-techstatus .wb-vehicle-row {
+    display:flex; align-items:flex-start; justify-content:space-between;
+    gap:6px; margin-bottom:7px; padding-bottom:7px;
+    border-bottom:1px solid #1e293b;
+  }
+  #view-techstatus .wb-vehicle-row:last-child { border-bottom:none; margin-bottom:0; padding-bottom:0; }
+  #view-techstatus .wb-vehicle-info { flex:1; min-width:0; }
+  #view-techstatus .wb-reorder-btns { display:flex; flex-direction:column; gap:2px; flex-shrink:0; }
+  #view-techstatus .wb-order-btn {
+    background:#1e293b; border:1px solid #374151; color:#6b7280;
+    border-radius:3px; cursor:pointer; font-size:0.6rem; font-weight:700;
+    padding:2px 5px; line-height:1; transition:all 0.15s;
+  }
+  #view-techstatus .wb-order-btn:hover:not(:disabled) { background:#374151; color:#e0e0e0; }
+  #view-techstatus .wb-order-btn:disabled { opacity:0.2; cursor:default; }
+
+  #view-techstatus .pool-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px,1fr)); gap:12px; }
+  #view-techstatus .pool-col {
+    background:#0d1526; border:1px solid #1e293b; border-radius:10px;
+    overflow:hidden; display:flex; flex-direction:column;
+  }
+  #view-techstatus .pool-col-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:8px 12px; background:#111827; border-bottom:1px solid #1e293b;
+  }
+  #view-techstatus .pool-col-title {
+    font-size:0.65rem; font-weight:800; text-transform:uppercase;
+    letter-spacing:1px; color:#9ca3af;
+  }
+  #view-techstatus .pool-count-badge {
+    background:#1f2937; color:#6b7280; border:1px solid #374151;
+    font-size:0.6rem; font-weight:800; padding:1px 7px; border-radius:10px;
+  }
+  #view-techstatus .pool-count-badge.has-jobs { background:#1e3a5f; color:#93c5fd; border-color:#2563eb; }
+  #view-techstatus .pool-jobs-list { padding:6px; display:flex; flex-direction:column; gap:5px; }
+  #view-techstatus .pool-job-card {
+    background:#111827; border:1px solid #1e293b; border-radius:7px;
+    padding:7px 9px;
+  }
+  #view-techstatus .pool-card-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; }
+  #view-techstatus .pool-source-tag {
+    font-size:0.52rem; font-weight:700; text-transform:uppercase; letter-spacing:0.8px;
+    background:#1f2937; color:#6b7280; border:1px solid #374151;
+    padding:1px 5px; border-radius:3px;
+  }
+  #view-techstatus .pool-status-badge {
+    font-size:0.52rem; font-weight:700; text-transform:uppercase;
+    padding:1px 5px; border-radius:3px;
+  }
+  #view-techstatus .pool-po { font-size:0.82rem; font-weight:800; color:#f5c518; }
+  #view-techstatus .pool-veh { font-size:0.65rem; color:#6b7280; margin-top:1px; }
+  #view-techstatus .pool-empty { padding:10px 12px; font-size:0.65rem; color:#374151; font-style:italic; text-align:center; }
+
+  /* ══════════════════════════════════════════════════════════════
+     SETTINGS — Employee Management
+     ══════════════════════════════════════════════════════════════ */
+  .settings-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .settings-title {
+    font-size: 0.9rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text);
+  }
+  .btn-add-employee {
+    background: #5b5ef4; color: #fff; border: none; border-radius: 8px;
+    padding: 9px 18px; font-size: 0.78rem; font-weight: 700; cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn-add-employee:hover { opacity: 0.88; }
+
+  .emp-table td { vertical-align: middle; }
+  .emp-avatar {
+    width: 34px; height: 34px; border-radius: 50%; object-fit: cover;
+    display: block; background: var(--surface-2);
+  }
+  .emp-avatar-fallback {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #5b5ef4; color: #fff; font-weight: 800; font-size: 0.8rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .emp-name-cell { font-weight: 700; color: var(--text); }
+  .role-pill {
+    font-size: 0.65rem; font-weight: 700; padding: 3px 9px; border-radius: 20px;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .role-tech    { background: rgba(91,94,244,0.12); color: #5b5ef4; }
+  .role-advisor { background: rgba(16,185,129,0.12); color: #059669; }
+  .role-manager { background: rgba(245,158,11,0.12); color: #d97706; }
+  .role-owner   { background: rgba(124,58,237,0.12); color: #7c3aed; }
+  .active-pill {
+    font-size: 0.65rem; font-weight: 700; padding: 3px 9px; border-radius: 20px;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .active-yes { background: rgba(16,185,129,0.12); color: #059669; }
+  .active-no  { background: rgba(148,163,184,0.18); color: #64748b; }
+  .emp-edit-btn, .emp-del-btn {
+    font-size: 0.68rem; font-weight: 700; padding: 5px 11px; border-radius: 6px;
+    cursor: pointer; border: 1px solid var(--border); background: #fff;
+    margin-right: 6px; transition: all 0.15s;
+  }
+  .emp-edit-btn { color: #5b5ef4; }
+  .emp-edit-btn:hover { background: rgba(91,94,244,0.08); }
+  .emp-del-btn { color: #dc2626; }
+  .emp-del-btn:hover { background: rgba(220,38,38,0.08); }
+
+  /* Generic light-theme modal (used by Settings; coexists with the
+     dark #sf-csvImportModal rules above via ID-selector specificity) */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(20,22,40,0.45);
+    z-index: 3000; display: flex; align-items: center; justify-content: center;
+  }
+  .modal-box {
+    background: #fff; border: 1px solid var(--border); border-radius: 12px;
+    padding: 26px; min-width: 340px; max-width: 440px; width: 92%;
+    max-height: 86vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(20,22,40,0.18);
+  }
+  .modal-box h3 { font-size: 1rem; color: var(--text); margin-bottom: 16px; }
+  .modal-close {
+    float: right; background: none; border: none; color: var(--muted);
+    font-size: 1.3rem; cursor: pointer; margin-top: -6px; line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-btn {
+    background: #5b5ef4; color: #fff; border: none; border-radius: 8px;
+    padding: 10px 18px; font-size: 0.82rem; font-weight: 700; cursor: pointer;
+    margin-right: 8px; margin-top: 6px;
+  }
+  .modal-btn:hover { opacity: 0.9; }
+  .modal-btn.sec { background: var(--surface-2); color: var(--text); }
+  .modal-btn.danger { background: #dc2626; }
+
+  .emp-form-photo-row { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+  .emp-avatar-lg {
+    width: 64px; height: 64px; border-radius: 50%; object-fit: cover;
+    background: #5b5ef4; color: #fff; font-weight: 800; font-size: 1.4rem;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .emp-avatar-lg img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+  .emp-photo-label {
+    font-size: 0.75rem; font-weight: 700; color: #5b5ef4; cursor: pointer;
+    border: 1px solid #5b5ef4; border-radius: 7px; padding: 7px 14px; display: inline-block;
+  }
+  .emp-photo-label:hover { background: rgba(91,94,244,0.08); }
+
+  .emp-field { margin-bottom: 14px; }
+  .emp-field label {
+    display: block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); font-weight: 700; margin-bottom: 5px;
+  }
+  .emp-field input, .emp-field select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; font-size: 0.85rem; color: var(--text);
+    outline: none; font-family: inherit;
+  }
+  .emp-field input:focus, .emp-field select:focus { border-color: #5b5ef4; }
+  .emp-field-row { display: flex; align-items: center; justify-content: space-between; }
+  .emp-form-error { color: #dc2626; font-size: 0.78rem; min-height: 16px; margin-bottom: 4px; }
+
+  .emp-toggle { position: relative; display: inline-block; width: 38px; height: 20px; }
+  .emp-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .emp-toggle-slider {
+    position: absolute; inset: 0; background: #cbd0dc; border-radius: 20px;
+    transition: background 0.2s; cursor: pointer;
+  }
+  .emp-toggle-slider::before {
+    content: ''; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px;
+    background: #fff; border-radius: 50%; transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  }
+  .emp-toggle input:checked + .emp-toggle-slider { background: #5b5ef4; }
+  .emp-toggle input:checked + .emp-toggle-slider::before { transform: translateX(18px); }
+
+  /* ── TEARDOWN — 4 fixed bench cards ── */
+  .td-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  @media (max-width: 1100px) { .td-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px)  { .td-grid { grid-template-columns: 1fr; } }
+
+  .td-card {
+    background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    display: flex; flex-direction: column; overflow: hidden; min-height: 220px;
+  }
+  .td-card.td-empty { opacity: 0.85; }
+  .td-card-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+  }
+  .td-card-label { font-size: 0.68rem; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+  .td-card-unit {
+    font-size: 0.7rem; font-weight: 700; color: #5b5ef4; background: rgba(91,94,244,0.08);
+    padding: 3px 9px; border-radius: 20px; display: flex; align-items: center; gap: 5px; max-width: 65%;
+  }
+  .td-unit-thumb { width: 18px; height: 18px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+
+  .td-card-body { flex: 1; padding: 14px; display: flex; flex-direction: column; gap: 5px; }
+  .td-empty-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+  .td-empty-msg { font-size: 0.78rem; color: var(--muted); letter-spacing: 0.3px; }
+
+  .td-line-po       { font-size: 0.8rem; font-weight: 700; color: var(--text); }
+  .td-line-customer { font-size: 0.74rem; color: var(--muted); }
+  .td-line-vehicle  { font-size: 0.74rem; color: var(--text); }
+  .td-line-tech     { font-size: 0.74rem; color: var(--muted); }
+  .td-line-updated  { font-size: 0.66rem; color: var(--muted); margin-top: auto; padding-top: 8px; }
+
+  .td-card-actions { display: flex; gap: 6px; padding: 10px 14px; border-top: 1px solid var(--border); }
+
+  .td-btn {
+    font-size: 0.65rem; font-weight: 700; padding: 6px 12px; border-radius: 6px;
+    cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px;
+    white-space: nowrap; font-family: inherit; display: inline-flex; align-items: center; gap: 4px;
+  }
+  .td-btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+  .td-btn-primary { background: #5b5ef4; color: #fff; border: none; }
+  .td-btn-primary:hover { opacity: 0.88; }
+  .td-btn-outline { background: #fff; border: 1px solid var(--border); color: var(--muted); }
+  .td-btn-outline:hover { background: var(--surface-2); color: var(--text); }
+  .td-btn-danger { background: #fff; border: 1px solid #dc2626; color: #dc2626; }
+  .td-btn-danger:hover { background: #dc2626; color: #fff; }
+
+  .td-field { margin-bottom: 14px; }
+  .td-field label {
+    display: block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); font-weight: 700; margin-bottom: 5px;
+  }
+  .td-field input, .td-field select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; font-size: 0.85rem; color: var(--text);
+    outline: none; font-family: inherit;
+  }
+  .td-field input:focus, .td-field select:focus { border-color: #5b5ef4; }
+  .td-form-error { color: #dc2626; font-size: 0.78rem; min-height: 16px; margin-bottom: 4px; }
+
+  /* ── KIKI AI CHAT WIDGET — shared floating widget, independent of any
+     sidebar view. Ported from tech-board.html (v1). z-index sits below
+     .modal-overlay (3000) so an open modal always visually wins. ── */
+  #ai-bubble{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:none;border:2px solid #2563eb;cursor:grab;box-shadow:0 4px 12px rgba(0,0,0,.5);z-index:2000;padding:0;overflow:hidden;transition:box-shadow .15s ease;}
+  #ai-bubble:hover{box-shadow:0 6px 18px rgba(37,99,235,.5);}
+  #ai-bubble img{width:100%;height:100%;object-fit:cover;display:block;}
+  #ai-panel{position:fixed;width:340px;max-height:480px;background:#1e2535;border:1px solid #334155;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.6);z-index:1999;display:none;flex-direction:column;overflow:hidden;}
+  #ai-panel.open{display:flex;}
+  #ai-header{background:#162032;padding:10px 14px;font-size:14px;font-weight:600;color:#93c5fd;display:flex;justify-content:space-between;align-items:center;}
+  #ai-header-left{display:flex;align-items:center;gap:8px;}
+  #ai-header-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid #2563eb;}
+  #ai-header button{background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;line-height:1;}
+  #ai-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;font-size:13px;}
+  .ai-msg-user{align-self:flex-end;background:#2563eb;color:#fff;padding:6px 10px;border-radius:10px 10px 2px 10px;max-width:80%;}
+  .ai-msg-bot{align-self:flex-start;background:#0f172a;color:#e2e8f0;padding:6px 10px;border-radius:10px 10px 10px 2px;max-width:90%;white-space:pre-wrap;}
+  .ai-msg-err{align-self:flex-start;background:#7f1d1d;color:#fca5a5;padding:6px 10px;border-radius:8px;max-width:90%;font-size:12px;}
+  #ai-footer{padding:8px;display:flex;gap:6px;border-top:1px solid #334155;}
+  #ai-input{flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:7px 10px;color:#e2e8f0;font-size:13px;outline:none;}
+  #ai-send{background:#2563eb;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;}
+  #ai-send:disabled{opacity:.5;cursor:default;}
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-title">Lee Transmission</div>
+      <div class="sidebar-brand-sub">Manager Board · Prototype</div>
+    </div>
+    <div class="sidebar-status">
+      <div class="greeting-wrap" id="greetingWrap"></div>
+      <div class="live-badge"><div class="live-dot"></div>Live</div>
+      <div class="sidebar-btn-row">
+        <button type="button" class="logout-btn" id="logoutBtn">
+          <svg class="logout-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M14 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2" />
+            <path d="M7 12h14l-3 -3" />
+            <path d="M18 15l3 -3" />
+          </svg>
+          <span>Log out</span>
+        </button>
+        <button type="button" class="logout-btn refresh-btn" id="refreshBtn" aria-label="Refresh" title="Refresh">
+          <svg class="logout-btn-icon" id="refreshBtnIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" />
+            <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" />
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div class="sidebar-scroll">
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Main</div>
+        <div class="sidebar-item active" data-view="overview" data-label="Overview"><span class="icon">📊</span>Overview</div>
+        <div class="sidebar-item" data-view="shopfloor" data-label="Shop Floor"><span class="icon">🔧</span>Shop Floor</div>
+        <div class="sidebar-item" data-view="techstatus" data-label="Tech Status"><span class="icon">👨‍🔧</span>Tech Status</div>
+        <div class="sidebar-item" data-view="teardown" data-label="Teardown"><span class="icon">🔩</span>Teardown</div>
+        <div class="sidebar-item" data-view="comebacks" data-label="Comebacks"><span class="icon">↩️</span>Comebacks</div>
+        <div class="sidebar-item" data-view="reports" data-label="Reports"><span class="icon">📈</span>Reports<span class="sidebar-soon-badge">Soon</span></div>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Manage</div>
+        <div class="sidebar-item" data-view="technicians" data-label="Technicians"><span class="icon">👥</span>Technicians</div>
+        <div class="sidebar-item" data-view="cashflow" data-label="Cash Flow"><span class="icon">💵</span>Cash Flow</div>
+        <a class="sidebar-item" href="advisor-board.html"><span class="icon">🧑‍💼</span>Advisor</a>
+        <div class="sidebar-item" data-view="teamchat" data-label="Team Chat"><span class="icon">💬</span>Team Chat</div>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Admin</div>
+        <div class="sidebar-item" id="navEmployees" data-view="settings" data-label="Employees"><span class="icon">🗂️</span>Employees</div>
+      </div>
+    </div>
+  </nav>
+
+  <main class="main-area">
+    <div class="view-topbar">
+      <div class="view-topbar-title" id="viewTopbarTitle">Overview</div>
+    </div>
+
+    <div class="content">
+
+  <!-- ══ OVERVIEW ══ -->
+  <div class="view active" id="view-overview">
+
+    <div class="kpi-row">
+      <div class="kpi-card kpi-gold">
+        <div class="kpi-label">Bay Utilization</div>
+        <div class="kpi-value" id="kpi-bay-val">—</div>
+        <div class="kpi-delta" id="kpi-bay-delta">Loading…</div>
+        <div class="kpi-icon">🔧</div>
+      </div>
+      <div class="kpi-card kpi-green">
+        <div class="kpi-label">Tech Efficiency</div>
+        <div class="kpi-value">91<span style="font-size:1.2rem">%</span></div>
+        <div class="kpi-delta" style="opacity:0.55;font-style:italic">Sample data</div>
+        <div class="kpi-icon">⚡</div>
+      </div>
+      <div class="kpi-card kpi-blue">
+        <div class="kpi-label">Open Repair Orders</div>
+        <div class="kpi-value" id="kpi-ro-val">—</div>
+        <div class="kpi-delta" id="kpi-ro-delta">Loading…</div>
+        <div class="kpi-icon">📋</div>
+      </div>
+      <div class="kpi-card kpi-red">
+        <div class="kpi-label">Comeback Rate</div>
+        <div class="kpi-value">3<span style="font-size:1.2rem">%</span></div>
+        <div class="kpi-delta" style="opacity:0.55;font-style:italic">Sample data</div>
+        <div class="kpi-icon">↩</div>
+      </div>
+      <div class="kpi-card kpi-purple">
+        <div class="kpi-label">Avg Days to Complete</div>
+        <div class="kpi-value">2.4</div>
+        <div class="kpi-delta" style="opacity:0.55;font-style:italic">Sample data</div>
+        <div class="kpi-icon">📅</div>
+      </div>
+    </div>
+
+    <div class="chart-grid">
+      <div class="chart-card">
+        <div class="chart-title"><span>▸</span>Bay Utilization This Week <span style="font-size:0.65rem;opacity:0.5;font-style:italic;text-transform:none;letter-spacing:0">(sample data)</span></div>
+        <div class="chart-wrap"><canvas id="chartUtilization"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title"><span>▸</span>Current Jobs by Technician</div>
+        <div class="chart-wrap" id="chart-techs-wrap"><canvas id="chartTechs"></canvas></div>
+      </div>
+    </div>
+
+    <div class="chart-grid-bottom">
+      <div class="placeholder-card">
+        <div class="placeholder-icon">📊</div>
+        <div class="placeholder-label">Revenue by Service Type — coming soon</div>
+      </div>
+      <div class="placeholder-card">
+        <div class="placeholder-icon">🔁</div>
+        <div class="placeholder-label">Job Status Flow / Cycle Time — coming soon</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══ TECHNICIANS ══ -->
+  <div class="view" id="view-technicians">
+    <div id="tech-grid-wrap"><p style="color:var(--muted);padding:20px">Loading…</p></div>
+  </div>
+
+  <!-- ══ COMEBACKS ══ -->
+  <div class="view" id="view-comebacks">
+    <div id="comebacks-wrap"><p style="color:var(--muted);padding:20px">Loading…</p></div>
+  </div>
+
+  <!-- ══ CASH FLOW ══ -->
+  <div class="view" id="view-cashflow">
+    <div class="stub-view">
+      <h2>Cash Flow</h2>
+      <p>Daily revenue, parts costs, and labor margin tracking — coming soon.</p>
+    </div>
+  </div>
+
+  <!-- ══ SHOP FLOOR — ported from shop-board.html (v1 tool), first pass ══ -->
+  <div class="view" id="view-shopfloor">
+
+    <div class="stats-bar" id="sf-statsBar"></div>
+
+    <div class="section-title">Lifts</div>
+    <div class="board" id="sf-board"></div>
+
+    <!-- PARKING LOT -->
+    <div class="table-section">
+      <div class="table-header">
+        <div class="section-title">Parking Lot - Waiting</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="add-btn" style="background:#1f2937;color:#9ca3af;border:1px solid #374151" id="sf-importCsvBtn">Import CSV</button>
+          <button class="add-btn yellow" id="sf-addCarBtn">+ Add Car</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th style="width:24px">#</th>
+            <th style="width:76px">PO #</th>
+            <th style="width:110px">Customer</th>
+            <th style="width:155px">Year / Make / Model</th>
+            <th>Work Description</th>
+            <th style="width:155px">Status</th>
+            <th style="width:80px">Job Cat</th>
+            <th style="width:75px">Warranty</th>
+            <th style="width:95px">Arrival</th>
+            <th>Notes</th>
+            <th style="width:120px">Tech</th>
+            <th style="width:140px">Actions</th>
+          </tr></thead>
+          <tbody id="sf-parkingBody"></tbody>
+        </table>
+        <div class="empty-msg" id="sf-parkingEmpty" style="display:none">No cars in lot - tap "+ Add Car".</div>
+      </div>
+    </div>
+
+    <!-- READY FOR PICKUP -->
+    <div class="table-section">
+      <div class="table-header">
+        <div class="section-title">Ready - Waiting for Customer Pickup</div>
+        <button class="add-btn teal" id="sf-addPickupBtn">+ Add Vehicle</button>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th style="width:24px">#</th>
+            <th style="width:76px">PO #</th>
+            <th style="width:165px">Year / Make / Model</th>
+            <th>Work Done</th>
+            <th style="width:115px">Customer</th>
+            <th style="width:80px">Job Cat</th>
+            <th style="width:75px">Warranty</th>
+            <th style="width:95px">Arrival</th>
+            <th>Notes</th>
+            <th style="width:56px">Status</th>
+            <th style="width:90px">Actions</th>
+          </tr></thead>
+          <tbody id="sf-pickupBody"></tbody>
+        </table>
+        <div class="empty-msg" id="sf-pickupEmpty" style="display:none">No vehicles waiting for pickup.</div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot dot-empty"></div> Empty</div>
+      <div class="legend-item"><div class="legend-dot dot-in-progress"></div> In Progress</div>
+      <div class="legend-item"><div class="legend-dot dot-waiting-part"></div> Waiting for Part</div>
+      <div class="legend-item"><div class="legend-dot dot-waiting-tech"></div> Waiting for Tech</div>
+      <div class="legend-item"><div class="legend-dot dot-delayed"></div> Delayed</div>
+      <div class="legend-item"><div class="legend-dot dot-done"></div> Done / Ready</div>
+    </div>
+
+  </div>
+
+  <!-- ══ SETTINGS — Employee Management ══ -->
+  <div class="view" id="view-settings">
+    <div class="settings-header">
+      <div class="settings-title">Employee Management</div>
+      <button class="btn-add-employee" id="btnAddEmployee">+ Add Employee</button>
+    </div>
+    <div id="employee-list-wrap"><p style="color:var(--muted);padding:20px">Loading…</p></div>
+  </div>
+
+  <!-- ══ TECH STATUS — ported from tech-board.html (v1 tool) ══ -->
+  <div class="view" id="view-techstatus">
+    <div class="ts-title">Tech Whiteboard</div>
+    <div class="whiteboard-grid" id="ts-whiteboardGrid"><p style="color:#6b7280;padding:20px">Loading…</p></div>
+
+    <div class="ts-title" style="margin-top:30px">Unassigned Jobs Pool</div>
+    <div class="pool-grid" id="ts-poolGrid"></div>
+  </div>
+
+  <!-- ══ TEARDOWN — 4 fixed bench cards; unit placement only (parts tracker deferred) ══ -->
+  <div class="view" id="view-teardown">
+    <div class="td-grid" id="td-grid"></div>
+  </div>
+
+  <!-- ══ REPORTS — placeholder ══ -->
+  <div class="view" id="view-reports">
+    <div class="stub-view">
+      <h2>Reports</h2>
+      <p>Shop-wide reporting — coming soon.</p>
+    </div>
+  </div>
+
+  <!-- ══ TEAM CHAT — re-homed from the old floating chat widget ══ -->
+  <div class="view" id="view-teamchat">
+    <div class="chat-panel open" id="chat-panel">
+      <div class="chat-header"><span>Team Chat</span></div>
+      <div class="chat-channels" id="chat-channels"></div>
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-row">
+        <div class="emoji-picker-wrap">
+          <button class="emoji-btn" id="emoji-btn" type="button" title="Emoji">😊</button>
+          <div class="emoji-popover" id="emoji-popover" style="display:none"></div>
+        </div>
+        <input type="text" id="chat-input" placeholder="Message…" />
+        <button class="chat-send-btn" id="chat-send">➤</button>
+      </div>
+    </div>
+  </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Add/Edit Employee Modal — outside .content so it isn't hidden by an inactive .view -->
+<div class="modal-overlay" id="employeeFormModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="closeEmployeeFormX">&times;</button>
+    <h3 id="employeeFormTitle">Add Employee</h3>
+    <div class="emp-form-photo-row">
+      <div class="emp-avatar-lg" id="empFormAvatarPreview">?</div>
+      <div>
+        <label class="emp-photo-label" for="empPhotoInput">Upload Photo</label>
+        <input type="file" id="empPhotoInput" accept="image/*" style="display:none">
+      </div>
+    </div>
+    <div class="emp-field">
+      <label>Name</label>
+      <input type="text" id="empNameInput" placeholder="Full name">
+    </div>
+    <div class="emp-field">
+      <label>Phone</label>
+      <input type="tel" inputmode="numeric" id="empPhoneInput" placeholder="2395550101" maxlength="10">
+    </div>
+    <div class="emp-field">
+      <label>PIN</label>
+      <input type="text" inputmode="numeric" id="empPinInput" placeholder="1234" maxlength="4">
+    </div>
+    <div class="emp-field">
+      <label>Role</label>
+      <select id="empRoleInput">
+        <option value="tech">Technician</option>
+        <option value="advisor">Service Advisor</option>
+        <option value="manager">Manager</option>
+        <option value="owner">Owner</option>
+      </select>
+    </div>
+    <div class="emp-field emp-field-row">
+      <label style="margin-bottom:0">Active</label>
+      <label class="emp-toggle">
+        <input type="checkbox" id="empActiveInput" checked>
+        <span class="emp-toggle-slider"></span>
+      </label>
+    </div>
+    <div class="emp-form-error" id="empFormError"></div>
+    <button class="modal-btn" id="saveEmployeeBtn">Save</button>
+    <button class="modal-btn sec" id="cancelEmployeeForm">Cancel</button>
+  </div>
+</div>
+
+<!-- Delete Employee Confirm Modal -->
+<div class="modal-overlay" id="employeeDeleteModal" style="display:none">
+  <div class="modal-box" style="max-width:400px">
+    <h3>Delete Employee</h3>
+    <p id="empDeleteMsg" style="font-size:0.85rem;color:var(--text);margin-bottom:18px;line-height:1.5"></p>
+    <button class="modal-btn danger" id="confirmDeleteEmployeeBtn">Yes, Delete Permanently</button>
+    <button class="modal-btn sec" id="cancelDeleteEmployeeBtn">Cancel</button>
+  </div>
+</div>
+
+<!-- Teardown Place/Edit Unit Modal -->
+<div class="modal-overlay" id="teardownFormModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="td-closeFormX">&times;</button>
+    <h3 id="td-formTitle">Place Unit — Table 1</h3>
+    <div class="td-field">
+      <label>PO #</label>
+      <input type="text" id="td-roInput" placeholder="PO Number">
+    </div>
+    <div class="td-field">
+      <label>Tech</label>
+      <select id="td-techInput"></select>
+    </div>
+    <div class="td-field">
+      <label>Transmission Unit</label>
+      <select id="td-txInput"></select>
+    </div>
+    <div class="td-form-error" id="td-formError"></div>
+    <button class="modal-btn" id="td-saveBtn">Place</button>
+    <button class="modal-btn sec" id="td-cancelBtn">Cancel</button>
+  </div>
+</div>
+
+<!-- Shop Floor CSV Import Modal — outside .content so it isn't hidden by an inactive .view -->
+<div class="modal-overlay" id="sf-csvImportModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="sf-closeCsvModal">x</button>
+    <h3>Import Parking Lot CSV</h3>
+    <p class="modal-note">Paste your CSV data below. Expected columns:<br>
+      <code>PO, Vehicle, Customer, Work, Status, Arrival, Notes</code><br>
+      First row must be the header row. Status values: empty, in-progress, waiting-part, waiting-tech, delayed, done.
+    </p>
+    <div class="modal-field">
+      <label>Paste CSV data here</label>
+      <textarea id="sf-csvPasteArea" style="height:200px;font-family:monospace;font-size:0.7rem" placeholder="PO,Vehicle,Customer,Work,Status,Arrival,Notes&#10;1234,2019 Honda Accord,John Smith,Trans Removal,in-progress,2026-06-18,"></textarea>
+    </div>
+    <button class="modal-btn" id="sf-runCsvImportBtn">Import</button>
+    <button class="modal-btn sec" id="sf-closeCsvModal2">Cancel</button>
+  </div>
+</div>
+
+<!-- Kiki AI Chat Widget — shared floating widget, independent of sidebar view -->
+<button id="ai-bubble" title="Ask Kiki"><img src="/kiki-avatar.png" alt="Kiki" /></button>
+<div id="ai-panel">
+  <div id="ai-header">
+    <div id="ai-header-left"><img id="ai-header-avatar" src="/kiki-avatar.png" alt="Kiki" /><span>Kiki</span></div>
+    <button id="ai-close" title="Close">&times;</button>
+  </div>
+  <div id="ai-messages"></div>
+  <div id="ai-footer">
+    <input id="ai-input" type="text" placeholder="Ask about the board..." />
+    <button id="ai-send">Ask</button>
+  </div>
+</div>
+
+<script>
+  // ── VIEW REFRESH REGISTRY — connection-health safety net + manual
+  // refresh button (see bottom of file). Each view's section below
+  // registers its own { refetch, getChannel, resubscribe } as it sets
+  // itself up; views with no live data (stubs) simply never register.
+  const VIEW_REFRESH = {};
+  let currentViewKey = 'overview';
+
+  // ── Sidebar navigation
+  document.querySelectorAll('.sidebar-item[data-view]').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.sidebar-item[data-view]').forEach(i => i.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      item.classList.add('active');
+      document.getElementById('view-' + item.dataset.view).classList.add('active');
+      document.getElementById('viewTopbarTitle').textContent = item.dataset.label || item.textContent.trim();
+      currentViewKey = item.dataset.view;
+    });
+  });
+
+  // ── Shared chart defaults
+  Chart.defaults.color = '#8c93a8';
+  Chart.defaults.borderColor = '#e2e5ee';
+  Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
+
+  const GOLD = '#5b5ef4';
+  const GOLD_DIM = 'rgba(91,94,244,0.10)';
+
+  // ── Line chart: Bay Utilization
+  new Chart(document.getElementById('chartUtilization'), {
+    type: 'line',
+    data: {
+      labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      datasets: [{
+        label: 'Bay Utilization %',
+        data: [72, 80, 85, 78, 91, 88, 55],
+        borderColor: GOLD,
+        backgroundColor: GOLD_DIM,
+        borderWidth: 2.5,
+        pointBackgroundColor: GOLD,
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        tension: 0.4,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#131c2e',
+          borderColor: '#1f2f4a',
+          borderWidth: 1,
+          callbacks: { label: ctx => ` ${ctx.parsed.y}%` }
+        }
+      },
+      scales: {
+        y: {
+          min: 0, max: 100,
+          grid: { color: '#e2e5ee' },
+          ticks: { callback: v => v + '%' }
+        },
+        x: { grid: { color: '#e2e5ee' } }
+      }
+    }
+  });
+
+  // ── Supabase — READ ONLY (no insert/update/delete anywhere in this file)
+  const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const TOTAL_LIFTS = 6;
+  const TECH_COLORS = [
+    'rgba(245,197,24,0.75)','rgba(96,165,250,0.75)',
+    'rgba(52,211,153,0.75)','rgba(192,132,252,0.75)','rgba(251,146,60,0.75)'
+  ];
+  const TECH_BORDERS = ['#f5c518','#60a5fa','#34d399','#c084fc','#fb923c'];
+
+  let techChart = null;
+
+  function hasVehicleData(r) {
+    return !!(r.po && r.po.trim()) && !!(r.vehicle && r.vehicle.trim());
+  }
+
+  async function loadAndRender() {
+    const [{ data: lifts }, { data: parking }, { data: pickup }] = await Promise.all([
+      db.from('shopboard_lifts').select('id,status,assigned_tech,po,vehicle,job_category,warranty').order('id'),
+      db.from('shopboard_parking').select('id,status,assigned_tech,po,vehicle,job_category,warranty').order('created_at'),
+      db.from('shopboard_pickup').select('id,po,vehicle,assigned_tech,job_category,warranty').order('created_at'),
+    ]);
+
+    const activeLifts   = (lifts   || []).filter(hasVehicleData);
+    const activeParking = (parking || []).filter(hasVehicleData);
+    const allActive     = [...activeLifts, ...activeParking];
+
+    // ── Bay Utilization KPI
+    const bayPct = TOTAL_LIFTS > 0 ? Math.round((activeLifts.length / TOTAL_LIFTS) * 100) : 0;
+    document.getElementById('kpi-bay-val').textContent   = bayPct + '%';
+    document.getElementById('kpi-bay-delta').textContent =
+      activeLifts.length + ' of ' + TOTAL_LIFTS + ' bays occupied';
+
+    // ── Open Repair Orders KPI
+    const openRO = activeLifts.length + activeParking.length;
+    const wPart  = allActive.filter(c => c.status === 'waiting-part').length;
+    document.getElementById('kpi-ro-val').textContent   = openRO;
+    document.getElementById('kpi-ro-delta').textContent =
+      wPart > 0 ? wPart + ' waiting for parts' : 'none waiting for parts';
+
+    // ── Jobs by Tech chart (live)
+    // Match tech-board.html logic exactly: null/empty/"Unassigned" all count as unassigned
+    const techCounts = {};
+    let unassignedCount = 0;
+    allActive.forEach(r => {
+      const t = (r.assigned_tech || '').trim();
+      if (!t || t === 'Unassigned') {
+        unassignedCount++;
+      } else {
+        techCounts[t] = (techCounts[t] || 0) + 1;
+      }
+    });
+    const namedLabels = Object.keys(techCounts).sort();
+    const techLabels  = unassignedCount > 0 ? [...namedLabels, 'Unassigned'] : namedLabels;
+    const techData    = [
+      ...namedLabels.map(t => techCounts[t]),
+      ...(unassignedCount > 0 ? [unassignedCount] : []),
+    ];
+
+    const wrap = document.getElementById('chart-techs-wrap');
+    if (!techLabels.length) {
+      if (techChart) { techChart.destroy(); techChart = null; }
+      wrap.innerHTML = '<p style="text-align:center;color:#8c93a8;font-size:0.8rem;padding-top:50px">No active jobs on board yet</p>';
+    } else {
+      if (!wrap.querySelector('canvas')) {
+        wrap.innerHTML = '<canvas id="chartTechs"></canvas>';
+      }
+      // Named techs get color palette; Unassigned bar gets neutral gray
+      const bgColors  = techLabels.map((lbl, i) =>
+        lbl === 'Unassigned' ? 'rgba(148,163,184,0.65)' : TECH_COLORS[i % TECH_COLORS.length]);
+      const brdColors = techLabels.map((lbl, i) =>
+        lbl === 'Unassigned' ? '#94a3b8' : TECH_BORDERS[i % TECH_BORDERS.length]);
+      if (techChart) {
+        techChart.data.labels                        = techLabels;
+        techChart.data.datasets[0].data             = techData;
+        techChart.data.datasets[0].backgroundColor  = bgColors;
+        techChart.data.datasets[0].borderColor       = brdColors;
+        techChart.update();
+      } else {
+        techChart = new Chart(document.getElementById('chartTechs'), {
+          type: 'bar',
+          data: {
+            labels: techLabels,
+            datasets: [{
+              label: 'Current Jobs',
+              data: techData,
+              backgroundColor: bgColors,
+              borderColor: brdColors,
+              borderWidth: 1.5,
+              borderRadius: 5,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: '#1a1f36',
+                borderColor: '#e2e5ee',
+                borderWidth: 1,
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true,
+                grid: { color: '#e2e5ee' },
+                ticks: { stepSize: 1, precision: 0 }
+              },
+              x: { grid: { display: false } }
+            }
+          }
+        });
+      }
+    }
+
+    // ── Technicians tab
+    renderTechnicians(allActive, pickup);
+
+    // ── Comebacks tab
+    renderComebacks(lifts, parking, pickup);
+  }
+
+  // ── Status dot colors for tech cards
+  const STATUS_DOT_COLOR = {
+    'in-progress':  '#10b981',
+    'waiting-part': '#f59e0b',
+    'waiting-tech': '#3b82f6',
+    'waiting-auth': '#ef4444',
+    'waiting-pull': '#8b5cf6',
+    'delayed':      '#94a3b8',
+  };
+
+  // ── Time punch prototype data (dummy/local only — no Supabase writes)
+  const DUMMY_PUNCHES = {
+    Alex:      [{label:'Clocked In', time:'7:52 AM'}, {label:'Lunch Out', time:'12:01 PM'}, {label:'Back from Lunch', time:'12:44 PM'}],
+    Cory:      [{label:'Clocked In', time:'8:05 AM'}, {label:'Lunch Out', time:'11:58 AM'}, {label:'Back from Lunch', time:'12:41 PM'}],
+    Cuba:      [{label:'Clocked In', time:'7:48 AM'}, {label:'Lunch Out', time:'12:10 PM'}],
+    Capote:    [{label:'Clocked In', time:'8:12 AM'}],
+    Alnardier: [{label:'Clocked In', time:'7:55 AM'}, {label:'Lunch Out', time:'12:05 PM'}, {label:'Back from Lunch', time:'12:50 PM'}],
+  };
+  function getDummyPunches(name) {
+    return DUMMY_PUNCHES[name] || [{label:'Clocked In', time:'8:00 AM'}];
+  }
+  const EXPANDED_TECHS = new Set(); // tracks which rows are expanded
+  const PUNCH_EDITS = {};           // { 'TechName:punchIndex': 'corrected time' }
+
+  function catClass(cat) {
+    const c = (cat || '').toLowerCase();
+    if (c === 'rebuild') return 'rebuild';
+    if (c === 'diag')    return 'diag';
+    if (c.includes('gen')) return 'gen';
+    return 'other';
+  }
+
+  function dummyHours(name) {
+    // Deterministic seed from name so same tech always gets same sample hours
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+    const billed  = 28 + (h % 15);                      // 28–42 h
+    const offset  = ((h >> 4) & 7) - 3;                 // –3 to +4
+    const clocked = Math.max(22, billed + offset);
+    return { billed, clocked };
+  }
+
+  function renderTechnicians(allActive, pickupData) {
+    const techMap = {};
+    allActive.forEach(r => {
+      const t = (r.assigned_tech || '').trim();
+      if (!t || t === 'Unassigned') return;
+      if (!techMap[t]) techMap[t] = { jobs: [], pickup: [] };
+      techMap[t].jobs.push(r);
+    });
+    (pickupData || []).filter(hasVehicleData).forEach(r => {
+      const t = (r.assigned_tech || '').trim();
+      if (!t || t === 'Unassigned') return;
+      if (!techMap[t]) techMap[t] = { jobs: [], pickup: [] };
+      techMap[t].pickup.push(r);
+    });
+
+    const techNames = Object.keys(techMap).sort();
+    const wrap = document.getElementById('tech-grid-wrap');
+
+    if (!techNames.length) {
+      wrap.innerHTML = '<div class="stub-view"><h2>No Active Jobs</h2><p>No jobs with assigned technicians on the board right now.</p></div>';
+      return;
+    }
+
+    const rows = techNames.map(name => {
+      const { jobs, pickup } = techMap[name];
+      const expanded = EXPANDED_TECHS.has(name);
+
+      const cats = {};
+      jobs.forEach(j => { const c = (j.job_category || '').trim(); if (c) cats[c] = (cats[c] || 0) + 1; });
+
+      const statuses = {};
+      jobs.forEach(j => { const s = (j.status || '').trim(); if (s) statuses[s] = (statuses[s] || 0) + 1; });
+
+      const catPills = Object.entries(cats)
+        .map(([c, n]) => `<span class="cat-pill ${catClass(c)}">${c} &middot; ${n}</span>`)
+        .join('');
+
+      const statusItems = Object.entries(statuses)
+        .map(([s, n]) => {
+          const col = STATUS_DOT_COLOR[s] || '#94a3b8';
+          return `<span class="tech-status-item"><span class="tech-status-dot" style="background:${col}"></span>${s.replace(/-/g,' ')}: ${n}</span>`;
+        }).join('');
+
+      const { billed, clocked } = dummyHours(name);
+      const eff = Math.round((billed / clocked) * 100);
+      const effClass = eff >= 100 ? 'eff-high' : eff >= 85 ? 'eff-mid' : 'eff-low';
+
+      // Build punch detail sub-row
+      const punches = getDummyPunches(name);
+      const punchEntries = punches.map((p, i) => {
+        const key = name + ':' + i;
+        const displayTime = PUNCH_EDITS[key] || p.time;
+        return `<div class="punch-entry">
+          <span class="punch-dot-sm"></span>
+          <span class="punch-lbl">${p.label}</span>
+          <span class="punch-time" data-tech="${name}" data-idx="${i}">${displayTime}</span>
+          <button class="punch-edit-btn" data-tech="${name}" data-idx="${i}" data-lbl="${p.label}">Edit</button>
+        </div>`;
+      }).join('');
+
+      const detailRow = `<tr class="punch-detail-row${expanded ? '' : ' hidden'}" data-for="${name}">
+        <td colspan="6">
+          <div class="punch-detail-wrap">
+            <div class="punch-mgr-note">🔒 Only managers can correct time punches</div>
+            ${punchEntries}
+          </div>
+        </td>
+      </tr>`;
+
+      const techRow = `<tr class="tech-row-clickable" data-tech="${name}">
+        <td class="tech-name-cell">${name}<span class="tech-chevron">${expanded ? '▾' : '▸'}</span></td>
+        <td>
+          <div class="tech-active-count">${jobs.length}</div>
+          ${catPills   ? `<div class="tech-detail-line">${catPills}</div>` : ''}
+          ${statusItems ? `<div class="tech-detail-line" style="margin-top:4px">${statusItems}</div>` : ''}
+        </td>
+        <td><div class="tech-hours-val">${billed}h</div></td>
+        <td><div class="tech-hours-val">${clocked}h</div></td>
+        <td><div class="tech-eff-val ${effClass}">${eff}%</div></td>
+        <td><div class="tech-pickup-val">${pickup.length}</div></td>
+      </tr>`;
+
+      return techRow + detailRow;
+    }).join('');
+
+    wrap.innerHTML = `
+      <div class="tech-table-wrap">
+        <table class="tech-table">
+          <thead><tr>
+            <th>Technician</th>
+            <th>Active Jobs</th>
+            <th>Billed Hrs <span class="sample-tag">sample</span></th>
+            <th>Clocked Hrs <span class="sample-tag">sample</span></th>
+            <th>Efficiency <span class="sample-tag">sample</span></th>
+            <th>Ready for Pickup</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+
+    bindTechTable(wrap);
+  }
+
+  function bindTechTable(wrap) {
+    const tbody = wrap.querySelector('tbody');
+    if (!tbody) return;
+    tbody.addEventListener('click', e => {
+      const editBtn   = e.target.closest('.punch-edit-btn');
+      const saveBtn   = e.target.closest('.punch-save-btn');
+      const cancelBtn = e.target.closest('.punch-cancel-btn');
+      const techRow   = e.target.closest('tr.tech-row-clickable');
+
+      if (editBtn) {
+        e.stopPropagation();
+        const entry = editBtn.closest('.punch-entry');
+        const tech  = editBtn.dataset.tech;
+        const idx   = editBtn.dataset.idx;
+        const lbl   = editBtn.dataset.lbl;
+        const time  = entry.querySelector('.punch-time').textContent;
+        entry.innerHTML = `
+          <span class="punch-dot-sm"></span>
+          <span class="punch-lbl">${lbl}</span>
+          <input class="punch-edit-input" type="text" value="${time}">
+          <button class="punch-save-btn"   data-tech="${tech}" data-idx="${idx}" data-lbl="${lbl}">Save</button>
+          <button class="punch-cancel-btn" data-tech="${tech}" data-idx="${idx}" data-lbl="${lbl}" data-time="${time}">Cancel</button>`;
+
+      } else if (saveBtn) {
+        e.stopPropagation();
+        const entry   = saveBtn.closest('.punch-entry');
+        const tech    = saveBtn.dataset.tech;
+        const idx     = saveBtn.dataset.idx;
+        const lbl     = saveBtn.dataset.lbl;
+        const newTime = entry.querySelector('.punch-edit-input').value.trim();
+        if (newTime) PUNCH_EDITS[tech + ':' + idx] = newTime;
+        const display = newTime || entry.querySelector('.punch-edit-input').value;
+        entry.innerHTML = `
+          <span class="punch-dot-sm"></span>
+          <span class="punch-lbl">${lbl}</span>
+          <span class="punch-time" data-tech="${tech}" data-idx="${idx}">${newTime || display}</span>
+          <button class="punch-edit-btn" data-tech="${tech}" data-idx="${idx}" data-lbl="${lbl}">Edit</button>`;
+
+      } else if (cancelBtn) {
+        e.stopPropagation();
+        const entry   = cancelBtn.closest('.punch-entry');
+        const tech    = cancelBtn.dataset.tech;
+        const idx     = cancelBtn.dataset.idx;
+        const lbl     = cancelBtn.dataset.lbl;
+        const origTime = cancelBtn.dataset.time;
+        entry.innerHTML = `
+          <span class="punch-dot-sm"></span>
+          <span class="punch-lbl">${lbl}</span>
+          <span class="punch-time" data-tech="${tech}" data-idx="${idx}">${origTime}</span>
+          <button class="punch-edit-btn" data-tech="${tech}" data-idx="${idx}" data-lbl="${lbl}">Edit</button>`;
+
+      } else if (techRow) {
+        const name = techRow.dataset.tech;
+        if (EXPANDED_TECHS.has(name)) EXPANDED_TECHS.delete(name);
+        else EXPANDED_TECHS.add(name);
+        const detailRow = wrap.querySelector(`tr.punch-detail-row[data-for="${name}"]`);
+        const chevron   = techRow.querySelector('.tech-chevron');
+        if (detailRow) detailRow.classList.toggle('hidden');
+        if (chevron)   chevron.textContent = EXPANDED_TECHS.has(name) ? '▾' : '▸';
+      }
+    });
+  }
+
+  function renderComebacks(lifts, parking, pickupData) {
+    const allWarranty = [
+      ...(lifts   || []).filter(r => hasVehicleData(r) && r.warranty === true).map(r => ({...r, _loc:'Lift'})),
+      ...(parking  || []).filter(r => hasVehicleData(r) && r.warranty === true).map(r => ({...r, _loc:'Parking'})),
+      ...(pickupData || []).filter(r => hasVehicleData(r) && r.warranty === true).map(r => ({...r, _loc:'Pickup', status:'Ready'})),
+    ];
+
+    const wrap = document.getElementById('comebacks-wrap');
+
+    if (!allWarranty.length) {
+      wrap.innerHTML = `
+        <div class="comebacks-header">
+          <div class="comebacks-title">⚑ Warranty / Comeback Jobs</div>
+          <div class="comebacks-count">0 active</div>
+        </div>
+        <div class="stub-view" style="padding:40px 40px">
+          <h2 style="font-size:1rem">No Active Comebacks</h2>
+          <p>No jobs currently flagged as warranty or comeback work.</p>
+        </div>`;
+      return;
+    }
+
+    const LOC_CLASS = { Lift: 'badge-lift', Parking: 'badge-parking', Pickup: 'badge-pickup' };
+
+    const rows = allWarranty.map(r => {
+      const tech   = (r.assigned_tech || '').trim() || '—';
+      const cat    = (r.job_category  || '').trim() || '—';
+      const status = (r.status        || '—').replace(/-/g, ' ');
+      return `<tr>
+        <td><strong>${r.po}</strong></td>
+        <td>${r.vehicle}</td>
+        <td>${tech}</td>
+        <td>${cat}</td>
+        <td><span class="comeback-location-badge ${LOC_CLASS[r._loc]||''}">${r._loc}</span></td>
+        <td>${status}</td>
+      </tr>`;
+    }).join('');
+
+    wrap.innerHTML = `
+      <div class="comebacks-header">
+        <div class="comebacks-title">⚑ Warranty / Comeback Jobs</div>
+        <div class="comebacks-count">${allWarranty.length} active</div>
+      </div>
+      <div class="chart-card" style="padding:0;overflow:hidden">
+        <table class="comeback-table">
+          <thead><tr>
+            <th>PO #</th><th>Vehicle</th><th>Tech</th>
+            <th>Category</th><th>Location</th><th>Status</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  loadAndRender();
+
+  // ── Real-time subscription — READ ONLY (no writes)
+  let gmLiveChannel = null;
+  function gmSubscribeLive() {
+    if (gmLiveChannel) db.removeChannel(gmLiveChannel);
+    gmLiveChannel = db.channel('gm-board-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_lifts' },   () => loadAndRender())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_parking' }, () => loadAndRender())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_pickup' },  () => loadAndRender())
+      .subscribe();
+  }
+  gmSubscribeLive();
+  VIEW_REFRESH.overview = VIEW_REFRESH.technicians = VIEW_REFRESH.comebacks = {
+    refetch: loadAndRender,
+    getChannel: () => gmLiveChannel,
+    resubscribe: gmSubscribeLive,
+  };
+
+  // ── Team Chat (real, Supabase-backed — gm-board = Manager's view)
+  // CHAT_IDENTITY is populated by captureSessionAndGreet() below once the
+  // session's phone resolves against `employees`; sending is blocked until then.
+  let CHAT_IDENTITY = { name: null, role: null };
+
+  const CHAT_CHANNELS = [
+    { key: 'group',           label: 'Group' },
+    { key: 'owner_manager',   label: 'Owner' },
+    { key: 'manager_advisor', label: 'Advisor' },
+  ];
+  let CURRENT_CHANNEL = 'group';
+  let chatMessages = [];
+  let chatRealtimeChannel = null;
+
+  function chatEsc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function formatChatTime(iso) {
+    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function renderChannelTabs() {
+    const wrap = document.getElementById('chat-channels');
+    wrap.innerHTML = CHAT_CHANNELS.map(c =>
+      `<button class="chat-channel-btn${c.key === CURRENT_CHANNEL ? ' active' : ''}" data-channel="${c.key}">${chatEsc(c.label)}</button>`
+    ).join('');
+    wrap.querySelectorAll('[data-channel]').forEach(btn => {
+      btn.addEventListener('click', () => switchChatChannel(btn.dataset.channel));
+    });
+  }
+
+  // Same dynamic-source pattern as the Tech dropdown: pull the real owner's
+  // name from `employees` instead of hardcoding it. Falls back to the
+  // generic "Owner" label if no active owner record exists yet.
+  async function loadOwnerChannelLabel() {
+    const { data, error } = await db
+      .from('employees').select('name')
+      .eq('role', 'owner').eq('active', true)
+      .order('name').limit(1);
+    if (error) { console.error('[Chat] load owner label failed', error); return; }
+    const entry = CHAT_CHANNELS.find(c => c.key === 'owner_manager');
+    if (entry) entry.label = (data && data[0] && data[0].name) ? data[0].name : 'Owner';
+    renderChannelTabs();
+  }
+
+  async function loadChatMessages(channel) {
+    const { data, error } = await db.from('chat_messages').select('*').eq('channel', channel).order('created_at');
+    if (error) { console.error('[Chat] load failed', error); chatMessages = []; }
+    else chatMessages = data || [];
+    renderChat();
+  }
+
+  function subscribeChatChannel(channel) {
+    if (chatRealtimeChannel) {
+      db.removeChannel(chatRealtimeChannel);
+      chatRealtimeChannel = null;
+    }
+    chatRealtimeChannel = db.channel('chat-live')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `channel=eq.${channel}` },
+        ({ new: rec }) => { if (rec) { chatMessages.push(rec); renderChat(); } }
+      )
+      .subscribe();
+  }
+
+  function switchChatChannel(channel) {
+    CURRENT_CHANNEL = channel;
+    renderChannelTabs();
+    loadChatMessages(channel);
+    subscribeChatChannel(channel);
+  }
+
+  function renderChat() {
+    const box = document.getElementById('chat-messages');
+    box.innerHTML = chatMessages.map(m => `
+      <div class="chat-msg ${m.sender_name === CHAT_IDENTITY.name ? 'me' : 'them'}">
+        <div class="chat-msg-sender">${chatEsc(m.sender_name)}</div>
+        <div class="chat-msg-bubble">${chatEsc(m.message)}</div>
+        <div class="chat-msg-time">${formatChatTime(m.created_at)}</div>
+      </div>`).join('');
+    box.scrollTop = box.scrollHeight;
+  }
+
+  async function sendChatMsg() {
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+    if (!CHAT_IDENTITY.name || !CHAT_IDENTITY.role) {
+      alert('Could not identify you on this board yet — try reopening it from CrisData.');
+      return;
+    }
+    input.value = '';
+    const { error } = await db.from('chat_messages').insert({
+      channel: CURRENT_CHANNEL,
+      sender_role: CHAT_IDENTITY.role,
+      sender_name: CHAT_IDENTITY.name,
+      message: text,
+    });
+    if (error) {
+      console.error('[Chat] send failed', error);
+      alert('Message failed to send: ' + error.message);
+    }
+  }
+
+  document.getElementById('chat-send').addEventListener('click', sendChatMsg);
+  document.getElementById('chat-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendChatMsg();
+  });
+
+  renderChannelTabs();
+  loadChatMessages(CURRENT_CHANNEL);
+  subscribeChatChannel(CURRENT_CHANNEL);
+  loadOwnerChannelLabel();
+  VIEW_REFRESH.teamchat = {
+    refetch: () => loadChatMessages(CURRENT_CHANNEL),
+    getChannel: () => chatRealtimeChannel,
+    resubscribe: () => subscribeChatChannel(CURRENT_CHANNEL),
+  };
+
+  // ── Emoji picker (desktop convenience — phone keyboards already have one)
+  const EMOJI_LIST = ['👍','👎','✅','❌','🔥','💯','👏','🙌','💪','🙏',
+                       '😊','😂','😅','😉','😎','🤔','😬','😢','😡','🥳',
+                       '🚗','🔧','⚙️','⚠️','🛠️','🔩','⏰','📞','📸','💰'];
+
+  function renderEmojiPopover() {
+    const pop = document.getElementById('emoji-popover');
+    pop.innerHTML = EMOJI_LIST.map(e => `<button type="button" data-emoji="${e}">${e}</button>`).join('');
+    pop.querySelectorAll('[data-emoji]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const input = document.getElementById('chat-input');
+        input.value += btn.dataset.emoji;
+        pop.style.display = 'none';
+        input.focus();
+      });
+    });
+  }
+
+  document.getElementById('emoji-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const pop = document.getElementById('emoji-popover');
+    pop.style.display = pop.style.display === 'none' ? 'grid' : 'none';
+  });
+
+  document.addEventListener('click', (e) => {
+    const pop = document.getElementById('emoji-popover');
+    const btn = document.getElementById('emoji-btn');
+    if (pop.style.display !== 'none' && !pop.contains(e.target) && e.target !== btn) {
+      pop.style.display = 'none';
+    }
+  });
+
+  renderEmojiPopover();
+
+  // ══════════════════════════════════════════════════════════════
+  // SHOP FLOOR TAB — ported from shop-board.html (v1 tool), first pass.
+  // Reads/writes shopboard_lifts / shopboard_parking / shopboard_pickup
+  // directly via the shared `db` client above. This is a deliberate
+  // exception to the "read only, no writes" note on the rest of this
+  // file — full CRUD, matching shop-board.html's exact behavior.
+  // Settings/Sheets sync, Error Log, Kiki chat, Teardown, Sync button,
+  // and a second Log Out were intentionally not ported (out of scope).
+  // ══════════════════════════════════════════════════════════════
+  (function () {
+    const SF_STATUS_OPTIONS = [
+      { value:'empty',           label:'- Unassigned -' },
+      { value:'in-progress',     label:'In Progress' },
+      { value:'waiting-part',    label:'Waiting for Part' },
+      { value:'waiting-tech',    label:'Waiting for Tech' },
+      { value:'waiting-pull',    label:'Waiting Pull' },
+      { value:'waiting-install', label:'Waiting Install' },
+      { value:'waiting-quote',   label:'Waiting Quote' },
+      { value:'waiting-auth',    label:'Waiting Auth' },
+      { value:'qc',              label:'QC' },
+      { value:'delayed',         label:'Delayed' },
+      { value:'done',            label:'Done / Ready' },
+    ];
+
+    const SF_BADGE_CLASS = {
+      'empty':'badge-empty', 'in-progress':'badge-in-progress',
+      'waiting-part':'badge-waiting-part', 'waiting-tech':'badge-waiting-tech',
+      'waiting-pull':'badge-waiting-pull', 'waiting-install':'badge-waiting-install',
+      'waiting-quote':'badge-waiting-quote', 'waiting-auth':'badge-waiting-auth',
+      'qc':'badge-qc', 'delayed':'badge-delayed', 'done':'badge-done',
+    };
+
+    const SF_JOB_CATEGORY_OPTIONS = [
+      { value:'',         label:'- Category -' },
+      { value:'Gen Auto', label:'Gen Auto' },
+      { value:'Rebuild',  label:'Rebuild' },
+      { value:'Diag',     label:'Diag' },
+    ];
+
+    const SF_TECH_LIST = ['Unassigned','Capote','Cory','Alex','Cuba'];
+
+    const SF_STATUS_FILTER = {
+      'empty':        'grayscale(1) brightness(0.18) contrast(0.9)',
+      'in-progress':  'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+      'waiting-part': 'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+      'waiting-tech': 'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+      'delayed':      'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+      'done':         'grayscale(0.35) saturate(0.75) brightness(0.88) contrast(0.95)',
+    };
+
+    let sfLiftState   = [];
+    let sfParkState   = [];
+    let sfPickupState = [];
+
+    const sfDebounceTimers = {};
+    function sfDebounce(key, fn, delay = 1000) {
+      clearTimeout(sfDebounceTimers[key]);
+      sfDebounceTimers[key] = setTimeout(fn, delay);
+    }
+
+    let sfIsUserEditing = false;
+    let sfEditingTimeout = null;
+    let sfPendingRealtimeRefresh = null;
+
+    document.addEventListener('focusin', (e) => {
+      if (e.target.closest && e.target.closest('#view-shopfloor') && e.target.matches('input, textarea, select')) sfIsUserEditing = true;
+    });
+    document.addEventListener('focusout', (e) => {
+      if (e.target.closest && e.target.closest('#view-shopfloor') && e.target.matches('input, textarea, select')) {
+        clearTimeout(sfEditingTimeout);
+        sfEditingTimeout = setTimeout(() => { sfIsUserEditing = false; }, 800);
+      }
+    });
+
+    function sfSafeRealtimeRefresh() {
+      if (sfIsUserEditing) {
+        clearTimeout(sfPendingRealtimeRefresh);
+        sfPendingRealtimeRefresh = setTimeout(() => {
+          if (!sfIsUserEditing) sfLoadAll();
+        }, 1500);
+        return;
+      }
+      sfLoadAll();
+    }
+
+    async function sfLoadAll() {
+      const [l, p, k] = await Promise.all([
+        db.from('shopboard_lifts').select('*').order('id'),
+        db.from('shopboard_parking').select('*').order('created_at'),
+        db.from('shopboard_pickup').select('*').order('created_at'),
+      ]);
+      sfLiftState   = l.data || Array.from({length:6},(_,i)=>({id:i+1,po:'',vehicle:'',work:'',status:'empty',notes:''}));
+      sfParkState   = p.data || [];
+      sfPickupState = k.data || [];
+      sfRenderLifts(); sfRenderParking(); sfRenderPickup(); sfUpdateStats();
+    }
+
+    function sfEmptyLifts() {
+      return sfLiftState
+        .map((l, i) => ({ i, label: `Lift ${i + 1}` }))
+        .filter(l => !hasVehicleData(sfLiftState[l.i]));
+    }
+
+    async function sfMoveToPickup(source, liftIdx, carId) {
+      let car;
+      if (source === 'lift') {
+        car = {...sfLiftState[liftIdx]};
+        if (!hasVehicleData(car)) {
+          alert('Cannot move an incomplete lift to pickup. Add both PO # and Vehicle first.');
+          return;
+        }
+        sfLiftState[liftIdx] = {...sfLiftState[liftIdx], po:'',vehicle:'',work:'',status:'empty',notes:'',job_category:'',warranty:false};
+        await db.from('shopboard_lifts').update({po:'',vehicle:'',work:'',status:'empty',notes:'',job_category:'',warranty:false}).eq('id', liftIdx+1);
+        sfRenderLifts();
+      } else {
+        car = sfParkState.find(c=>String(c.id)===String(carId));
+        if (!hasVehicleData(car)) {
+          alert('Cannot move an incomplete parking lot vehicle to pickup. Add both PO # and Vehicle first.');
+          return;
+        }
+        if (car && car.po && sfIsDuplicatePO(car.po, 'park', carId)) {
+          alert(`PO # "${car.po}" already exists on the board. Update it before moving to pickup.`);
+          return;
+        }
+        sfParkState = sfParkState.filter(c=>c.id!==carId);
+        await db.from('shopboard_parking').delete().eq('id', carId);
+        sfRenderParking();
+      }
+      const {data} = await db.from('shopboard_pickup').insert({
+        po:car.po, vehicle:car.vehicle, work:car.work,
+        customer:car.customer||'', notes:car.notes||'', arrival_date:car.arrival_date||null,
+        job_category:car.job_category||'', warranty:car.warranty||false,
+        undo_source:source, undo_index:liftIdx??null, undo_car:car
+      }).select().single();
+      if(data) sfPickupState.push(data);
+      sfRenderPickup(); sfUpdateStats();
+      document.getElementById('sf-pickupBody').lastElementChild?.scrollIntoView({behavior:'smooth',block:'center'});
+    }
+
+    async function sfUndoPickup(carId) {
+      const entry = sfPickupState.find(c=>String(c.id)===String(carId));
+      if (!entry) return;
+      sfPickupState = sfPickupState.filter(c=>String(c.id)!==String(carId));
+      await db.from('shopboard_pickup').delete().eq('id', carId);
+      if (entry.undo_source==='lift' && entry.undo_car) {
+        const car = entry.undo_car;
+        sfLiftState[entry.undo_index] = {...sfLiftState[entry.undo_index], ...car};
+        await db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:car.status,notes:car.notes||'',job_category:car.job_category||'',warranty:car.warranty||false}).eq('id', entry.undo_index+1);
+        sfRenderLifts();
+      } else {
+        const car = entry.undo_car || {po:entry.po,vehicle:entry.vehicle,customer:entry.customer||'',work:entry.work,status:'empty',notes:entry.notes||'',arrival_date:entry.arrival_date||null};
+        const {data} = await db.from('shopboard_parking').insert({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:car.status||'empty',notes:car.notes||'',arrival_date:car.arrival_date||null,job_category:car.job_category||'',warranty:car.warranty||false}).select().single();
+        if(data) sfParkState.push(data);
+        sfRenderParking();
+      }
+      sfRenderPickup(); sfUpdateStats();
+    }
+
+    async function sfPlaceOnLift(carId, liftIdx) {
+      const car = sfParkState.find(c=>String(c.id)===String(carId));
+      if (!car) return;
+      if (!hasVehicleData(car)) {
+        alert('Cannot place an incomplete parking lot vehicle on a lift. Add both PO # and Vehicle first.');
+        return;
+      }
+      if (car.po && sfIsDuplicatePO(car.po, 'park', carId)) {
+        alert(`PO # "${car.po}" already exists on the board. Update it before placing on a lift.`);
+        return;
+      }
+      const newStatus = car.status==='empty'?'in-progress':car.status;
+      sfLiftState[liftIdx] = {...sfLiftState[liftIdx], po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null,job_category:car.job_category||'',warranty:car.warranty||false};
+      sfParkState = sfParkState.filter(c=>String(c.id)!==String(carId));
+      await Promise.all([
+        db.from('shopboard_lifts').update({po:car.po,vehicle:car.vehicle,customer:car.customer||'',work:car.work,status:newStatus,notes:car.notes||'',arrival_date:car.arrival_date||null,job_category:car.job_category||'',warranty:car.warranty||false}).eq('id',liftIdx+1),
+        db.from('shopboard_parking').delete().eq('id',carId)
+      ]);
+      sfRenderLifts(); sfRenderParking(); sfUpdateStats();
+    }
+
+    function sfUpdateStats() {
+      const activeLifts   = sfLiftState.filter(hasVehicleData);
+      const activeParking = sfParkState.filter(hasVehicleData);
+      const activePickup  = sfPickupState.filter(hasVehicleData);
+      const totalInProg = [...activeLifts,...activeParking].filter(c=>c.status==='in-progress').length;
+      const totalWPart  = [...activeLifts,...activeParking].filter(c=>c.status==='waiting-part').length;
+      const totalWTech  = [...activeLifts,...activeParking].filter(c=>c.status==='waiting-tech').length;
+      const totalDel    = [...activeLifts,...activeParking].filter(c=>c.status==='delayed').length;
+      const total       = activeLifts.length + activeParking.length + activePickup.length;
+
+      document.getElementById('sf-statsBar').innerHTML = `
+        <div class="stat-pill total">  <span class="num">${total}</span>                    <span class="lbl">Total Vehicles</span></div>
+        <div class="stat-pill on-lift"><span class="num">${activeLifts.length}</span>        <span class="lbl">On Lifts</span></div>
+        <div class="stat-pill in-lot"> <span class="num">${activeParking.length}</span>      <span class="lbl">In Lot</span></div>
+        <div class="stat-pill working"><span class="num">${totalInProg}</span>               <span class="lbl">In Progress</span></div>
+        <div class="stat-pill w-part"> <span class="num">${totalWPart}</span>                <span class="lbl">Waiting Part</span></div>
+        <div class="stat-pill w-tech"> <span class="num">${totalWTech}</span>                <span class="lbl">Waiting Tech</span></div>
+        <div class="stat-pill delayed"><span class="num">${totalDel}</span>                  <span class="lbl">Delayed</span></div>
+        <div class="stat-pill pickup"> <span class="num">${activePickup.length}</span>       <span class="lbl">Ready Pickup</span></div>
+      `;
+    }
+
+    function sfIsDuplicatePO(po, excludeSource, excludeId) {
+      if (!po || !po.trim()) return false;
+      const norm = po.trim().toLowerCase();
+      const inLifts   = sfLiftState.some((l, i) => {
+        if (excludeSource==='lift' && excludeId===i) return false;
+        return (l.po||'').trim().toLowerCase() === norm;
+      });
+      const inParking = sfParkState.some(c => {
+        if (excludeSource==='park' && String(c.id)===String(excludeId)) return false;
+        return (c.po||'').trim().toLowerCase() === norm;
+      });
+      const inPickup  = sfPickupState.some(c => {
+        if (excludeSource==='pickup' && String(c.id)===String(excludeId)) return false;
+        return (c.po||'').trim().toLowerCase() === norm;
+      });
+      return inLifts || inParking || inPickup;
+    }
+
+    function sfLiftSVG(status) {
+      const isEmpty   = status === 'empty';
+      const imgFilter = SF_STATUS_FILTER[status] || SF_STATUS_FILTER['empty'];
+
+      return `<div class="lift-img-wrap${isEmpty ? ' empty-lift' : ''}">
+        <img src="lift_vehicle_icon.png" class="lift-img" style="filter:${imgFilter};"/>
+        ${isEmpty ? '<div class="lift-empty-label">EMPTY</div>' : ''}
+      </div>`;
+    }
+
+    function sfStatusLabel(s) { return SF_STATUS_OPTIONS.find(o=>o.value===s)?.label||'-'; }
+    function sfEsc(s) { return (s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+    /* -- LIFTS -- */
+    function sfRenderLifts() {
+      const board = document.getElementById('sf-board');
+      board.innerHTML = '';
+      sfLiftState.forEach((lift, i) => {
+        const hasVehicle = hasVehicleData(lift);
+        const card = document.createElement('div');
+
+        if (!hasVehicle) {
+          card.className = 'lift-card s-empty lift-card-empty';
+          card.innerHTML = `
+            <div class="lift-top">
+              <span class="lift-label">LIFT ${i+1}</span>
+              <span class="status-badge badge-empty">EMPTY</span>
+            </div>
+            <div class="empty-bay">
+              <div class="empty-bay-title">Open Bay</div>
+              <div class="empty-bay-subtitle">Assign vehicle from Parking Lot</div>
+            </div>
+          `;
+          board.appendChild(card);
+          return;
+        }
+
+        const displayStatus = lift.status || 'in-progress';
+        card.className = `lift-card s-${displayStatus}${lift.warranty ? ' warranty-active' : ''}`;
+        card.innerHTML = `
+          <div class="lift-top">
+            <span class="lift-label">LIFT ${i+1}</span>
+            <div style="display:flex;align-items:center;gap:4px">
+              ${lift.warranty ? '<span class="comeback-tag">COMEBACK</span>' : ''}
+              <span class="status-badge ${SF_BADGE_CLASS[displayStatus]}">${sfStatusLabel(displayStatus)}</span>
+            </div>
+          </div>
+          ${sfLiftSVG(displayStatus)}
+          <div class="lift-info">
+            <div class="field"><label>PO #</label>
+              <input type="text" placeholder="PO #" value="${sfEsc(lift.po)}" data-i="${i}" data-field="po"/>
+            </div>
+            <div class="field"><label>Vehicle</label>
+              <input type="text" placeholder="Year / Make / Model" value="${sfEsc(lift.vehicle)}" data-i="${i}" data-field="vehicle"/>
+            </div>
+            <div class="field"><label>Customer</label>
+              <input type="text" placeholder="Customer name" value="${sfEsc(lift.customer||'')}" data-i="${i}" data-field="customer"/>
+            </div>
+            <div class="field"><label>Work</label>
+              <input type="text" placeholder="Work description" value="${sfEsc(lift.work)}" data-i="${i}" data-field="work"/>
+            </div>
+            <div class="field"><label>Status</label>
+              <select data-i="${i}" data-field="status">
+                ${SF_STATUS_OPTIONS.map(o=>`<option value="${o.value}"${lift.status===o.value?' selected':''}>${o.label}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label>Job Category</label>
+              <select data-i="${i}" data-field="job_category">
+                ${SF_JOB_CATEGORY_OPTIONS.map(o=>`<option value="${o.value}"${(lift.job_category||'')===o.value?' selected':''}>${o.label}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field" style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">
+              <label style="margin-bottom:0">Warranty / Comeback</label>
+              <div style="display:flex;align-items:center;gap:5px">
+                <label class="warranty-toggle">
+                  <input type="checkbox" data-i="${i}" data-field="warranty"${lift.warranty?' checked':''}/>
+                  <span class="warranty-slider"></span>
+                </label>
+              </div>
+            </div>
+            <div class="field"><label>Arrival Date</label>
+              <input type="date" data-i="${i}" data-field="arrival_date" value="${sfEsc(lift.arrival_date||'')}"/>
+            </div>
+            <div class="field"><label>Notes</label>
+              <textarea placeholder="Notes..." data-i="${i}" data-field="notes">${sfEsc(lift.notes||'')}</textarea>
+            </div>
+            <div class="field"><label>Tech</label>
+              <select data-i="${i}" data-field="assigned_tech">
+                ${SF_TECH_LIST.map(t=>`<option value="${t==='Unassigned'?'':t}"${(lift.assigned_tech||'')===(t==='Unassigned'?'':t)?' selected':''}>${t}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label>Tech Notes</label>
+              <textarea placeholder="Tech notes..." data-i="${i}" data-field="tech_notes">${sfEsc(lift.tech_notes||'')}</textarea>
+            </div>
+            <div class="lift-btn-row">
+              <button class="clear-btn" data-clear="${i}">x Clear</button>
+              <button class="lot-back-btn" data-lot-back="${i}">&lt;- Lot</button>
+              <button class="pickup-move-btn" data-lift-pickup="${i}">Pickup</button>
+            </div>
+          </div>
+        `;
+        board.appendChild(card);
+      });
+      board.querySelectorAll('input,select,textarea').forEach(el => {
+        el.addEventListener('change', sfOnLiftChange);
+        el.addEventListener('input', sfOnLiftChange);
+      });
+      board.querySelectorAll('[data-clear]').forEach(btn => {
+        btn.addEventListener('click', async e => {
+          const i = +e.currentTarget.dataset.clear;
+          sfLiftState[i] = {...sfLiftState[i], po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,assigned_tech:'',tech_status:'available',tech_notes:'',job_category:'',warranty:false};
+          await db.from('shopboard_lifts').update({po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,assigned_tech:'',tech_status:'available',tech_notes:'',job_category:'',warranty:false}).eq('id',i+1);
+          sfRenderLifts(); sfRenderParking(); sfUpdateStats();
+        });
+      });
+      board.querySelectorAll('[data-lot-back]').forEach(btn => {
+        btn.addEventListener('click', async e => {
+          const i = +e.currentTarget.dataset.lotBack;
+          const car = {...sfLiftState[i]};
+          if (!hasVehicleData(car)) {
+            alert('Cannot move an incomplete lift to the parking lot. Add both PO # and Vehicle first.');
+            return;
+          }
+          sfLiftState[i] = {...sfLiftState[i], po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,job_category:'',warranty:false};
+          await db.from('shopboard_lifts').update({po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:null,job_category:'',warranty:false}).eq('id', i+1);
+          const {data} = await db.from('shopboard_parking').insert({
+            po:car.po, vehicle:car.vehicle, customer:car.customer||'', work:car.work,
+            status:car.status==='empty'?'empty':car.status, notes:car.notes||'', arrival_date:car.arrival_date||null,
+            job_category:car.job_category||'', warranty:car.warranty||false
+          }).select().single();
+          if(data) sfParkState.push(data);
+          sfRenderLifts(); sfRenderParking(); sfUpdateStats();
+        });
+      });
+      board.querySelectorAll('[data-lift-pickup]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          sfMoveToPickup('lift', +e.currentTarget.dataset.liftPickup, null);
+        });
+      });
+    }
+
+    function sfOnLiftChange(e) {
+      const i = +e.target.dataset.i, field = e.target.dataset.field;
+      const currentLift = sfLiftState[i];
+      const hasAnyVehicleIdentity = Boolean(
+        (currentLift?.po || '').trim() ||
+        (currentLift?.vehicle || '').trim()
+      );
+      if (!hasAnyVehicleIdentity) {
+        console.warn('Blocked manual edit on empty lift', { lift: i + 1, field });
+        sfRenderLifts();
+        sfUpdateStats();
+        return;
+      }
+      if (field === 'po' && e.type === 'change' && sfIsDuplicatePO(e.target.value, 'lift', i)) {
+        alert(`PO # "${e.target.value}" already exists on the board. Please use a different number.`);
+        const prev = sfLiftState[i].po || '';
+        e.target.value = prev;
+        sfLiftState[i].po = prev;
+        clearTimeout(sfDebounceTimers[`lift-${i}-po`]);
+        return;
+      }
+      const fieldVal = field === 'warranty' ? e.target.checked : e.target.value;
+      sfLiftState[i][field] = fieldVal;
+      if (field === 'status' || field === 'warranty') sfRenderLifts();
+      sfUpdateStats();
+      sfDebounce(`lift-${i}-${field}`, async () => {
+        try {
+          const result = await db.from('shopboard_lifts').update({[field]: fieldVal}).eq('id', i+1);
+          if (result.error) console.error('[ShopFloor] Lift save field:'+field, result.error);
+        } catch(err) { console.error('[ShopFloor] Lift save field:'+field, err); }
+      });
+    }
+
+    /* -- PARKING -- */
+    function sfRenderParking() {
+      const tbody = document.getElementById('sf-parkingBody');
+      const emptyMsg = document.getElementById('sf-parkingEmpty');
+      tbody.innerHTML = '';
+      if (sfParkState.length === 0) { emptyMsg.style.display='block'; return; }
+      emptyMsg.style.display = 'none';
+      const free = sfEmptyLifts();
+
+      sfParkState.forEach((car, i) => {
+        const tr = document.createElement('tr');
+        tr.className = `s-${car.status}${car.warranty ? ' warranty-active' : ''}`;
+
+        const liftSelId = `sf-ls-${car.id}`;
+        tr.innerHTML = `
+          <td class="row-num">${i+1}</td>
+          <td><input type="text" placeholder="PO #" value="${sfEsc(car.po)}" data-id="${car.id}" data-field="po"/></td>
+          <td><input type="text" placeholder="Customer name" value="${sfEsc(car.customer||'')}" data-id="${car.id}" data-field="customer"/></td>
+          <td><input type="text" placeholder="Year / Make / Model" value="${sfEsc(car.vehicle)}" data-id="${car.id}" data-field="vehicle"/></td>
+          <td><input type="text" placeholder="Transmission Removal" value="${sfEsc(car.work)}" data-id="${car.id}" data-field="work"/></td>
+          <td><select data-id="${car.id}" data-field="status">
+            ${SF_STATUS_OPTIONS.map(o=>`<option value="${o.value}"${car.status===o.value?' selected':''}>${o.label}</option>`).join('')}
+          </select></td>
+          <td><select data-id="${car.id}" data-field="job_category">
+            ${SF_JOB_CATEGORY_OPTIONS.map(o=>`<option value="${o.value}"${(car.job_category||'')===o.value?' selected':''}>${o.label}</option>`).join('')}
+          </select></td>
+          <td style="text-align:center;vertical-align:middle">
+            <label class="warranty-toggle">
+              <input type="checkbox" data-id="${car.id}" data-field="warranty"${car.warranty?' checked':''}/>
+              <span class="warranty-slider"></span>
+            </label>
+            ${car.warranty ? '<div class="comeback-tag" style="margin-top:2px">COMEBACK</div>' : ''}
+          </td>
+          <td><input type="date" data-id="${car.id}" data-field="arrival_date" value="${sfEsc(car.arrival_date||'')}"/></td>
+          <td><textarea placeholder="Notes..." data-id="${car.id}" data-field="notes">${sfEsc(car.notes||'')}</textarea></td>
+          <td><select data-id="${car.id}" data-field="assigned_tech">
+            ${SF_TECH_LIST.map(t=>`<option value="${t}"${(car.assigned_tech||'Unassigned')===t?' selected':''}>${t}</option>`).join('')}
+          </select></td>
+          <td style="white-space:nowrap;vertical-align:middle">
+            <div style="display:flex;flex-wrap:wrap;gap:3px;align-items:center">
+              ${free.length
+                ? `<select class="lift-sel" id="${liftSelId}">${free.map(l=>`<option value="${l.i}">${l.label}</option>`).join('')}</select>
+                   <button class="place-btn" data-place-id="${car.id}" data-liftsel="${liftSelId}">Place</button>`
+                : `<span style="font-size:0.62rem;color:#4b5563">No free lift</span>`}
+              <button class="move-btn" data-park-pickup="${car.id}" title="Move to Ready">Ready</button>
+              <button class="del-btn" data-del="${car.id}" title="Remove">x</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll('input,select,textarea').forEach(el => {
+        el.addEventListener('change', sfOnParkChange);
+        el.addEventListener('input', sfOnParkChange);
+      });
+      tbody.querySelectorAll('[data-place-id]').forEach(btn => {
+        btn.addEventListener('click', e => {
+          const carId  = e.currentTarget.dataset.placeId;
+          const selId  = e.currentTarget.dataset.liftsel;
+          const liftIdx = +document.getElementById(selId).value;
+          sfPlaceOnLift(carId, liftIdx);
+        });
+      });
+      tbody.querySelectorAll('[data-park-pickup]').forEach(btn => {
+        btn.addEventListener('click', e => sfMoveToPickup('park', null, e.currentTarget.dataset.parkPickup));
+      });
+      tbody.querySelectorAll('[data-del]').forEach(btn => {
+        btn.addEventListener('click', async e => {
+          const id = e.currentTarget.dataset.del;
+          sfParkState = sfParkState.filter(c=>String(c.id)!==id);
+          await db.from('shopboard_parking').delete().eq('id', id);
+          sfRenderParking(); sfUpdateStats();
+        });
+      });
+    }
+
+    function sfOnParkChange(e) {
+      const id = e.target.dataset.id, field = e.target.dataset.field;
+      if (!field || !id) return;
+      if (field === 'po' && e.type === 'change' && sfIsDuplicatePO(e.target.value, 'park', id)) {
+        alert(`PO # "${e.target.value}" already exists on the board. Please use a different number.`);
+        const car = sfParkState.find(c=>String(c.id)===id);
+        const prev = car?.po || '';
+        e.target.value = prev;
+        if (car) car.po = prev;
+        clearTimeout(sfDebounceTimers[`park-${id}-po`]);
+        return;
+      }
+      const fieldVal = field === 'warranty' ? e.target.checked : e.target.value;
+      const car = sfParkState.find(c=>String(c.id)===id);
+      if (car) car[field] = fieldVal;
+      if (field === 'status' || field === 'warranty') sfRenderParking();
+      sfUpdateStats();
+      sfDebounce(`park-${id}-${field}`, async () => {
+        try {
+          const result = await db.from('shopboard_parking').update({[field]: fieldVal}).eq('id', id);
+          if (result.error) console.error('[ShopFloor] Parking save field:'+field, result.error);
+        } catch(err) { console.error('[ShopFloor] Parking save field:'+field, err); }
+      });
+    }
+
+    /* -- PICKUP -- */
+    function sfRenderPickup() {
+      const tbody = document.getElementById('sf-pickupBody');
+      const emptyMsg = document.getElementById('sf-pickupEmpty');
+      tbody.innerHTML = '';
+      if (sfPickupState.length === 0) { emptyMsg.style.display='block'; return; }
+      emptyMsg.style.display = 'none';
+      sfPickupState.forEach((car, i) => {
+        const canUndo = !!(car.undo_source);
+        const tr = document.createElement('tr');
+        tr.className = `s-done${car.warranty ? ' warranty-active' : ''}`;
+        tr.innerHTML = `
+          <td class="row-num">${i+1}</td>
+          <td><input type="text" placeholder="PO #" value="${sfEsc(car.po)}" data-id="${car.id}" data-field="po"/></td>
+          <td><input type="text" placeholder="Year / Make / Model" value="${sfEsc(car.vehicle)}" data-id="${car.id}" data-field="vehicle"/></td>
+          <td><input type="text" placeholder="Work completed" value="${sfEsc(car.work)}" data-id="${car.id}" data-field="work"/></td>
+          <td><input type="text" placeholder="Customer name" value="${sfEsc(car.customer)}" data-id="${car.id}" data-field="customer"/></td>
+          <td><select data-id="${car.id}" data-field="job_category">
+            ${SF_JOB_CATEGORY_OPTIONS.map(o=>`<option value="${o.value}"${(car.job_category||'')===o.value?' selected':''}>${o.label}</option>`).join('')}
+          </select></td>
+          <td style="text-align:center;vertical-align:middle">
+            <label class="warranty-toggle">
+              <input type="checkbox" data-id="${car.id}" data-field="warranty"${car.warranty?' checked':''}/>
+              <span class="warranty-slider"></span>
+            </label>
+            ${car.warranty ? '<div class="comeback-tag" style="margin-top:2px">COMEBACK</div>' : ''}
+          </td>
+          <td><input type="date" data-id="${car.id}" data-field="arrival_date" value="${sfEsc(car.arrival_date||'')}"/></td>
+          <td><textarea placeholder="Notes..." data-id="${car.id}" data-field="notes">${sfEsc(car.notes||'')}</textarea></td>
+          <td><span class="pickup-badge">Ready</span></td>
+          <td style="white-space:nowrap;vertical-align:middle">
+            <div style="display:flex;gap:3px;align-items:center">
+              ${canUndo ? `<button class="undo-row-btn" data-undo="${car.id}" title="Send back">&lt;- Undo</button>` : ''}
+              <button class="del-btn" data-rdel="${car.id}" title="Picked up - remove">x</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+      tbody.querySelectorAll('input,select,textarea').forEach(el => {
+        el.addEventListener('change', sfOnPickupChange);
+        el.addEventListener('input', sfOnPickupChange);
+      });
+      tbody.querySelectorAll('[data-undo]').forEach(btn => {
+        btn.addEventListener('click', e => sfUndoPickup(e.currentTarget.dataset.undo));
+      });
+      tbody.querySelectorAll('[data-rdel]').forEach(btn => {
+        btn.addEventListener('click', async e => {
+          const id = e.currentTarget.dataset.rdel;
+          sfPickupState = sfPickupState.filter(c=>String(c.id)!==id);
+          await db.from('shopboard_pickup').delete().eq('id', id);
+          sfRenderPickup(); sfUpdateStats();
+        });
+      });
+    }
+
+    function sfOnPickupChange(e) {
+      const id = e.target.dataset.id, field = e.target.dataset.field;
+      if (!field || !id) return;
+      if (field === 'po' && e.type === 'change' && sfIsDuplicatePO(e.target.value, 'pickup', id)) {
+        alert(`PO # "${e.target.value}" already exists on the board. Please use a different number.`);
+        const car = sfPickupState.find(c=>String(c.id)===id);
+        const prev = car?.po || '';
+        e.target.value = prev;
+        if (car) car.po = prev;
+        clearTimeout(sfDebounceTimers[`pickup-${id}-po`]);
+        return;
+      }
+      const fieldVal = field === 'warranty' ? e.target.checked : e.target.value;
+      const car = sfPickupState.find(c=>String(c.id)===id);
+      if (car) car[field] = fieldVal;
+      if (field === 'warranty') sfRenderPickup();
+      sfDebounce(`pickup-${id}-${field}`, async () => {
+        try {
+          const result = await db.from('shopboard_pickup').update({[field]: fieldVal}).eq('id', id);
+          if (result.error) console.error('[ShopFloor] Pickup save field:'+field, result.error);
+        } catch(err) { console.error('[ShopFloor] Pickup save field:'+field, err); }
+      });
+    }
+
+    document.getElementById('sf-addCarBtn').addEventListener('click', async () => {
+      const today = new Date().toISOString().slice(0,10);
+      const {data} = await db.from('shopboard_parking').insert({po:'',vehicle:'',customer:'',work:'',status:'empty',notes:'',arrival_date:today}).select().single();
+      if(data) sfParkState.push(data);
+      sfRenderParking(); sfUpdateStats();
+      const tbody = document.getElementById('sf-parkingBody');
+      if (tbody.lastElementChild) {
+        tbody.lastElementChild.scrollIntoView({behavior:'smooth',block:'center'});
+        tbody.lastElementChild.querySelector('input')?.focus();
+      }
+    });
+
+    document.getElementById('sf-addPickupBtn').addEventListener('click', async () => {
+      const {data} = await db.from('shopboard_pickup').insert({po:'',vehicle:'',work:'',customer:'',notes:''}).select().single();
+      if(data) sfPickupState.push(data);
+      sfRenderPickup(); sfUpdateStats();
+      const tbody = document.getElementById('sf-pickupBody');
+      if (tbody.lastElementChild) {
+        tbody.lastElementChild.scrollIntoView({behavior:'smooth',block:'center'});
+        tbody.lastElementChild.querySelector('input')?.focus();
+      }
+    });
+
+    /* -- CSV IMPORT -- */
+    document.getElementById('sf-importCsvBtn').addEventListener('click', () => {
+      document.getElementById('sf-csvPasteArea').value = '';
+      document.getElementById('sf-csvImportModal').style.display = 'flex';
+    });
+    document.getElementById('sf-closeCsvModal').addEventListener('click', () => document.getElementById('sf-csvImportModal').style.display = 'none');
+    document.getElementById('sf-closeCsvModal2').addEventListener('click', () => document.getElementById('sf-csvImportModal').style.display = 'none');
+
+    document.getElementById('sf-runCsvImportBtn').addEventListener('click', async function() {
+      try {
+        const text = document.getElementById('sf-csvPasteArea').value.trim();
+        if (!text) { alert('Please paste CSV data first.'); return; }
+
+        const lines = text.split(/\r?\n/).filter(l => l.trim());
+        if (lines.length < 2) { alert('CSV has no data rows.'); return; }
+
+        const headers = lines[0].split(',').map(h => h.replace(/"/g,'').trim().toLowerCase());
+        const getCol = (row, ...keys) => {
+          for (const k of keys) {
+            const idx = headers.findIndex(h => h.includes(k));
+            if (idx >= 0) return (row[idx] || '').replace(/"/g,'').trim();
+          }
+          return '';
+        };
+
+        const allowedStatuses = ['empty','in-progress','waiting-part','waiting-tech','delayed','done'];
+        let imported = 0, skipped = 0, failed = 0;
+
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i].split(',');
+          const po       = getCol(row, 'po');
+          const vehicle  = getCol(row, 'vehicle', 'make', 'model', 'year');
+          const customer = getCol(row, 'customer', 'client', 'owner');
+          const work     = getCol(row, 'work', 'description', 'desc');
+          const status   = getCol(row, 'status') || 'empty';
+          const arrival  = getCol(row, 'arrival', 'date') || null;
+          const notes    = getCol(row, 'note');
+
+          if (!po || !vehicle) { skipped++; continue; }
+          if (po && sfIsDuplicatePO(po, null, null)) { skipped++; continue; }
+
+          const safeStatus = allowedStatuses.includes(status) ? status : 'empty';
+          const result = await db.from('shopboard_parking').insert({
+            po, vehicle, customer, work, status: safeStatus, arrival_date: arrival || null, notes
+          }).select().single();
+
+          if (result.error) { failed++; console.error('[ShopFloor] CSV Import row ' + i, result.error); }
+          else if (result.data) { imported++; }
+        }
+
+        await sfLoadAll();
+        document.getElementById('sf-csvImportModal').style.display = 'none';
+        alert('Import complete: ' + imported + ' added, ' + skipped + ' skipped, ' + failed + ' failed.');
+      } catch(err) {
+        console.error('[ShopFloor] CSV Import', err);
+        alert('CSV import failed. See browser console for details.');
+      }
+    });
+
+    /* -- REALTIME SUBSCRIPTIONS -- */
+    let sfChannel = null;
+    function sfSubscribeRealtime() {
+      if (sfChannel) db.removeChannel(sfChannel);
+      sfChannel = db.channel('gm-board-shopfloor-live')
+        .on('postgres_changes',{event:'*',schema:'public',table:'shopboard_lifts'}, ()=>{
+          sfSafeRealtimeRefresh();
+        })
+        .on('postgres_changes',{event:'INSERT',schema:'public',table:'shopboard_parking'}, ({new:rec})=>{
+          if(rec && !sfParkState.some(c=>String(c.id)===String(rec.id))) sfParkState.push(rec);
+          if (!sfIsUserEditing) { sfRenderParking(); sfUpdateStats(); }
+          else sfSafeRealtimeRefresh();
+        })
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'shopboard_parking'}, ({new:rec})=>{
+          if(rec){ const idx=sfParkState.findIndex(c=>String(c.id)===String(rec.id)); if(idx>=0) sfParkState[idx]=rec; }
+          if (!sfIsUserEditing) { sfRenderParking(); sfUpdateStats(); }
+          else sfSafeRealtimeRefresh();
+        })
+        .on('postgres_changes',{event:'DELETE',schema:'public',table:'shopboard_parking'}, ({old:rec})=>{
+          if(rec) sfParkState=sfParkState.filter(c=>String(c.id)!==String(rec.id));
+          if (!sfIsUserEditing) { sfRenderParking(); sfUpdateStats(); }
+          else sfSafeRealtimeRefresh();
+        })
+        .on('postgres_changes',{event:'INSERT',schema:'public',table:'shopboard_pickup'}, ({new:rec})=>{
+          if(rec && !sfPickupState.some(c=>String(c.id)===String(rec.id))) sfPickupState.push(rec);
+          if (!sfIsUserEditing) { sfRenderPickup(); sfUpdateStats(); }
+          else sfSafeRealtimeRefresh();
+        })
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'shopboard_pickup'}, ({new:rec})=>{
+          if(rec){ const idx=sfPickupState.findIndex(c=>String(c.id)===String(rec.id)); if(idx>=0) sfPickupState[idx]=rec; }
+          if (!sfIsUserEditing) { sfRenderPickup(); sfUpdateStats(); }
+          else sfSafeRealtimeRefresh();
+        })
+        .on('postgres_changes',{event:'DELETE',schema:'public',table:'shopboard_pickup'}, ({old:rec})=>{
+          if(rec) sfPickupState=sfPickupState.filter(c=>String(c.id)!==String(rec.id));
+          if (!sfIsUserEditing) { sfRenderPickup(); sfUpdateStats(); }
+          else sfSafeRealtimeRefresh();
+        })
+        .subscribe();
+    }
+    sfSubscribeRealtime();
+
+    sfLoadAll();
+    VIEW_REFRESH.shopfloor = {
+      refetch: sfLoadAll,
+      getChannel: () => sfChannel,
+      resubscribe: sfSubscribeRealtime,
+    };
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // TECH STATUS — ported from tech-board.html (v1 tool). Tech list is
+  // live from `employees` (role='tech', active=true) instead of the
+  // old hardcoded NAMED_TECHS array. Read + reorder only — a UI for
+  // setting tech_status itself (working/waiting-pull/etc.) is a
+  // separate future task. Realtime translated from tech-board.html's
+  // raw Phoenix WebSocket + 30s poll to the supabase-js channel
+  // pattern used elsewhere in this file. Lazy-loaded on first visit
+  // to the Tech Status tab, same pattern as Settings/Employees.
+  // ══════════════════════════════════════════════════════════════
+  (function () {
+    const TS_TECH_COLORS = ['#f59e0b','#22d3ee','#4ade80','#a78bfa','#f472b6','#60a5fa','#fb923c','#34d399'];
+
+    const TS_STATUS_LABEL = {
+      'available':        'Available',
+      'working':          'Working',
+      'waiting-pull':     'Waiting on Pull',
+      'waiting-install':  'Waiting Install',
+      'qc':               'QC',
+      'road-testing':     'Road Testing',
+      'finished':         'Finished',
+    };
+    const TS_STATUS_BG = {
+      'working':'#14532d', 'waiting-pull':'#1a2e05', 'waiting-install':'#422006',
+      'qc':'#0c1a3d', 'road-testing':'#4c1d95', 'finished':'#164e63', 'available':'#111827',
+    };
+    const TS_STATUS_COLOR = {
+      'working':'#86efac', 'waiting-pull':'#a3e635', 'waiting-install':'#fde047',
+      'qc':'#7dd3fc', 'road-testing':'#c4b5fd', 'finished':'#67e8f9', 'available':'#4b5563',
+    };
+    const TS_DOT_COLOR = {
+      'working':'#16a34a', 'waiting-pull':'#65a30d', 'waiting-install':'#ca8a04',
+      'qc':'#0284c7', 'road-testing':'#7c3aed', 'finished':'#0891b2', 'available':'#374151',
+    };
+    const TS_JOB_STATUS_DISPLAY = {
+      'in-progress':  { label:'In Progress',   bg:'#052e16', color:'#86efac' },
+      'waiting-part': { label:'Waiting Part',  bg:'#2c1a00', color:'#fcd34d' },
+      'waiting-tech': { label:'Waiting Tech',  bg:'#0f1f3d', color:'#93c5fd' },
+      'delayed':      { label:'Delayed',       bg:'#3b0a0a', color:'#fca5a5' },
+      'done':         { label:'Done/Ready',    bg:'#052630', color:'#67e8f9' },
+      'empty':        { label:'Unassigned',    bg:'#1f2937', color:'#6b7280' },
+    };
+
+    let tsTechs = [];          // [{ name, color }] — live from employees
+    let tsVehicles = [];       // lifts + parking + pickup, tagged with _source
+    let tsWhiteboardData = {}; // { techName: nextJobText }
+    let tsInitialized = false;
+
+    function tsEsc(s) {
+      return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    async function tsLoadTechs() {
+      const { data, error } = await db.from('employees').select('name').eq('role','tech').eq('active',true).order('name');
+      if (error) { console.error('[TechStatus] Load techs failed', error); tsTechs = []; return; }
+      tsTechs = (data || []).map((t, i) => ({ name: t.name, color: TS_TECH_COLORS[i % TS_TECH_COLORS.length] }));
+    }
+
+    async function tsLoadWhiteboard() {
+      const { data, error } = await db.from('tech_whiteboard').select('*');
+      if (error) { console.error('[TechStatus] Load whiteboard failed', error); return; }
+      tsWhiteboardData = {};
+      (data || []).forEach(r => { tsWhiteboardData[r.tech_name] = r.next_job || ''; });
+    }
+
+    async function tsLoadVehicles() {
+      const [l, p, k] = await Promise.all([
+        db.from('shopboard_lifts').select('*').order('id'),
+        db.from('shopboard_parking').select('*').order('created_at'),
+        db.from('shopboard_pickup').select('*').order('created_at'),
+      ]);
+      tsVehicles = [];
+      (l.data || []).forEach((r, idx) => { if (hasVehicleData(r)) tsVehicles.push({ ...r, _source:'lift', _liftNum: idx+1 }); });
+      (p.data || []).forEach(r => { if (hasVehicleData(r)) tsVehicles.push({ ...r, _source:'parking' }); });
+      (k.data || []).forEach(r => { if (hasVehicleData(r)) tsVehicles.push({ ...r, _source:'pickup' }); });
+    }
+
+    async function tsLoadAll() {
+      await Promise.all([tsLoadTechs(), tsLoadVehicles(), tsLoadWhiteboard()]);
+      tsRenderWhiteboard();
+      tsRenderPool();
+    }
+
+    async function tsLoadAndRerender() {
+      await tsLoadVehicles();
+      tsRenderWhiteboard();
+      tsRenderPool();
+    }
+
+    function tsActiveJobsForTech(tech) {
+      return tsVehicles
+        .filter(v => v.assigned_tech === tech && (v._source === 'lift' || v._source === 'parking'))
+        .sort((a, b) => {
+          const aActive = a.tech_status && a.tech_status !== 'finished' && a.tech_status !== 'available' ? 0 : 1;
+          const bActive = b.tech_status && b.tech_status !== 'finished' && b.tech_status !== 'available' ? 0 : 1;
+          if (aActive !== bActive) return aActive - bActive;
+          return (a.job_order ?? 9999) - (b.job_order ?? 9999);
+        });
+    }
+
+    function tsJobRow(v, tech, idx, list) {
+      const bg  = TS_STATUS_BG[v.tech_status]    || TS_STATUS_BG['available'];
+      const col = TS_STATUS_COLOR[v.tech_status] || TS_STATUS_COLOR['available'];
+      const lbl = TS_STATUS_LABEL[v.tech_status] || (v.tech_status ? v.tech_status : 'Waiting');
+      const src = v._source === 'lift' ? `Lift ${v._liftNum}` : 'Lot';
+      const isFirst = idx === 0;
+      const isLast  = idx === list.length - 1;
+      return `
+        <div class="wb-vehicle-row">
+          <div class="wb-vehicle-info">
+            <div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">
+              <div class="wb-ro">${tsEsc(v.po)}</div>
+              <span style="font-size:0.5rem;background:#1e293b;color:#6b7280;padding:1px 4px;border-radius:3px;font-weight:700">${tsEsc(src)}</span>
+            </div>
+            <div class="wb-veh">${tsEsc(v.vehicle)}</div>
+            <span class="wb-badge" style="background:${bg};color:${col}">${lbl}</span>
+          </div>
+          <div class="wb-reorder-btns">
+            <button class="wb-order-btn" data-ts-dir="up" data-id="${tsEsc(String(v.id))}" data-source="${v._source}" data-tech="${tsEsc(tech)}" ${isFirst ? 'disabled' : ''}>up</button>
+            <button class="wb-order-btn" data-ts-dir="down" data-id="${tsEsc(String(v.id))}" data-source="${v._source}" data-tech="${tsEsc(tech)}" ${isLast ? 'disabled' : ''}>dn</button>
+          </div>
+        </div>`;
+    }
+
+    function tsRenderWhiteboard() {
+      const grid = document.getElementById('ts-whiteboardGrid');
+      if (!grid) return;
+
+      if (tsTechs.length === 0) {
+        grid.innerHTML = '<p style="color:#6b7280;padding:20px">No active technicians found. Add one from Employees.</p>';
+        return;
+      }
+
+      grid.innerHTML = tsTechs.map(({ name: tech, color }) => {
+        const assigned = tsActiveJobsForTech(tech);
+        const primary = assigned[0];
+        const upNextJobs = assigned.slice(1);
+        const stat = primary?.tech_status || 'available';
+        const dot = TS_DOT_COLOR[stat] || '#374151';
+        const nextText = tsWhiteboardData[tech] || '';
+
+        const workingOnHtml = primary
+          ? tsJobRow(primary, tech, 0, [primary])
+          : `<div style="font-size:0.68rem;color:#374151;font-style:italic;">No active job</div>`;
+
+        const upNextHtml = upNextJobs.length > 0
+          ? upNextJobs.map((v, idx) => tsJobRow(v, tech, idx, upNextJobs)).join('')
+          : '';
+
+        return `
+          <div class="wb-card" style="border-color:${color}40;">
+            <div class="wb-card-header" style="background:${color}18;">
+              <div class="wb-tech-name" style="color:${color}">${tsEsc(tech)}</div>
+              <div class="wb-status-dot" style="background:${dot}"></div>
+            </div>
+            <div class="wb-divider"></div>
+            <div class="wb-block">
+              <div class="wb-block-label">Working On</div>
+              ${workingOnHtml}
+            </div>
+            <div class="wb-divider"></div>
+            <div class="wb-block">
+              <div class="wb-block-label">Up Next</div>
+              ${upNextHtml}
+              <textarea class="wb-next-field" placeholder="Notes..." data-tech="${tsEsc(tech)}">${tsEsc(nextText)}</textarea>
+            </div>
+          </div>`;
+      }).join('');
+
+      grid.querySelectorAll('[data-ts-dir]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          tsReorderJob(btn.dataset.id, btn.dataset.source, btn.dataset.tsDir, btn.dataset.tech);
+        });
+      });
+      grid.querySelectorAll('.wb-next-field').forEach(el => {
+        el.addEventListener('blur', () => tsSaveNextJob(el));
+      });
+    }
+
+    function tsRenderPool() {
+      const grid = document.getElementById('ts-poolGrid');
+      if (!grid) return;
+
+      const unassigned = tsVehicles.filter(v =>
+        (v._source === 'lift' || v._source === 'parking') &&
+        (!v.assigned_tech || v.assigned_tech.trim() === '' || v.assigned_tech === 'Unassigned')
+      );
+
+      const categories = [
+        { key: 'Gen Auto',        label: 'Gen Auto' },
+        { key: 'Rebuild',         label: 'Rebuild' },
+        { key: 'Diag',            label: 'Diag' },
+        { key: '__uncategorized', label: 'Uncategorized' },
+      ];
+
+      grid.innerHTML = categories.map(cat => {
+        const jobs = cat.key === '__uncategorized'
+          ? unassigned.filter(v => !v.job_category || v.job_category.trim() === '')
+          : unassigned.filter(v => v.job_category === cat.key);
+
+        const countClass = jobs.length > 0 ? ' has-jobs' : '';
+
+        const cards = jobs.length === 0
+          ? '<div class="pool-empty">No jobs</div>'
+          : jobs.map(v => {
+              const source = v._source === 'lift' ? `Lift ${v._liftNum}` : 'Lot';
+              const sd = TS_JOB_STATUS_DISPLAY[v.status] || TS_JOB_STATUS_DISPLAY['empty'];
+              return `
+                <div class="pool-job-card">
+                  <div class="pool-card-top">
+                    <span class="pool-source-tag">${tsEsc(source)}</span>
+                    <span class="pool-status-badge" style="background:${sd.bg};color:${sd.color}">${sd.label}</span>
+                  </div>
+                  <div class="pool-po">${tsEsc(v.po)}</div>
+                  <div class="pool-veh">${tsEsc(v.vehicle)}</div>
+                </div>`;
+            }).join('');
+
+        return `
+          <div class="pool-col">
+            <div class="pool-col-header">
+              <span class="pool-col-title">${cat.label}</span>
+              <span class="pool-count-badge${countClass}">${jobs.length}</span>
+            </div>
+            <div class="pool-jobs-list">${cards}</div>
+          </div>`;
+      }).join('');
+    }
+
+    async function tsReorderJob(vehicleId, source, direction, tech) {
+      const activeJobs = tsActiveJobsForTech(tech);
+      const idx = activeJobs.findIndex(v => String(v.id) === String(vehicleId) && v._source === source);
+      if (idx < 0) return;
+      const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+      if (swapIdx < 0 || swapIdx >= activeJobs.length) return;
+
+      const a = activeJobs[idx];
+      const b = activeJobs[swapIdx];
+      const aOrder = swapIdx + 1;
+      const bOrder = idx + 1;
+      a.job_order = aOrder;
+      b.job_order = bOrder;
+
+      tsRenderWhiteboard();
+
+      const patch = async (v, order) => {
+        const tbl = v._source === 'lift' ? 'shopboard_lifts' : 'shopboard_parking';
+        const { error } = await db.from(tbl).update({ job_order: order }).eq('id', v.id);
+        if (error) console.error('[TechStatus] Reorder save failed', error);
+      };
+      await Promise.all([patch(a, aOrder), patch(b, bOrder)]);
+    }
+
+    async function tsSaveNextJob(el) {
+      const tech = el.dataset.tech;
+      const text = el.value;
+      tsWhiteboardData[tech] = text;
+      const { error } = await db.from('tech_whiteboard')
+        .upsert({ tech_name: tech, next_job: text }, { onConflict: 'tech_name' });
+      if (error) console.error('[TechStatus] Save next job failed', error);
+    }
+
+    let tsChannel = null;
+    function tsSubscribeRealtime() {
+      if (tsChannel) db.removeChannel(tsChannel);
+      tsChannel = db.channel('gm-board-techstatus-live')
+        .on('postgres_changes', { event:'*', schema:'public', table:'shopboard_lifts' },   tsLoadAndRerender)
+        .on('postgres_changes', { event:'*', schema:'public', table:'shopboard_parking' }, tsLoadAndRerender)
+        .on('postgres_changes', { event:'*', schema:'public', table:'shopboard_pickup' },  tsLoadAndRerender)
+        .on('postgres_changes', { event:'*', schema:'public', table:'tech_whiteboard' },   () => { tsLoadWhiteboard().then(tsRenderWhiteboard); })
+        .subscribe();
+    }
+
+    function tsInit() {
+      if (tsInitialized) return;
+      tsInitialized = true;
+      tsLoadAll();
+      tsSubscribeRealtime();
+      VIEW_REFRESH.techstatus = {
+        refetch: tsLoadAll,
+        getChannel: () => tsChannel,
+        resubscribe: tsSubscribeRealtime,
+      };
+    }
+
+    document.querySelector('.sidebar-item[data-view="techstatus"]').addEventListener('click', tsInit);
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // TEARDOWN — ported from teardown.html (v1 tool). This pass covers
+  // 4-bench visual + unit placement only: reads/writes shopboard_tables
+  // (table_number 1-4, rows always exist, never inserted/deleted here —
+  // same assumption v1 made), joins shopboard_lifts read-only for
+  // customer/vehicle (po ↔ ro_number), and reads the transmissions
+  // catalog for the unit dropdown. Tech list is live from `employees`
+  // (role='tech', active=true) instead of v1's hardcoded TECH_LIST array
+  // — same fix pattern as Tech Status. Kiki's parts-ordering tracker
+  // (teardowns / teardown_parts, Failed/Worn/OK badges) is explicitly
+  // out of scope for this pass — never read or written here. Realtime
+  // translated from v1's raw Phoenix WebSocket + 30s poll to a
+  // supabase-js channel on shopboard_tables, wired into VIEW_REFRESH
+  // like every other view. Lazy-loaded on first visit to the Teardown
+  // tab, same pattern as Tech Status/Settings.
+  // ══════════════════════════════════════════════════════════════
+  (function () {
+    let tdSlots = { 1: null, 2: null, 3: null, 4: null }; // { slot, tx, lift }
+    let tdTxCatalog = [];       // [{ id, name, cover_image }]
+    let tdTechs = [];           // live tech names from employees
+    let tdInitialized = false;
+    let tdEditingTable = null;  // table_number currently open in the modal
+
+    function tdEsc(s) {
+      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    async function tdLoadTechs() {
+      const { data, error } = await db.from('employees').select('name').eq('role','tech').eq('active',true).order('name');
+      if (error) { console.error('[Teardown] Load techs failed', error); tdTechs = []; return; }
+      tdTechs = (data || []).map(t => t.name);
+    }
+
+    async function tdLoadTxCatalog() {
+      const { data, error } = await db.from('transmissions').select('id,name,cover_image').order('name');
+      if (error) { console.error('[Teardown] Load transmissions failed', error); tdTxCatalog = []; return; }
+      tdTxCatalog = data || [];
+    }
+
+    function tdBuildLiftMap(lifts) {
+      const m = {};
+      (lifts || []).forEach(l => { if (l.po) m[String(l.po).trim().toLowerCase()] = l; });
+      return m;
+    }
+
+    async function tdLoadAll() {
+      const [{ data: slots, error: slotsErr }, { data: lifts, error: liftsErr }] = await Promise.all([
+        db.from('shopboard_tables').select('table_number,ro_number,tech_name,transmission_id,updated_at').order('table_number'),
+        db.from('shopboard_lifts').select('po,customer,vehicle').order('id'),
+        tdLoadTechs(),
+        tdLoadTxCatalog(),
+      ]);
+      if (slotsErr) { console.error('[Teardown] Load slots failed', slotsErr); return; }
+      if (liftsErr) console.error('[Teardown] Load lifts failed', liftsErr);
+
+      const txIds = [...new Set((slots || []).map(s => s.transmission_id).filter(Boolean))];
+      let txMap = {};
+      if (txIds.length > 0) {
+        const { data: txRows, error: txErr } = await db.from('transmissions').select('id,name,cover_image').in('id', txIds);
+        if (txErr) console.error('[Teardown] Load unit lookup failed', txErr);
+        (txRows || []).forEach(tx => { txMap[tx.id] = tx; });
+      }
+
+      const liftMap = tdBuildLiftMap(lifts);
+      const next = { 1: null, 2: null, 3: null, 4: null };
+      (slots || []).forEach(slot => {
+        const tx   = txMap[slot.transmission_id] || null;
+        const lift = liftMap[String(slot.ro_number || '').trim().toLowerCase()] || null;
+        next[slot.table_number] = { slot, tx, lift };
+      });
+      tdSlots = next;
+      tdRenderGrid();
+    }
+
+    function tdRenderGrid() {
+      const grid = document.getElementById('td-grid');
+      grid.innerHTML = [1,2,3,4].map(n => tdRenderCard(n)).join('');
+      grid.querySelectorAll('[data-place]').forEach(btn => btn.addEventListener('click', () => tdOpenModal(Number(btn.dataset.place), 'place')));
+      grid.querySelectorAll('[data-edit]').forEach(btn => btn.addEventListener('click', () => tdOpenModal(Number(btn.dataset.edit), 'edit')));
+      grid.querySelectorAll('[data-clear]').forEach(btn => btn.addEventListener('click', () => tdClearTable(Number(btn.dataset.clear))));
+    }
+
+    function tdRenderCard(n) {
+      const data = tdSlots[n];
+      const isActive = !!(data && (data.slot.ro_number || data.slot.transmission_id));
+
+      if (!isActive) {
+        return `
+          <div class="td-card td-empty" data-key="empty-${n}">
+            <div class="td-card-header">
+              <span class="td-card-label">Table ${n} · Open</span>
+            </div>
+            <div class="td-card-body td-empty-body">
+              <span class="td-empty-msg">No active teardown</span>
+              <button class="td-btn td-btn-primary" data-place="${n}">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M12 5l0 14" /><path d="M5 12l14 0" /></svg>
+                Place Unit
+              </button>
+            </div>
+          </div>`;
+      }
+
+      const { slot, tx, lift } = data;
+      const txName   = tx?.name || '';
+      const imgSrc   = tx?.cover_image || '';
+      const roNum    = slot.ro_number || '';
+      const customer = lift?.customer || '';
+      const vehicle  = lift?.vehicle || '';
+      const techName = slot.tech_name || '';
+      const updated  = slot.updated_at ? new Date(slot.updated_at).toLocaleString() : '';
+
+      return `
+        <div class="td-card" data-key="active-${n}-${slot.updated_at}">
+          <div class="td-card-header">
+            <span class="td-card-label">Table ${n}</span>
+            ${txName ? `<span class="td-card-unit">${imgSrc ? `<img class="td-unit-thumb" src="${tdEsc(imgSrc)}" alt="" onerror="this.remove()">` : ''}${tdEsc(txName)}</span>` : ''}
+          </div>
+          <div class="td-card-body">
+            ${roNum    ? `<div class="td-line-po">PO #${tdEsc(roNum)}</div>` : ''}
+            ${customer ? `<div class="td-line-customer">${tdEsc(customer)}</div>` : ''}
+            ${vehicle  ? `<div class="td-line-vehicle">${tdEsc(vehicle)}</div>` : ''}
+            <div class="td-line-tech">Tech: ${tdEsc(techName || 'Unassigned')}</div>
+            <div class="td-line-updated">Last updated: ${tdEsc(updated)}</div>
+          </div>
+          <div class="td-card-actions">
+            <button class="td-btn td-btn-outline" data-edit="${n}">Edit</button>
+            <button class="td-btn td-btn-danger" data-clear="${n}">Clear Table</button>
+          </div>
+        </div>`;
+    }
+
+    function tdPopulateTechSelect(selected) {
+      const sel = document.getElementById('td-techInput');
+      sel.innerHTML = '<option value="">Unassigned</option>' +
+        tdTechs.map(name => `<option value="${tdEsc(name)}"${name === selected ? ' selected' : ''}>${tdEsc(name)}</option>`).join('');
+    }
+
+    function tdPopulateTxSelect(selectedId) {
+      const sel = document.getElementById('td-txInput');
+      sel.innerHTML = '<option value="">— Select unit —</option>' +
+        tdTxCatalog.map(t => `<option value="${tdEsc(t.id)}"${t.id === selectedId ? ' selected' : ''}>${tdEsc(t.name)}</option>`).join('');
+    }
+
+    function tdOpenModal(n, mode) {
+      tdEditingTable = n;
+      const data = tdSlots[n];
+      const isEdit = mode === 'edit' && !!data;
+      document.getElementById('td-formTitle').textContent = (isEdit ? 'Edit — Table ' : 'Place Unit — Table ') + n;
+      document.getElementById('td-roInput').value = isEdit ? (data.slot.ro_number || '') : '';
+      tdPopulateTechSelect(isEdit ? (data.slot.tech_name || '') : '');
+      tdPopulateTxSelect(isEdit ? (data.slot.transmission_id || '') : '');
+      document.getElementById('td-formError').textContent = '';
+      document.getElementById('td-saveBtn').textContent = isEdit ? 'Save' : 'Place';
+      document.getElementById('teardownFormModal').style.display = 'flex';
+    }
+
+    function tdCloseModal() {
+      tdEditingTable = null;
+      document.getElementById('teardownFormModal').style.display = 'none';
+    }
+
+    async function tdSaveSlot() {
+      const n = tdEditingTable;
+      if (!n) return;
+      const ro   = document.getElementById('td-roInput').value.trim();
+      const tech = document.getElementById('td-techInput').value;
+      const txId = document.getElementById('td-txInput').value || null;
+      const errEl = document.getElementById('td-formError');
+      errEl.textContent = '';
+
+      if (!ro) { errEl.textContent = 'PO # is required.'; return; }
+
+      const wasEdit = !!tdSlots[n];
+      const saveBtn = document.getElementById('td-saveBtn');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      try {
+        const { error } = await db.from('shopboard_tables')
+          .update({ ro_number: ro, tech_name: tech, transmission_id: txId, updated_at: new Date().toISOString() })
+          .eq('table_number', n);
+        if (error) throw error;
+        tdCloseModal();
+        await tdLoadAll();
+      } catch (err) {
+        console.error('[Teardown] Save slot failed', err);
+        errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = wasEdit ? 'Save' : 'Place';
+      }
+    }
+
+    async function tdClearTable(n) {
+      if (!confirm(`Clear Table ${n}? This will remove the unit assignment.`)) return;
+      try {
+        const { error } = await db.from('shopboard_tables')
+          .update({ ro_number: '', tech_name: '', transmission_id: null, updated_at: new Date().toISOString() })
+          .eq('table_number', n);
+        if (error) throw error;
+        await tdLoadAll();
+      } catch (err) {
+        console.error('[Teardown] Clear table failed', err);
+        alert('Failed to clear table. Check console.');
+      }
+    }
+
+    let tdChannel = null;
+    function tdSubscribeRealtime() {
+      if (tdChannel) db.removeChannel(tdChannel);
+      tdChannel = db.channel('gm-board-teardown-live')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_tables' }, tdLoadAll)
+        .subscribe();
+    }
+
+    function tdInit() {
+      if (tdInitialized) return;
+      tdInitialized = true;
+      tdLoadAll();
+      tdSubscribeRealtime();
+      VIEW_REFRESH.teardown = {
+        refetch: tdLoadAll,
+        getChannel: () => tdChannel,
+        resubscribe: tdSubscribeRealtime,
+      };
+    }
+
+    document.querySelector('.sidebar-item[data-view="teardown"]').addEventListener('click', tdInit);
+    document.getElementById('td-closeFormX').addEventListener('click', tdCloseModal);
+    document.getElementById('td-cancelBtn').addEventListener('click', tdCloseModal);
+    document.getElementById('td-saveBtn').addEventListener('click', tdSaveSlot);
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // SETTINGS — Employee Management (Step 2 of 3). Reads/writes the
+  // `employees` table and the `employee-photos` storage bucket via
+  // the shared `db` client above.
+  // ══════════════════════════════════════════════════════════════
+  (function () {
+    const ROLE_LABEL_MAP = { tech: 'Technician', advisor: 'Service Advisor', manager: 'Manager', owner: 'Owner' };
+
+    let EMPLOYEES = [];
+    let EMP_EDITING_ID = null;   // null = form closed, 'new' = add, else = employee id being edited
+    let EMP_PHOTO_FILE = null;   // pending photo file selected in the open form
+    let EMP_DELETE_ID = null;    // employee id pending delete confirmation
+
+    function escHtml(s) {
+      return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function formatPhone(p) {
+      const d = (p || '').replace(/\D/g, '');
+      if (d.length !== 10) return p || '';
+      return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+    }
+
+    async function loadEmployees() {
+      const { data, error } = await db.from('employees').select('*').order('name');
+      if (error) {
+        console.error('[Settings] Load employees failed', error);
+        document.getElementById('employee-list-wrap').innerHTML =
+          '<div class="stub-view"><h2>Could not load employees</h2><p>' + escHtml(error.message) + '</p></div>';
+        return;
+      }
+      EMPLOYEES = data || [];
+      renderEmployeeList();
+    }
+
+    function renderEmployeeList() {
+      const wrap = document.getElementById('employee-list-wrap');
+      if (!EMPLOYEES.length) {
+        wrap.innerHTML = '<div class="stub-view"><h2>No Employees</h2><p>Add your first employee to get started.</p></div>';
+        return;
+      }
+      const rows = EMPLOYEES.map(e => {
+        const initial = escHtml((e.name || '?').trim().charAt(0).toUpperCase() || '?');
+        const avatar = e.photo_url
+          ? `<img class="emp-avatar" src="${escHtml(e.photo_url)}" alt="${escHtml(e.name)}">`
+          : `<div class="emp-avatar-fallback">${initial}</div>`;
+        return `<tr>
+          <td>${avatar}</td>
+          <td class="emp-name-cell">${escHtml(e.name)}</td>
+          <td>${escHtml(formatPhone(e.phone))}</td>
+          <td><span class="role-pill role-${escHtml(e.role)}">${escHtml(ROLE_LABEL_MAP[e.role] || e.role)}</span></td>
+          <td>${e.active ? '<span class="active-pill active-yes">Active</span>' : '<span class="active-pill active-no">Inactive</span>'}</td>
+          <td>
+            <button class="emp-edit-btn" data-edit="${e.id}">Edit</button>
+            <button class="emp-del-btn" data-del="${e.id}">Delete</button>
+          </td>
+        </tr>`;
+      }).join('');
+
+      wrap.innerHTML = `
+        <div class="tech-table-wrap">
+          <table class="tech-table emp-table">
+            <thead><tr><th></th><th>Name</th><th>Phone</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+
+      wrap.querySelectorAll('[data-edit]').forEach(btn => {
+        btn.addEventListener('click', () => openEditEmployee(btn.dataset.edit));
+      });
+      wrap.querySelectorAll('[data-del]').forEach(btn => {
+        btn.addEventListener('click', () => openDeleteConfirm(btn.dataset.del));
+      });
+    }
+
+    function setAvatarPreview(url, name) {
+      const el = document.getElementById('empFormAvatarPreview');
+      if (url) {
+        el.innerHTML = `<img src="${escHtml(url)}" alt="">`;
+      } else {
+        const initial = ((name || '?').trim().charAt(0).toUpperCase()) || '?';
+        el.textContent = initial;
+      }
+    }
+
+    function openAddEmployee() {
+      EMP_EDITING_ID = 'new';
+      EMP_PHOTO_FILE = null;
+      document.getElementById('employeeFormTitle').textContent = 'Add Employee';
+      document.getElementById('empNameInput').value = '';
+      document.getElementById('empPhoneInput').value = '';
+      document.getElementById('empPinInput').value = '';
+      document.getElementById('empRoleInput').value = 'tech';
+      document.getElementById('empActiveInput').checked = true;
+      document.getElementById('empFormError').textContent = '';
+      document.getElementById('empPhotoInput').value = '';
+      setAvatarPreview(null, '');
+      document.getElementById('employeeFormModal').style.display = 'flex';
+    }
+
+    function openEditEmployee(id) {
+      const emp = EMPLOYEES.find(e => String(e.id) === String(id));
+      if (!emp) return;
+      EMP_EDITING_ID = emp.id;
+      EMP_PHOTO_FILE = null;
+      document.getElementById('employeeFormTitle').textContent = 'Edit Employee';
+      document.getElementById('empNameInput').value = emp.name || '';
+      document.getElementById('empPhoneInput').value = emp.phone || '';
+      document.getElementById('empPinInput').value = emp.pin || '';
+      document.getElementById('empRoleInput').value = emp.role || 'tech';
+      document.getElementById('empActiveInput').checked = !!emp.active;
+      document.getElementById('empFormError').textContent = '';
+      document.getElementById('empPhotoInput').value = '';
+      setAvatarPreview(emp.photo_url, emp.name);
+      document.getElementById('employeeFormModal').style.display = 'flex';
+    }
+
+    function closeEmployeeForm() {
+      EMP_EDITING_ID = null;
+      EMP_PHOTO_FILE = null;
+      document.getElementById('employeeFormModal').style.display = 'none';
+    }
+
+    async function saveEmployee() {
+      const name = document.getElementById('empNameInput').value.trim();
+      const phone = document.getElementById('empPhoneInput').value.trim();
+      const pin = document.getElementById('empPinInput').value.trim();
+      const role = document.getElementById('empRoleInput').value;
+      const active = document.getElementById('empActiveInput').checked;
+      const errEl = document.getElementById('empFormError');
+      errEl.textContent = '';
+
+      if (!name || !phone || !pin || !role) {
+        errEl.textContent = 'Name, phone, PIN, and role are all required.';
+        return;
+      }
+
+      const saveBtn = document.getElementById('saveEmployeeBtn');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      try {
+        const isNew = EMP_EDITING_ID === 'new';
+        const employeeId = isNew ? crypto.randomUUID() : EMP_EDITING_ID;
+        let photoUrl = isNew ? null : (EMPLOYEES.find(e => e.id === EMP_EDITING_ID)?.photo_url || null);
+
+        if (EMP_PHOTO_FILE) {
+          const ext = (EMP_PHOTO_FILE.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+          const path = `${employeeId}/${Date.now()}.${ext}`;
+          const { error: uploadErr } = await db.storage.from('employee-photos').upload(path, EMP_PHOTO_FILE, { upsert: true });
+          if (uploadErr) throw uploadErr;
+          const { data: pub } = db.storage.from('employee-photos').getPublicUrl(path);
+          photoUrl = pub.publicUrl;
+        }
+
+        const payload = { name, phone, pin, role, active, photo_url: photoUrl };
+
+        if (isNew) {
+          const { error: insErr } = await db.from('employees').insert({ id: employeeId, ...payload });
+          if (insErr) throw insErr;
+        } else {
+          const { error: updErr } = await db.from('employees').update(payload).eq('id', employeeId);
+          if (updErr) throw updErr;
+        }
+
+        closeEmployeeForm();
+        await loadEmployees();
+      } catch (err) {
+        console.error('[Settings] Save employee failed', err);
+        errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      }
+    }
+
+    function openDeleteConfirm(id) {
+      const emp = EMPLOYEES.find(e => String(e.id) === String(id));
+      if (!emp) return;
+      EMP_DELETE_ID = emp.id;
+      document.getElementById('empDeleteMsg').innerHTML =
+        `Permanently delete <strong>${escHtml(emp.name)}</strong>? This removes their login and cannot be undone. ` +
+        `If you just want to disable their login, use Edit → Active instead.`;
+      document.getElementById('employeeDeleteModal').style.display = 'flex';
+    }
+
+    function closeDeleteConfirm() {
+      EMP_DELETE_ID = null;
+      document.getElementById('employeeDeleteModal').style.display = 'none';
+    }
+
+    async function doDeleteEmployee() {
+      if (!EMP_DELETE_ID) return;
+      const btn = document.getElementById('confirmDeleteEmployeeBtn');
+      btn.disabled = true;
+      btn.textContent = 'Deleting…';
+      const { error } = await db.from('employees').delete().eq('id', EMP_DELETE_ID);
+      btn.disabled = false;
+      btn.textContent = 'Yes, Delete Permanently';
+      if (error) {
+        console.error('[Settings] Delete employee failed', error);
+        alert('Delete failed: ' + error.message);
+        return;
+      }
+      closeDeleteConfirm();
+      await loadEmployees();
+    }
+
+    // ── Entry point: sidebar "Employees" item — generic nav-switch handler
+    // (wired earlier) already shows view-settings; this just loads the data.
+    document.getElementById('navEmployees').addEventListener('click', () => {
+      loadEmployees();
+    });
+    VIEW_REFRESH.settings = { refetch: loadEmployees };
+
+    // ── Add/Edit form wiring
+    document.getElementById('btnAddEmployee').addEventListener('click', openAddEmployee);
+    document.getElementById('closeEmployeeFormX').addEventListener('click', closeEmployeeForm);
+    document.getElementById('cancelEmployeeForm').addEventListener('click', closeEmployeeForm);
+    document.getElementById('saveEmployeeBtn').addEventListener('click', saveEmployee);
+    document.getElementById('empPhotoInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        alert('Please choose an image file.');
+        e.target.value = '';
+        return;
+      }
+      EMP_PHOTO_FILE = file;
+      const reader = new FileReader();
+      reader.onload = () => setAvatarPreview(reader.result, '');
+      reader.readAsDataURL(file);
+    });
+
+    // ── Delete confirm wiring
+    document.getElementById('confirmDeleteEmployeeBtn').addEventListener('click', doDeleteEmployee);
+    document.getElementById('cancelDeleteEmployeeBtn').addEventListener('click', closeDeleteConfirm);
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // SESSION CAPTURE + GREETING (Step 3 of 3, employee management).
+  // Passive identity only — never blocks the board from loading or
+  // functioning. If nothing is known, no greeting shows, nothing else changes.
+  // ══════════════════════════════════════════════════════════════
+  (async function captureSessionAndGreet() {
+    const SESSION_PHONE_KEY = 'gmBoardPhone';
+    function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+    async function renderGreeting(phone) {
+      if (!phone) return;
+      const { data: emp } = await db.from('employees').select('name, photo_url, role').eq('phone', phone).maybeSingle();
+      if (!emp) return;
+      CHAT_IDENTITY = { name: emp.name, role: emp.role };
+      const avatar = emp.photo_url
+        ? `<img class="greeting-avatar" src="${esc(emp.photo_url)}" alt="">`
+        : `<div class="greeting-avatar-fallback">${esc((emp.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;
+      const wrap = document.getElementById('greetingWrap');
+      wrap.innerHTML = `${avatar}<span>Hi, ${esc(emp.name)}</span>`;
+      wrap.style.display = 'flex';
+    }
+
+    let phone = null;
+
+    // Fresh passthrough from CrisData: ?u=phone&p=pin
+    const params = new URLSearchParams(window.location.search);
+    const passPhone = params.get('u');
+    const passPin = params.get('p');
+    if (passPhone && passPin) {
+      const { data: match } = await db
+        .from('employees').select('phone')
+        .eq('phone', passPhone).eq('pin', passPin).eq('active', true)
+        .maybeSingle();
+      if (match) {
+        phone = match.phone;
+        localStorage.setItem(SESSION_PHONE_KEY, phone);
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+
+    // Restore a persisted session if no fresh passthrough matched
+    if (!phone) {
+      phone = localStorage.getItem(SESSION_PHONE_KEY);
+    }
+
+    if (phone) {
+      await renderGreeting(phone);
+    }
+    // No match anywhere: board already loaded normally above, just no greeting.
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // LOGOUT — manual button + 120-minute idle auto-logout.
+  // Clears the local session and returns to the CrisData employee
+  // login screen. Also calls supabase auth signOut defensively in
+  // case a GoTrue session is ever introduced.
+  // ══════════════════════════════════════════════════════════════
+  (function initLogout() {
+    const SESSION_PHONE_KEY = 'gmBoardPhone';
+    const IDLE_LIMIT_MS = 120 * 60 * 1000;
+    const CHECK_INTERVAL_MS = 30 * 1000;
+    let lastActivity = Date.now();
+
+    async function logOut() {
+      try { await db.auth.signOut(); } catch (e) {}
+      localStorage.removeItem(SESSION_PHONE_KEY);
+      window.location.href = 'crisdata.html';
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', logOut);
+
+    ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => {
+      window.addEventListener(evt, () => { lastActivity = Date.now(); }, { passive: true });
+    });
+
+    setInterval(() => {
+      if (Date.now() - lastActivity >= IDLE_LIMIT_MS) logOut();
+    }, CHECK_INTERVAL_MS);
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // AUTO-REFRESH SAFETY NET + MANUAL REFRESH
+  // Realtime channels (registered into VIEW_REFRESH above) are the
+  // primary update mechanism. This is only a fallback for when a
+  // socket silently drops — e.g. a backgrounded tab or a network
+  // blip: refetch immediately when the tab becomes visible/focused,
+  // and every 60s verify the active view's channel is still joined,
+  // only refetching + resubscribing if it isn't.
+  // ══════════════════════════════════════════════════════════════
+  (function initRefreshSafetyNet() {
+    function refreshActiveView() {
+      const entry = VIEW_REFRESH[currentViewKey];
+      if (!entry || typeof entry.refetch !== 'function') return Promise.resolve();
+      return Promise.resolve(entry.refetch());
+    }
+
+    function isChannelHealthy(channel) {
+      return !!channel && channel.state === 'joined';
+    }
+
+    function checkActiveChannelHealth() {
+      const entry = VIEW_REFRESH[currentViewKey];
+      if (!entry || typeof entry.getChannel !== 'function') return; // no channel for this view
+      if (isChannelHealthy(entry.getChannel())) return; // realtime already pushing updates
+      if (typeof entry.refetch === 'function') entry.refetch();
+      if (typeof entry.resubscribe === 'function') entry.resubscribe();
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refreshActiveView();
+    });
+    window.addEventListener('focus', refreshActiveView);
+    setInterval(checkActiveChannelHealth, 60 * 1000);
+
+    // ── Manual refresh button
+    const refreshBtn = document.getElementById('refreshBtn');
+    const refreshIcon = document.getElementById('refreshBtnIcon');
+    refreshBtn.addEventListener('click', async () => {
+      if (refreshBtn.disabled) return;
+      refreshBtn.disabled = true;
+      refreshIcon.classList.add('spinning');
+      try {
+        await refreshActiveView();
+      } finally {
+        refreshIcon.classList.remove('spinning');
+        refreshBtn.disabled = false;
+      }
+    });
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // KIKI AI CHAT WIDGET — ported from tech-board.html (v1). Shared,
+  // persistent floating widget — independent of any sidebar view, so
+  // it stays mounted regardless of which one is active. Fetches its
+  // own board data fresh on every question (not reused from any
+  // page's in-memory state, per the porting decision) and posts to
+  // the existing /api/chat serverless function unchanged — same
+  // request shape v1 used. The Kiki personality system prompt lives
+  // server-side in api/chat.js and is untouched.
+  // ══════════════════════════════════════════════════════════════
+  (function () {
+    const bubble = document.getElementById('ai-bubble');
+    const panel  = document.getElementById('ai-panel');
+    const close  = document.getElementById('ai-close');
+    const msgs   = document.getElementById('ai-messages');
+    const input  = document.getElementById('ai-input');
+    const send   = document.getElementById('ai-send');
+    const SIZE   = 56;
+    const STORE  = 'kiki_bubble_pos_gm';
+
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    function setBubblePos(left, top) {
+      left = clamp(left, 0, window.innerWidth  - SIZE);
+      top  = clamp(top,  0, window.innerHeight - SIZE);
+      bubble.style.left   = left + 'px';
+      bubble.style.top    = top  + 'px';
+      bubble.style.right  = 'auto';
+      bubble.style.bottom = 'auto';
+      return { left, top };
+    }
+
+    function positionPanel() {
+      const r  = bubble.getBoundingClientRect();
+      const pw = 340, ph = 480, gap = 8, margin = 8;
+      let top  = r.top - ph - gap;
+      if (top < margin) top = r.bottom + gap;
+      let left = r.right - pw;
+      if (left < margin) left = margin;
+      if (left + pw > window.innerWidth - margin) left = window.innerWidth - pw - margin;
+      panel.style.top    = top  + 'px';
+      panel.style.left   = left + 'px';
+      panel.style.bottom = 'auto';
+      panel.style.right  = 'auto';
+    }
+
+    const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
+    if (saved) {
+      setBubblePos(saved.left, saved.top);
+    } else {
+      setBubblePos(window.innerWidth - SIZE - 24, window.innerHeight - SIZE - 24);
+    }
+
+    let dragging = false, didDrag = false;
+    let startMX, startMY, startBX, startBY;
+
+    function dragStart(mx, my) {
+      const r = bubble.getBoundingClientRect();
+      dragging = true; didDrag = false;
+      startMX = mx; startMY = my;
+      startBX = r.left; startBY = r.top;
+      bubble.style.cursor = 'grabbing';
+      bubble.style.transition = 'none';
+    }
+    function dragMove(mx, my) {
+      if (!dragging) return;
+      if (Math.abs(mx - startMX) > 3 || Math.abs(my - startMY) > 3) didDrag = true;
+      setBubblePos(startBX + mx - startMX, startBY + my - startMY);
+      if (panel.classList.contains('open')) positionPanel();
+    }
+    function dragEnd() {
+      if (!dragging) return;
+      dragging = false;
+      bubble.style.cursor = 'grab';
+      bubble.style.transition = '';
+      const r = bubble.getBoundingClientRect();
+      localStorage.setItem(STORE, JSON.stringify({ left: r.left, top: r.top }));
+    }
+
+    bubble.addEventListener('mousedown',  (e) => { e.preventDefault(); dragStart(e.clientX, e.clientY); });
+    window.addEventListener('mousemove',  (e) => dragMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup',    ()  => dragEnd());
+    bubble.addEventListener('touchstart', (e) => { const t = e.touches[0]; dragStart(t.clientX, t.clientY); }, { passive: true });
+    window.addEventListener('touchmove',  (e) => { if (dragging) { e.preventDefault(); } const t = e.touches[0]; dragMove(t.clientX, t.clientY); }, { passive: false });
+    window.addEventListener('touchend',   ()  => dragEnd());
+
+    bubble.addEventListener('click', () => {
+      if (didDrag) { didDrag = false; return; }
+      panel.classList.toggle('open');
+      if (panel.classList.contains('open')) { positionPanel(); input.focus(); }
+    });
+    close.addEventListener('click', () => panel.classList.remove('open'));
+
+    function addMsg(text, cls) {
+      const d = document.createElement('div');
+      d.className = cls;
+      d.textContent = text;
+      msgs.appendChild(d);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    // ── Independent board-data fetch — not reused from any page's
+    // in-memory state. Same shape v1 sent: { vehicles, whiteboard }.
+    async function fetchBoardData() {
+      const [liftsRes, parkingRes, pickupRes, whiteboardRes] = await Promise.all([
+        db.from('shopboard_lifts').select('*').order('id'),
+        db.from('shopboard_parking').select('*').order('created_at'),
+        db.from('shopboard_pickup').select('*').order('created_at'),
+        db.from('tech_whiteboard').select('*'),
+      ]);
+
+      const vehicles = [];
+      (liftsRes.data || []).forEach((l, idx) => {
+        if (hasVehicleData(l)) vehicles.push({ ...l, _source: 'lift', _liftNum: idx + 1 });
+      });
+      (parkingRes.data || []).forEach(p => {
+        if (hasVehicleData(p)) vehicles.push({ ...p, _source: 'parking' });
+      });
+      (pickupRes.data || []).forEach(p => {
+        if (hasVehicleData(p)) vehicles.push({ ...p, _source: 'pickup' });
+      });
+
+      const whiteboard = {};
+      (whiteboardRes.data || []).forEach(r => { whiteboard[r.tech_name] = r.next_job || ''; });
+
+      return { vehicles, whiteboard };
+    }
+
+    async function askAI() {
+      const q = input.value.trim();
+      if (!q) return;
+      input.value = '';
+      send.disabled = true;
+      addMsg(q, 'ai-msg-user');
+      const thinking = document.createElement('div');
+      thinking.className = 'ai-msg-bot';
+      thinking.textContent = 'Thinking...';
+      msgs.appendChild(thinking);
+      msgs.scrollTop = msgs.scrollHeight;
+
+      try {
+        const boardData = await fetchBoardData();
+        const r = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ question: q, boardData })
+        });
+        const d = await r.json();
+        thinking.textContent = d.answer || d.error || 'No response';
+        if (d.error) thinking.className = 'ai-msg-err';
+      } catch(e) {
+        thinking.className = 'ai-msg-err';
+        thinking.textContent = 'Network error: ' + e.message;
+      }
+      send.disabled = false;
+      input.focus();
+    }
+
+    send.addEventListener('click', askAI);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') askAI(); });
+  })();
+</script>
+</body>
+</html>

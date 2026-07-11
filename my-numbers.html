@@ -53,12 +53,29 @@
   .topbar .brand small{ color:var(--gauge); font-size:11px; letter-spacing:0.12em; text-transform:uppercase; }
   .topbar .brand h1{ font-size:19px; color:var(--paper); }
   .topbar .brand h1 span{ color:var(--safety-orange); }
+  .greeting-line{ display:flex; align-items:center; gap:6px; margin-top:3px; font-size:12px; color:var(--gauge); }
+  .greeting-avatar{ width:18px; height:18px; border-radius:50%; object-fit:cover; }
+  .greeting-avatar-fallback{
+    width:18px; height:18px; border-radius:50%;
+    background:var(--safety-orange); color:#1C1000; font-weight:800; font-size:10px;
+    display:flex; align-items:center; justify-content:center;
+  }
   .avatar-btn{
     width:40px; height:40px; border-radius:8px;
     background:var(--panel-raised); border:1px solid var(--stroke);
     color:var(--paper); font-family:'Oswald',sans-serif; font-weight:600;
     display:flex; align-items:center; justify-content:center; font-size:15px;
   }
+  .icon-btn{
+    width:40px; height:40px; border-radius:8px;
+    background:var(--panel-raised); border:1px solid var(--stroke);
+    color:var(--paper); display:flex; align-items:center; justify-content:center;
+    cursor:pointer; padding:0;
+  }
+  .icon-btn svg{ width:18px; height:18px; }
+  .icon-btn.spinning svg{ animation:spin 0.7s linear infinite; }
+  .icon-btn:disabled{ opacity:0.6; }
+  @keyframes spin{ from{ transform:rotate(0deg); } to{ transform:rotate(360deg); } }
 
   /* ---------- Tabs ---------- */
   .tabs{
@@ -246,7 +263,32 @@
   .lang-switch-top .lang-btn{ padding:5px 9px; font-size:9.5px; }
 
   ::-webkit-scrollbar{ width:0; height:0; }
+
+  /* ---------- Time Clock ---------- */
+  .clock-card{
+    margin:12px 16px 0; padding:16px 18px;
+    background:var(--panel); border:1px solid var(--stroke); border-radius:12px;
+  }
+  .clock-card-label{
+    font-size:11px; color:var(--gauge); text-transform:uppercase;
+    letter-spacing:0.1em; margin-bottom:10px;
+  }
+  .clock-btn{
+    display:block; width:100%; text-align:center; padding:13px;
+    border-radius:9px; border:none; font-family:'Oswald',sans-serif;
+    font-size:15px; letter-spacing:0.05em; text-transform:uppercase;
+    font-weight:600; cursor:pointer;
+  }
+  .clock-btn-in  { background:var(--safety-orange); color:#1C1000; }
+  .clock-btn-out { background:var(--hold-blue); color:#fff; }
+  .clock-btn-back{ background:var(--go-green); color:#08210C; }
+  .clock-btn-eod { background:var(--danger); color:#fff; }
+  .clock-punches{ margin-top:12px; display:flex; flex-direction:column; gap:6px; }
+  .clock-punch-row{ display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--gauge); }
+  .clock-punch-dot{ width:7px; height:7px; border-radius:50%; flex-shrink:0; }
+  .clock-no-punches{ font-size:12px; color:var(--stroke); text-align:center; padding:4px 0 2px; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div id="app"></div>
@@ -261,6 +303,112 @@ async function sGet(key){
 async function sSet(key, value){
   try{ await window.storage.set(key, JSON.stringify(value), true); }
   catch(e){ console.error('storage set failed', e); }
+}
+
+/* ---------------- Supabase ---------------- */
+const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Supabase status string → local status key
+function sbStatusToLocal(row, table) {
+  if (table === 'shopboard_pickup') return 'done';
+  const s = row.status || '';
+  if (s === 'waiting-tech') return row.diagnosing_at ? 'diagnosing' : 'new';
+  if (s === 'waiting-auth') return 'waiting';
+  if (s === 'approved')     return 'approved';
+  if (s === 'in-progress')  return 'in_progress';
+  if (s === 'waiting-pull') return 'done';
+  return 'new';
+}
+
+// Local status key → Supabase status string
+function localStatusToSb(localStatus) {
+  return { new:'waiting-tech', diagnosing:'waiting-tech', waiting:'waiting-auth',
+           approved:'approved', in_progress:'in-progress', done:'waiting-pull' }[localStatus] || localStatus;
+}
+
+// Write status (and optional timestamp/note fields) to Supabase, then update in-memory job
+async function writeJobStatus(job, newLocalStatus, extraFields) {
+  if (job._table === 'shopboard_pickup') {
+    // Pickup records are terminal — no status writes allowed from tech side
+    showToast('Cannot update a completed pickup record');
+    return false;
+  }
+  const update = Object.assign({ status: localStatusToSb(newLocalStatus) }, extraFields || {});
+  const { error } = await db.from(job._table).update(update).eq('id', job._sbid);
+  if (error) {
+    console.error('Status write failed:', error);
+    showToast('Save failed — check connection');
+    return false;
+  }
+  job.status = newLocalStatus;
+  if (extraFields && extraFields.tech_notes !== undefined) job.diagnosis = extraFields.tech_notes;
+  return true;
+}
+
+// Map a Supabase row to the local job object shape
+function sbRowToJob(row, table) {
+  return {
+    id: 'sb_' + table + '_' + row.id,
+    _table: table,
+    _sbid: row.id,
+    po: row.po || '',
+    vehicle: (row.vehicle || '').trim(),
+    customer: row.customer || '',
+    complaint: row.work || row.notes || '',
+    diagnosis: row.tech_notes || '',
+    status: sbStatusToLocal(row, table),
+    flagHours: row.flag_hours != null ? Number(row.flag_hours) : null,
+    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+    beforePhotos: [],
+    partPhotos: [],
+    assignedTechId: STATE ? STATE.currentTechId : null,
+  };
+}
+
+// Load all Supabase jobs assigned to this tech, plus today's punches
+async function loadSupabaseData(techName) {
+  const SEL = 'id,po,vehicle,status,work,notes,tech_notes,job_category,customer,warranty,diagnosing_at,waiting_at,approved_at,tech_started_at,tech_finished_at,created_at';
+  const SEL_FLAG = SEL + ',flag_hours';
+  // shopboard_pickup has no status or flag_hours column — status is derived client-side
+  // in sbStatusToLocal() (any pickup row is treated as 'done'), so it's never selected here.
+  const SEL_PICKUP = 'id,po,vehicle,work,notes,tech_notes,job_category,customer,warranty,diagnosing_at,waiting_at,approved_at,tech_started_at,tech_finished_at,created_at';
+  const [{ data: lifts }, { data: parking }, { data: pickup }] = await Promise.all([
+    db.from('shopboard_lifts').select(SEL_FLAG).eq('assigned_tech', techName),
+    db.from('shopboard_parking').select(SEL_FLAG).eq('assigned_tech', techName),
+    db.from('shopboard_pickup').select(SEL_PICKUP).eq('assigned_tech', techName),
+  ]);
+
+  STATE.jobs = [
+    ...(lifts   || []).filter(r => r.vehicle && r.vehicle.trim()).map(r => sbRowToJob(r, 'shopboard_lifts')),
+    ...(parking || []).filter(r => r.vehicle && r.vehicle.trim()).map(r => sbRowToJob(r, 'shopboard_parking')),
+    ...(pickup  || []).filter(r => r.vehicle && r.vehicle.trim()).map(r => sbRowToJob(r, 'shopboard_pickup')),
+  ];
+  // Fix assignedTechId now that STATE is populated
+  STATE.jobs.forEach(j => { j.assignedTechId = STATE.currentTechId; });
+
+  await loadTodaysPunches(techName);
+}
+
+// Rebuild CLOCK_STATE from today's Supabase punch rows
+async function loadTodaysPunches(techName) {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const { data: punches } = await db.from('punches')
+    .select('punch_type,punched_at')
+    .eq('tech_name', techName)
+    .gte('punched_at', todayStart.toISOString())
+    .order('punched_at');
+  if (!punches || punches.length === 0) {
+    CLOCK_STATE.step = 0; CLOCK_STATE.punches = [];
+    return;
+  }
+  CLOCK_STATE.punches = punches.map(p => ({
+    type: p.punch_type,
+    time: new Date(p.punched_at).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'}),
+  }));
+  CLOCK_STATE.step = CLOCK_STATE.punches.length % 4;
 }
 
 
@@ -308,7 +456,20 @@ const I18N = {
     toastPhotoAdded: "Photo added",
     toastNeedDiagnosis: "Add your diagnostic notes first",
     toastSentWriter: "Sent to service writer",
-    toastJobComplete: "Job marked complete"
+    toastJobComplete: "Job marked complete",
+    refreshLabel: "Refresh",
+    toastRefreshed: "Board updated",
+    clockSectionLabel: "Time Clock",
+    clockIn: "Clock In",
+    clockOutLunch: "Clock Out — Lunch",
+    clockBackLunch: "Clock In — Back from Lunch",
+    clockOutEod: "Clock Out — End of Day",
+    punchLabelIn: "Clocked In",
+    punchLabelLunch: "Lunch Out",
+    punchLabelBack: "Back from Lunch",
+    punchLabelEod: "End of Day",
+    clockNoPunches: "No punches recorded yet today",
+    ctaUndoDone: "← Back to In Progress"
   },
   es: {
     loginSubtitle: "Inicia sesión con tu número de teléfono y PIN",
@@ -352,7 +513,20 @@ const I18N = {
     toastPhotoAdded: "Foto agregada",
     toastNeedDiagnosis: "Agrega tus notas de diagnóstico primero",
     toastSentWriter: "Enviado al asesor de servicio",
-    toastJobComplete: "Trabajo marcado como completo"
+    toastJobComplete: "Trabajo marcado como completo",
+    refreshLabel: "Actualizar",
+    toastRefreshed: "Tablero actualizado",
+    clockSectionLabel: "Reloj de Tiempo",
+    clockIn: "Registrar Entrada",
+    clockOutLunch: "Salida — Almuerzo",
+    clockBackLunch: "Entrada — Regreso del Almuerzo",
+    clockOutEod: "Salida — Fin del Día",
+    punchLabelIn: "Entrada",
+    punchLabelLunch: "Salida Almuerzo",
+    punchLabelBack: "Regreso del Almuerzo",
+    punchLabelEod: "Fin del Día",
+    clockNoPunches: "Sin registros hoy",
+    ctaUndoDone: "← Volver a En Progreso"
   },
   ht: {
     loginSubtitle: "Konekte avèk nimewo telefòn ak PIN ou",
@@ -396,7 +570,20 @@ const I18N = {
     toastPhotoAdded: "Foto ajoute",
     toastNeedDiagnosis: "Ajoute nòt dyagnostik ou anvan",
     toastSentWriter: "Voye bay konseye sèvis la",
-    toastJobComplete: "Travay make fini"
+    toastJobComplete: "Travay make fini",
+    refreshLabel: "Rafrechi",
+    toastRefreshed: "Tablo mizajou",
+    clockSectionLabel: "Klòch Tan",
+    clockIn: "Antre",
+    clockOutLunch: "Sòti — Manje Midi",
+    clockBackLunch: "Antre — Retou Nan Travay",
+    clockOutEod: "Sòti — Fen Jounen",
+    punchLabelIn: "Antre",
+    punchLabelLunch: "Sòti pou Manje",
+    punchLabelBack: "Retou Nan Travay",
+    punchLabelEod: "Fen Jounen",
+    clockNoPunches: "Pa gen anrejistrement jodi a",
+    ctaUndoDone: "← Tounen nan N ap Travay"
   }
 };
 function t(key){
@@ -447,6 +634,35 @@ const SEED_JOBS = [
   },
 ];
 
+// In-memory only — resets on reload (no Supabase writes)
+const CLOCK_STATE = { step: 0, punches: [] };
+
+// Persisted session — stores only the tech's id (never the PIN), so a reload
+// or the login screen never re-appears while the tech is still on shift.
+const SESSION_KEY = 'myNumbersTechId';
+
+// Independent, additive-only lookup against the `employees` table, purely to
+// source the "Hi, [Name]" greeting's name/photo. Does NOT replace or touch the
+// existing techs_v2 identity / job-matching logic above — separate by design.
+let GREETING = { name: null, photo_url: null };
+function escGreeting(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function renderGreetingLine() {
+  if (!GREETING.name) return '';
+  const avatar = GREETING.photo_url
+    ? `<img class="greeting-avatar" src="${escGreeting(GREETING.photo_url)}" alt="">`
+    : `<div class="greeting-avatar-fallback">${escGreeting(GREETING.name.trim().charAt(0).toUpperCase() || '?')}</div>`;
+  return `<div class="greeting-line">${avatar}<span>Hi, ${escGreeting(GREETING.name)}</span></div>`;
+}
+async function loadGreeting(phone) {
+  if (!phone) return;
+  try {
+    const { data } = await db.from('employees').select('name, photo_url').eq('phone', phone).maybeSingle();
+    if (data) GREETING = { name: data.name, photo_url: data.photo_url };
+  } catch (err) {
+    console.error('[Greeting] lookup failed', err);
+  }
+}
+
 let STATE = {
   techs: [],
   jobs: [],
@@ -461,12 +677,11 @@ let STATE = {
 };
 
 async function initData(){
+  // Only load tech auth from local storage — jobs come from Supabase after login
   let techs = await sGet('techs_v2');
   if(!techs){ techs = SEED_TECHS; await sSet('techs_v2', techs); }
-  let jobs = await sGet('jobs_v2');
-  if(!jobs){ jobs = SEED_JOBS; await sSet('jobs_v2', jobs); }
   STATE.techs = techs;
-  STATE.jobs = jobs;
+  STATE.jobs = [];
 }
 
 function showToast(msg){
@@ -524,17 +739,20 @@ function bindLogin(){
   bindLangSwitch();
 }
 
-function doLogin(){
+async function doLogin(){
   const phone = STATE.loginPhone;
   const pin = STATE.loginPin;
   const tech = STATE.techs.find(t => t.phone === phone && t.pin === pin);
   if(tech){
     STATE.currentTechId = tech.id;
-    STATE.view = 'list';
-    STATE.activeTab = 'up_next';
+    localStorage.setItem(SESSION_KEY, tech.id);
     STATE.loginPhone = '';
     STATE.loginPin = '';
     STATE.loginError = '';
+    await loadSupabaseData(tech.name);
+    await loadGreeting(tech.phone);
+    STATE.view = 'list';
+    STATE.activeTab = 'up_next';
     render();
   } else {
     STATE.loginError = t('loginErrorMsg');
@@ -557,7 +775,8 @@ function statusLabel(s){
   return map[s] ? t(map[s]) : s;
 }
 function hasRepeatComplaint(job){
-  return STATE.jobs.some(j => j.id !== job.id && j.vin === job.vin && j.status === 'done');
+  // No VIN column in Supabase — match on vehicle string as proxy
+  return STATE.jobs.some(j => j.id !== job.id && j.vehicle === job.vehicle && j.status === 'done');
 }
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -572,6 +791,89 @@ function jobsFlaggedThisWeekCount(){
   return myJobs().filter(j => j.flagHours != null && (now - j.createdAt) <= WEEK_MS).length;
 }
 
+// Re-pull this tech's jobs from Supabase (read-only) without dropping the
+// session or clobbering any not-yet-submitted diagnosis text / local-only photos.
+async function refreshData(){
+  const tech = STATE.techs.find(t => t.id === STATE.currentTechId);
+  if(!tech) return;
+
+  const drafts = {};
+  STATE.jobs.forEach(j => {
+    drafts[j.id] = { diagnosis: j.diagnosis, beforePhotos: j.beforePhotos, partPhotos: j.partPhotos };
+  });
+
+  await loadSupabaseData(tech.name);
+
+  STATE.jobs.forEach(j => {
+    const draft = drafts[j.id];
+    if(!draft) return;
+    if(draft.diagnosis && draft.diagnosis !== j.diagnosis) j.diagnosis = draft.diagnosis;
+    if(draft.beforePhotos && draft.beforePhotos.length) j.beforePhotos = draft.beforePhotos;
+    if(draft.partPhotos && draft.partPhotos.length) j.partPhotos = draft.partPhotos;
+  });
+}
+
+const CLOCK_BTN_KEYS   = ['clockIn','clockOutLunch','clockBackLunch','clockOutEod'];
+const CLOCK_BTN_CLASS  = ['clock-btn-in','clock-btn-out','clock-btn-back','clock-btn-eod'];
+const PUNCH_DOT_COLORS = ['var(--safety-orange)','var(--hold-blue)','var(--go-green)','var(--danger)'];
+// Stable type identifiers stored per punch — looked up via t() at render time so language switches re-translate all entries
+const PUNCH_TYPES      = ['clock_in','lunch_out','lunch_in','clock_out'];
+const PUNCH_TYPE_KEYS  = { clock_in:'punchLabelIn', lunch_out:'punchLabelLunch', lunch_in:'punchLabelBack', clock_out:'punchLabelEod' };
+
+function renderClock(){
+  const btnClass = CLOCK_BTN_CLASS[CLOCK_STATE.step];
+  const btnKey   = CLOCK_BTN_KEYS[CLOCK_STATE.step];
+  const punchRows = CLOCK_STATE.punches.map((p, i) => `
+    <div class="clock-punch-row">
+      <div class="clock-punch-dot" style="background:${PUNCH_DOT_COLORS[i % 4]}"></div>
+      <span>${t(PUNCH_TYPE_KEYS[p.type])} — ${p.time}</span>
+    </div>`).join('');
+  return `
+    <div class="clock-card">
+      <div class="clock-card-label">${t('clockSectionLabel')}</div>
+      <button class="clock-btn ${btnClass}" id="clockBtn">${t(btnKey)}</button>
+      <div class="clock-punches">
+        ${CLOCK_STATE.punches.length === 0
+          ? `<div class="clock-no-punches">${t('clockNoPunches')}</div>`
+          : punchRows}
+      </div>
+    </div>`;
+}
+
+function bindClock(){
+  const btn = document.getElementById('clockBtn');
+  if(!btn) return;
+  btn.addEventListener('click', async () => {
+    const tech = STATE.techs.find(t => t.id === STATE.currentTechId);
+    const type = PUNCH_TYPES[CLOCK_STATE.step];
+    const now  = new Date();
+    const timeStr = now.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+
+    // Write punch to Supabase (table created, but may need RLS policy — see report)
+    const { error } = await db.from('punches').insert({
+      tech_name: tech.name,
+      punch_type: type,
+      punched_at: now.toISOString(),
+    });
+    if(error){
+      if(error.code === '42501'){
+        // RLS blocks anon inserts — punch still advances in-memory, user must add policy
+        console.warn('Punch not persisted — RLS policy needed on punches table:', error.message);
+        showToast('Punch recorded (sync pending — see setup)');
+      } else {
+        console.error('Punch write failed:', error);
+        showToast('Punch save failed');
+        return; // don't advance if it's a non-RLS error
+      }
+    }
+
+    // Advance in-memory state (whether or not Supabase write succeeded)
+    CLOCK_STATE.punches.push({ type, time: timeStr });
+    CLOCK_STATE.step = (CLOCK_STATE.step + 1) % 4;
+    render();
+  });
+}
+
 function renderList(){
   const tech = STATE.techs.find(t => t.id === STATE.currentTechId);
   const upNextCount = jobsForTab('up_next').length;
@@ -583,9 +885,13 @@ function renderList(){
       <div class="brand">
         <small>Lee Transmission</small>
         <h1>My <span>Numbers</span></h1>
+        ${renderGreetingLine()}
       </div>
       <div style="display:flex; align-items:center; gap:10px;">
         ${renderLangSwitch(true)}
+        <button class="icon-btn" id="btnRefresh" type="button" aria-label="${t('refreshLabel')}" title="${t('refreshLabel')}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+        </button>
         <div class="avatar-btn" id="btnLogout">${tech.name[0]}</div>
       </div>
     </div>
@@ -594,6 +900,7 @@ function renderList(){
       <div class="value">${flaggedHoursThisWeek().toFixed(1)}<span>hrs</span></div>
       <div class="sub"><b>${jobsFlaggedThisWeekCount()}</b> ${jobsFlaggedThisWeekCount()===1?t('flagHeroSubJob'):t('flagHeroSubJobs')} ${t('flagHeroSubSuffix')}</div>
     </div>
+    ${renderClock()}
     <div class="tabs">
       <div class="tab ${STATE.activeTab==='up_next'?'active':''}" data-tab="up_next">${t('tabUpNext')} <span class="count">${upNextCount}</span></div>
       <div class="tab ${STATE.activeTab==='history'?'active':''}" data-tab="history">${t('tabHistory')} <span class="count">${historyCount}</span></div>
@@ -629,13 +936,24 @@ function renderList(){
 
 function bindList(){
   bindLangSwitch();
+  bindClock();
   document.getElementById('btnLogout').addEventListener('click', () => {
+    localStorage.removeItem(SESSION_KEY);
     STATE.view = 'login';
     STATE.currentTechId = null;
     STATE.loginPhone = '';
     STATE.loginPin = '';
     STATE.loginError = '';
     render();
+  });
+  document.getElementById('btnRefresh').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    if(btn.disabled) return;
+    btn.disabled = true;
+    btn.classList.add('spinning');
+    await refreshData();
+    render();
+    showToast(t('toastRefreshed'));
   });
   document.querySelectorAll('.tab').forEach(el => {
     el.addEventListener('click', () => { STATE.activeTab = el.dataset.tab; render(); });
@@ -690,6 +1008,9 @@ function renderDetail(){
     cta = `<button class="btn btn-go" id="btnStartJob">${t('ctaGoAhead')}</button>`;
   } else if(job.status === 'in_progress'){
     cta = `<button class="btn btn-primary" id="btnMarkDone">${t('ctaMarkDone')}</button>`;
+  } else if(job.status === 'done' && job._table !== 'shopboard_pickup'){
+    cta = `<button class="btn btn-outline" disabled>${t('ctaClosed')}</button>
+           <button class="btn btn-ghost" id="btnUndoDone" style="margin-top:8px;font-size:12px;opacity:0.75">${t('ctaUndoDone')}</button>`;
   } else {
     cta = `<button class="btn btn-outline" disabled>${t('ctaClosed')}</button>`;
   }
@@ -701,7 +1022,7 @@ function renderDetail(){
     <div class="detail">
       <div class="detail-hero">
         <h2>${job.vehicle}</h2>
-        <div class="detail-vin mono">VIN ${job.vin}</div>
+        <div class="detail-vin mono">${job.po ? 'PO #' + job.po : (job.vehicle || '')}</div>
         <div class="detail-status-row">
           <div class="status-pill status-${job.status}">${statusLabel(job.status)}</div>
         </div>
@@ -741,8 +1062,6 @@ function renderDetail(){
   `;
 }
 
-async function persistJobs(){ await sSet('jobs_v2', STATE.jobs); }
-
 function bindDetail(){
   const job = getActiveJob();
 
@@ -753,6 +1072,7 @@ function bindDetail(){
     diagText.addEventListener('input', (e) => { job.diagnosis = e.target.value; });
   }
 
+  // Photos stay local-only (no Supabase photo storage yet)
   const beforeInput = document.getElementById('beforePhotoInput');
   if(beforeInput){
     beforeInput.addEventListener('change', async (e) => {
@@ -760,7 +1080,6 @@ function bindDetail(){
       if(!file) return;
       const dataUrl = await fileToDataUrl(file);
       job.beforePhotos.push(dataUrl);
-      await persistJobs();
       render();
       showToast(t('toastPhotoAdded'));
     });
@@ -772,52 +1091,101 @@ function bindDetail(){
       if(!file) return;
       const dataUrl = await fileToDataUrl(file);
       job.partPhotos.push(dataUrl);
-      await persistJobs();
       render();
       showToast(t('toastPhotoAdded'));
     });
   }
 
+  // new → diagnosing: stamp diagnosing_at, status stays waiting-tech in Supabase
   const btnStartDiag = document.getElementById('btnStartDiag');
   if(btnStartDiag) btnStartDiag.addEventListener('click', async () => {
-    job.status = 'diagnosing'; await persistJobs(); render();
+    const ok = await writeJobStatus(job, 'diagnosing', { diagnosing_at: new Date().toISOString() });
+    if(ok) render();
   });
 
+  // diagnosing → waiting-auth: stamp waiting_at, write tech_notes
   const btnSubmitDiag = document.getElementById('btnSubmitDiag');
   if(btnSubmitDiag) btnSubmitDiag.addEventListener('click', async () => {
     if(!job.diagnosis || job.diagnosis.trim().length < 3){
       showToast(t('toastNeedDiagnosis'));
       return;
     }
-    job.status = 'waiting'; await persistJobs(); render();
-    showToast(t('toastSentWriter'));
-    // demo-only: auto-approve after a moment so Cris can see the full flow without a second device
-    setTimeout(async () => {
-      if(job.status === 'waiting'){
-        job.status = 'approved';
-        if(job.flagHours == null){ job.flagHours = 2.5; } // set by office/service writer on approval
-        await persistJobs();
-        if(STATE.view==='detail' && STATE.activeJobId===job.id) render();
-      }
-    }, 4000);
+    const ok = await writeJobStatus(job, 'waiting', {
+      waiting_at: new Date().toISOString(),
+      tech_notes: job.diagnosis,
+    });
+    if(ok){ render(); showToast(t('toastSentWriter')); }
   });
 
+  // approved → in-progress: stamp tech_started_at
   const btnStartJob = document.getElementById('btnStartJob');
   if(btnStartJob) btnStartJob.addEventListener('click', async () => {
-    job.status = 'in_progress'; await persistJobs(); render();
+    const ok = await writeJobStatus(job, 'in_progress', { tech_started_at: new Date().toISOString() });
+    if(ok) render();
   });
 
+  // in_progress → done (waiting-pull): stamp tech_finished_at
   const btnMarkDone = document.getElementById('btnMarkDone');
   if(btnMarkDone) btnMarkDone.addEventListener('click', async () => {
-    job.status = 'done'; await persistJobs(); render();
-    showToast(t('toastJobComplete'));
-    setTimeout(() => { STATE.view = 'list'; STATE.activeTab='up_next'; render(); }, 700);
+    const ok = await writeJobStatus(job, 'done', { tech_finished_at: new Date().toISOString() });
+    if(ok){
+      showToast(t('toastJobComplete'));
+      setTimeout(() => { STATE.view = 'list'; STATE.activeTab='up_next'; render(); }, 700);
+    }
+  });
+
+  // done → in_progress (self-correction): clear tech_finished_at
+  const btnUndoDone = document.getElementById('btnUndoDone');
+  if(btnUndoDone) btnUndoDone.addEventListener('click', async () => {
+    const ok = await writeJobStatus(job, 'in_progress', {
+      tech_started_at: new Date().toISOString(),
+      tech_finished_at: null,
+    });
+    if(ok) render();
   });
 }
 
 /* ---------------- Boot ---------------- */
 (async function boot(){
   await initData();
+
+  let authenticated = false;
+
+  // Pass-through login from CrisData: if arriving with ?u=phone&p=pin, auto-authenticate
+  const params = new URLSearchParams(window.location.search);
+  const passPhone = params.get('u');
+  const passPin = params.get('p');
+  if(passPhone && passPin){
+    const tech = STATE.techs.find(t => t.phone === passPhone && t.pin === passPin);
+    if(tech){
+      STATE.currentTechId = tech.id;
+      localStorage.setItem(SESSION_KEY, tech.id);
+      STATE.activeTab = 'up_next';
+      window.history.replaceState({}, '', window.location.pathname);
+      await loadSupabaseData(tech.name);
+      await loadGreeting(tech.phone);
+      STATE.view = 'list';
+      authenticated = true;
+    }
+  }
+
+  // Restore a persisted session (e.g. after an accidental or intentional reload)
+  if(!authenticated){
+    const storedTechId = localStorage.getItem(SESSION_KEY);
+    if(storedTechId){
+      const tech = STATE.techs.find(t => t.id === storedTechId);
+      if(tech){
+        STATE.currentTechId = tech.id;
+        STATE.activeTab = 'up_next';
+        await loadSupabaseData(tech.name);
+        await loadGreeting(tech.phone);
+        STATE.view = 'list';
+      } else {
+        localStorage.removeItem(SESSION_KEY);
+      }
+    }
+  }
+
   render();
 })();
 </script>

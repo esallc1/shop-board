@@ -1,0 +1,1687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script
+  src="https://js.sentry-cdn.com/30920ab10a8854c9c52e401554d0998f.min.js"
+  crossorigin="anonymous"
+></script>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lee Transmission — Service Advisor Board</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #f5f6fa;
+    --surface:   #ffffff;
+    --surface-2: #f0f1f5;
+    --border:    #e2e5ee;
+    --text:      #1a1f36;
+    --muted:     #8c93a8;
+    --radius:    10px;
+    --accent:    #5b5ef4;
+    --green:     #10b981;
+    --amber:     #f59e0b;
+    --red:       #ef4444;
+    --blue:      #3b82f6;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  /* ── APP SHELL / SIDEBAR ── */
+  .app-shell {
+    display: flex;
+    min-height: 100vh;
+    align-items: stretch;
+  }
+  .sidebar {
+    width: 232px;
+    flex-shrink: 0;
+    background: #ffffff;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .sidebar-brand {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-brand-title {
+    font-size: 0.92rem;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .sidebar-brand-sub {
+    font-size: 0.66rem;
+    color: var(--muted);
+    margin-top: 3px;
+    letter-spacing: 0.4px;
+  }
+  .sidebar-status {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .live-badge {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.7rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .greeting-wrap { display: none; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 600; color: var(--text); }
+  .greeting-avatar { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+  .greeting-avatar-fallback {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-weight: 800; font-size: 0.72rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logout-btn {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.7rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px;
+    background: transparent;
+    border: 0.5px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-family: inherit; cursor: pointer; text-align: left;
+    transition: background 0.15s;
+  }
+  .logout-btn:hover { background: var(--surface-2); }
+  .logout-btn-icon { width: 14px; height: 14px; flex-shrink: 0; }
+  .sidebar-btn-row { display: flex; gap: 8px; }
+  .refresh-btn { flex-shrink: 0; }
+  @keyframes sidebarIconSpin { to { transform: rotate(360deg); } }
+  .logout-btn-icon.spinning { animation: sidebarIconSpin 0.7s linear infinite; }
+  .live-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #22c55e; animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .sidebar-scroll { flex: 1; overflow-y: auto; padding: 10px 0 20px; }
+  .sidebar-group { margin-bottom: 18px; }
+  .sidebar-group-label {
+    padding: 0 20px 6px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    opacity: 0.75;
+  }
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 20px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+    opacity: 0.72;
+    cursor: pointer;
+    text-decoration: none;
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .sidebar-item .icon { font-size: 0.95rem; flex-shrink: 0; width: 18px; text-align: center; }
+  .sidebar-item:hover { opacity: 1; background: var(--surface-2); }
+  .sidebar-item.active {
+    opacity: 1;
+    color: var(--accent);
+    background: rgba(91,94,244,0.08);
+    border-left-color: var(--accent);
+  }
+  .sidebar-soon-badge {
+    margin-left: auto;
+    font-size: 0.55rem;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 2px 7px;
+    flex-shrink: 0;
+  }
+
+  /* ── MAIN CONTENT ── */
+  .main-area { flex: 1; min-width: 0; }
+  .view-topbar {
+    background: #ffffff;
+    border-bottom: 1px solid var(--border);
+    padding: 16px 28px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .view-topbar-title {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+
+  /* ── CONTENT ── */
+  .content { padding: 24px 28px; }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── SHARED CARD ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); flex-shrink: 0;
+  }
+
+  /* ── BUTTONS ── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 16px; border-radius: 6px;
+    font-size: 0.8rem; font-weight: 600;
+    cursor: pointer; border: none; transition: opacity 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover { opacity: 0.88; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-green   { background: var(--green);  color: #fff; }
+  .btn-amber   { background: var(--amber);  color: #fff; }
+  .btn-red     { background: var(--red);    color: #fff; }
+  .btn-ghost {
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { color: var(--text); border-color: #c5cadc; }
+
+  /* ── INPUTS ── */
+  input, select, textarea {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 11px;
+    font-size: 0.85rem; color: var(--text);
+    font-family: inherit; outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  input[type="number"] { width: 90px; }
+  select { cursor: pointer; }
+  textarea { resize: vertical; width: 100%; min-height: 60px; }
+
+  /* ── BADGES ── */
+  .badge {
+    display: inline-block; padding: 2px 9px;
+    border-radius: 20px; font-size: 0.68rem;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+  }
+  .badge-waiting  { background: #fef3c7; color: #92400e; }
+  .badge-diag     { background: #dbeafe; color: #1e40af; }
+  .badge-approved { background: #d1fae5; color: #065f46; }
+  .badge-parts    { background: #ede9fe; color: #5b21b6; }
+
+  /* ══════════════════════════════════
+     TAB 1 — APPROVAL QUEUE
+  ══════════════════════════════════ */
+  .queue-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 16px;
+  }
+  .job-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    overflow: hidden;
+  }
+  .job-card-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .job-vehicle { font-weight: 700; font-size: 0.95rem; }
+  .job-customer { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+  .job-body { padding: 14px 18px; }
+  .job-section-label {
+    font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--muted); margin-bottom: 6px;
+  }
+  .job-diagnosis {
+    font-size: 0.85rem; line-height: 1.6;
+    color: var(--text); margin-bottom: 14px;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 12px;
+  }
+  .photo-row {
+    display: flex; gap: 8px; margin-bottom: 14px;
+  }
+  .photo-thumb {
+    width: 68px; height: 56px;
+    background: #e8eaf2; border-radius: 6px;
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 1.2rem;
+  }
+  .photo-add {
+    width: 68px; height: 56px;
+    background: transparent; border: 2px dashed var(--border);
+    border-radius: 6px; display: flex; align-items: center;
+    justify-content: center; color: var(--muted); font-size: 1.1rem;
+    cursor: pointer; transition: border-color 0.15s;
+  }
+  .photo-add:hover { border-color: var(--accent); color: var(--accent); }
+  .job-footer {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .hours-label { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+
+  /* ══════════════════════════════════
+     TAB 2 — PARTS
+  ══════════════════════════════════ */
+  table {
+    width: 100%; border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  th {
+    text-align: left; padding: 9px 12px;
+    font-size: 0.65rem; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--muted);
+    border-bottom: 2px solid var(--border);
+    font-weight: 700;
+  }
+  td {
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg); }
+
+  .received-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .received-item {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 0.85rem; color: var(--muted);
+  }
+  .received-item::before {
+    content: '✓'; color: var(--green);
+    font-weight: 700; font-size: 0.9rem; flex-shrink: 0;
+  }
+
+  /* ══════════════════════════════════
+     TAB 3 — PAYMENTS
+  ══════════════════════════════════ */
+  .payment-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  @media (max-width: 640px) { .payment-form { grid-template-columns: 1fr; } }
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
+  .form-group input, .form-group select { width: 100%; }
+  .payment-total {
+    text-align: right; padding: 12px 16px;
+    font-weight: 700; font-size: 0.95rem;
+    border-top: 2px solid var(--border);
+    color: var(--text);
+  }
+  .payment-total span { color: var(--green); font-size: 1.1rem; }
+
+  /* ══════════════════════════════════
+     TAB 4 — CUSTOMER LOG
+  ══════════════════════════════════ */
+  .log-list { list-style: none; display: flex; flex-direction: column; }
+  .log-entry {
+    display: flex; gap: 14px; padding: 13px 0;
+    border-bottom: 1px solid var(--border);
+    align-items: flex-start;
+  }
+  .log-entry:last-child { border-bottom: none; }
+  .log-time {
+    font-size: 0.7rem; color: var(--muted);
+    font-family: 'Courier New', monospace;
+    white-space: nowrap; padding-top: 2px;
+    min-width: 54px;
+  }
+  .log-text { font-size: 0.88rem; line-height: 1.55; }
+  .log-author {
+    font-size: 0.7rem; color: var(--accent);
+    font-weight: 600; margin-top: 3px;
+  }
+  .add-note-row {
+    display: flex; gap: 10px; margin-top: 6px;
+  }
+  .add-note-row input { flex: 1; }
+
+  /* ── JOB-LINKED NOTES ── */
+  .job-notes {
+    margin-top: 12px; padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .job-notes-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .job-note {
+    background: #f8f9fc; border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px;
+    font-size: 0.8rem; line-height: 1.5;
+  }
+  .job-note-meta {
+    font-size: 0.68rem; color: var(--muted);
+    margin-bottom: 2px; display: flex; gap: 6px; align-items: center;
+  }
+  .job-note-author { font-weight: 700; color: var(--accent); }
+  .job-note-input-row { display: flex; gap: 7px; }
+  .job-note-input-row input { flex: 1; font-size: 0.8rem; padding: 5px 9px; }
+  .job-note-input-row .btn { padding: 5px 12px; font-size: 0.75rem; }
+
+  /* ── TEAM CHAT (embedded view, re-homed from the old floating widget) ── */
+  .chat-panel {
+    width: 100%; height: 68vh; max-height: 640px;
+    background: #fff; border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    display: none; flex-direction: column; overflow: hidden;
+  }
+  .chat-panel.open { display: flex; }
+  .chat-header {
+    padding: 12px 16px; background: var(--accent); color: #fff;
+    font-size: 0.82rem; font-weight: 700; letter-spacing: 0.5px;
+  }
+  .chat-channels {
+    display: flex; gap: 6px; padding: 8px 12px;
+    border-bottom: 1px solid var(--border); background: #fff;
+  }
+  .chat-channel-btn {
+    flex: 1; font-size: 0.66rem; font-weight: 700; padding: 6px 4px;
+    border-radius: 6px; border: 1px solid var(--border); background: var(--bg);
+    color: var(--muted); cursor: pointer; text-align: center; transition: all 0.15s;
+  }
+  .chat-channel-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chat-channel-btn:hover:not(.active) { background: #eef0f7; }
+  .chat-messages {
+    flex: 1; overflow-y: auto; padding: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+    background: #f8f9fc;
+  }
+  .chat-msg { max-width: 82%; display: flex; flex-direction: column; }
+  .chat-msg.me { align-self: flex-end; align-items: flex-end; }
+  .chat-msg.them { align-self: flex-start; align-items: flex-start; }
+  .chat-msg-sender {
+    font-size: 0.65rem; font-weight: 700;
+    color: var(--muted); margin-bottom: 2px; padding: 0 4px;
+  }
+  .chat-msg-bubble {
+    padding: 8px 12px; border-radius: 14px;
+    font-size: 0.83rem; line-height: 1.45;
+  }
+  .chat-msg.me .chat-msg-bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+  .chat-msg.them .chat-msg-bubble { background: #fff; color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+  .chat-msg-time { font-size: 0.62rem; color: var(--muted); margin-top: 3px; padding: 0 4px; }
+  .chat-input-row {
+    display: flex; gap: 8px; padding: 10px 12px;
+    border-top: 1px solid var(--border); background: #fff;
+  }
+  .chat-input-row input {
+    flex: 1; font-size: 0.82rem; padding: 7px 10px;
+    border-radius: 20px; background: #f0f1f7;
+    border: 1px solid var(--border);
+  }
+  .emoji-picker-wrap { position: relative; flex-shrink: 0; }
+  .emoji-btn {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #f0f1f7; border: 1px solid var(--border);
+    cursor: pointer; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .emoji-btn:hover { background: #eef0f7; }
+  .emoji-popover {
+    position: absolute; bottom: 42px; left: 0;
+    width: 216px; max-height: 176px; overflow-y: auto;
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    padding: 8px; z-index: 10;
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px;
+  }
+  .emoji-popover button {
+    background: none; border: none; font-size: 1.15rem; cursor: pointer;
+    padding: 4px; border-radius: 6px; line-height: 1.3;
+  }
+  .emoji-popover button:hover { background: #eef0f7; }
+  .chat-send-btn {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    border: none; cursor: pointer; font-size: 0.9rem;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: opacity 0.15s;
+  }
+  .chat-send-btn:hover { opacity: 0.85; }
+
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(20,22,40,0.45);
+    z-index: 3000; display: flex; align-items: center; justify-content: center;
+  }
+  .modal-box {
+    background: #fff; border: 1px solid var(--border); border-radius: 12px;
+    padding: 26px; min-width: 340px; max-width: 460px; width: 92%;
+    max-height: 86vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(20,22,40,0.18);
+  }
+  .modal-box h3 { font-size: 1rem; color: var(--text); margin-bottom: 16px; }
+  .modal-close {
+    float: right; background: none; border: none; color: var(--muted);
+    font-size: 1.3rem; cursor: pointer; margin-top: -6px; line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-btn {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 10px 18px; font-size: 0.82rem; font-weight: 700; cursor: pointer;
+    margin-right: 8px; margin-top: 6px;
+  }
+  .modal-btn:hover { opacity: 0.9; }
+  .modal-btn.sec { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+
+  .intake-field { margin-bottom: 14px; }
+  .intake-field label {
+    display: block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); font-weight: 700; margin-bottom: 5px;
+  }
+  .intake-field input, .intake-field select, .intake-field textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; font-size: 0.85rem; color: var(--text);
+    outline: none; font-family: inherit;
+  }
+  .intake-field textarea { resize: vertical; min-height: 56px; }
+  .intake-field input:focus, .intake-field select:focus, .intake-field textarea:focus { border-color: var(--accent); }
+  .intake-field-row { display: flex; align-items: center; justify-content: space-between; }
+  .intake-form-error { color: #dc2626; font-size: 0.78rem; min-height: 16px; margin-bottom: 4px; }
+
+  .intake-toggle { position: relative; display: inline-block; width: 38px; height: 20px; }
+  .intake-toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .intake-toggle-slider {
+    position: absolute; inset: 0; background: #cbd0dc; border-radius: 20px;
+    transition: background 0.2s; cursor: pointer;
+  }
+  .intake-toggle-slider::before {
+    content: ''; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px;
+    background: #fff; border-radius: 50%; transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  }
+  .intake-toggle input:checked + .intake-toggle-slider { background: var(--accent); }
+  .intake-toggle input:checked + .intake-toggle-slider::before { transform: translateX(18px); }
+
+  /* ── KIKI AI CHAT WIDGET — shared floating widget, independent of any
+     sidebar view. Ported from tech-board.html (v1). z-index sits below
+     .modal-overlay (3000) so an open modal always visually wins. ── */
+  #ai-bubble{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:none;border:2px solid #2563eb;cursor:grab;box-shadow:0 4px 12px rgba(0,0,0,.5);z-index:2000;padding:0;overflow:hidden;transition:box-shadow .15s ease;}
+  #ai-bubble:hover{box-shadow:0 6px 18px rgba(37,99,235,.5);}
+  #ai-bubble img{width:100%;height:100%;object-fit:cover;display:block;}
+  #ai-panel{position:fixed;width:340px;max-height:480px;background:#1e2535;border:1px solid #334155;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.6);z-index:1999;display:none;flex-direction:column;overflow:hidden;}
+  #ai-panel.open{display:flex;}
+  #ai-header{background:#162032;padding:10px 14px;font-size:14px;font-weight:600;color:#93c5fd;display:flex;justify-content:space-between;align-items:center;}
+  #ai-header-left{display:flex;align-items:center;gap:8px;}
+  #ai-header-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid #2563eb;}
+  #ai-header button{background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;line-height:1;}
+  #ai-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;font-size:13px;}
+  .ai-msg-user{align-self:flex-end;background:#2563eb;color:#fff;padding:6px 10px;border-radius:10px 10px 2px 10px;max-width:80%;}
+  .ai-msg-bot{align-self:flex-start;background:#0f172a;color:#e2e8f0;padding:6px 10px;border-radius:10px 10px 10px 2px;max-width:90%;white-space:pre-wrap;}
+  .ai-msg-err{align-self:flex-start;background:#7f1d1d;color:#fca5a5;padding:6px 10px;border-radius:8px;max-width:90%;font-size:12px;}
+  #ai-footer{padding:8px;display:flex;gap:6px;border-top:1px solid #334155;}
+  #ai-input{flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:7px 10px;color:#e2e8f0;font-size:13px;outline:none;}
+  #ai-send{background:#2563eb;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;}
+  #ai-send:disabled{opacity:.5;cursor:default;}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div class="app-shell">
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-title">Lee Transmission</div>
+      <div class="sidebar-brand-sub">Advisor Board · Prototype</div>
+    </div>
+    <div class="sidebar-status">
+      <div class="greeting-wrap" id="greetingWrap"></div>
+      <div class="live-badge"><div class="live-dot"></div>Live</div>
+      <div class="sidebar-btn-row">
+        <button type="button" class="logout-btn" id="logoutBtn">
+          <svg class="logout-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M14 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2" />
+            <path d="M7 12h14l-3 -3" />
+            <path d="M18 15l3 -3" />
+          </svg>
+          <span>Log out</span>
+        </button>
+        <button type="button" class="logout-btn refresh-btn" id="refreshBtn" aria-label="Refresh" title="Refresh">
+          <svg class="logout-btn-icon" id="refreshBtnIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" />
+            <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" />
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div class="sidebar-scroll">
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Main</div>
+        <div class="sidebar-item active" data-view="approval" data-label="Approval Queue"><span class="icon">📋</span>Approval Queue</div>
+        <div class="sidebar-item" id="navNewVehicle"><span class="icon">🚗</span>New Vehicle Intake</div>
+        <div class="sidebar-item" data-view="parts" data-label="Parts"><span class="icon">🔩</span>Parts</div>
+        <div class="sidebar-item" data-view="payments" data-label="Payments"><span class="icon">💳</span>Payments</div>
+        <div class="sidebar-item" data-view="customer-log" data-label="Customer Log"><span class="icon">📇</span>Customer Log</div>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Manage</div>
+        <div class="sidebar-item" data-view="teamchat" data-label="Team Chat"><span class="icon">💬</span>Team Chat</div>
+      </div>
+    </div>
+  </nav>
+
+  <main class="main-area">
+    <div class="view-topbar">
+      <div class="view-topbar-title" id="viewTopbarTitle">Approval Queue</div>
+    </div>
+
+    <div class="content">
+
+  <!-- ══ TAB 1: APPROVAL QUEUE ══ -->
+  <div class="view active" id="view-approval">
+    <div class="queue-grid" id="queue-grid">
+      <div style="color:var(--muted);padding:24px;grid-column:1/-1">Loading…</div>
+    </div>
+  </div>
+
+  <!-- ══ TAB 2: PARTS ══ -->
+  <div class="view" id="view-parts">
+    <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px 18px;margin-bottom:16px;font-size:0.83rem;color:#92400e;">
+      <strong>Not yet wired to live data</strong> — no <code>parts_orders</code> (or equivalent) table exists in Supabase. Sample data shown below. Dev must create the table before this tab can be wired.
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--amber)"></div>Waiting for Parts</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Vehicle / PO#</th>
+            <th>Part Needed</th>
+            <th>Ordered</th>
+            <th>Expected</th>
+            <th>Supplier</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>2017 Honda Accord</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1041</span></td>
+            <td>Rebuilt torque converter</td>
+            <td>Jul 6</td>
+            <td><strong style="color:var(--amber)">Jul 9</strong></td>
+            <td>Trans-Works</td>
+            <td><button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px" onclick="markReceived(this)">✓ Received</button></td>
+          </tr>
+          <tr>
+            <td><strong>2011 Chevy Silverado</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1037</span></td>
+            <td>4L60-E clutch pack kit (upgraded)</td>
+            <td>Jul 5</td>
+            <td><strong>Jul 8</strong></td>
+            <td>NAPA Pro</td>
+            <td><button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px" onclick="markReceived(this)">✓ Received</button></td>
+          </tr>
+          <tr>
+            <td><strong>2019 Toyota Camry</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1043</span></td>
+            <td>CVT trans cooler hose kit</td>
+            <td>Jul 7</td>
+            <td><strong style="color:var(--red)">Jul 11</strong></td>
+            <td>Toyota OEM</td>
+            <td><button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px" onclick="markReceived(this)">✓ Received</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--green)"></div>Recently Received</div>
+      <ul class="received-list">
+        <li class="received-item">Rebuilt 4L60-E (reman) — 2014 GMC Sierra PO #1029 · Received Jul 6</li>
+        <li class="received-item">Valve body kit — 2016 Ford Explorer PO #1033 · Received Jul 5</li>
+        <li class="received-item">Solenoid pack (6R80) — 2018 Ford F-150 PO #1031 · Received Jul 4</li>
+        <li class="received-item">Filter &amp; gasket set — 2013 Dodge RAM PO #1028 · Received Jul 3</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══ TAB 3: PAYMENTS ══ -->
+  <div class="view" id="view-payments">
+    <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px 18px;margin-bottom:16px;font-size:0.83rem;color:#92400e;">
+      <strong>Not yet wired to live data</strong> — no <code>payments</code> table exists in Supabase. Sample data shown below. Dev must create the table before this tab can be wired.
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--green)"></div>Log a Payment</div>
+      <div class="payment-form">
+        <div class="form-group">
+          <label class="form-label">Job / Vehicle</label>
+          <select>
+            <option>PO #1029 — 2014 GMC Sierra (J. Thornton)</option>
+            <option>PO #1033 — 2016 Ford Explorer (M. Castillo)</option>
+            <option>PO #1031 — 2018 Ford F-150 (R. Peña)</option>
+            <option>PO #1028 — 2013 Dodge RAM (A. Williams)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Amount ($)</label>
+          <input type="number" placeholder="0.00" min="0" step="0.01" style="width:100%" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Payment Method</label>
+          <select>
+            <option>Cash</option>
+            <option>Card at Counter</option>
+            <option>Clover</option>
+            <option>Check</option>
+          </select>
+        </div>
+        <div class="form-group" style="justify-content:flex-end">
+          <label class="form-label">&nbsp;</label>
+          <button class="btn btn-primary" onclick="logPayment()" style="align-self:flex-end">Log Payment</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--blue)"></div>Today's Payments</div>
+      <table id="payments-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Vehicle / PO#</th>
+            <th>Customer</th>
+            <th>Method</th>
+            <th style="text-align:right">Amount</th>
+          </tr>
+        </thead>
+        <tbody id="payments-body">
+          <tr>
+            <td style="color:var(--muted);font-size:0.78rem">8:42 AM</td>
+            <td><strong>2014 GMC Sierra</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1029</span></td>
+            <td>J. Thornton</td>
+            <td><span class="badge badge-approved">Clover</span></td>
+            <td style="text-align:right;font-weight:700">$2,450.00</td>
+          </tr>
+          <tr>
+            <td style="color:var(--muted);font-size:0.78rem">10:15 AM</td>
+            <td><strong>2016 Ford Explorer</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1033</span></td>
+            <td>M. Castillo</td>
+            <td><span class="badge badge-waiting">Cash</span></td>
+            <td style="text-align:right;font-weight:700">$680.00</td>
+          </tr>
+          <tr>
+            <td style="color:var(--muted);font-size:0.78rem">11:50 AM</td>
+            <td><strong>2013 Dodge RAM</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1028</span></td>
+            <td>A. Williams</td>
+            <td><span class="badge badge-diag">Card at Counter</span></td>
+            <td style="text-align:right;font-weight:700">$1,875.00</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="payment-total" id="payment-total">Today's Total: <span>$5,005.00</span></div>
+    </div>
+  </div>
+
+  <!-- ══ TAB 4: CUSTOMER LOG ══ -->
+  <div class="view" id="view-customer-log">
+    <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px 18px;margin-bottom:16px;font-size:0.83rem;color:#92400e;">
+      <strong>Not yet wired to live data</strong> — no <code>customer_log</code> (or equivalent) table exists in Supabase. Notes added here are not persisted. Dev must create the table before this tab can be wired.
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--accent)"></div>Add Note</div>
+      <div class="add-note-row">
+        <input type="text" id="new-note-input" placeholder="e.g. Called J. Smith – left voicemail re: parts ETA" style="font-size:0.88rem" />
+        <button class="btn btn-primary" onclick="addNote()">Add Note</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><div class="dot"></div>Customer Activity Log</div>
+      <ul class="log-list" id="log-list">
+        <li class="log-entry">
+          <div class="log-time">11:47 AM</div>
+          <div>
+            <div class="log-text">Called P. Gomez (Camry PO #1043) — confirmed CVT flush approved, parts on order. Told her 2–3 days out.</div>
+            <div class="log-author">Josh</div>
+          </div>
+        </li>
+        <li class="log-entry">
+          <div class="log-time">10:30 AM</div>
+          <div>
+            <div class="log-text">Left voicemail for J. Wicker (Silverado PO #1037) re: clutch kit approval. Needs callback before end of day.</div>
+            <div class="log-author">Josh</div>
+          </div>
+        </li>
+        <li class="log-entry">
+          <div class="log-time">9:58 AM</div>
+          <div>
+            <div class="log-text">D. Reyes called in — wants update on F-150. Told her still diagnosing, will call back by 2 PM with full quote.</div>
+            <div class="log-author">Josh</div>
+          </div>
+        </li>
+        <li class="log-entry">
+          <div class="log-time">9:12 AM</div>
+          <div>
+            <div class="log-text">C. Mendoza approved Accord rebuild — $2,800 flagged hours. Authorized via phone, note added to RO.</div>
+            <div class="log-author">Josh</div>
+          </div>
+        </li>
+        <li class="log-entry">
+          <div class="log-time">8:35 AM</div>
+          <div>
+            <div class="log-text">A. Williams picked up Dodge RAM PO #1028 — paid in full ($1,875 card). Satisfaction: happy, mentioned timing was fast.</div>
+            <div class="log-author">Josh</div>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ══ TEAM CHAT — re-homed from the old floating chat widget ══ -->
+  <div class="view" id="view-teamchat">
+    <div class="chat-panel open" id="chat-panel">
+      <div class="chat-header"><span>Team Chat</span></div>
+      <div class="chat-channels" id="chat-channels"></div>
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-row">
+        <div class="emoji-picker-wrap">
+          <button class="emoji-btn" id="emoji-btn" type="button" title="Emoji">😊</button>
+          <div class="emoji-popover" id="emoji-popover" style="display:none"></div>
+        </div>
+        <input type="text" id="chat-input" placeholder="Message…" />
+        <button class="chat-send-btn" id="chat-send">➤</button>
+      </div>
+    </div>
+  </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- New Vehicle Intake Modal — outside .content so it isn't hidden by an inactive .view -->
+<div class="modal-overlay" id="newVehicleModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="closeNewVehicleModal">&times;</button>
+    <h3>New Vehicle Intake</h3>
+    <div class="intake-field">
+      <label>PO / RO Number</label>
+      <input type="text" id="nvPoInput" placeholder="e.g. 5512">
+    </div>
+    <div class="intake-field">
+      <label>Customer</label>
+      <input type="text" id="nvCustomerInput" placeholder="Customer name">
+    </div>
+    <div class="intake-field">
+      <label>Vehicle</label>
+      <input type="text" id="nvVehicleInput" placeholder="Year / Make / Model">
+    </div>
+    <div class="intake-field">
+      <label>Work Description</label>
+      <textarea id="nvWorkInput" placeholder="What the customer reported / what's being done"></textarea>
+    </div>
+    <div class="intake-field">
+      <label>Job Category</label>
+      <select id="nvCategoryInput">
+        <option value="">- Category -</option>
+        <option value="Gen Auto">Gen Auto</option>
+        <option value="Rebuild">Rebuild</option>
+        <option value="Diag">Diag</option>
+      </select>
+    </div>
+    <div class="intake-field intake-field-row">
+      <label style="margin-bottom:0">Warranty / Comeback</label>
+      <label class="intake-toggle">
+        <input type="checkbox" id="nvWarrantyInput">
+        <span class="intake-toggle-slider"></span>
+      </label>
+    </div>
+    <div class="intake-field">
+      <label>Arrival Date</label>
+      <input type="date" id="nvArrivalInput">
+    </div>
+    <div class="intake-field">
+      <label>Notes</label>
+      <textarea id="nvNotesInput" placeholder="Notes..."></textarea>
+    </div>
+    <div class="intake-field">
+      <label>Assign Tech (optional)</label>
+      <select id="nvTechInput">
+        <option value="">Unassigned</option>
+      </select>
+    </div>
+    <div class="intake-form-error" id="nvFormError"></div>
+    <button class="modal-btn" id="nvSaveBtn">Add Vehicle</button>
+    <button class="modal-btn sec" id="nvCancelBtn">Cancel</button>
+  </div>
+</div>
+
+<!-- Kiki AI Chat Widget — shared floating widget, independent of sidebar view -->
+<button id="ai-bubble" title="Ask Kiki"><img src="/kiki-avatar.png" alt="Kiki" /></button>
+<div id="ai-panel">
+  <div id="ai-header">
+    <div id="ai-header-left"><img id="ai-header-avatar" src="/kiki-avatar.png" alt="Kiki" /><span>Kiki</span></div>
+    <button id="ai-close" title="Close">&times;</button>
+  </div>
+  <div id="ai-messages"></div>
+  <div id="ai-footer">
+    <input id="ai-input" type="text" placeholder="Ask about the board..." />
+    <button id="ai-send">Ask</button>
+  </div>
+</div>
+
+<script>
+  // ── Supabase
+  const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // ── VIEW REFRESH REGISTRY — connection-health safety net + manual
+  // refresh button (see bottom of file). Each view's section below
+  // registers its own { refetch, getChannel, resubscribe } as it sets
+  // itself up; views with no live data (stubs) simply never register.
+  const VIEW_REFRESH = {};
+  let currentViewKey = 'approval';
+
+  function hasVehicleData(r) {
+    return !!(r.po && r.po.trim()) && !!(r.vehicle && r.vehicle.trim());
+  }
+
+  const STATUS_BADGE = {
+    'waiting-auth': '<span class="badge badge-waiting">Awaiting Approval</span>',
+    'waiting-tech': '<span class="badge badge-diag">Diagnosing</span>',
+    'waiting-part': '<span class="badge badge-parts">Waiting for Parts</span>',
+  };
+
+  function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  // ── Approval Queue — load from Supabase
+  async function loadAndRenderQueue() {
+    const QUEUE_STATUSES = ['waiting-auth', 'waiting-tech'];
+    const SELECT = 'id,po,vehicle,status,assigned_tech,customer,work,notes,job_category';
+
+    const [{ data: lifts }, { data: parking }] = await Promise.all([
+      db.from('shopboard_lifts').select(SELECT).in('status', QUEUE_STATUSES).order('id'),
+      db.from('shopboard_parking').select(SELECT).in('status', QUEUE_STATUSES).order('created_at'),
+    ]);
+
+    const all = [
+      ...(lifts   || []).filter(hasVehicleData).map(r => ({ ...r, _table: 'shopboard_lifts' })),
+      ...(parking || []).filter(hasVehicleData).map(r => ({ ...r, _table: 'shopboard_parking' })),
+    ];
+
+    const grid = document.getElementById('queue-grid');
+
+    if (all.length === 0) {
+      grid.innerHTML = '<div style="color:var(--muted);padding:32px;grid-column:1/-1;text-align:center">No jobs awaiting approval right now.</div>';
+      return;
+    }
+
+    grid.innerHTML = all.map(job => `
+      <div class="job-card" data-id="${esc(String(job.id))}" data-table="${esc(job._table)}">
+        <div class="job-card-header">
+          <div>
+            <div class="job-vehicle">${esc(job.vehicle)} — PO #${esc(job.po)}</div>
+            <div class="job-customer">${esc(job.customer || '—')}</div>
+          </div>
+          ${STATUS_BADGE[job.status] || `<span class="badge">${esc(job.status)}</span>`}
+        </div>
+        <div class="job-body">
+          <div class="job-section-label">Tech Diagnosis${job.assigned_tech && job.assigned_tech !== 'Unassigned' ? ' — ' + esc(job.assigned_tech) : ''}</div>
+          <div class="job-diagnosis">${esc(job.work || job.notes || '(No diagnosis notes yet)')}</div>
+          <div class="job-notes">
+            <div class="job-section-label">Internal Notes</div>
+            <div class="job-notes-list"></div>
+            <div class="job-note-input-row">
+              <input type="text" placeholder="Add a note…" />
+              <button class="btn btn-ghost" onclick="addJobNote(this)">Add</button>
+            </div>
+          </div>
+        </div>
+        <div class="job-footer">
+          <span class="hours-label">Flag Hours:</span>
+          <input type="number" class="flag-hours-input" value="" min="0" step="0.5" placeholder="0" oninput="onFlagHoursInput(this)" />
+          <button class="btn btn-green" disabled onclick="approveJob(this)">✓ Approve Job</button>
+          <button class="btn btn-ghost" style="margin-left:auto">Hold</button>
+        </div>
+        <div class="flag-hours-hint" style="display:none;color:var(--danger,#c0392b);font-size:12px;padding:0 16px 8px;">Enter Flag Hours before approving.</div>
+      </div>`).join('');
+  }
+
+  function onFlagHoursInput(input) {
+    const card = input.closest('.job-card');
+    const btn = card.querySelector('.btn-green');
+    const hint = card.querySelector('.flag-hours-hint');
+    const valid = parseFloat(input.value) > 0;
+    btn.disabled = !valid;
+    if (valid && hint) hint.style.display = 'none';
+  }
+
+  // ── Approve Job — writes to Supabase (advisor/manager only action)
+  async function approveJob(btn) {
+    const card = btn.closest('.job-card');
+    const table = card.dataset.table;
+    const id = card.dataset.id;
+    const flagHoursInput = card.querySelector('.flag-hours-input');
+    const flagHours = parseFloat(flagHoursInput.value);
+    const hint = card.querySelector('.flag-hours-hint');
+
+    if (!(flagHours > 0)) {
+      if (hint) hint.style.display = 'block';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    const { error } = await db.from(table).update({
+      status: 'approved',
+      approved_at: new Date().toISOString(),
+      flag_hours: flagHours,
+    }).eq('id', id);
+
+    if (error) {
+      console.error('Approve failed:', error);
+      btn.disabled = false;
+      btn.textContent = '✓ Approve Job';
+      alert('Save failed: ' + error.message);
+      return;
+    }
+
+    const badge = card.querySelector('.badge');
+    badge.textContent = 'Approved';
+    badge.className = 'badge badge-approved';
+    btn.textContent = '✓ Approved';
+    btn.style.opacity = '0.5';
+  }
+
+  // ── Real-time: reload queue on any lifts/parking change
+  let approvalChannel = null;
+  function approvalSubscribeRealtime() {
+    if (approvalChannel) db.removeChannel(approvalChannel);
+    approvalChannel = db.channel('advisor-board-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_lifts' },   loadAndRenderQueue)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_parking' }, loadAndRenderQueue)
+      .subscribe();
+  }
+  approvalSubscribeRealtime();
+
+  // ── Initial load
+  loadAndRenderQueue();
+  VIEW_REFRESH.approval = {
+    refetch: loadAndRenderQueue,
+    getChannel: () => approvalChannel,
+    resubscribe: approvalSubscribeRealtime,
+  };
+
+  // ── Sidebar navigation
+  document.querySelectorAll('.sidebar-item[data-view]').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.sidebar-item[data-view]').forEach(i => i.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      item.classList.add('active');
+      document.getElementById('view-' + item.dataset.view).classList.add('active');
+      document.getElementById('viewTopbarTitle').textContent = item.dataset.label || item.textContent.trim();
+      currentViewKey = item.dataset.view;
+    });
+  });
+
+  // ── Mark Part Received (local only — no parts table)
+  function markReceived(btn) {
+    const row = btn.closest('tr');
+    row.style.opacity = '0.45';
+    btn.textContent = 'Received ✓';
+    btn.disabled = true;
+  }
+
+  // ── Log Payment (local only — no payments table)
+  let totalCents = 500500;
+  function logPayment() {
+    const sel = document.querySelector('#view-payments select');
+    const amtInput = document.querySelectorAll('#view-payments input[type=number]')[0];
+    const methodSel = document.querySelectorAll('#view-payments select')[1];
+    const amt = parseFloat(amtInput.value);
+    if (!amt || amt <= 0) { amtInput.style.borderColor = 'var(--red)'; return; }
+    amtInput.style.borderColor = '';
+    const [po, vehicle] = sel.options[sel.selectedIndex].text.split(' — ');
+    const method = methodSel.value;
+    const now = new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+    const methodBadge = { Cash:'badge-waiting', 'Card at Counter':'badge-diag', Clover:'badge-approved', Check:'badge-parts' };
+    const row = document.createElement('tr');
+    row.innerHTML = `
+      <td style="color:var(--muted);font-size:0.78rem">${now}</td>
+      <td><strong>${esc(vehicle.trim())}</strong><br><span style="color:var(--muted);font-size:0.78rem">${esc(po.trim())}</span></td>
+      <td>—</td>
+      <td><span class="badge ${methodBadge[method] || 'badge-parts'}">${esc(method)}</span></td>
+      <td style="text-align:right;font-weight:700">$${amt.toFixed(2)}</td>`;
+    document.getElementById('payments-body').prepend(row);
+    totalCents += Math.round(amt * 100);
+    document.querySelector('#payment-total span').textContent = '$' + (totalCents / 100).toLocaleString('en-US', {minimumFractionDigits:2});
+    amtInput.value = '';
+  }
+
+  // ── Add Customer Log Note (local only — no customer_log table)
+  function addNote() {
+    const input = document.getElementById('new-note-input');
+    const text = input.value.trim();
+    if (!text) return;
+    const now = new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+    const li = document.createElement('li');
+    li.className = 'log-entry';
+    li.innerHTML = `
+      <div class="log-time">${now}</div>
+      <div>
+        <div class="log-text">${esc(text)}</div>
+        <div class="log-author">Josh</div>
+      </div>`;
+    document.getElementById('log-list').prepend(li);
+    input.value = '';
+  }
+
+  document.getElementById('new-note-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') addNote();
+  });
+
+  // ── Job-linked notes (local only)
+  function addJobNote(btn) {
+    const row = btn.closest('.job-note-input-row');
+    const input = row.querySelector('input');
+    const text = input.value.trim();
+    if (!text) return;
+    const list = row.closest('.job-notes').querySelector('.job-notes-list');
+    const now = new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+    const note = document.createElement('div');
+    note.className = 'job-note';
+    note.innerHTML = `<div class="job-note-meta"><span class="job-note-author">Josh</span><span>${now}</span></div>${esc(text)}`;
+    list.appendChild(note);
+    input.value = '';
+  }
+
+  // ── Team Chat (real, Supabase-backed — advisor-board = Advisor's view)
+  // CHAT_IDENTITY is populated by captureSessionAndGreet() below once the
+  // session's phone resolves against `employees`; sending is blocked until then.
+  let CHAT_IDENTITY = { name: null, role: null };
+
+  const CHAT_CHANNELS = [
+    { key: 'group',           label: 'Group' },
+    { key: 'owner_advisor',   label: 'Owner' },
+    { key: 'manager_advisor', label: 'Manager' },
+  ];
+  let CURRENT_CHANNEL = 'group';
+  let chatMessages = [];
+  let chatRealtimeChannel = null;
+
+  function formatChatTime(iso) {
+    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function renderChannelTabs() {
+    const wrap = document.getElementById('chat-channels');
+    wrap.innerHTML = CHAT_CHANNELS.map(c =>
+      `<button class="chat-channel-btn${c.key === CURRENT_CHANNEL ? ' active' : ''}" data-channel="${c.key}">${esc(c.label)}</button>`
+    ).join('');
+    wrap.querySelectorAll('[data-channel]').forEach(btn => {
+      btn.addEventListener('click', () => switchChatChannel(btn.dataset.channel));
+    });
+  }
+
+  // Same dynamic-source pattern as the Tech dropdown: pull the real owner's
+  // name from `employees` instead of hardcoding it. Falls back to the
+  // generic "Owner" label if no active owner record exists yet.
+  async function loadOwnerChannelLabel() {
+    const { data, error } = await db
+      .from('employees').select('name')
+      .eq('role', 'owner').eq('active', true)
+      .order('name').limit(1);
+    if (error) { console.error('[Chat] load owner label failed', error); return; }
+    const entry = CHAT_CHANNELS.find(c => c.key === 'owner_advisor');
+    if (entry) entry.label = (data && data[0] && data[0].name) ? data[0].name : 'Owner';
+    renderChannelTabs();
+  }
+
+  async function loadChatMessages(channel) {
+    const { data, error } = await db.from('chat_messages').select('*').eq('channel', channel).order('created_at');
+    if (error) { console.error('[Chat] load failed', error); chatMessages = []; }
+    else chatMessages = data || [];
+    renderChat();
+  }
+
+  function subscribeChatChannel(channel) {
+    if (chatRealtimeChannel) {
+      db.removeChannel(chatRealtimeChannel);
+      chatRealtimeChannel = null;
+    }
+    chatRealtimeChannel = db.channel('chat-live')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `channel=eq.${channel}` },
+        ({ new: rec }) => { if (rec) { chatMessages.push(rec); renderChat(); } }
+      )
+      .subscribe();
+  }
+
+  function switchChatChannel(channel) {
+    CURRENT_CHANNEL = channel;
+    renderChannelTabs();
+    loadChatMessages(channel);
+    subscribeChatChannel(channel);
+  }
+
+  function renderChat() {
+    const box = document.getElementById('chat-messages');
+    box.innerHTML = chatMessages.map(m => `
+      <div class="chat-msg ${m.sender_name === CHAT_IDENTITY.name ? 'me' : 'them'}">
+        <div class="chat-msg-sender">${esc(m.sender_name)}</div>
+        <div class="chat-msg-bubble">${esc(m.message)}</div>
+        <div class="chat-msg-time">${formatChatTime(m.created_at)}</div>
+      </div>`).join('');
+    box.scrollTop = box.scrollHeight;
+  }
+
+  async function sendChatMsg() {
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+    if (!CHAT_IDENTITY.name || !CHAT_IDENTITY.role) {
+      alert('Could not identify you on this board yet — try reopening it from CrisData.');
+      return;
+    }
+    input.value = '';
+    const { error } = await db.from('chat_messages').insert({
+      channel: CURRENT_CHANNEL,
+      sender_role: CHAT_IDENTITY.role,
+      sender_name: CHAT_IDENTITY.name,
+      message: text,
+    });
+    if (error) {
+      console.error('[Chat] send failed', error);
+      alert('Message failed to send: ' + error.message);
+    }
+  }
+
+  document.getElementById('chat-send').addEventListener('click', sendChatMsg);
+  document.getElementById('chat-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendChatMsg();
+  });
+
+  renderChannelTabs();
+  loadChatMessages(CURRENT_CHANNEL);
+  subscribeChatChannel(CURRENT_CHANNEL);
+  loadOwnerChannelLabel();
+  VIEW_REFRESH.teamchat = {
+    refetch: () => loadChatMessages(CURRENT_CHANNEL),
+    getChannel: () => chatRealtimeChannel,
+    resubscribe: () => subscribeChatChannel(CURRENT_CHANNEL),
+  };
+
+  // ── Emoji picker (desktop convenience — phone keyboards already have one)
+  const EMOJI_LIST = ['👍','👎','✅','❌','🔥','💯','👏','🙌','💪','🙏',
+                       '😊','😂','😅','😉','😎','🤔','😬','😢','😡','🥳',
+                       '🚗','🔧','⚙️','⚠️','🛠️','🔩','⏰','📞','📸','💰'];
+
+  function renderEmojiPopover() {
+    const pop = document.getElementById('emoji-popover');
+    pop.innerHTML = EMOJI_LIST.map(e => `<button type="button" data-emoji="${e}">${e}</button>`).join('');
+    pop.querySelectorAll('[data-emoji]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const input = document.getElementById('chat-input');
+        input.value += btn.dataset.emoji;
+        pop.style.display = 'none';
+        input.focus();
+      });
+    });
+  }
+
+  document.getElementById('emoji-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const pop = document.getElementById('emoji-popover');
+    pop.style.display = pop.style.display === 'none' ? 'grid' : 'none';
+  });
+
+  document.addEventListener('click', (e) => {
+    const pop = document.getElementById('emoji-popover');
+    const btn = document.getElementById('emoji-btn');
+    if (pop.style.display !== 'none' && !pop.contains(e.target) && e.target !== btn) {
+      pop.style.display = 'none';
+    }
+  });
+
+  renderEmojiPopover();
+
+  // ══════════════════════════════════════════════════════════════
+  // SESSION CAPTURE + GREETING (Step 3 of 3, employee management).
+  // Passive identity only — never blocks the board from loading or
+  // functioning. If nothing is known, no greeting shows, nothing else changes.
+  // ══════════════════════════════════════════════════════════════
+  (async function captureSessionAndGreet() {
+    const SESSION_PHONE_KEY = 'advisorBoardPhone';
+
+    async function renderGreeting(phone) {
+      if (!phone) return;
+      const { data: emp } = await db.from('employees').select('name, photo_url, role').eq('phone', phone).maybeSingle();
+      if (!emp) return;
+      CHAT_IDENTITY = { name: emp.name, role: emp.role };
+      const avatar = emp.photo_url
+        ? `<img class="greeting-avatar" src="${esc(emp.photo_url)}" alt="">`
+        : `<div class="greeting-avatar-fallback">${esc((emp.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;
+      const wrap = document.getElementById('greetingWrap');
+      wrap.innerHTML = `${avatar}<span>Hi, ${esc(emp.name)}</span>`;
+      wrap.style.display = 'flex';
+    }
+
+    let phone = null;
+
+    // Fresh passthrough from CrisData: ?u=phone&p=pin
+    const params = new URLSearchParams(window.location.search);
+    const passPhone = params.get('u');
+    const passPin = params.get('p');
+    if (passPhone && passPin) {
+      const { data: match } = await db
+        .from('employees').select('phone')
+        .eq('phone', passPhone).eq('pin', passPin).eq('active', true)
+        .maybeSingle();
+      if (match) {
+        phone = match.phone;
+        localStorage.setItem(SESSION_PHONE_KEY, phone);
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+
+    // Restore a persisted session if no fresh passthrough matched
+    if (!phone) {
+      phone = localStorage.getItem(SESSION_PHONE_KEY);
+    }
+
+    if (phone) {
+      await renderGreeting(phone);
+    }
+    // No match anywhere: board already loaded normally above, just no greeting.
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // LOGOUT — manual button + 120-minute idle auto-logout.
+  // Clears the local session and returns to the CrisData employee
+  // login screen. Also calls supabase auth signOut defensively in
+  // case a GoTrue session is ever introduced.
+  // ══════════════════════════════════════════════════════════════
+  (function initLogout() {
+    const SESSION_PHONE_KEY = 'advisorBoardPhone';
+    const IDLE_LIMIT_MS = 120 * 60 * 1000;
+    const CHECK_INTERVAL_MS = 30 * 1000;
+    let lastActivity = Date.now();
+
+    async function logOut() {
+      try { await db.auth.signOut(); } catch (e) {}
+      localStorage.removeItem(SESSION_PHONE_KEY);
+      window.location.href = 'crisdata.html';
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', logOut);
+
+    ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => {
+      window.addEventListener(evt, () => { lastActivity = Date.now(); }, { passive: true });
+    });
+
+    setInterval(() => {
+      if (Date.now() - lastActivity >= IDLE_LIMIT_MS) logOut();
+    }, CHECK_INTERVAL_MS);
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // AUTO-REFRESH SAFETY NET + MANUAL REFRESH
+  // Realtime channels (registered into VIEW_REFRESH above) are the
+  // primary update mechanism. This is only a fallback for when a
+  // socket silently drops — e.g. a backgrounded tab or a network
+  // blip: refetch immediately when the tab becomes visible/focused,
+  // and every 60s verify the active view's channel is still joined,
+  // only refetching + resubscribing if it isn't.
+  // ══════════════════════════════════════════════════════════════
+  (function initRefreshSafetyNet() {
+    function refreshActiveView() {
+      const entry = VIEW_REFRESH[currentViewKey];
+      if (!entry || typeof entry.refetch !== 'function') return Promise.resolve();
+      return Promise.resolve(entry.refetch());
+    }
+
+    function isChannelHealthy(channel) {
+      return !!channel && channel.state === 'joined';
+    }
+
+    function checkActiveChannelHealth() {
+      const entry = VIEW_REFRESH[currentViewKey];
+      if (!entry || typeof entry.getChannel !== 'function') return; // no channel for this view
+      if (isChannelHealthy(entry.getChannel())) return; // realtime already pushing updates
+      if (typeof entry.refetch === 'function') entry.refetch();
+      if (typeof entry.resubscribe === 'function') entry.resubscribe();
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refreshActiveView();
+    });
+    window.addEventListener('focus', refreshActiveView);
+    setInterval(checkActiveChannelHealth, 60 * 1000);
+
+    // ── Manual refresh button
+    const refreshBtn = document.getElementById('refreshBtn');
+    const refreshIcon = document.getElementById('refreshBtnIcon');
+    refreshBtn.addEventListener('click', async () => {
+      if (refreshBtn.disabled) return;
+      refreshBtn.disabled = true;
+      refreshIcon.classList.add('spinning');
+      try {
+        await refreshActiveView();
+      } finally {
+        refreshIcon.classList.remove('spinning');
+        refreshBtn.disabled = false;
+      }
+    });
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // NEW VEHICLE INTAKE — advisor-created jobs land in shopboard_parking
+  // (Parking Lot Waiting), never directly on a lift. Lift placement stays
+  // a GM Board action. Status is always 'waiting-tech' regardless of
+  // whether a tech was assigned at intake — it reflects "needs a tech,"
+  // not whether one's been picked yet.
+  // ══════════════════════════════════════════════════════════════
+  (function () {
+    async function loadTechOptions() {
+      const sel = document.getElementById('nvTechInput');
+      sel.innerHTML = '<option value="">Unassigned</option>';
+      const { data, error } = await db
+        .from('employees').select('name')
+        .eq('role', 'tech').eq('active', true)
+        .order('name');
+      if (error) { console.error('[Intake] Load techs failed', error); return; }
+      (data || []).forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.name;
+        opt.textContent = t.name;
+        sel.appendChild(opt);
+      });
+    }
+
+    // Same duplicate-PO-guard behavior as gm-board.html's Shop Floor Add Car
+    // flow (ported from shop-board.html): case-insensitive, trimmed match
+    // across lifts + parking + pickup.
+    async function isDuplicatePO(po) {
+      if (!po || !po.trim()) return false;
+      const norm = po.trim().toLowerCase();
+      const [{ data: lifts }, { data: parking }, { data: pickup }] = await Promise.all([
+        db.from('shopboard_lifts').select('po'),
+        db.from('shopboard_parking').select('po'),
+        db.from('shopboard_pickup').select('po'),
+      ]);
+      const all = [...(lifts || []), ...(parking || []), ...(pickup || [])];
+      return all.some(r => (r.po || '').trim().toLowerCase() === norm);
+    }
+
+    async function openNewVehicleModal() {
+      document.getElementById('nvPoInput').value = '';
+      document.getElementById('nvCustomerInput').value = '';
+      document.getElementById('nvVehicleInput').value = '';
+      document.getElementById('nvWorkInput').value = '';
+      document.getElementById('nvCategoryInput').value = '';
+      document.getElementById('nvWarrantyInput').checked = false;
+      document.getElementById('nvArrivalInput').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('nvNotesInput').value = '';
+      document.getElementById('nvFormError').textContent = '';
+      await loadTechOptions();
+      document.getElementById('nvTechInput').value = '';
+      document.getElementById('newVehicleModal').style.display = 'flex';
+    }
+
+    function closeNewVehicleModal() {
+      document.getElementById('newVehicleModal').style.display = 'none';
+    }
+
+    async function saveNewVehicle() {
+      const po = document.getElementById('nvPoInput').value.trim();
+      const vehicle = document.getElementById('nvVehicleInput').value.trim();
+      const customer = document.getElementById('nvCustomerInput').value.trim();
+      const work = document.getElementById('nvWorkInput').value.trim();
+      const job_category = document.getElementById('nvCategoryInput').value;
+      const warranty = document.getElementById('nvWarrantyInput').checked;
+      const arrival_date = document.getElementById('nvArrivalInput').value || null;
+      const notes = document.getElementById('nvNotesInput').value.trim();
+      const assigned_tech = document.getElementById('nvTechInput').value || null;
+      const errEl = document.getElementById('nvFormError');
+      errEl.textContent = '';
+
+      if (!po || !vehicle) {
+        errEl.textContent = 'PO/RO number and Vehicle are required.';
+        return;
+      }
+
+      const saveBtn = document.getElementById('nvSaveBtn');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      try {
+        if (await isDuplicatePO(po)) {
+          errEl.textContent = `PO # "${po}" already exists on the board. Use a different number.`;
+          return;
+        }
+
+        const { error } = await db.from('shopboard_parking').insert({
+          po, vehicle, customer, work, status: 'waiting-tech',
+          job_category, warranty, arrival_date, notes, assigned_tech,
+        });
+        if (error) throw error;
+
+        closeNewVehicleModal();
+        loadAndRenderQueue();
+      } catch (err) {
+        console.error('[Intake] Save failed', err);
+        errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Add Vehicle';
+      }
+    }
+
+    document.getElementById('navNewVehicle').addEventListener('click', openNewVehicleModal);
+    document.getElementById('closeNewVehicleModal').addEventListener('click', closeNewVehicleModal);
+    document.getElementById('nvCancelBtn').addEventListener('click', closeNewVehicleModal);
+    document.getElementById('nvSaveBtn').addEventListener('click', saveNewVehicle);
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // KIKI AI CHAT WIDGET — ported from tech-board.html (v1). Shared,
+  // persistent floating widget — independent of any sidebar view, so
+  // it stays mounted regardless of which one is active. Fetches its
+  // own board data fresh on every question (not reused from any
+  // page's in-memory state, per the porting decision) and posts to
+  // the existing /api/chat serverless function unchanged — same
+  // request shape v1 used. The Kiki personality system prompt lives
+  // server-side in api/chat.js and is untouched.
+  // ══════════════════════════════════════════════════════════════
+  (function () {
+    const bubble = document.getElementById('ai-bubble');
+    const panel  = document.getElementById('ai-panel');
+    const close  = document.getElementById('ai-close');
+    const msgs   = document.getElementById('ai-messages');
+    const input  = document.getElementById('ai-input');
+    const send   = document.getElementById('ai-send');
+    const SIZE   = 56;
+    const STORE  = 'kiki_bubble_pos_advisor';
+
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    function setBubblePos(left, top) {
+      left = clamp(left, 0, window.innerWidth  - SIZE);
+      top  = clamp(top,  0, window.innerHeight - SIZE);
+      bubble.style.left   = left + 'px';
+      bubble.style.top    = top  + 'px';
+      bubble.style.right  = 'auto';
+      bubble.style.bottom = 'auto';
+      return { left, top };
+    }
+
+    function positionPanel() {
+      const r  = bubble.getBoundingClientRect();
+      const pw = 340, ph = 480, gap = 8, margin = 8;
+      let top  = r.top - ph - gap;
+      if (top < margin) top = r.bottom + gap;
+      let left = r.right - pw;
+      if (left < margin) left = margin;
+      if (left + pw > window.innerWidth - margin) left = window.innerWidth - pw - margin;
+      panel.style.top    = top  + 'px';
+      panel.style.left   = left + 'px';
+      panel.style.bottom = 'auto';
+      panel.style.right  = 'auto';
+    }
+
+    const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
+    if (saved) {
+      setBubblePos(saved.left, saved.top);
+    } else {
+      setBubblePos(window.innerWidth - SIZE - 24, window.innerHeight - SIZE - 24);
+    }
+
+    let dragging = false, didDrag = false;
+    let startMX, startMY, startBX, startBY;
+
+    function dragStart(mx, my) {
+      const r = bubble.getBoundingClientRect();
+      dragging = true; didDrag = false;
+      startMX = mx; startMY = my;
+      startBX = r.left; startBY = r.top;
+      bubble.style.cursor = 'grabbing';
+      bubble.style.transition = 'none';
+    }
+    function dragMove(mx, my) {
+      if (!dragging) return;
+      if (Math.abs(mx - startMX) > 3 || Math.abs(my - startMY) > 3) didDrag = true;
+      setBubblePos(startBX + mx - startMX, startBY + my - startMY);
+      if (panel.classList.contains('open')) positionPanel();
+    }
+    function dragEnd() {
+      if (!dragging) return;
+      dragging = false;
+      bubble.style.cursor = 'grab';
+      bubble.style.transition = '';
+      const r = bubble.getBoundingClientRect();
+      localStorage.setItem(STORE, JSON.stringify({ left: r.left, top: r.top }));
+    }
+
+    bubble.addEventListener('mousedown',  (e) => { e.preventDefault(); dragStart(e.clientX, e.clientY); });
+    window.addEventListener('mousemove',  (e) => dragMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup',    ()  => dragEnd());
+    bubble.addEventListener('touchstart', (e) => { const t = e.touches[0]; dragStart(t.clientX, t.clientY); }, { passive: true });
+    window.addEventListener('touchmove',  (e) => { if (dragging) { e.preventDefault(); } const t = e.touches[0]; dragMove(t.clientX, t.clientY); }, { passive: false });
+    window.addEventListener('touchend',   ()  => dragEnd());
+
+    bubble.addEventListener('click', () => {
+      if (didDrag) { didDrag = false; return; }
+      panel.classList.toggle('open');
+      if (panel.classList.contains('open')) { positionPanel(); input.focus(); }
+    });
+    close.addEventListener('click', () => panel.classList.remove('open'));
+
+    function addMsg(text, cls) {
+      const d = document.createElement('div');
+      d.className = cls;
+      d.textContent = text;
+      msgs.appendChild(d);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    // ── Independent board-data fetch — not reused from any page's
+    // in-memory state. Same shape v1 sent: { vehicles, whiteboard }.
+    async function fetchBoardData() {
+      const [liftsRes, parkingRes, pickupRes, whiteboardRes] = await Promise.all([
+        db.from('shopboard_lifts').select('*').order('id'),
+        db.from('shopboard_parking').select('*').order('created_at'),
+        db.from('shopboard_pickup').select('*').order('created_at'),
+        db.from('tech_whiteboard').select('*'),
+      ]);
+
+      const vehicles = [];
+      (liftsRes.data || []).forEach((l, idx) => {
+        if (hasVehicleData(l)) vehicles.push({ ...l, _source: 'lift', _liftNum: idx + 1 });
+      });
+      (parkingRes.data || []).forEach(p => {
+        if (hasVehicleData(p)) vehicles.push({ ...p, _source: 'parking' });
+      });
+      (pickupRes.data || []).forEach(p => {
+        if (hasVehicleData(p)) vehicles.push({ ...p, _source: 'pickup' });
+      });
+
+      const whiteboard = {};
+      (whiteboardRes.data || []).forEach(r => { whiteboard[r.tech_name] = r.next_job || ''; });
+
+      return { vehicles, whiteboard };
+    }
+
+    async function askAI() {
+      const q = input.value.trim();
+      if (!q) return;
+      input.value = '';
+      send.disabled = true;
+      addMsg(q, 'ai-msg-user');
+      const thinking = document.createElement('div');
+      thinking.className = 'ai-msg-bot';
+      thinking.textContent = 'Thinking...';
+      msgs.appendChild(thinking);
+      msgs.scrollTop = msgs.scrollHeight;
+
+      try {
+        const boardData = await fetchBoardData();
+        const r = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ question: q, boardData })
+        });
+        const d = await r.json();
+        thinking.textContent = d.answer || d.error || 'No response';
+        if (d.error) thinking.className = 'ai-msg-err';
+      } catch(e) {
+        thinking.className = 'ai-msg-err';
+        thinking.textContent = 'Network error: ' + e.message;
+      }
+      send.disabled = false;
+      input.focus();
+    }
+
+    send.addEventListener('click', askAI);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') askAI(); });
+  })();
+</script>
+</body>
+</html>
