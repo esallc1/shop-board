@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/", "destination": "/shop-board.html" },
+    { "source": "/", "destination": "/crisdata.html" },
     { "source": "/teardown", "destination": "/teardown.html" },
     { "source": "/tech-board", "destination": "/tech-board.html" }
   ]
