@@ -94,10 +94,15 @@
     display: flex; align-items: center; gap: 6px;
     font-size: 0.7rem; color: var(--muted);
     text-transform: uppercase; letter-spacing: 1px;
-    background: none; border: none; padding: 0;
+    background: transparent;
+    border: 0.5px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
     font-family: inherit; cursor: pointer; text-align: left;
+    transition: background 0.15s;
   }
-  .logout-btn:hover { color: var(--text); }
+  .logout-btn:hover { background: var(--surface-2); }
+  .logout-btn-icon { width: 14px; height: 14px; flex-shrink: 0; }
   .live-dot {
     width: 7px; height: 7px;
     border-radius: 50%;
@@ -1042,7 +1047,15 @@
     <div class="sidebar-status">
       <div class="greeting-wrap" id="greetingWrap"></div>
       <div class="live-badge"><div class="live-dot"></div>Live</div>
-      <button type="button" class="logout-btn" id="logoutBtn">Log Out</button>
+      <button type="button" class="logout-btn" id="logoutBtn">
+        <svg class="logout-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+          <path d="M14 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2" />
+          <path d="M7 12h14l-3 -3" />
+          <path d="M18 15l3 -3" />
+        </svg>
+        <span>Log out</span>
+      </button>
     </div>
     <div class="sidebar-scroll">
       <div class="sidebar-group">
