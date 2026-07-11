@@ -103,6 +103,10 @@
   }
   .logout-btn:hover { background: var(--surface-2); }
   .logout-btn-icon { width: 14px; height: 14px; flex-shrink: 0; }
+  .sidebar-btn-row { display: flex; gap: 8px; }
+  .refresh-btn { flex-shrink: 0; }
+  @keyframes sidebarIconSpin { to { transform: rotate(360deg); } }
+  .logout-btn-icon.spinning { animation: sidebarIconSpin 0.7s linear infinite; }
   .live-dot {
     width: 7px; height: 7px;
     border-radius: 50%;
@@ -1047,15 +1051,24 @@
     <div class="sidebar-status">
       <div class="greeting-wrap" id="greetingWrap"></div>
       <div class="live-badge"><div class="live-dot"></div>Live</div>
-      <button type="button" class="logout-btn" id="logoutBtn">
-        <svg class="logout-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-          <path d="M14 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2" />
-          <path d="M7 12h14l-3 -3" />
-          <path d="M18 15l3 -3" />
-        </svg>
-        <span>Log out</span>
-      </button>
+      <div class="sidebar-btn-row">
+        <button type="button" class="logout-btn" id="logoutBtn">
+          <svg class="logout-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M14 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2" />
+            <path d="M7 12h14l-3 -3" />
+            <path d="M18 15l3 -3" />
+          </svg>
+          <span>Log out</span>
+        </button>
+        <button type="button" class="logout-btn refresh-btn" id="refreshBtn" aria-label="Refresh" title="Refresh">
+          <svg class="logout-btn-icon" id="refreshBtnIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" />
+            <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" />
+          </svg>
+        </button>
+      </div>
     </div>
     <div class="sidebar-scroll">
       <div class="sidebar-group">
@@ -1373,6 +1386,13 @@
 </div>
 
 <script>
+  // ── VIEW REFRESH REGISTRY — connection-health safety net + manual
+  // refresh button (see bottom of file). Each view's section below
+  // registers its own { refetch, getChannel, resubscribe } as it sets
+  // itself up; views with no live data (stubs) simply never register.
+  const VIEW_REFRESH = {};
+  let currentViewKey = 'overview';
+
   // ── Sidebar navigation
   document.querySelectorAll('.sidebar-item[data-view]').forEach(item => {
     item.addEventListener('click', () => {
@@ -1381,6 +1401,7 @@
       item.classList.add('active');
       document.getElementById('view-' + item.dataset.view).classList.add('active');
       document.getElementById('viewTopbarTitle').textContent = item.dataset.label || item.textContent.trim();
+      currentViewKey = item.dataset.view;
     });
   });
 
@@ -1822,11 +1843,21 @@
   loadAndRender();
 
   // ── Real-time subscription — READ ONLY (no writes)
-  db.channel('gm-board-live')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_lifts' },   () => loadAndRender())
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_parking' }, () => loadAndRender())
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_pickup' },  () => loadAndRender())
-    .subscribe();
+  let gmLiveChannel = null;
+  function gmSubscribeLive() {
+    if (gmLiveChannel) db.removeChannel(gmLiveChannel);
+    gmLiveChannel = db.channel('gm-board-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_lifts' },   () => loadAndRender())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_parking' }, () => loadAndRender())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_pickup' },  () => loadAndRender())
+      .subscribe();
+  }
+  gmSubscribeLive();
+  VIEW_REFRESH.overview = VIEW_REFRESH.technicians = VIEW_REFRESH.comebacks = {
+    refetch: loadAndRender,
+    getChannel: () => gmLiveChannel,
+    resubscribe: gmSubscribeLive,
+  };
 
   // ── Team Chat (real, Supabase-backed — gm-board = Manager's view)
   // CHAT_IDENTITY is populated by captureSessionAndGreet() below once the
@@ -1939,6 +1970,11 @@
   loadChatMessages(CURRENT_CHANNEL);
   subscribeChatChannel(CURRENT_CHANNEL);
   loadOwnerChannelLabel();
+  VIEW_REFRESH.teamchat = {
+    refetch: () => loadChatMessages(CURRENT_CHANNEL),
+    getChannel: () => chatRealtimeChannel,
+    resubscribe: () => subscribeChatChannel(CURRENT_CHANNEL),
+  };
 
   // ── Emoji picker (desktop convenience — phone keyboards already have one)
   const EMOJI_LIST = ['👍','👎','✅','❌','🔥','💯','👏','🙌','💪','🙏',
@@ -2632,43 +2668,53 @@
     });
 
     /* -- REALTIME SUBSCRIPTIONS -- */
-    db.channel('gm-board-shopfloor-live')
-      .on('postgres_changes',{event:'*',schema:'public',table:'shopboard_lifts'}, ()=>{
-        sfSafeRealtimeRefresh();
-      })
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'shopboard_parking'}, ({new:rec})=>{
-        if(rec && !sfParkState.some(c=>String(c.id)===String(rec.id))) sfParkState.push(rec);
-        if (!sfIsUserEditing) { sfRenderParking(); sfUpdateStats(); }
-        else sfSafeRealtimeRefresh();
-      })
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'shopboard_parking'}, ({new:rec})=>{
-        if(rec){ const idx=sfParkState.findIndex(c=>String(c.id)===String(rec.id)); if(idx>=0) sfParkState[idx]=rec; }
-        if (!sfIsUserEditing) { sfRenderParking(); sfUpdateStats(); }
-        else sfSafeRealtimeRefresh();
-      })
-      .on('postgres_changes',{event:'DELETE',schema:'public',table:'shopboard_parking'}, ({old:rec})=>{
-        if(rec) sfParkState=sfParkState.filter(c=>String(c.id)!==String(rec.id));
-        if (!sfIsUserEditing) { sfRenderParking(); sfUpdateStats(); }
-        else sfSafeRealtimeRefresh();
-      })
-      .on('postgres_changes',{event:'INSERT',schema:'public',table:'shopboard_pickup'}, ({new:rec})=>{
-        if(rec && !sfPickupState.some(c=>String(c.id)===String(rec.id))) sfPickupState.push(rec);
-        if (!sfIsUserEditing) { sfRenderPickup(); sfUpdateStats(); }
-        else sfSafeRealtimeRefresh();
-      })
-      .on('postgres_changes',{event:'UPDATE',schema:'public',table:'shopboard_pickup'}, ({new:rec})=>{
-        if(rec){ const idx=sfPickupState.findIndex(c=>String(c.id)===String(rec.id)); if(idx>=0) sfPickupState[idx]=rec; }
-        if (!sfIsUserEditing) { sfRenderPickup(); sfUpdateStats(); }
-        else sfSafeRealtimeRefresh();
-      })
-      .on('postgres_changes',{event:'DELETE',schema:'public',table:'shopboard_pickup'}, ({old:rec})=>{
-        if(rec) sfPickupState=sfPickupState.filter(c=>String(c.id)!==String(rec.id));
-        if (!sfIsUserEditing) { sfRenderPickup(); sfUpdateStats(); }
-        else sfSafeRealtimeRefresh();
-      })
-      .subscribe();
+    let sfChannel = null;
+    function sfSubscribeRealtime() {
+      if (sfChannel) db.removeChannel(sfChannel);
+      sfChannel = db.channel('gm-board-shopfloor-live')
+        .on('postgres_changes',{event:'*',schema:'public',table:'shopboard_lifts'}, ()=>{
+          sfSafeRealtimeRefresh();
+        })
+        .on('postgres_changes',{event:'INSERT',schema:'public',table:'shopboard_parking'}, ({new:rec})=>{
+          if(rec && !sfParkState.some(c=>String(c.id)===String(rec.id))) sfParkState.push(rec);
+          if (!sfIsUserEditing) { sfRenderParking(); sfUpdateStats(); }
+          else sfSafeRealtimeRefresh();
+        })
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'shopboard_parking'}, ({new:rec})=>{
+          if(rec){ const idx=sfParkState.findIndex(c=>String(c.id)===String(rec.id)); if(idx>=0) sfParkState[idx]=rec; }
+          if (!sfIsUserEditing) { sfRenderParking(); sfUpdateStats(); }
+          else sfSafeRealtimeRefresh();
+        })
+        .on('postgres_changes',{event:'DELETE',schema:'public',table:'shopboard_parking'}, ({old:rec})=>{
+          if(rec) sfParkState=sfParkState.filter(c=>String(c.id)!==String(rec.id));
+          if (!sfIsUserEditing) { sfRenderParking(); sfUpdateStats(); }
+          else sfSafeRealtimeRefresh();
+        })
+        .on('postgres_changes',{event:'INSERT',schema:'public',table:'shopboard_pickup'}, ({new:rec})=>{
+          if(rec && !sfPickupState.some(c=>String(c.id)===String(rec.id))) sfPickupState.push(rec);
+          if (!sfIsUserEditing) { sfRenderPickup(); sfUpdateStats(); }
+          else sfSafeRealtimeRefresh();
+        })
+        .on('postgres_changes',{event:'UPDATE',schema:'public',table:'shopboard_pickup'}, ({new:rec})=>{
+          if(rec){ const idx=sfPickupState.findIndex(c=>String(c.id)===String(rec.id)); if(idx>=0) sfPickupState[idx]=rec; }
+          if (!sfIsUserEditing) { sfRenderPickup(); sfUpdateStats(); }
+          else sfSafeRealtimeRefresh();
+        })
+        .on('postgres_changes',{event:'DELETE',schema:'public',table:'shopboard_pickup'}, ({old:rec})=>{
+          if(rec) sfPickupState=sfPickupState.filter(c=>String(c.id)!==String(rec.id));
+          if (!sfIsUserEditing) { sfRenderPickup(); sfUpdateStats(); }
+          else sfSafeRealtimeRefresh();
+        })
+        .subscribe();
+    }
+    sfSubscribeRealtime();
 
     sfLoadAll();
+    VIEW_REFRESH.shopfloor = {
+      refetch: sfLoadAll,
+      getChannel: () => sfChannel,
+      resubscribe: sfSubscribeRealtime,
+    };
   })();
 
   // ══════════════════════════════════════════════════════════════
@@ -2933,17 +2979,27 @@
       if (error) console.error('[TechStatus] Save next job failed', error);
     }
 
-    function tsInit() {
-      if (tsInitialized) return;
-      tsInitialized = true;
-      tsLoadAll();
-
-      db.channel('gm-board-techstatus-live')
+    let tsChannel = null;
+    function tsSubscribeRealtime() {
+      if (tsChannel) db.removeChannel(tsChannel);
+      tsChannel = db.channel('gm-board-techstatus-live')
         .on('postgres_changes', { event:'*', schema:'public', table:'shopboard_lifts' },   tsLoadAndRerender)
         .on('postgres_changes', { event:'*', schema:'public', table:'shopboard_parking' }, tsLoadAndRerender)
         .on('postgres_changes', { event:'*', schema:'public', table:'shopboard_pickup' },  tsLoadAndRerender)
         .on('postgres_changes', { event:'*', schema:'public', table:'tech_whiteboard' },   () => { tsLoadWhiteboard().then(tsRenderWhiteboard); })
         .subscribe();
+    }
+
+    function tsInit() {
+      if (tsInitialized) return;
+      tsInitialized = true;
+      tsLoadAll();
+      tsSubscribeRealtime();
+      VIEW_REFRESH.techstatus = {
+        refetch: tsLoadAll,
+        getChannel: () => tsChannel,
+        resubscribe: tsSubscribeRealtime,
+      };
     }
 
     document.querySelector('.sidebar-item[data-view="techstatus"]').addEventListener('click', tsInit);
@@ -3162,6 +3218,7 @@
     document.getElementById('navEmployees').addEventListener('click', () => {
       loadEmployees();
     });
+    VIEW_REFRESH.settings = { refetch: loadEmployees };
 
     // ── Add/Edit form wiring
     document.getElementById('btnAddEmployee').addEventListener('click', openAddEmployee);
@@ -3265,6 +3322,56 @@
     setInterval(() => {
       if (Date.now() - lastActivity >= IDLE_LIMIT_MS) logOut();
     }, CHECK_INTERVAL_MS);
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // AUTO-REFRESH SAFETY NET + MANUAL REFRESH
+  // Realtime channels (registered into VIEW_REFRESH above) are the
+  // primary update mechanism. This is only a fallback for when a
+  // socket silently drops — e.g. a backgrounded tab or a network
+  // blip: refetch immediately when the tab becomes visible/focused,
+  // and every 60s verify the active view's channel is still joined,
+  // only refetching + resubscribing if it isn't.
+  // ══════════════════════════════════════════════════════════════
+  (function initRefreshSafetyNet() {
+    function refreshActiveView() {
+      const entry = VIEW_REFRESH[currentViewKey];
+      if (!entry || typeof entry.refetch !== 'function') return Promise.resolve();
+      return Promise.resolve(entry.refetch());
+    }
+
+    function isChannelHealthy(channel) {
+      return !!channel && channel.state === 'joined';
+    }
+
+    function checkActiveChannelHealth() {
+      const entry = VIEW_REFRESH[currentViewKey];
+      if (!entry || typeof entry.getChannel !== 'function') return; // no channel for this view
+      if (isChannelHealthy(entry.getChannel())) return; // realtime already pushing updates
+      if (typeof entry.refetch === 'function') entry.refetch();
+      if (typeof entry.resubscribe === 'function') entry.resubscribe();
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refreshActiveView();
+    });
+    window.addEventListener('focus', refreshActiveView);
+    setInterval(checkActiveChannelHealth, 60 * 1000);
+
+    // ── Manual refresh button
+    const refreshBtn = document.getElementById('refreshBtn');
+    const refreshIcon = document.getElementById('refreshBtnIcon');
+    refreshBtn.addEventListener('click', async () => {
+      if (refreshBtn.disabled) return;
+      refreshBtn.disabled = true;
+      refreshIcon.classList.add('spinning');
+      try {
+        await refreshActiveView();
+      } finally {
+        refreshIcon.classList.remove('spinning');
+        refreshBtn.disabled = false;
+      }
+    });
   })();
 </script>
 </body>
