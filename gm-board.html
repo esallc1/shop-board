@@ -298,6 +298,45 @@
   .placeholder-icon { font-size: 2rem; opacity: 0.3; }
   .placeholder-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; }
 
+  /* ── OVERVIEW CUSTOMIZE ── */
+  .overview-header { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+  .btn-customize {
+    background: #ffffff; border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 8px 14px; font-size: 0.78rem; font-weight: 700;
+    cursor: pointer; display: flex; align-items: center; gap: 6px;
+  }
+  .btn-customize:hover { background: var(--surface-2); }
+
+  .ov-customize-panel {
+    background: #ffffff; border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+  .ov-customize-group-label {
+    font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;
+    color: var(--muted); margin: 16px 0 8px; padding-top: 8px; border-top: 1px solid var(--border);
+  }
+  .ov-customize-group-label:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+  .ov-customize-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 6px;
+    border-radius: 6px;
+  }
+  .ov-customize-row:hover { background: var(--surface-2); }
+  .ov-customize-row.coming-soon { opacity: 0.5; }
+  .ov-customize-row .ov-label { flex: 1; font-size: 0.85rem; font-weight: 600; }
+  .ov-customize-row .ov-soon-tag {
+    font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700;
+    background: var(--surface-2); color: var(--muted); border-radius: 10px; padding: 2px 8px;
+    margin-right: 4px;
+  }
+  .ov-customize-row .ov-arrow-btn {
+    background: none; border: 1px solid var(--border); color: var(--text);
+    border-radius: 5px; width: 24px; height: 24px; cursor: pointer; font-size: 0.75rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ov-customize-row .ov-arrow-btn:hover:not(:disabled) { background: var(--surface-2); }
+  .ov-customize-row .ov-arrow-btn:disabled { opacity: 0.25; cursor: default; }
+  .ov-customize-actions { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+
   /* ── STUB VIEWS ── */
   .stub-view {
     background: #ffffff;
@@ -1192,58 +1231,22 @@
   <!-- ══ OVERVIEW ══ -->
   <div class="view active" id="view-overview">
 
-    <div class="kpi-row">
-      <div class="kpi-card kpi-gold">
-        <div class="kpi-label">Bay Utilization</div>
-        <div class="kpi-value" id="kpi-bay-val">—</div>
-        <div class="kpi-delta" id="kpi-bay-delta">Loading…</div>
-        <div class="kpi-icon">🔧</div>
-      </div>
-      <div class="kpi-card kpi-green">
-        <div class="kpi-label">Tech Efficiency</div>
-        <div class="kpi-value">91<span style="font-size:1.2rem">%</span></div>
-        <div class="kpi-delta" style="opacity:0.55;font-style:italic">Sample data</div>
-        <div class="kpi-icon">⚡</div>
-      </div>
-      <div class="kpi-card kpi-blue">
-        <div class="kpi-label">Open Repair Orders</div>
-        <div class="kpi-value" id="kpi-ro-val">—</div>
-        <div class="kpi-delta" id="kpi-ro-delta">Loading…</div>
-        <div class="kpi-icon">📋</div>
-      </div>
-      <div class="kpi-card kpi-red">
-        <div class="kpi-label">Comeback Rate</div>
-        <div class="kpi-value">3<span style="font-size:1.2rem">%</span></div>
-        <div class="kpi-delta" style="opacity:0.55;font-style:italic">Sample data</div>
-        <div class="kpi-icon">↩</div>
-      </div>
-      <div class="kpi-card kpi-purple">
-        <div class="kpi-label">Avg Days to Complete</div>
-        <div class="kpi-value">2.4</div>
-        <div class="kpi-delta" style="opacity:0.55;font-style:italic">Sample data</div>
-        <div class="kpi-icon">📅</div>
-      </div>
+    <div class="overview-header">
+      <button class="btn-customize" id="btnCustomizeOverview" type="button">⚙ Customize</button>
     </div>
 
-    <div class="chart-grid">
-      <div class="chart-card">
-        <div class="chart-title"><span>▸</span>Bay Utilization This Week <span style="font-size:0.65rem;opacity:0.5;font-style:italic;text-transform:none;letter-spacing:0">(sample data)</span></div>
-        <div class="chart-wrap"><canvas id="chartUtilization"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title"><span>▸</span>Current Jobs by Technician</div>
-        <div class="chart-wrap" id="chart-techs-wrap"><canvas id="chartTechs"></canvas></div>
-      </div>
+    <div id="overview-normal">
+      <div class="kpi-row" id="ov-kpi-row"></div>
+      <div class="chart-grid" id="ov-chart-grid"></div>
     </div>
 
-    <div class="chart-grid-bottom">
-      <div class="placeholder-card">
-        <div class="placeholder-icon">📊</div>
-        <div class="placeholder-label">Revenue by Service Type — coming soon</div>
-      </div>
-      <div class="placeholder-card">
-        <div class="placeholder-icon">🔁</div>
-        <div class="placeholder-label">Job Status Flow / Cycle Time — coming soon</div>
+    <div id="overview-customize" style="display:none">
+      <div class="ov-customize-panel">
+        <div id="ov-customize-list"></div>
+        <div class="ov-customize-actions">
+          <button class="modal-btn" id="ovSaveBtn" type="button">Save</button>
+          <button class="modal-btn sec" id="ovCancelBtn" type="button">Cancel</button>
+        </div>
       </div>
     </div>
 
@@ -1532,49 +1535,134 @@
   Chart.defaults.borderColor = '#e2e5ee';
   Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
 
-  const GOLD = '#5b5ef4';
-  const GOLD_DIM = 'rgba(91,94,244,0.10)';
+  // ══════════════════════════════════════════════════════════════
+  // OVERVIEW DASHBOARD — customizable card library.
+  // status 'live' = real (or completed_jobs-backed, may be sparse
+  // until jobs flow through Picked Up) data. status 'comingSoon' =
+  // no data source yet; shown greyed-out in Customize only, never
+  // in the normal view, never toggleable on.
+  // domId overrides the id used for `kpi-${domId}-val/-delta` so the
+  // two pre-existing cards keep their original element ids.
+  // ══════════════════════════════════════════════════════════════
+  const RO_AGING_THRESHOLD_DAYS = 7;
+  const RO_AGING_THRESHOLD_DAYS_LABEL = RO_AGING_THRESHOLD_DAYS + '+ Days';
 
-  // ── Line chart: Bay Utilization
-  new Chart(document.getElementById('chartUtilization'), {
-    type: 'line',
-    data: {
-      labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-      datasets: [{
-        label: 'Bay Utilization %',
-        data: [72, 80, 85, 78, 91, 88, 55],
-        borderColor: GOLD,
-        backgroundColor: GOLD_DIM,
-        borderWidth: 2.5,
-        pointBackgroundColor: GOLD,
-        pointRadius: 4,
-        pointHoverRadius: 6,
-        tension: 0.4,
-        fill: true,
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#131c2e',
-          borderColor: '#1f2f4a',
-          borderWidth: 1,
-          callbacks: { label: ctx => ` ${ctx.parsed.y}%` }
-        }
-      },
-      scales: {
-        y: {
-          min: 0, max: 100,
-          grid: { color: '#e2e5ee' },
-          ticks: { callback: v => v + '%' }
-        },
-        x: { grid: { color: '#e2e5ee' } }
-      }
-    }
-  });
+  const CARD_LIBRARY = [
+    { id: 'bay_utilization',      domId: 'bay', label: 'Bay Utilization',            group: 'Shop Floor',        status: 'live',       icon: '🔧', theme: 'kpi-gold'   },
+    { id: 'open_repair_orders',   domId: 'ro',  label: 'Open Repair Orders',         group: 'Shop Floor',        status: 'live',       icon: '📋', theme: 'kpi-blue'   },
+    { id: 'jobs_by_technician',   chart: true,  label: 'Jobs by Technician',         group: 'Shop Floor',        status: 'live'                                          },
+    { id: 'ro_aging',             label: `RO Aging (${RO_AGING_THRESHOLD_DAYS_LABEL})`, group: 'Shop Floor',     status: 'live',       icon: '⏳', theme: 'kpi-red'    },
+
+    { id: 'comeback_rate',        label: 'Comeback Rate',              group: 'Completed Jobs', status: 'live', icon: '↩',  theme: 'kpi-red'    },
+    { id: 'avg_days_to_complete', label: 'Avg Days to Complete',       group: 'Completed Jobs', status: 'live', icon: '📅', theme: 'kpi-purple' },
+    { id: 'jobs_completed_week',  label: 'Jobs Completed This Week',   group: 'Completed Jobs', status: 'live', icon: '✅', theme: 'kpi-green'  },
+    { id: 'jobs_completed_month', label: 'Jobs Completed This Month',  group: 'Completed Jobs', status: 'live', icon: '✅', theme: 'kpi-green'  },
+    { id: 'jobs_by_category',     label: 'Jobs by Category',           group: 'Completed Jobs', status: 'live', icon: '🗂',  theme: 'kpi-blue'   },
+    { id: 'warranty_job_count',   label: 'Warranty Job Count',         group: 'Completed Jobs', status: 'live', icon: '🛡',  theme: 'kpi-gold'   },
+    { id: 'new_jobs_week',        label: 'New Jobs This Week',         group: 'Completed Jobs', status: 'live', icon: '🆕', theme: 'kpi-purple' },
+
+    { id: 'techs_clocked_in',        label: 'Techs Currently Clocked In',     group: 'Labor',   status: 'comingSoon', icon: '🕐' },
+    { id: 'tech_efficiency_pct',     label: 'Tech Efficiency %',              group: 'Labor',   status: 'comingSoon', icon: '⚡' },
+    { id: 'labor_hours_utilized',    label: 'Labor Hours Utilized',           group: 'Labor',   status: 'comingSoon', icon: '🕑' },
+
+    { id: 'revenue_week',            label: 'Revenue This Week',              group: 'Revenue', status: 'comingSoon', icon: '💵' },
+    { id: 'revenue_month',           label: 'Revenue This Month',             group: 'Revenue', status: 'comingSoon', icon: '💵' },
+    { id: 'avg_ro_value',            label: 'Average RO Value',               group: 'Revenue', status: 'comingSoon', icon: '💰' },
+    { id: 'effective_labor_rate',    label: 'Effective Labor Rate Realized',  group: 'Revenue', status: 'comingSoon', icon: '⚙' },
+    { id: 'gross_profit_per_ro',     label: 'Gross Profit per RO',            group: 'Revenue', status: 'comingSoon', icon: '📈' },
+    { id: 'parts_cost_pct',          label: 'Parts Cost %',                   group: 'Revenue', status: 'comingSoon', icon: '🔩' },
+    { id: 'outstanding_balance',     label: 'Outstanding Balance / AR',       group: 'Revenue', status: 'comingSoon', icon: '🧾' },
+    { id: 'revenue_by_service_type', label: 'Revenue by Service Type',        group: 'Revenue', status: 'comingSoon', icon: '📊' },
+  ];
+  const CARD_BY_ID = Object.fromEntries(CARD_LIBRARY.map(c => [c.id, c]));
+
+  // Default layout for an employee with no saved preferences row yet:
+  // every 'live' card visible, in library order. comingSoon cards are
+  // never toggleable, so they're never part of a layout array at all.
+  const DEFAULT_OVERVIEW_LAYOUT = CARD_LIBRARY
+    .filter(c => c.status === 'live')
+    .map(c => ({ card_id: c.id, visible: true }));
+
+  // Fills in any card_id missing from a saved layout (e.g. a card added
+  // to the library after the employee last saved) as hidden, appended
+  // at the end — so new cards never silently appear turned on.
+  function mergeOverviewLayout(savedLayout) {
+    const base = savedLayout === null ? DEFAULT_OVERVIEW_LAYOUT : savedLayout;
+    const seen = new Set(base.map(e => e.card_id));
+    const missing = CARD_LIBRARY.filter(c => !seen.has(c.id)).map(c => ({ card_id: c.id, visible: false }));
+    return [...base, ...missing];
+  }
+
+  // Renders immediately with the default layout so Overview never shows
+  // blank while the employee/preferences lookup (later in this file,
+  // see loadDashboardPreferences) resolves; re-rendered once the real
+  // saved layout is known.
+  let DASHBOARD_LAYOUT = null;
+  let CURRENT_EMPLOYEE_ID = null;
+
+  function kpiCardHTML(card) {
+    const domId = card.domId || card.id;
+    const theme = card.theme || 'kpi-blue';
+    return `
+      <div class="kpi-card ${theme}">
+        <div class="kpi-label">${card.label}</div>
+        <div class="kpi-value" id="kpi-${domId}-val">—</div>
+        <div class="kpi-delta" id="kpi-${domId}-delta">Loading…</div>
+        <div class="kpi-icon">${card.icon || ''}</div>
+      </div>`;
+  }
+
+  function chartCardHTML(card) {
+    // Only jobs_by_technician is a chart-type card today.
+    return `
+      <div class="chart-card">
+        <div class="chart-title"><span>▸</span>${card.label}</div>
+        <div class="chart-wrap" id="chart-techs-wrap"><canvas id="chartTechs"></canvas></div>
+      </div>`;
+  }
+
+  // Builds the read-only kpi-row / chart-grid DOM from a merged layout.
+  // Only 'live' + visible cards render here — comingSoon cards never
+  // appear outside Customize mode.
+  function renderOverviewSkeleton(layout) {
+    const visibleCards = layout
+      .filter(e => e.visible)
+      .map(e => CARD_BY_ID[e.card_id])
+      .filter(c => c && c.status === 'live');
+
+    const kpiRow    = document.getElementById('ov-kpi-row');
+    const chartGrid = document.getElementById('ov-chart-grid');
+    if (!kpiRow || !chartGrid) return;
+
+    // Chart.js instance is bound to the old canvas — destroy before the
+    // skeleton rebuild removes that canvas from the DOM.
+    if (techChart) { techChart.destroy(); techChart = null; }
+
+    kpiRow.innerHTML    = visibleCards.filter(c => !c.chart).map(kpiCardHTML).join('');
+    chartGrid.innerHTML = visibleCards.filter(c => c.chart).map(chartCardHTML).join('');
+    chartGrid.style.display = chartGrid.innerHTML ? 'grid' : 'none';
+  }
+
+  // A card may be hidden (or not yet rendered on first paint), so every
+  // KPI write goes through this rather than assuming the element exists.
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  function startOfWeek(d) {
+    const date = new Date(d);
+    const day = date.getDay(); // 0=Sun..6=Sat
+    date.setDate(date.getDate() + (day === 0 ? -6 : 1) - day); // Monday
+    date.setHours(0, 0, 0, 0);
+    return date;
+  }
+  function startOfMonth(d) {
+    const date = new Date(d);
+    date.setDate(1);
+    date.setHours(0, 0, 0, 0);
+    return date;
+  }
 
   // ── Supabase — READ ONLY (no insert/update/delete anywhere in this file)
   const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
@@ -1594,10 +1682,20 @@
   }
 
   async function loadAndRender() {
-    const [{ data: lifts }, { data: parking }, { data: pickup }] = await Promise.all([
-      db.from('shopboard_lifts').select('id,status,assigned_tech,po,vehicle,job_category,warranty').order('id'),
-      db.from('shopboard_parking').select('id,status,assigned_tech,po,vehicle,job_category,warranty').order('created_at'),
+    // First call ever: paint the default layout immediately so Overview
+    // is never blank. loadDashboardPreferences() (below, once the
+    // logged-in employee is known) swaps this for the saved layout and
+    // triggers one more pass of this function.
+    if (!DASHBOARD_LAYOUT) {
+      DASHBOARD_LAYOUT = mergeOverviewLayout(null);
+      renderOverviewSkeleton(DASHBOARD_LAYOUT);
+    }
+
+    const [{ data: lifts }, { data: parking }, { data: pickup }, { data: completedJobsData }] = await Promise.all([
+      db.from('shopboard_lifts').select('id,status,assigned_tech,po,vehicle,job_category,warranty,arrival_date').order('id'),
+      db.from('shopboard_parking').select('id,status,assigned_tech,po,vehicle,job_category,warranty,arrival_date').order('created_at'),
       db.from('shopboard_pickup').select('id,po,vehicle,assigned_tech,job_category,warranty').order('created_at'),
+      db.from('completed_jobs').select('id,warranty,comeback_flagged_at,job_category,created_at,picked_up_at'),
     ]);
 
     const activeLifts   = (lifts   || []).filter(hasVehicleData);
@@ -1606,16 +1704,83 @@
 
     // ── Bay Utilization KPI
     const bayPct = TOTAL_LIFTS > 0 ? Math.round((activeLifts.length / TOTAL_LIFTS) * 100) : 0;
-    document.getElementById('kpi-bay-val').textContent   = bayPct + '%';
-    document.getElementById('kpi-bay-delta').textContent =
-      activeLifts.length + ' of ' + TOTAL_LIFTS + ' bays occupied';
+    setText('kpi-bay-val', bayPct + '%');
+    setText('kpi-bay-delta', activeLifts.length + ' of ' + TOTAL_LIFTS + ' bays occupied');
 
     // ── Open Repair Orders KPI
     const openRO = activeLifts.length + activeParking.length;
     const wPart  = allActive.filter(c => c.status === 'waiting-part').length;
-    document.getElementById('kpi-ro-val').textContent   = openRO;
-    document.getElementById('kpi-ro-delta').textContent =
-      wPart > 0 ? wPart + ' waiting for parts' : 'none waiting for parts';
+    setText('kpi-ro-val', String(openRO));
+    setText('kpi-ro-delta', wPart > 0 ? wPart + ' waiting for parts' : 'none waiting for parts');
+
+    // ── RO Aging KPI — jobs still on lifts/parking (not yet picked up)
+    // open longer than RO_AGING_THRESHOLD_DAYS.
+    const roAgingMs = RO_AGING_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
+    const nowTime = Date.now();
+    const agingJobs = allActive.filter(c => c.arrival_date && (nowTime - new Date(c.arrival_date).getTime()) >= roAgingMs);
+    setText('kpi-ro_aging-val', String(agingJobs.length));
+    setText('kpi-ro_aging-delta', agingJobs.length === 1 ? '1 job open 7+ days' : agingJobs.length + ' jobs open 7+ days');
+
+    // ── completed_jobs-backed KPIs — sparse/empty is expected while the
+    // archive table is new; every metric below degrades to "—" or a
+    // zero count instead of dividing by zero or throwing.
+    const completedJobs = completedJobsData || [];
+    const weekStart  = startOfWeek(new Date());
+    const monthStart = startOfMonth(new Date());
+
+    // Comeback Rate
+    setText('kpi-comeback_rate-val', completedJobs.length
+      ? Math.round((completedJobs.filter(j => j.comeback_flagged_at).length / completedJobs.length) * 100) + '%'
+      : '—');
+    setText('kpi-comeback_rate-delta', completedJobs.length
+      ? completedJobs.filter(j => j.comeback_flagged_at).length + ' of ' + completedJobs.length + ' jobs'
+      : 'No completed jobs yet');
+
+    // Avg Days to Complete
+    const cycleDurationsDays = completedJobs
+      .filter(j => j.created_at && j.picked_up_at)
+      .map(j => (new Date(j.picked_up_at) - new Date(j.created_at)) / 86400000);
+    setText('kpi-avg_days_to_complete-val', cycleDurationsDays.length
+      ? (cycleDurationsDays.reduce((a, b) => a + b, 0) / cycleDurationsDays.length).toFixed(1)
+      : '—');
+    setText('kpi-avg_days_to_complete-delta', cycleDurationsDays.length
+      ? 'across ' + cycleDurationsDays.length + ' completed jobs'
+      : 'No completed jobs yet');
+
+    // Jobs Completed This Week / Month
+    const completedThisWeek  = completedJobs.filter(j => j.picked_up_at && new Date(j.picked_up_at) >= weekStart).length;
+    const completedThisMonth = completedJobs.filter(j => j.picked_up_at && new Date(j.picked_up_at) >= monthStart).length;
+    setText('kpi-jobs_completed_week-val', String(completedThisWeek));
+    setText('kpi-jobs_completed_week-delta', 'since ' + weekStart.toLocaleDateString());
+    setText('kpi-jobs_completed_month-val', String(completedThisMonth));
+    setText('kpi-jobs_completed_month-delta', 'since ' + monthStart.toLocaleDateString());
+
+    // Jobs by Category — top category as the headline value
+    const catCounts = {};
+    completedJobs.forEach(j => {
+      const cat = (j.job_category || '').trim() || 'Uncategorized';
+      catCounts[cat] = (catCounts[cat] || 0) + 1;
+    });
+    const catEntries = Object.entries(catCounts).sort((a, b) => b[1] - a[1]);
+    setText('kpi-jobs_by_category-val', catEntries.length ? catEntries[0][0] : '—');
+    setText('kpi-jobs_by_category-delta', catEntries.length
+      ? catEntries[0][1] + ' of ' + completedJobs.length + ' jobs'
+      : 'No completed jobs yet');
+
+    // Warranty Job Count
+    const warrantyCount = completedJobs.filter(j => j.warranty).length;
+    setText('kpi-warranty_job_count-val', String(warrantyCount));
+    setText('kpi-warranty_job_count-delta', completedJobs.length
+      ? warrantyCount + ' of ' + completedJobs.length + ' jobs'
+      : 'No completed jobs yet');
+
+    // New Jobs This Week — jobs created this week that have since been
+    // archived (completed_jobs.created_at is copied from the original
+    // intake timestamp). Most jobs created this week won't show here
+    // yet since they likely haven't reached Picked Up — expected.
+    const newJobsWeek = completedJobs.filter(j => j.created_at && new Date(j.created_at) >= weekStart).length;
+    setText('kpi-new_jobs_week-val', String(newJobsWeek));
+    setText('kpi-new_jobs_week-delta', 'since ' + weekStart.toLocaleDateString());
 
     // ── Jobs by Tech chart (live)
     // Match tech-board.html logic exactly: null/empty/"Unassigned" all count as unassigned
@@ -1637,59 +1802,61 @@
     ];
 
     const wrap = document.getElementById('chart-techs-wrap');
-    if (!techLabels.length) {
-      if (techChart) { techChart.destroy(); techChart = null; }
-      wrap.innerHTML = '<p style="text-align:center;color:#8c93a8;font-size:0.8rem;padding-top:50px">No active jobs on board yet</p>';
-    } else {
-      if (!wrap.querySelector('canvas')) {
-        wrap.innerHTML = '<canvas id="chartTechs"></canvas>';
-      }
-      // Named techs get color palette; Unassigned bar gets neutral gray
-      const bgColors  = techLabels.map((lbl, i) =>
-        lbl === 'Unassigned' ? 'rgba(148,163,184,0.65)' : TECH_COLORS[i % TECH_COLORS.length]);
-      const brdColors = techLabels.map((lbl, i) =>
-        lbl === 'Unassigned' ? '#94a3b8' : TECH_BORDERS[i % TECH_BORDERS.length]);
-      if (techChart) {
-        techChart.data.labels                        = techLabels;
-        techChart.data.datasets[0].data             = techData;
-        techChart.data.datasets[0].backgroundColor  = bgColors;
-        techChart.data.datasets[0].borderColor       = brdColors;
-        techChart.update();
+    if (wrap) {
+      if (!techLabels.length) {
+        if (techChart) { techChart.destroy(); techChart = null; }
+        wrap.innerHTML = '<p style="text-align:center;color:#8c93a8;font-size:0.8rem;padding-top:50px">No active jobs on board yet</p>';
       } else {
-        techChart = new Chart(document.getElementById('chartTechs'), {
-          type: 'bar',
-          data: {
-            labels: techLabels,
-            datasets: [{
-              label: 'Current Jobs',
-              data: techData,
-              backgroundColor: bgColors,
-              borderColor: brdColors,
-              borderWidth: 1.5,
-              borderRadius: 5,
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: false },
-              tooltip: {
-                backgroundColor: '#1a1f36',
-                borderColor: '#e2e5ee',
-                borderWidth: 1,
-              }
+        if (!wrap.querySelector('canvas')) {
+          wrap.innerHTML = '<canvas id="chartTechs"></canvas>';
+        }
+        // Named techs get color palette; Unassigned bar gets neutral gray
+        const bgColors  = techLabels.map((lbl, i) =>
+          lbl === 'Unassigned' ? 'rgba(148,163,184,0.65)' : TECH_COLORS[i % TECH_COLORS.length]);
+        const brdColors = techLabels.map((lbl, i) =>
+          lbl === 'Unassigned' ? '#94a3b8' : TECH_BORDERS[i % TECH_BORDERS.length]);
+        if (techChart) {
+          techChart.data.labels                        = techLabels;
+          techChart.data.datasets[0].data             = techData;
+          techChart.data.datasets[0].backgroundColor  = bgColors;
+          techChart.data.datasets[0].borderColor       = brdColors;
+          techChart.update();
+        } else {
+          techChart = new Chart(document.getElementById('chartTechs'), {
+            type: 'bar',
+            data: {
+              labels: techLabels,
+              datasets: [{
+                label: 'Current Jobs',
+                data: techData,
+                backgroundColor: bgColors,
+                borderColor: brdColors,
+                borderWidth: 1.5,
+                borderRadius: 5,
+              }]
             },
-            scales: {
-              y: {
-                beginAtZero: true,
-                grid: { color: '#e2e5ee' },
-                ticks: { stepSize: 1, precision: 0 }
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  backgroundColor: '#1a1f36',
+                  borderColor: '#e2e5ee',
+                  borderWidth: 1,
+                }
               },
-              x: { grid: { display: false } }
+              scales: {
+                y: {
+                  beginAtZero: true,
+                  grid: { color: '#e2e5ee' },
+                  ticks: { stepSize: 1, precision: 0 }
+                },
+                x: { grid: { display: false } }
+              }
             }
-          }
-        });
+          });
+        }
       }
     }
 
@@ -1699,6 +1866,133 @@
     // ── Comebacks tab
     renderComebacks(lifts, parking, pickup);
   }
+
+  // Fetches the logged-in employee's saved Overview layout (called once
+  // CURRENT_EMPLOYEE_ID is known from the session/greeting lookup) and
+  // swaps the default skeleton painted by loadAndRender() for it.
+  async function loadDashboardPreferences() {
+    if (!CURRENT_EMPLOYEE_ID) return;
+    const { data, error } = await db.from('dashboard_preferences')
+      .select('layout').eq('employee_id', CURRENT_EMPLOYEE_ID).maybeSingle();
+    if (error) { console.error('[Overview] load dashboard_preferences failed', error); return; }
+    const saved = data ? data.layout : null;
+    DASHBOARD_LAYOUT = mergeOverviewLayout(saved);
+    renderOverviewSkeleton(DASHBOARD_LAYOUT);
+    await loadAndRender();
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // OVERVIEW CUSTOMIZE MODE — a working copy of DASHBOARD_LAYOUT that
+  // only gets committed (persisted + applied) on Save. Cancel discards
+  // it. comingSoon rows render greyed-out with no checkbox/arrows and
+  // are never included in what gets saved.
+  // ══════════════════════════════════════════════════════════════
+  let OVERVIEW_DRAFT_LAYOUT = null;
+
+  function swapDraftEntries(i, j) {
+    [OVERVIEW_DRAFT_LAYOUT[i], OVERVIEW_DRAFT_LAYOUT[j]] = [OVERVIEW_DRAFT_LAYOUT[j], OVERVIEW_DRAFT_LAYOUT[i]];
+    renderCustomizeList();
+  }
+
+  function renderCustomizeList() {
+    const listEl = document.getElementById('ov-customize-list');
+    if (!listEl) return;
+    const liveEntries = OVERVIEW_DRAFT_LAYOUT.filter(e => CARD_BY_ID[e.card_id]?.status === 'live');
+    let lastGroup = null;
+
+    listEl.innerHTML = OVERVIEW_DRAFT_LAYOUT.map((entry, idx) => {
+      const card = CARD_BY_ID[entry.card_id];
+      if (!card) return '';
+      const groupHeader = card.group !== lastGroup
+        ? `<div class="ov-customize-group-label">${card.group}</div>` : '';
+      lastGroup = card.group;
+
+      const isComingSoon = card.status === 'comingSoon';
+      if (isComingSoon) {
+        return `${groupHeader}
+          <div class="ov-customize-row coming-soon">
+            <input type="checkbox" disabled />
+            <span class="ov-label">${card.label}</span>
+            <span class="ov-soon-tag">Coming Soon</span>
+          </div>`;
+      }
+
+      const liveIdx = liveEntries.indexOf(entry);
+      return `${groupHeader}
+        <div class="ov-customize-row">
+          <input type="checkbox" ${entry.visible ? 'checked' : ''} data-ov-toggle="${idx}" />
+          <span class="ov-label">${card.label}</span>
+          <button class="ov-arrow-btn" data-ov-up="${idx}" ${liveIdx === 0 ? 'disabled' : ''} title="Move up">▲</button>
+          <button class="ov-arrow-btn" data-ov-down="${idx}" ${liveIdx === liveEntries.length - 1 ? 'disabled' : ''} title="Move down">▼</button>
+        </div>`;
+    }).join('');
+
+    listEl.querySelectorAll('[data-ov-toggle]').forEach(cb => {
+      cb.addEventListener('change', e => {
+        OVERVIEW_DRAFT_LAYOUT[+e.target.dataset.ovToggle].visible = e.target.checked;
+      });
+    });
+    listEl.querySelectorAll('[data-ov-up]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        const idx = +e.currentTarget.dataset.ovUp;
+        swapDraftEntries(idx, idx - 1);
+      });
+    });
+    listEl.querySelectorAll('[data-ov-down]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        const idx = +e.currentTarget.dataset.ovDown;
+        swapDraftEntries(idx, idx + 1);
+      });
+    });
+  }
+
+  function showOverviewCustomize(show) {
+    document.getElementById('overview-normal').style.display = show ? 'none' : '';
+    document.getElementById('overview-customize').style.display = show ? 'block' : 'none';
+  }
+
+  document.getElementById('btnCustomizeOverview').addEventListener('click', () => {
+    OVERVIEW_DRAFT_LAYOUT = (DASHBOARD_LAYOUT || mergeOverviewLayout(null)).map(e => ({ ...e }));
+    renderCustomizeList();
+    showOverviewCustomize(true);
+  });
+
+  document.getElementById('ovCancelBtn').addEventListener('click', () => {
+    OVERVIEW_DRAFT_LAYOUT = null;
+    showOverviewCustomize(false);
+  });
+
+  document.getElementById('ovSaveBtn').addEventListener('click', async () => {
+    if (!CURRENT_EMPLOYEE_ID) { alert('Cannot save — no employee session found.'); return; }
+    const saveBtn = document.getElementById('ovSaveBtn');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+
+    // Only 'live' entries are ever persisted — comingSoon rows are
+    // re-derived from the card library on every load, never saved.
+    const toSave = OVERVIEW_DRAFT_LAYOUT
+      .filter(e => CARD_BY_ID[e.card_id]?.status === 'live')
+      .map(e => ({ card_id: e.card_id, visible: e.visible }));
+
+    const { error } = await db.from('dashboard_preferences').upsert(
+      { employee_id: CURRENT_EMPLOYEE_ID, layout: toSave, updated_at: new Date().toISOString() },
+      { onConflict: 'employee_id' }
+    );
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save';
+    if (error) {
+      console.error('[Overview] save dashboard_preferences failed', error);
+      alert('Save failed: ' + error.message);
+      return;
+    }
+
+    DASHBOARD_LAYOUT = mergeOverviewLayout(toSave);
+    OVERVIEW_DRAFT_LAYOUT = null;
+    renderOverviewSkeleton(DASHBOARD_LAYOUT);
+    await loadAndRender();
+    showOverviewCustomize(false);
+  });
 
   // ── Status dot colors for tech cards
   const STATUS_DOT_COLOR = {
@@ -3682,9 +3976,10 @@
 
     async function renderGreeting(phone) {
       if (!phone) return;
-      const { data: emp } = await db.from('employees').select('name, photo_url, role').eq('phone', phone).maybeSingle();
+      const { data: emp } = await db.from('employees').select('id, name, photo_url, role').eq('phone', phone).maybeSingle();
       if (!emp) return;
       CHAT_IDENTITY = { name: emp.name, role: emp.role };
+      CURRENT_EMPLOYEE_ID = emp.id;
       const avatar = emp.photo_url
         ? `<img class="greeting-avatar" src="${esc(emp.photo_url)}" alt="">`
         : `<div class="greeting-avatar-fallback">${esc((emp.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;
@@ -3718,6 +4013,7 @@
 
     if (phone) {
       await renderGreeting(phone);
+      await loadDashboardPreferences();
     }
     // No match anywhere: board already loaded normally above, just no greeting.
   })();
