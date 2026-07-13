@@ -1041,10 +1041,11 @@
     font-size: 0.65rem; font-weight: 700; padding: 3px 9px; border-radius: 20px;
     text-transform: uppercase; letter-spacing: 0.4px;
   }
-  .role-tech    { background: rgba(91,94,244,0.12); color: #5b5ef4; }
-  .role-advisor { background: rgba(16,185,129,0.12); color: #059669; }
-  .role-manager { background: rgba(245,158,11,0.12); color: #d97706; }
-  .role-owner   { background: rgba(124,58,237,0.12); color: #7c3aed; }
+  .role-tech        { background: rgba(91,94,244,0.12); color: #5b5ef4; }
+  .role-advisor     { background: rgba(16,185,129,0.12); color: #059669; }
+  .role-manager     { background: rgba(245,158,11,0.12); color: #d97706; }
+  .role-owner       { background: rgba(124,58,237,0.12); color: #7c3aed; }
+  .role-bookkeeping { background: rgba(8,145,178,0.12); color: #0891b2; }
   .active-pill {
     font-size: 0.65rem; font-weight: 700; padding: 3px 9px; border-radius: 20px;
     text-transform: uppercase; letter-spacing: 0.4px;
@@ -3932,7 +3933,7 @@
   // the shared `db` client above.
   // ══════════════════════════════════════════════════════════════
   (function () {
-    const ROLE_LABEL_MAP = { tech: 'Technician', advisor: 'Service Advisor', manager: 'Manager', owner: 'Owner' };
+    const ROLE_LABEL_MAP = { tech: 'Technician', advisor: 'Service Advisor', manager: 'Manager', owner: 'Owner', bookkeeping: 'Bookkeeping' };
 
     let EMPLOYEES = [];
     let EMP_EDITING_ID = null;   // null = form closed, 'new' = add, else = employee id being edited
