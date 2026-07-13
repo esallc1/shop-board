@@ -1,0 +1,1574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script
+  src="https://js.sentry-cdn.com/30920ab10a8854c9c52e401554d0998f.min.js"
+  crossorigin="anonymous"
+></script>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lee Transmission — Bookkeeping Board</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #f5f6fa;
+    --surface:   #ffffff;
+    --surface-2: #f0f1f5;
+    --border:    #e2e5ee;
+    --text:      #1a1f36;
+    --muted:     #8c93a8;
+    --radius:    10px;
+    --accent:    #5b5ef4;
+    --green:     #10b981;
+    --amber:     #f59e0b;
+    --red:       #ef4444;
+    --blue:      #3b82f6;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+  }
+
+  /* ── APP SHELL / SIDEBAR ── */
+  .app-shell {
+    display: flex;
+    min-height: 100vh;
+    align-items: stretch;
+  }
+  .sidebar {
+    width: 232px;
+    flex-shrink: 0;
+    background: #ffffff;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .sidebar-brand {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-brand-title {
+    font-size: 0.92rem;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .sidebar-brand-sub {
+    font-size: 0.66rem;
+    color: var(--muted);
+    margin-top: 3px;
+    letter-spacing: 0.4px;
+  }
+  .sidebar-status {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .live-badge {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.7rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px;
+  }
+  .greeting-wrap { display: none; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 600; color: var(--text); }
+  .greeting-avatar { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+  .greeting-avatar-fallback {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-weight: 800; font-size: 0.72rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logout-btn {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.7rem; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 1px;
+    background: transparent;
+    border: 0.5px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-family: inherit; cursor: pointer; text-align: left;
+    transition: background 0.15s;
+  }
+  .logout-btn:hover { background: var(--surface-2); }
+  .logout-btn-icon { width: 14px; height: 14px; flex-shrink: 0; }
+  .sidebar-btn-row { display: flex; gap: 8px; }
+  .refresh-btn { flex-shrink: 0; }
+  @keyframes sidebarIconSpin { to { transform: rotate(360deg); } }
+  .logout-btn-icon.spinning { animation: sidebarIconSpin 0.7s linear infinite; }
+  .live-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: #22c55e; animation: pulse 2s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .sidebar-scroll { flex: 1; overflow-y: auto; padding: 10px 0 20px; }
+  .sidebar-group { margin-bottom: 18px; }
+  .sidebar-group-label {
+    padding: 0 20px 6px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    opacity: 0.75;
+  }
+  .sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 20px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+    opacity: 0.72;
+    cursor: pointer;
+    text-decoration: none;
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .sidebar-item .icon { font-size: 0.95rem; flex-shrink: 0; width: 18px; text-align: center; }
+  .sidebar-item:hover { opacity: 1; background: var(--surface-2); }
+  .sidebar-item.active {
+    opacity: 1;
+    color: var(--accent);
+    background: rgba(91,94,244,0.08);
+    border-left-color: var(--accent);
+  }
+
+  /* ── MAIN CONTENT ── */
+  .main-area { flex: 1; min-width: 0; }
+  .view-topbar {
+    background: #ffffff;
+    border-bottom: 1px solid var(--border);
+    padding: 16px 28px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .view-topbar-title {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+
+  /* ── CONTENT ── */
+  .content { padding: 24px 28px; }
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── SHARED CARD ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 700;
+    color: var(--text);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); flex-shrink: 0;
+  }
+
+  /* ── BUTTONS ── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 16px; border-radius: 6px;
+    font-size: 0.8rem; font-weight: 600;
+    cursor: pointer; border: none; transition: opacity 0.15s;
+    white-space: nowrap;
+  }
+  .btn:hover { opacity: 0.88; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-green   { background: var(--green);  color: #fff; }
+  .btn-amber   { background: var(--amber);  color: #fff; }
+  .btn-red     { background: var(--red);    color: #fff; }
+  .btn-ghost {
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { color: var(--text); border-color: #c5cadc; }
+
+  /* ── INPUTS ── */
+  input, select, textarea {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 11px;
+    font-size: 0.85rem; color: var(--text);
+    font-family: inherit; outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  select { cursor: pointer; }
+  textarea { resize: vertical; width: 100%; min-height: 60px; }
+
+  /* ══════════════════════════════════
+     AUTH GATE — covers the whole viewport until identity resolves.
+     Unlike the other boards, this one never renders board content
+     for an unresolved session; it redirects to crisdata.html instead.
+  ══════════════════════════════════ */
+  .auth-gate-overlay {
+    position: fixed; inset: 0; background: var(--bg);
+    z-index: 5000; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 12px;
+  }
+  .auth-gate-spinner {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid var(--border); border-top-color: var(--accent);
+    animation: authSpin 0.8s linear infinite;
+  }
+  @keyframes authSpin { to { transform: rotate(360deg); } }
+  .auth-gate-text { font-size: 0.82rem; color: var(--muted); }
+
+  /* ══════════════════════════════════
+     CAPTURE INVOICE
+  ══════════════════════════════════ */
+  .capture-hero {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; padding: 48px 20px; text-align: center;
+  }
+  .capture-btn-big {
+    width: 140px; height: 140px; border-radius: 50%;
+    background: var(--accent); color: #fff; border: none;
+    font-size: 2.6rem; cursor: pointer; box-shadow: 0 6px 20px rgba(91,94,244,0.35);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.15s, opacity 0.15s;
+  }
+  .capture-btn-big:hover { transform: scale(1.04); opacity: 0.95; }
+  .capture-btn-big:active { transform: scale(0.97); }
+  .capture-btn-label { font-size: 0.85rem; font-weight: 700; color: var(--text); }
+  .capture-hint { font-size: 0.8rem; color: var(--muted); max-width: 320px; }
+  .capture-feed-empty { color: var(--muted); font-size: 0.8rem; text-align: center; padding: 12px; }
+  .capture-feed { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .capture-feed-item {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px;
+  }
+  .capture-feed-item img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+  .capture-feed-status { font-size: 0.8rem; font-weight: 700; color: var(--green); }
+
+  /* ══════════════════════════════════
+     UNPROCESSED INVOICES QUEUE
+  ══════════════════════════════════ */
+  .invoice-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 14px;
+  }
+  .invoice-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; cursor: pointer; transition: box-shadow 0.15s, transform 0.15s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+  .invoice-card:hover { box-shadow: 0 6px 18px rgba(0,0,0,0.1); transform: translateY(-2px); }
+  .invoice-thumb {
+    width: 100%; height: 130px; background: var(--surface-2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 2rem; color: var(--muted); overflow: hidden;
+  }
+  .invoice-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .invoice-card-meta { padding: 10px 12px; }
+  .invoice-card-uploader { font-size: 0.8rem; font-weight: 700; }
+  .invoice-card-time { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+
+  /* ══════════════════════════════════
+     DETAIL / EDIT MODAL
+  ══════════════════════════════════ */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(20,22,40,0.45);
+    z-index: 3000; display: flex; align-items: center; justify-content: center;
+  }
+  .modal-box {
+    background: #fff; border: 1px solid var(--border); border-radius: 12px;
+    padding: 26px; min-width: 340px; max-width: 460px; width: 92%;
+    max-height: 86vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(20,22,40,0.18);
+  }
+  .modal-box.wide { max-width: 560px; }
+  .modal-box h3 { font-size: 1rem; color: var(--text); margin-bottom: 16px; }
+  .modal-close {
+    float: right; background: none; border: none; color: var(--muted);
+    font-size: 1.3rem; cursor: pointer; margin-top: -6px; line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-btn {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 10px 18px; font-size: 0.82rem; font-weight: 700; cursor: pointer;
+    margin-right: 8px; margin-top: 6px;
+  }
+  .modal-btn:hover { opacity: 0.9; }
+  .modal-btn:disabled { opacity: 0.5; cursor: default; }
+  .modal-btn.sec { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
+
+  .intake-field { margin-bottom: 14px; }
+  .intake-field label {
+    display: block; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); font-weight: 700; margin-bottom: 5px;
+  }
+  .intake-field input, .intake-field select, .intake-field textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; font-size: 0.85rem; color: var(--text);
+    outline: none; font-family: inherit;
+  }
+  .intake-field textarea { resize: vertical; min-height: 56px; }
+  .intake-field input:focus, .intake-field select:focus, .intake-field textarea:focus { border-color: var(--accent); }
+  .intake-form-error { color: #dc2626; font-size: 0.78rem; min-height: 16px; margin-bottom: 4px; }
+
+  .invoice-detail-img-wrap {
+    width: 100%; max-height: 300px; overflow: hidden; border-radius: 8px;
+    background: var(--surface-2); margin-bottom: 12px; display: flex; align-items: center; justify-content: center;
+  }
+  .invoice-detail-img-wrap img { width: 100%; height: auto; max-height: 300px; object-fit: contain; }
+  .invoice-detail-uploader { font-size: 0.75rem; color: var(--muted); margin-bottom: 14px; }
+  .po-search-wrap { position: relative; }
+  .po-result-list {
+    position: absolute; top: 100%; left: 0; right: 0; z-index: 10;
+    background: #fff; border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.12); max-height: 200px; overflow-y: auto;
+    margin-top: 4px; display: none;
+  }
+  .po-result-item { padding: 8px 12px; font-size: 0.8rem; cursor: pointer; border-bottom: 1px solid var(--border); }
+  .po-result-item:last-child { border-bottom: none; }
+  .po-result-item:hover { background: var(--surface-2); }
+  .po-result-tag { display: block; font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+  .po-result-empty { padding: 10px 12px; font-size: 0.78rem; color: var(--muted); }
+  .invoice-matched-label { font-size: 0.75rem; color: var(--green); font-weight: 700; margin-top: 4px; min-height: 16px; }
+
+  /* ── TEAM CHAT (same component as the other boards) ── */
+  .chat-panel {
+    width: 100%; height: 68vh; max-height: 640px;
+    background: #fff; border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    display: none; flex-direction: column; overflow: hidden;
+  }
+  .chat-panel.open { display: flex; }
+  .chat-header {
+    padding: 12px 16px; background: var(--accent); color: #fff;
+    font-size: 0.82rem; font-weight: 700; letter-spacing: 0.5px;
+  }
+  .chat-channels {
+    display: flex; gap: 6px; padding: 8px 12px;
+    border-bottom: 1px solid var(--border); background: #fff;
+  }
+  .chat-channel-btn {
+    flex: 1; font-size: 0.66rem; font-weight: 700; padding: 6px 4px;
+    border-radius: 6px; border: 1px solid var(--border); background: var(--bg);
+    color: var(--muted); cursor: pointer; text-align: center; transition: all 0.15s;
+  }
+  .chat-channel-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chat-channel-btn:hover:not(.active) { background: #eef0f7; }
+  .chat-messages {
+    flex: 1; overflow-y: auto; padding: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+    background: #f8f9fc;
+  }
+  .chat-msg { max-width: 82%; display: flex; flex-direction: column; }
+  .chat-msg.me { align-self: flex-end; align-items: flex-end; }
+  .chat-msg.them { align-self: flex-start; align-items: flex-start; }
+  .chat-msg-sender {
+    font-size: 0.65rem; font-weight: 700;
+    color: var(--muted); margin-bottom: 2px; padding: 0 4px;
+  }
+  .chat-msg-bubble {
+    padding: 8px 12px; border-radius: 14px;
+    font-size: 0.83rem; line-height: 1.45;
+  }
+  .chat-msg.me .chat-msg-bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+  .chat-msg.them .chat-msg-bubble { background: #fff; color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+  .chat-msg-time { font-size: 0.62rem; color: var(--muted); margin-top: 3px; padding: 0 4px; }
+  .chat-input-row {
+    display: flex; gap: 8px; padding: 10px 12px;
+    border-top: 1px solid var(--border); background: #fff;
+  }
+  .chat-input-row input {
+    flex: 1; font-size: 0.82rem; padding: 7px 10px;
+    border-radius: 20px; background: #f0f1f7;
+    border: 1px solid var(--border);
+  }
+  .emoji-picker-wrap { position: relative; flex-shrink: 0; }
+  .emoji-btn {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #f0f1f7; border: 1px solid var(--border);
+    cursor: pointer; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .emoji-btn:hover { background: #eef0f7; }
+  .emoji-popover {
+    position: absolute; bottom: 42px; left: 0;
+    width: 216px; max-height: 176px; overflow-y: auto;
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    padding: 8px; z-index: 10;
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px;
+  }
+  .emoji-popover button {
+    background: none; border: none; font-size: 1.15rem; cursor: pointer;
+    padding: 4px; border-radius: 6px; line-height: 1.3;
+  }
+  .emoji-popover button:hover { background: #eef0f7; }
+  .chat-send-btn {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--accent); color: #fff;
+    border: none; cursor: pointer; font-size: 0.9rem;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: opacity 0.15s;
+  }
+  .chat-send-btn:hover { opacity: 0.85; }
+
+  .chat-nav-badge {
+    margin-left: auto;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: #fff;
+    background: #ef4444;
+    border-radius: 20px;
+    min-width: 16px; height: 16px;
+    padding: 0 5px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .chat-toast-container {
+    position: fixed; top: 16px; right: 16px; z-index: 9999;
+    display: flex; flex-direction: column; gap: 8px;
+    pointer-events: none;
+  }
+  .chat-toast {
+    pointer-events: auto;
+    background: #1a1f36; color: #fff;
+    border-radius: 10px; padding: 10px 14px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    min-width: 220px; max-width: 320px;
+    font-size: 0.8rem; cursor: pointer;
+    animation: chatToastIn 0.2s ease-out;
+  }
+  .chat-toast-channel { font-size: 0.62rem; color: #8c93a8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 700; }
+  .chat-toast-sender { font-weight: 700; margin-bottom: 2px; }
+  .chat-toast-msg { color: #e2e5ee; line-height: 1.4; overflow-wrap: anywhere; }
+  @keyframes chatToastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ── KIKI AI CHAT WIDGET — shared floating widget, ported unchanged
+     from advisor-board.html. z-index sits below .modal-overlay (3000)
+     and below the auth gate (5000) so both always visually win. ── */
+  #ai-bubble{position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:none;border:2px solid #2563eb;cursor:grab;box-shadow:0 4px 12px rgba(0,0,0,.5);z-index:2000;padding:0;overflow:hidden;transition:box-shadow .15s ease;}
+  #ai-bubble:hover{box-shadow:0 6px 18px rgba(37,99,235,.5);}
+  #ai-bubble img{width:100%;height:100%;object-fit:cover;display:block;}
+  #ai-panel{position:fixed;width:340px;max-height:480px;background:#1e2535;border:1px solid #334155;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.6);z-index:1999;display:none;flex-direction:column;overflow:hidden;}
+  #ai-panel.open{display:flex;}
+  #ai-header{background:#162032;padding:10px 14px;font-size:14px;font-weight:600;color:#93c5fd;display:flex;justify-content:space-between;align-items:center;}
+  #ai-header-left{display:flex;align-items:center;gap:8px;}
+  #ai-header-avatar{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid #2563eb;}
+  #ai-header button{background:none;border:none;color:#64748b;font-size:18px;cursor:pointer;line-height:1;}
+  #ai-messages{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;font-size:13px;}
+  .ai-msg-user{align-self:flex-end;background:#2563eb;color:#fff;padding:6px 10px;border-radius:10px 10px 2px 10px;max-width:80%;}
+  .ai-msg-bot{align-self:flex-start;background:#0f172a;color:#e2e8f0;padding:6px 10px;border-radius:10px 10px 10px 2px;max-width:90%;white-space:pre-wrap;}
+  .ai-msg-err{align-self:flex-start;background:#7f1d1d;color:#fca5a5;padding:6px 10px;border-radius:8px;max-width:90%;font-size:12px;}
+  #ai-footer{padding:8px;display:flex;gap:6px;border-top:1px solid #334155;}
+  #ai-input{flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:7px 10px;color:#e2e8f0;font-size:13px;outline:none;}
+  #ai-send{background:#2563eb;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;}
+  #ai-send:disabled{opacity:.5;cursor:default;}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<!-- ══ AUTH GATE — visible until identity resolves, then hidden.
+     If identity never resolves, this stays up and the page redirects
+     to crisdata.html — board content underneath is never shown. ══ -->
+<div class="auth-gate-overlay" id="authGateOverlay">
+  <div class="auth-gate-spinner"></div>
+  <div class="auth-gate-text">Verifying session…</div>
+</div>
+
+<div class="app-shell">
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-title">Lee Transmission</div>
+      <div class="sidebar-brand-sub">Bookkeeping Board · Prototype</div>
+    </div>
+    <div class="sidebar-status">
+      <div class="greeting-wrap" id="greetingWrap"></div>
+      <div class="live-badge"><div class="live-dot"></div>Live</div>
+      <div class="sidebar-btn-row">
+        <button type="button" class="logout-btn" id="logoutBtn">
+          <svg class="logout-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M14 8v-2a2 2 0 0 0 -2 -2h-7a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h7a2 2 0 0 0 2 -2v-2" />
+            <path d="M7 12h14l-3 -3" />
+            <path d="M18 15l3 -3" />
+          </svg>
+          <span>Log out</span>
+        </button>
+        <button type="button" class="logout-btn refresh-btn" id="refreshBtn" aria-label="Refresh" title="Refresh">
+          <svg class="logout-btn-icon" id="refreshBtnIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" />
+            <path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" />
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div class="sidebar-scroll">
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Main</div>
+        <div class="sidebar-item active" data-view="queue" data-label="Unprocessed Invoices"><span class="icon">🧾</span>Unprocessed Invoices</div>
+        <div class="sidebar-item" data-view="capture" data-label="Capture Invoice"><span class="icon">📸</span>Capture Invoice</div>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Manage</div>
+        <div class="sidebar-item" data-view="teamchat" data-label="Team Chat"><span class="icon">💬</span>Team Chat<span class="chat-nav-badge" id="teamchat-unread-badge" style="display:none">0</span></div>
+      </div>
+    </div>
+  </nav>
+
+  <main class="main-area">
+    <div class="view-topbar">
+      <div class="view-topbar-title" id="viewTopbarTitle">Unprocessed Invoices</div>
+    </div>
+
+    <div class="content">
+
+  <!-- ══ UNPROCESSED INVOICES QUEUE ══ -->
+  <div class="view active" id="view-queue">
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--amber)"></div>Unprocessed Invoices</div>
+      <div class="invoice-grid" id="invoice-queue-grid">
+        <div style="color:var(--muted);padding:24px;grid-column:1/-1">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ CAPTURE INVOICE — Josh's one-tap flow: no fields, just image + upload ══ -->
+  <div class="view" id="view-capture">
+    <div class="card">
+      <div class="capture-hero">
+        <button type="button" class="capture-btn-big" id="captureTriggerBtn" aria-label="Capture Invoice">📸</button>
+        <div class="capture-btn-label">Tap to Capture Invoice</div>
+        <div class="capture-hint">Snap a photo of a vendor invoice or shop receipt. It's uploaded immediately — no other info needed here. Bookkeeping will classify it from the Unprocessed Invoices queue.</div>
+        <input type="file" accept="image/*" capture="environment" id="captureFileInput" style="display:none">
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--green)"></div>This Session's Uploads</div>
+      <div class="capture-feed-empty" id="capture-feed-empty">Nothing captured yet this session.</div>
+      <div class="capture-feed" id="capture-feed"></div>
+    </div>
+  </div>
+
+  <!-- ══ TEAM CHAT ══ -->
+  <div class="view" id="view-teamchat">
+    <div class="chat-panel open" id="chat-panel">
+      <div class="chat-header"><span>Team Chat</span></div>
+      <div class="chat-channels" id="chat-channels"></div>
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-row">
+        <div class="emoji-picker-wrap">
+          <button class="emoji-btn" id="emoji-btn" type="button" title="Emoji">😊</button>
+          <div class="emoji-popover" id="emoji-popover" style="display:none"></div>
+        </div>
+        <input type="text" id="chat-input" placeholder="Message…" />
+        <button class="chat-send-btn" id="chat-send">➤</button>
+      </div>
+    </div>
+  </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- Invoice Detail / Edit Modal — outside .content so it isn't hidden by an inactive .view -->
+<div class="modal-overlay" id="invoiceDetailModal" style="display:none">
+  <div class="modal-box wide">
+    <button class="modal-close" id="closeInvoiceDetailModal">&times;</button>
+    <h3>Process Invoice</h3>
+    <div class="invoice-detail-img-wrap"><img id="invDetailImg" alt="Invoice"></div>
+    <div class="invoice-detail-uploader" id="invDetailUploader"></div>
+
+    <div class="intake-field">
+      <label>Type</label>
+      <select id="invTypeInput">
+        <option value="">- Choose type -</option>
+        <option value="parts_vendor">Parts / Vendor Invoice</option>
+        <option value="shop_expense">General Shop Expense</option>
+      </select>
+    </div>
+
+    <div id="invPartsFields" style="display:none">
+      <div class="intake-field po-search-wrap">
+        <label>PO Number</label>
+        <input type="text" id="invPoInput" placeholder="Search open jobs and archive by PO…" autocomplete="off">
+        <div class="po-result-list" id="invPoResults"></div>
+        <div class="invoice-matched-label" id="invMatchedLabel"></div>
+      </div>
+    </div>
+
+    <div id="invExpenseFields" style="display:none">
+      <div class="intake-field">
+        <label>Category</label>
+        <input type="text" id="invCategoryInput" placeholder="e.g. Utilities, Rent, Supplies, Fuel">
+      </div>
+    </div>
+
+    <div class="intake-field">
+      <label>Vendor</label>
+      <input type="text" id="invVendorInput" placeholder="Vendor name">
+    </div>
+    <div class="intake-field">
+      <label>Amount ($)</label>
+      <input type="number" id="invAmountInput" placeholder="0.00" min="0" step="0.01">
+    </div>
+    <div class="intake-field">
+      <label>Notes</label>
+      <textarea id="invNotesInput" placeholder="Notes…"></textarea>
+    </div>
+
+    <div class="intake-form-error" id="invDetailError"></div>
+    <button class="modal-btn" id="invConfirmBtn">Confirm</button>
+    <button class="modal-btn sec" id="invCancelBtn">Cancel</button>
+  </div>
+</div>
+
+<!-- Kiki AI Chat Widget — shared floating widget, independent of sidebar view -->
+<button id="ai-bubble" title="Ask Kiki"><img src="/kiki-avatar.png" alt="Kiki" /></button>
+<div id="ai-panel">
+  <div id="ai-header">
+    <div id="ai-header-left"><img id="ai-header-avatar" src="/kiki-avatar.png" alt="Kiki" /><span>Kiki</span></div>
+    <button id="ai-close" title="Close">&times;</button>
+  </div>
+  <div id="ai-messages"></div>
+  <div id="ai-footer">
+    <input id="ai-input" type="text" placeholder="Ask about the board..." />
+    <button id="ai-send">Ask</button>
+  </div>
+</div>
+
+<script>
+  // ── Supabase
+  const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  const INVOICE_BUCKET = 'invoice-images';
+  const SIGNED_URL_TTL = 3600; // seconds
+
+  // ── VIEW REFRESH REGISTRY — same pattern as advisor-board.html /
+  // gm-board.html: each view registers { refetch, getChannel, resubscribe }.
+  const VIEW_REFRESH = {};
+  let currentViewKey = 'queue';
+
+  function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function formatDateTime(iso) {
+    if (!iso) return '';
+    return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+
+  // Identity — populated by the auth gate below. Unlike the other boards,
+  // nothing that needs these runs until the gate has already succeeded.
+  let CHAT_IDENTITY = { name: null, role: null };
+  let CURRENT_EMPLOYEE_ID = null;
+
+  // ── Sidebar navigation
+  document.querySelectorAll('.sidebar-item[data-view]').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.sidebar-item[data-view]').forEach(i => i.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      item.classList.add('active');
+      document.getElementById('view-' + item.dataset.view).classList.add('active');
+      document.getElementById('viewTopbarTitle').textContent = item.dataset.label || item.textContent.trim();
+      currentViewKey = item.dataset.view;
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // CAPTURE INVOICE — Josh's one-tap flow. No fields: pick/take a
+  // photo, it uploads to the private bucket, a row lands in
+  // invoice_queue with status='unprocessed'. Nothing else required.
+  // ══════════════════════════════════════════════════════════════
+  let captureBusy = false;
+
+  function addCaptureFeedItem(id, imgSrc, statusText) {
+    document.getElementById('capture-feed-empty').style.display = 'none';
+    const list = document.getElementById('capture-feed');
+    const el = document.createElement('div');
+    el.className = 'capture-feed-item';
+    el.id = id;
+    el.innerHTML = `<img src="${imgSrc}" alt=""><div class="capture-feed-status">${esc(statusText)}</div>`;
+    list.prepend(el);
+  }
+  function updateCaptureFeedItem(id, statusText, isError) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const statusEl = el.querySelector('.capture-feed-status');
+    statusEl.textContent = statusText;
+    statusEl.style.color = isError ? 'var(--red)' : 'var(--green)';
+  }
+
+  async function captureAndUpload(file) {
+    if (!file || captureBusy) return;
+    if (!file.type.startsWith('image/')) { alert('Please choose an image file.'); return; }
+    if (!CURRENT_EMPLOYEE_ID || !CHAT_IDENTITY.name) {
+      alert('Could not identify you on this board yet — try reopening it from CrisData.');
+      return;
+    }
+
+    captureBusy = true;
+    const feedId = 'cap-' + Date.now();
+    const previewData = await new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(file);
+    });
+    addCaptureFeedItem(feedId, previewData, 'Uploading…');
+
+    try {
+      const invoiceId = crypto.randomUUID();
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const path = `${invoiceId}/${Date.now()}.${ext}`;
+
+      const { error: upErr } = await db.storage.from(INVOICE_BUCKET).upload(path, file, { upsert: false });
+      if (upErr) throw upErr;
+
+      const { error: insErr } = await db.from('invoice_queue').insert({
+        id: invoiceId,
+        image_path: path,
+        original_filename: file.name || null,
+        uploaded_by: CURRENT_EMPLOYEE_ID,
+        uploaded_by_name: CHAT_IDENTITY.name,
+      });
+      if (insErr) throw insErr;
+
+      updateCaptureFeedItem(feedId, 'Uploaded ✓');
+    } catch (err) {
+      console.error('[Capture] upload failed', err);
+      updateCaptureFeedItem(feedId, 'Failed: ' + (err.message || 'unknown error'), true);
+    } finally {
+      captureBusy = false;
+    }
+  }
+
+  document.getElementById('captureTriggerBtn').addEventListener('click', () => {
+    document.getElementById('captureFileInput').click();
+  });
+  document.getElementById('captureFileInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    e.target.value = ''; // reset so the same file (or camera) can be picked again immediately
+    if (file) captureAndUpload(file);
+  });
+
+  // ══════════════════════════════════════════════════════════════
+  // UNPROCESSED INVOICES QUEUE
+  // ══════════════════════════════════════════════════════════════
+  let invoiceQueueRows = [];
+  let invoiceQueueChannel = null;
+
+  async function loadInvoiceQueue() {
+    const { data, error } = await db.from('invoice_queue').select('*').eq('status', 'unprocessed').order('uploaded_at', { ascending: false });
+    if (error) { console.error('[Invoices] load failed', error); invoiceQueueRows = []; }
+    else invoiceQueueRows = data || [];
+    await renderInvoiceQueue();
+  }
+
+  async function renderInvoiceQueue() {
+    const grid = document.getElementById('invoice-queue-grid');
+    if (invoiceQueueRows.length === 0) {
+      grid.innerHTML = '<div style="color:var(--muted);padding:32px;grid-column:1/-1;text-align:center">No unprocessed invoices right now.</div>';
+      return;
+    }
+
+    let signedMap = {};
+    try {
+      const paths = invoiceQueueRows.map(r => r.image_path);
+      const { data: signed, error } = await db.storage.from(INVOICE_BUCKET).createSignedUrls(paths, SIGNED_URL_TTL);
+      if (error) throw error;
+      (signed || []).forEach((s, i) => { if (s && s.signedUrl) signedMap[paths[i]] = s.signedUrl; });
+    } catch (err) {
+      console.error('[Invoices] signed URL batch failed', err);
+    }
+
+    grid.innerHTML = invoiceQueueRows.map(r => `
+      <div class="invoice-card" data-id="${esc(r.id)}">
+        <div class="invoice-thumb">${signedMap[r.image_path] ? `<img src="${esc(signedMap[r.image_path])}" alt="">` : '📄'}</div>
+        <div class="invoice-card-meta">
+          <div class="invoice-card-uploader">${esc(r.uploaded_by_name)}</div>
+          <div class="invoice-card-time">${formatDateTime(r.uploaded_at)}</div>
+        </div>
+      </div>`).join('');
+
+    grid.querySelectorAll('.invoice-card').forEach(card => {
+      card.addEventListener('click', () => openInvoiceDetail(card.dataset.id));
+    });
+  }
+
+  function subscribeInvoiceQueue() {
+    if (invoiceQueueChannel) db.removeChannel(invoiceQueueChannel);
+    invoiceQueueChannel = db.channel('bookkeeping-board-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'invoice_queue' }, loadInvoiceQueue)
+      .subscribe();
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // INVOICE DETAIL / EDIT MODAL
+  // ══════════════════════════════════════════════════════════════
+  let detailInvoice = null;
+  let detailMatchedTable = null;
+  let detailMatchedId = null;
+
+  async function openInvoiceDetail(id) {
+    const row = invoiceQueueRows.find(r => String(r.id) === String(id));
+    if (!row) return;
+    detailInvoice = row;
+    detailMatchedTable = null;
+    detailMatchedId = null;
+
+    document.getElementById('invDetailImg').src = '';
+    document.getElementById('invDetailUploader').textContent = `Uploaded by ${row.uploaded_by_name} · ${formatDateTime(row.uploaded_at)}`;
+    document.getElementById('invTypeInput').value = '';
+    document.getElementById('invPoInput').value = '';
+    document.getElementById('invPoResults').innerHTML = '';
+    document.getElementById('invPoResults').style.display = 'none';
+    document.getElementById('invVendorInput').value = '';
+    document.getElementById('invAmountInput').value = '';
+    document.getElementById('invCategoryInput').value = '';
+    document.getElementById('invNotesInput').value = '';
+    document.getElementById('invMatchedLabel').textContent = '';
+    document.getElementById('invDetailError').textContent = '';
+    updateInvoiceTypeFields();
+
+    document.getElementById('invoiceDetailModal').style.display = 'flex';
+
+    try {
+      const { data: signed, error } = await db.storage.from(INVOICE_BUCKET).createSignedUrl(row.image_path, SIGNED_URL_TTL);
+      if (!error && signed) document.getElementById('invDetailImg').src = signed.signedUrl;
+    } catch (err) {
+      console.error('[Invoices] signed URL failed', err);
+    }
+  }
+
+  function closeInvoiceDetail() {
+    document.getElementById('invoiceDetailModal').style.display = 'none';
+    detailInvoice = null;
+  }
+
+  function updateInvoiceTypeFields() {
+    const type = document.getElementById('invTypeInput').value;
+    document.getElementById('invPartsFields').style.display = type === 'parts_vendor' ? 'block' : 'none';
+    document.getElementById('invExpenseFields').style.display = type === 'shop_expense' ? 'block' : 'none';
+  }
+  document.getElementById('invTypeInput').addEventListener('change', updateInvoiceTypeFields);
+
+  // ── PO search — OR across the three open board tables + the
+  // completed_jobs archive, single po match (mirrors the lifecycle:
+  // a PO exists in exactly one of these four at any given moment).
+  let poSearchDebounce = null;
+  document.getElementById('invPoInput').addEventListener('input', (e) => {
+    detailMatchedTable = null;
+    detailMatchedId = null;
+    document.getElementById('invMatchedLabel').textContent = '';
+    clearTimeout(poSearchDebounce);
+    const term = e.target.value.trim();
+    if (!term) { document.getElementById('invPoResults').style.display = 'none'; return; }
+    poSearchDebounce = setTimeout(() => runPoSearch(term), 300);
+  });
+
+  async function runPoSearch(term) {
+    const SELECT = 'id,po,vehicle,customer';
+    const [{ data: lifts }, { data: parking }, { data: pickup }, { data: completed }] = await Promise.all([
+      db.from('shopboard_lifts').select(SELECT).ilike('po', `%${term}%`),
+      db.from('shopboard_parking').select(SELECT).ilike('po', `%${term}%`),
+      db.from('shopboard_pickup').select(SELECT).ilike('po', `%${term}%`),
+      db.from('completed_jobs').select(SELECT).ilike('po', `%${term}%`),
+    ]);
+    const results = [
+      ...(lifts || []).map(r => ({ ...r, _table: 'shopboard_lifts', _label: 'Open · Lift' })),
+      ...(parking || []).map(r => ({ ...r, _table: 'shopboard_parking', _label: 'Open · Parking' })),
+      ...(pickup || []).map(r => ({ ...r, _table: 'shopboard_pickup', _label: 'Open · Pickup' })),
+      ...(completed || []).map(r => ({ ...r, _table: 'completed_jobs', _label: 'Archived' })),
+    ].filter(r => r.po);
+
+    const box = document.getElementById('invPoResults');
+    if (results.length === 0) {
+      box.innerHTML = '<div class="po-result-empty">No matching PO found — you can still save this PO as free text.</div>';
+      box.style.display = 'block';
+      return;
+    }
+    box.innerHTML = results.map(r => `
+      <div class="po-result-item" data-table="${esc(r._table)}" data-id="${esc(String(r.id))}" data-po="${esc(r.po)}">
+        <strong>PO #${esc(r.po)}</strong> — ${esc(r.vehicle || '')}${r.customer ? ' · ' + esc(r.customer) : ''}
+        <span class="po-result-tag">${esc(r._label)}</span>
+      </div>`).join('');
+    box.style.display = 'block';
+    box.querySelectorAll('.po-result-item').forEach(item => {
+      item.addEventListener('click', () => {
+        document.getElementById('invPoInput').value = item.dataset.po;
+        detailMatchedTable = item.dataset.table;
+        detailMatchedId = item.dataset.id;
+        document.getElementById('invMatchedLabel').textContent = `✓ Linked to ${item.dataset.table.replace('shopboard_', '')} record`;
+        box.style.display = 'none';
+      });
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    const box = document.getElementById('invPoResults');
+    const input = document.getElementById('invPoInput');
+    if (box && box.style.display !== 'none' && !box.contains(e.target) && e.target !== input) {
+      box.style.display = 'none';
+    }
+  });
+
+  async function confirmInvoiceDetail() {
+    if (!detailInvoice) return;
+    const errEl = document.getElementById('invDetailError');
+    errEl.textContent = '';
+
+    const invoice_type = document.getElementById('invTypeInput').value;
+    const vendor = document.getElementById('invVendorInput').value.trim();
+    const amountRaw = document.getElementById('invAmountInput').value;
+    const amount = amountRaw ? parseFloat(amountRaw) : null;
+    const notes = document.getElementById('invNotesInput').value.trim();
+
+    if (!invoice_type) { errEl.textContent = 'Choose Parts/Vendor or Shop Expense.'; return; }
+    if (!vendor) { errEl.textContent = 'Vendor is required.'; return; }
+    if (amountRaw && isNaN(amount)) { errEl.textContent = 'Amount must be a number.'; return; }
+
+    const payload = {
+      status: 'processed',
+      invoice_type,
+      vendor,
+      amount,
+      notes: notes || null,
+      processed_at: new Date().toISOString(),
+      processed_by: CURRENT_EMPLOYEE_ID,
+      processed_by_name: CHAT_IDENTITY.name,
+    };
+
+    if (invoice_type === 'parts_vendor') {
+      payload.po = document.getElementById('invPoInput').value.trim() || null;
+      payload.matched_source_table = detailMatchedTable;
+      payload.matched_source_id = detailMatchedId;
+      payload.category = null;
+    } else {
+      payload.category = document.getElementById('invCategoryInput').value.trim() || null;
+      payload.po = null;
+      payload.matched_source_table = null;
+      payload.matched_source_id = null;
+    }
+
+    const btn = document.getElementById('invConfirmBtn');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+    const { error } = await db.from('invoice_queue').update(payload).eq('id', detailInvoice.id);
+    btn.disabled = false;
+    btn.textContent = 'Confirm';
+
+    if (error) {
+      console.error('[Invoices] confirm failed', error);
+      errEl.textContent = 'Save failed: ' + error.message;
+      return;
+    }
+
+    closeInvoiceDetail();
+    loadInvoiceQueue();
+  }
+
+  document.getElementById('invConfirmBtn').addEventListener('click', confirmInvoiceDetail);
+  document.getElementById('invCancelBtn').addEventListener('click', closeInvoiceDetail);
+  document.getElementById('closeInvoiceDetailModal').addEventListener('click', closeInvoiceDetail);
+
+  // ══════════════════════════════════════════════════════════════
+  // TEAM CHAT — same component/behavior as advisor-board.html and
+  // gm-board.html. Channel set is this board's own role pairs, per
+  // the existing "each board only knows its own CHAT_CHANNELS" model.
+  // ══════════════════════════════════════════════════════════════
+  const CHAT_CHANNELS = [
+    { key: 'group',              label: 'Group' },
+    { key: 'owner_bookkeeping',   label: 'Owner' },
+    { key: 'manager_bookkeeping', label: 'Manager' },
+    { key: 'advisor_bookkeeping', label: 'Advisor' },
+  ];
+  let CURRENT_CHANNEL = 'group';
+  let chatMessages = [];
+  let chatRealtimeChannel = null;
+  let chatUnreadCounts = {};
+  let chatAudioCtx = null;
+
+  function formatChatTime(iso) {
+    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function isTeamChatVisible(channel) {
+    return currentViewKey === 'teamchat' && CURRENT_CHANNEL === channel;
+  }
+
+  function unlockChatAudio() {
+    if (!chatAudioCtx) {
+      try { chatAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+    }
+    if (chatAudioCtx.state === 'suspended') chatAudioCtx.resume().catch(() => {});
+  }
+  ['click', 'keydown', 'touchstart'].forEach(evt => {
+    document.addEventListener(evt, unlockChatAudio, { once: true, passive: true });
+  });
+
+  function playChatAlertSound() {
+    if (!chatAudioCtx) {
+      try { chatAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+    }
+    const fire = () => {
+      const osc = chatAudioCtx.createOscillator();
+      const gain = chatAudioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.16, chatAudioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, chatAudioCtx.currentTime + 0.3);
+      osc.connect(gain).connect(chatAudioCtx.destination);
+      osc.start();
+      osc.stop(chatAudioCtx.currentTime + 0.3);
+    };
+    if (chatAudioCtx.state === 'suspended') {
+      chatAudioCtx.resume().then(fire).catch(() => {});
+    } else {
+      fire();
+    }
+  }
+
+  function ensureChatToastContainer() {
+    let box = document.getElementById('chat-toast-container');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'chat-toast-container';
+      box.className = 'chat-toast-container';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+
+  function showChatToast(rec) {
+    const box = ensureChatToastContainer();
+    const channelLabel = (CHAT_CHANNELS.find(c => c.key === rec.channel) || {}).label || rec.channel;
+    const el = document.createElement('div');
+    el.className = 'chat-toast';
+    el.innerHTML = `
+      <div class="chat-toast-channel">${esc(channelLabel)}</div>
+      <div class="chat-toast-sender">${esc(rec.sender_name)}</div>
+      <div class="chat-toast-msg">${esc(rec.message)}</div>
+    `;
+    el.addEventListener('click', () => el.remove());
+    box.appendChild(el);
+    setTimeout(() => el.remove(), 5000);
+  }
+
+  function updateChatUnreadBadge() {
+    const badge = document.getElementById('teamchat-unread-badge');
+    if (!badge) return;
+    const total = Object.values(chatUnreadCounts).reduce((a, b) => a + b, 0);
+    if (total > 0) {
+      badge.textContent = total > 9 ? '9+' : String(total);
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  function clearChatUnread(channel) {
+    if (chatUnreadCounts[channel]) {
+      chatUnreadCounts[channel] = 0;
+      updateChatUnreadBadge();
+    }
+  }
+
+  function maybeAlertNewMessage(rec) {
+    if (!rec || !CHAT_IDENTITY.name || !CHAT_IDENTITY.role) return;
+    if (rec.sender_name === CHAT_IDENTITY.name) return;
+    playChatAlertSound();
+    if (isTeamChatVisible(rec.channel)) return;
+    chatUnreadCounts[rec.channel] = (chatUnreadCounts[rec.channel] || 0) + 1;
+    updateChatUnreadBadge();
+    showChatToast(rec);
+  }
+
+  function renderChannelTabs() {
+    const wrap = document.getElementById('chat-channels');
+    wrap.innerHTML = CHAT_CHANNELS.map(c =>
+      `<button class="chat-channel-btn${c.key === CURRENT_CHANNEL ? ' active' : ''}" data-channel="${c.key}">${esc(c.label)}</button>`
+    ).join('');
+    wrap.querySelectorAll('[data-channel]').forEach(btn => {
+      btn.addEventListener('click', () => switchChatChannel(btn.dataset.channel));
+    });
+  }
+
+  // Same dynamic-source pattern as advisor-board.html / gm-board.html:
+  // only the Owner label is resolved to a real name (single active
+  // owner assumed); Manager/Advisor stay generic role labels.
+  async function loadOwnerChannelLabel() {
+    const { data, error } = await db
+      .from('employees').select('name')
+      .eq('role', 'owner').eq('active', true)
+      .order('name').limit(1);
+    if (error) { console.error('[Chat] load owner label failed', error); return; }
+    const entry = CHAT_CHANNELS.find(c => c.key === 'owner_bookkeeping');
+    if (entry) entry.label = (data && data[0] && data[0].name) ? data[0].name : 'Owner';
+    renderChannelTabs();
+  }
+
+  async function loadChatMessages(channel) {
+    const { data, error } = await db.from('chat_messages').select('*').eq('channel', channel).order('created_at');
+    if (error) { console.error('[Chat] load failed', error); chatMessages = []; }
+    else chatMessages = data || [];
+    renderChat();
+  }
+
+  function handleIncomingChatMessage(rec) {
+    if (!rec) return;
+    if (rec.channel === CURRENT_CHANNEL) {
+      chatMessages.push(rec);
+      renderChat();
+    }
+    maybeAlertNewMessage(rec);
+  }
+
+  function subscribeChatChannel() {
+    if (chatRealtimeChannel) {
+      db.removeChannel(chatRealtimeChannel);
+      chatRealtimeChannel = null;
+    }
+    let channel = db.channel('chat-live-bookkeeping');
+    CHAT_CHANNELS.forEach(c => {
+      channel = channel.on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `channel=eq.${c.key}` },
+        ({ new: rec }) => handleIncomingChatMessage(rec)
+      );
+    });
+    chatRealtimeChannel = channel.subscribe();
+  }
+
+  function switchChatChannel(channel) {
+    CURRENT_CHANNEL = channel;
+    renderChannelTabs();
+    loadChatMessages(channel);
+    clearChatUnread(channel);
+  }
+
+  function renderChat() {
+    const box = document.getElementById('chat-messages');
+    box.innerHTML = chatMessages.map(m => `
+      <div class="chat-msg ${m.sender_name === CHAT_IDENTITY.name ? 'me' : 'them'}">
+        <div class="chat-msg-sender">${esc(m.sender_name)}</div>
+        <div class="chat-msg-bubble">${esc(m.message)}</div>
+        <div class="chat-msg-time">${formatChatTime(m.created_at)}</div>
+      </div>`).join('');
+    box.scrollTop = box.scrollHeight;
+  }
+
+  async function sendChatMsg() {
+    const input = document.getElementById('chat-input');
+    const text = input.value.trim();
+    if (!text) return;
+    if (!CHAT_IDENTITY.name || !CHAT_IDENTITY.role) {
+      alert('Could not identify you on this board yet — try reopening it from CrisData.');
+      return;
+    }
+    input.value = '';
+    const { error } = await db.from('chat_messages').insert({
+      channel: CURRENT_CHANNEL,
+      sender_role: CHAT_IDENTITY.role,
+      sender_name: CHAT_IDENTITY.name,
+      message: text,
+    });
+    if (error) {
+      console.error('[Chat] send failed', error);
+      alert('Message failed to send: ' + error.message);
+    }
+  }
+
+  document.getElementById('chat-send').addEventListener('click', sendChatMsg);
+  document.getElementById('chat-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') sendChatMsg();
+  });
+
+  document.querySelector('.sidebar-item[data-view="teamchat"]').addEventListener('click', () => {
+    unlockChatAudio();
+    clearChatUnread(CURRENT_CHANNEL);
+  });
+
+  // ── Emoji picker
+  const EMOJI_LIST = ['👍','👎','✅','❌','🔥','💯','👏','🙌','💪','🙏',
+                       '😊','😂','😅','😉','😎','🤔','😬','😢','😡','🥳',
+                       '🚗','🔧','⚙️','⚠️','🛠️','🔩','⏰','📞','📸','💰'];
+
+  function renderEmojiPopover() {
+    const pop = document.getElementById('emoji-popover');
+    pop.innerHTML = EMOJI_LIST.map(e => `<button type="button" data-emoji="${e}">${e}</button>`).join('');
+    pop.querySelectorAll('[data-emoji]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const input = document.getElementById('chat-input');
+        input.value += btn.dataset.emoji;
+        pop.style.display = 'none';
+        input.focus();
+      });
+    });
+  }
+
+  document.getElementById('emoji-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const pop = document.getElementById('emoji-popover');
+    pop.style.display = pop.style.display === 'none' ? 'grid' : 'none';
+  });
+
+  document.addEventListener('click', (e) => {
+    const pop = document.getElementById('emoji-popover');
+    const btn = document.getElementById('emoji-btn');
+    if (pop.style.display !== 'none' && !pop.contains(e.target) && e.target !== btn) {
+      pop.style.display = 'none';
+    }
+  });
+
+  renderEmojiPopover();
+
+  // ══════════════════════════════════════════════════════════════
+  // AUTO-REFRESH SAFETY NET + MANUAL REFRESH — same pattern as the
+  // other boards. Only wired up after the auth gate succeeds (see
+  // bootBoard below), since there's nothing to refresh before that.
+  // ══════════════════════════════════════════════════════════════
+  function initRefreshSafetyNet() {
+    function refreshActiveView() {
+      const entry = VIEW_REFRESH[currentViewKey];
+      if (!entry || typeof entry.refetch !== 'function') return Promise.resolve();
+      return Promise.resolve(entry.refetch());
+    }
+
+    function isChannelHealthy(channel) {
+      return !!channel && channel.state === 'joined';
+    }
+
+    function checkActiveChannelHealth() {
+      const entry = VIEW_REFRESH[currentViewKey];
+      if (!entry || typeof entry.getChannel !== 'function') return;
+      if (isChannelHealthy(entry.getChannel())) return;
+      if (typeof entry.refetch === 'function') entry.refetch();
+      if (typeof entry.resubscribe === 'function') entry.resubscribe();
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refreshActiveView();
+    });
+    window.addEventListener('focus', refreshActiveView);
+    setInterval(checkActiveChannelHealth, 60 * 1000);
+
+    const refreshBtn = document.getElementById('refreshBtn');
+    const refreshIcon = document.getElementById('refreshBtnIcon');
+    refreshBtn.addEventListener('click', async () => {
+      if (refreshBtn.disabled) return;
+      refreshBtn.disabled = true;
+      refreshIcon.classList.add('spinning');
+      try {
+        await refreshActiveView();
+      } finally {
+        refreshIcon.classList.remove('spinning');
+        refreshBtn.disabled = false;
+      }
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // LOGOUT — manual button + 120-minute idle auto-logout.
+  // ══════════════════════════════════════════════════════════════
+  function initLogout() {
+    const SESSION_PHONE_KEY = 'bookkeepingBoardPhone';
+    const IDLE_LIMIT_MS = 120 * 60 * 1000;
+    const CHECK_INTERVAL_MS = 30 * 1000;
+    let lastActivity = Date.now();
+
+    async function logOut() {
+      try { await db.auth.signOut(); } catch (e) {}
+      localStorage.removeItem(SESSION_PHONE_KEY);
+      window.location.href = 'crisdata.html';
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', logOut);
+
+    ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => {
+      window.addEventListener(evt, () => { lastActivity = Date.now(); }, { passive: true });
+    });
+
+    setInterval(() => {
+      if (Date.now() - lastActivity >= IDLE_LIMIT_MS) logOut();
+    }, CHECK_INTERVAL_MS);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // AUTH GATE (runs first, blocks everything else) — the one key
+  // difference from advisor-board.html/gm-board.html: if identity
+  // doesn't resolve from either ?u=&p= or a persisted board-scoped
+  // localStorage session, this redirects to crisdata.html immediately
+  // instead of rendering the board read-only. Nothing below this
+  // IIFE (queue load, chat, realtime, refresh safety net) runs until
+  // the gate has already succeeded.
+  // ══════════════════════════════════════════════════════════════
+  (async function gateAndBoot() {
+    const SESSION_PHONE_KEY = 'bookkeepingBoardPhone';
+    let phone = null;
+
+    const params = new URLSearchParams(window.location.search);
+    const passPhone = params.get('u');
+    const passPin = params.get('p');
+    if (passPhone && passPin) {
+      const { data: match } = await db
+        .from('employees').select('phone')
+        .eq('phone', passPhone).eq('pin', passPin).eq('active', true)
+        .maybeSingle();
+      if (match) {
+        phone = match.phone;
+        localStorage.setItem(SESSION_PHONE_KEY, phone);
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+
+    if (!phone) phone = localStorage.getItem(SESSION_PHONE_KEY);
+
+    if (!phone) {
+      window.location.href = 'crisdata.html';
+      return;
+    }
+
+    const { data: emp, error } = await db
+      .from('employees').select('id, name, photo_url, role')
+      .eq('phone', phone).eq('active', true)
+      .maybeSingle();
+
+    if (error || !emp) {
+      localStorage.removeItem(SESSION_PHONE_KEY);
+      window.location.href = 'crisdata.html';
+      return;
+    }
+
+    // Second gate layer: a resolved, active employee session is not
+    // enough on its own — this board is for the Bookkeeping role only.
+    // Tech/advisor/manager/owner all pass the identity check above but
+    // must still be bounced here, same as an unresolved session.
+    if (emp.role !== 'bookkeeping') {
+      localStorage.removeItem(SESSION_PHONE_KEY);
+      window.location.href = 'crisdata.html';
+      return;
+    }
+
+    CHAT_IDENTITY = { name: emp.name, role: emp.role };
+    CURRENT_EMPLOYEE_ID = emp.id;
+
+    const avatar = emp.photo_url
+      ? `<img class="greeting-avatar" src="${esc(emp.photo_url)}" alt="">`
+      : `<div class="greeting-avatar-fallback">${esc((emp.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;
+    const wrap = document.getElementById('greetingWrap');
+    wrap.innerHTML = `${avatar}<span>Hi, ${esc(emp.name)}</span>`;
+    wrap.style.display = 'flex';
+
+    document.getElementById('authGateOverlay').style.display = 'none';
+
+    bootBoard();
+  })();
+
+  function bootBoard() {
+    loadInvoiceQueue();
+    subscribeInvoiceQueue();
+    VIEW_REFRESH.queue = {
+      refetch: loadInvoiceQueue,
+      getChannel: () => invoiceQueueChannel,
+      resubscribe: subscribeInvoiceQueue,
+    };
+
+    renderChannelTabs();
+    loadChatMessages(CURRENT_CHANNEL);
+    subscribeChatChannel();
+    loadOwnerChannelLabel();
+    VIEW_REFRESH.teamchat = {
+      refetch: () => loadChatMessages(CURRENT_CHANNEL),
+      getChannel: () => chatRealtimeChannel,
+      resubscribe: subscribeChatChannel,
+    };
+
+    initRefreshSafetyNet();
+    initLogout();
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // KIKI AI CHAT WIDGET — ported unchanged from advisor-board.html.
+  // Independent of login/gate state on purpose (matches the other
+  // boards); harmless since it only reads shop-floor data, not
+  // invoice_queue.
+  // ══════════════════════════════════════════════════════════════
+  (function () {
+    const bubble = document.getElementById('ai-bubble');
+    const panel  = document.getElementById('ai-panel');
+    const close  = document.getElementById('ai-close');
+    const msgs   = document.getElementById('ai-messages');
+    const input  = document.getElementById('ai-input');
+    const send   = document.getElementById('ai-send');
+    const SIZE   = 56;
+    const STORE  = 'kiki_bubble_pos_bookkeeping';
+
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    function setBubblePos(left, top) {
+      left = clamp(left, 0, window.innerWidth  - SIZE);
+      top  = clamp(top,  0, window.innerHeight - SIZE);
+      bubble.style.left   = left + 'px';
+      bubble.style.top    = top  + 'px';
+      bubble.style.right  = 'auto';
+      bubble.style.bottom = 'auto';
+      return { left, top };
+    }
+
+    function positionPanel() {
+      const r  = bubble.getBoundingClientRect();
+      const pw = 340, ph = 480, gap = 8, margin = 8;
+      let top  = r.top - ph - gap;
+      if (top < margin) top = r.bottom + gap;
+      let left = r.right - pw;
+      if (left < margin) left = margin;
+      if (left + pw > window.innerWidth - margin) left = window.innerWidth - pw - margin;
+      panel.style.top    = top  + 'px';
+      panel.style.left   = left + 'px';
+      panel.style.bottom = 'auto';
+      panel.style.right  = 'auto';
+    }
+
+    const saved = JSON.parse(localStorage.getItem(STORE) || 'null');
+    if (saved) {
+      setBubblePos(saved.left, saved.top);
+    } else {
+      setBubblePos(window.innerWidth - SIZE - 24, window.innerHeight - SIZE - 24);
+    }
+
+    let dragging = false, didDrag = false;
+    let startMX, startMY, startBX, startBY;
+
+    function dragStart(mx, my) {
+      const r = bubble.getBoundingClientRect();
+      dragging = true; didDrag = false;
+      startMX = mx; startMY = my;
+      startBX = r.left; startBY = r.top;
+      bubble.style.cursor = 'grabbing';
+      bubble.style.transition = 'none';
+    }
+    function dragMove(mx, my) {
+      if (!dragging) return;
+      if (Math.abs(mx - startMX) > 3 || Math.abs(my - startMY) > 3) didDrag = true;
+      setBubblePos(startBX + mx - startMX, startBY + my - startMY);
+      if (panel.classList.contains('open')) positionPanel();
+    }
+    function dragEnd() {
+      if (!dragging) return;
+      dragging = false;
+      bubble.style.cursor = 'grab';
+      bubble.style.transition = '';
+      const r = bubble.getBoundingClientRect();
+      localStorage.setItem(STORE, JSON.stringify({ left: r.left, top: r.top }));
+    }
+
+    bubble.addEventListener('mousedown',  (e) => { e.preventDefault(); dragStart(e.clientX, e.clientY); });
+    window.addEventListener('mousemove',  (e) => dragMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup',    ()  => dragEnd());
+    bubble.addEventListener('touchstart', (e) => { const t = e.touches[0]; dragStart(t.clientX, t.clientY); }, { passive: true });
+    window.addEventListener('touchmove',  (e) => { if (dragging) { e.preventDefault(); } const t = e.touches[0]; dragMove(t.clientX, t.clientY); }, { passive: false });
+    window.addEventListener('touchend',   ()  => dragEnd());
+
+    bubble.addEventListener('click', () => {
+      if (didDrag) { didDrag = false; return; }
+      panel.classList.toggle('open');
+      if (panel.classList.contains('open')) { positionPanel(); input.focus(); }
+    });
+    close.addEventListener('click', () => panel.classList.remove('open'));
+
+    function addMsg(text, cls) {
+      const d = document.createElement('div');
+      d.className = cls;
+      d.textContent = text;
+      msgs.appendChild(d);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    function hasVehicleData(r) {
+      return !!(r.po && r.po.trim()) && !!(r.vehicle && r.vehicle.trim());
+    }
+
+    async function fetchBoardData() {
+      const [liftsRes, parkingRes, pickupRes, whiteboardRes] = await Promise.all([
+        db.from('shopboard_lifts').select('*').order('id'),
+        db.from('shopboard_parking').select('*').order('created_at'),
+        db.from('shopboard_pickup').select('*').order('created_at'),
+        db.from('tech_whiteboard').select('*'),
+      ]);
+
+      const vehicles = [];
+      (liftsRes.data || []).forEach((l, idx) => {
+        if (hasVehicleData(l)) vehicles.push({ ...l, _source: 'lift', _liftNum: idx + 1 });
+      });
+      (parkingRes.data || []).forEach(p => {
+        if (hasVehicleData(p)) vehicles.push({ ...p, _source: 'parking' });
+      });
+      (pickupRes.data || []).forEach(p => {
+        if (hasVehicleData(p)) vehicles.push({ ...p, _source: 'pickup' });
+      });
+
+      const whiteboard = {};
+      (whiteboardRes.data || []).forEach(r => { whiteboard[r.tech_name] = r.next_job || ''; });
+
+      return { vehicles, whiteboard };
+    }
+
+    async function askAI() {
+      const q = input.value.trim();
+      if (!q) return;
+      input.value = '';
+      send.disabled = true;
+      addMsg(q, 'ai-msg-user');
+      const thinking = document.createElement('div');
+      thinking.className = 'ai-msg-bot';
+      thinking.textContent = 'Thinking...';
+      msgs.appendChild(thinking);
+      msgs.scrollTop = msgs.scrollHeight;
+
+      try {
+        const boardData = await fetchBoardData();
+        const r = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ question: q, boardData })
+        });
+        const d = await r.json();
+        thinking.textContent = d.answer || d.error || 'No response';
+        if (d.error) thinking.className = 'ai-msg-err';
+      } catch(e) {
+        thinking.className = 'ai-msg-err';
+        thinking.textContent = 'Network error: ' + e.message;
+      }
+      send.disabled = false;
+      input.focus();
+    }
+
+    send.addEventListener('click', askAI);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') askAI(); });
+  })();
+</script>
+</body>
+</html>

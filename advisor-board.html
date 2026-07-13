@@ -387,6 +387,35 @@
   }
   .add-note-row input { flex: 1; }
 
+  /* ══════════════════════════════════
+     CAPTURE INVOICE — ported from bookkeeping-board.html so Josh
+     can upload without leaving his own board.
+  ══════════════════════════════════ */
+  .capture-hero {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; padding: 48px 20px; text-align: center;
+  }
+  .capture-btn-big {
+    width: 140px; height: 140px; border-radius: 50%;
+    background: var(--accent); color: #fff; border: none;
+    font-size: 2.6rem; cursor: pointer; box-shadow: 0 6px 20px rgba(91,94,244,0.35);
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.15s, opacity 0.15s;
+  }
+  .capture-btn-big:hover { transform: scale(1.04); opacity: 0.95; }
+  .capture-btn-big:active { transform: scale(0.97); }
+  .capture-btn-label { font-size: 0.85rem; font-weight: 700; color: var(--text); }
+  .capture-hint { font-size: 0.8rem; color: var(--muted); max-width: 320px; }
+  .capture-feed-empty { color: var(--muted); font-size: 0.8rem; text-align: center; padding: 12px; }
+  .capture-feed { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .capture-feed-item {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 12px;
+  }
+  .capture-feed-item img { width: 44px; height: 44px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+  .capture-feed-status { font-size: 0.8rem; font-weight: 700; color: var(--green); }
+
   /* ── JOB-LINKED NOTES ── */
   .job-notes {
     margin-top: 12px; padding-top: 12px;
@@ -488,6 +517,37 @@
     flex-shrink: 0; transition: opacity 0.15s;
   }
   .chat-send-btn:hover { opacity: 0.85; }
+
+  .chat-nav-badge {
+    margin-left: auto;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: #fff;
+    background: #ef4444;
+    border-radius: 20px;
+    min-width: 16px; height: 16px;
+    padding: 0 5px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .chat-toast-container {
+    position: fixed; top: 16px; right: 16px; z-index: 9999;
+    display: flex; flex-direction: column; gap: 8px;
+    pointer-events: none;
+  }
+  .chat-toast {
+    pointer-events: auto;
+    background: #1a1f36; color: #fff;
+    border-radius: 10px; padding: 10px 14px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    min-width: 220px; max-width: 320px;
+    font-size: 0.8rem; cursor: pointer;
+    animation: chatToastIn 0.2s ease-out;
+  }
+  .chat-toast-channel { font-size: 0.62rem; color: #8c93a8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 700; }
+  .chat-toast-sender { font-weight: 700; margin-bottom: 2px; }
+  .chat-toast-msg { color: #e2e5ee; line-height: 1.4; overflow-wrap: anywhere; }
+  @keyframes chatToastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 
   .modal-overlay {
     position: fixed; inset: 0; background: rgba(20,22,40,0.45);
@@ -602,10 +662,11 @@
         <div class="sidebar-item" data-view="parts" data-label="Parts"><span class="icon">🔩</span>Parts</div>
         <div class="sidebar-item" data-view="payments" data-label="Payments"><span class="icon">💳</span>Payments</div>
         <div class="sidebar-item" data-view="customer-log" data-label="Customer Log"><span class="icon">📇</span>Customer Log</div>
+        <div class="sidebar-item" data-view="capture" data-label="Capture Invoice"><span class="icon">📸</span>Capture Invoice</div>
       </div>
       <div class="sidebar-group">
         <div class="sidebar-group-label">Manage</div>
-        <div class="sidebar-item" data-view="teamchat" data-label="Team Chat"><span class="icon">💬</span>Team Chat</div>
+        <div class="sidebar-item" data-view="teamchat" data-label="Team Chat"><span class="icon">💬</span>Team Chat<span class="chat-nav-badge" id="teamchat-unread-badge" style="display:none">0</span></div>
       </div>
     </div>
   </nav>
@@ -811,6 +872,26 @@
           </div>
         </li>
       </ul>
+    </div>
+  </div>
+
+  <!-- ══ CAPTURE INVOICE — same flow/table/bucket as bookkeeping-board.html,
+       so Josh never has to log into the Bookkeeping board himself.
+       No fields: pick/take a photo, it uploads, a row lands in
+       invoice_queue with status='unprocessed'. ══ -->
+  <div class="view" id="view-capture">
+    <div class="card">
+      <div class="capture-hero">
+        <button type="button" class="capture-btn-big" id="captureTriggerBtn" aria-label="Capture Invoice">📸</button>
+        <div class="capture-btn-label">Tap to Capture Invoice</div>
+        <div class="capture-hint">Snap a photo of a vendor invoice or shop receipt. It's uploaded immediately — no other info needed here. Bookkeeping will classify it from the Unprocessed Invoices queue.</div>
+        <input type="file" accept="image/*" capture="environment" id="captureFileInput" style="display:none">
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--green)"></div>This Session's Uploads</div>
+      <div class="capture-feed-empty" id="capture-feed-empty">Nothing captured yet this session.</div>
+      <div class="capture-feed" id="capture-feed"></div>
     </div>
   </div>
 
@@ -1133,10 +1214,93 @@
     input.value = '';
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // CAPTURE INVOICE — same table/bucket/flow as bookkeeping-board.html's
+  // Capture Invoice view, ported here so Josh can upload without ever
+  // logging into the Bookkeeping board. No fields: pick/take a photo,
+  // it uploads to the private bucket, a row lands in invoice_queue
+  // with status='unprocessed'. Bookkeeping classifies it from there.
+  // ══════════════════════════════════════════════════════════════
+  const INVOICE_BUCKET = 'invoice-images';
+  let captureBusy = false;
+
+  function addCaptureFeedItem(id, imgSrc, statusText) {
+    const empty = document.getElementById('capture-feed-empty');
+    if (empty) empty.style.display = 'none';
+    const list = document.getElementById('capture-feed');
+    const el = document.createElement('div');
+    el.className = 'capture-feed-item';
+    el.id = id;
+    el.innerHTML = `<img src="${imgSrc}" alt=""><div class="capture-feed-status">${esc(statusText)}</div>`;
+    list.prepend(el);
+  }
+  function updateCaptureFeedItem(id, statusText, isError) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const statusEl = el.querySelector('.capture-feed-status');
+    statusEl.textContent = statusText;
+    statusEl.style.color = isError ? 'var(--red)' : 'var(--green)';
+  }
+
+  async function captureAndUpload(file) {
+    if (!file || captureBusy) return;
+    if (!file.type.startsWith('image/')) { alert('Please choose an image file.'); return; }
+    if (!CURRENT_EMPLOYEE_ID || !CHAT_IDENTITY.name) {
+      alert('Could not identify you on this board yet — try reopening it from CrisData.');
+      return;
+    }
+
+    captureBusy = true;
+    const feedId = 'cap-' + Date.now();
+    const previewData = await new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(file);
+    });
+    addCaptureFeedItem(feedId, previewData, 'Uploading…');
+
+    try {
+      const invoiceId = crypto.randomUUID();
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const path = `${invoiceId}/${Date.now()}.${ext}`;
+
+      const { error: upErr } = await db.storage.from(INVOICE_BUCKET).upload(path, file, { upsert: false });
+      if (upErr) throw upErr;
+
+      const { error: insErr } = await db.from('invoice_queue').insert({
+        id: invoiceId,
+        image_path: path,
+        original_filename: file.name || null,
+        uploaded_by: CURRENT_EMPLOYEE_ID,
+        uploaded_by_name: CHAT_IDENTITY.name,
+      });
+      if (insErr) throw insErr;
+
+      updateCaptureFeedItem(feedId, 'Uploaded ✓');
+    } catch (err) {
+      console.error('[Capture] upload failed', err);
+      updateCaptureFeedItem(feedId, 'Failed: ' + (err.message || 'unknown error'), true);
+    } finally {
+      captureBusy = false;
+    }
+  }
+
+  document.getElementById('captureTriggerBtn').addEventListener('click', () => {
+    document.getElementById('captureFileInput').click();
+  });
+  document.getElementById('captureFileInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    e.target.value = ''; // reset so the same file (or camera) can be picked again immediately
+    if (file) captureAndUpload(file);
+  });
+
   // ── Team Chat (real, Supabase-backed — advisor-board = Advisor's view)
   // CHAT_IDENTITY is populated by captureSessionAndGreet() below once the
   // session's phone resolves against `employees`; sending is blocked until then.
   let CHAT_IDENTITY = { name: null, role: null };
+  // Also populated by captureSessionAndGreet() — needed for the
+  // invoice_queue.uploaded_by FK on the Capture Invoice flow below.
+  let CURRENT_EMPLOYEE_ID = null;
 
   const CHAT_CHANNELS = [
     { key: 'group',           label: 'Group' },
@@ -1147,8 +1311,119 @@
   let chatMessages = [];
   let chatRealtimeChannel = null;
 
+  // ── Attention alerts — unread counts per channel, a toast, and a
+  // synthesized beep (no external audio asset). Scoped to this board's
+  // own CHAT_CHANNELS, so an owner_advisor DM never reaches
+  // gm-board.html and vice versa. Known limitation: this is role-based,
+  // not per-employee — two people sharing a role would both see/be
+  // alerted on all of that role's DMs.
+  let chatUnreadCounts = {};
+  let chatAudioCtx = null;
+
   function formatChatTime(iso) {
     return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function isTeamChatVisible(channel) {
+    return currentViewKey === 'teamchat' && CURRENT_CHANNEL === channel;
+  }
+
+  function unlockChatAudio() {
+    if (!chatAudioCtx) {
+      try { chatAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+    }
+    if (chatAudioCtx.state === 'suspended') chatAudioCtx.resume().catch(() => {});
+  }
+
+  // Unlock on the very first interaction anywhere on this page (not just a
+  // click into Team Chat specifically) — any trusted gesture satisfies the
+  // browser's autoplay policy, and this no longer depends on the user
+  // happening to open Team Chat before a message arrives.
+  ['click', 'keydown', 'touchstart'].forEach(evt => {
+    document.addEventListener(evt, unlockChatAudio, { once: true, passive: true });
+  });
+
+  function playChatAlertSound() {
+    // Fallback: if nothing has unlocked audio yet, try creating the context
+    // now anyway — it may already be usable if a gesture happened elsewhere
+    // on the page that we didn't explicitly listen for.
+    if (!chatAudioCtx) {
+      try { chatAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
+    }
+    const fire = () => {
+      const osc = chatAudioCtx.createOscillator();
+      const gain = chatAudioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.16, chatAudioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, chatAudioCtx.currentTime + 0.3);
+      osc.connect(gain).connect(chatAudioCtx.destination);
+      osc.start();
+      osc.stop(chatAudioCtx.currentTime + 0.3);
+    };
+    // Resume is async — schedule the tone only after it actually resolves,
+    // otherwise the oscillator can be scheduled against a still-suspended
+    // context and never actually sound.
+    if (chatAudioCtx.state === 'suspended') {
+      chatAudioCtx.resume().then(fire).catch(() => {});
+    } else {
+      fire();
+    }
+  }
+
+  function ensureChatToastContainer() {
+    let box = document.getElementById('chat-toast-container');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'chat-toast-container';
+      box.className = 'chat-toast-container';
+      document.body.appendChild(box);
+    }
+    return box;
+  }
+
+  function showChatToast(rec) {
+    const box = ensureChatToastContainer();
+    const channelLabel = (CHAT_CHANNELS.find(c => c.key === rec.channel) || {}).label || rec.channel;
+    const el = document.createElement('div');
+    el.className = 'chat-toast';
+    el.innerHTML = `
+      <div class="chat-toast-channel">${esc(channelLabel)}</div>
+      <div class="chat-toast-sender">${esc(rec.sender_name)}</div>
+      <div class="chat-toast-msg">${esc(rec.message)}</div>
+    `;
+    el.addEventListener('click', () => el.remove());
+    box.appendChild(el);
+    setTimeout(() => el.remove(), 5000);
+  }
+
+  function updateChatUnreadBadge() {
+    const badge = document.getElementById('teamchat-unread-badge');
+    if (!badge) return;
+    const total = Object.values(chatUnreadCounts).reduce((a, b) => a + b, 0);
+    if (total > 0) {
+      badge.textContent = total > 9 ? '9+' : String(total);
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  function clearChatUnread(channel) {
+    if (chatUnreadCounts[channel]) {
+      chatUnreadCounts[channel] = 0;
+      updateChatUnreadBadge();
+    }
+  }
+
+  function maybeAlertNewMessage(rec) {
+    if (!rec || !CHAT_IDENTITY.name || !CHAT_IDENTITY.role) return; // pre-login: identity not resolved yet
+    if (rec.sender_name === CHAT_IDENTITY.name) return; // self-sent
+    playChatAlertSound(); // sound always plays, even for the channel currently being viewed
+    if (isTeamChatVisible(rec.channel)) return; // already looking at this exact channel — skip toast/badge
+    chatUnreadCounts[rec.channel] = (chatUnreadCounts[rec.channel] || 0) + 1;
+    updateChatUnreadBadge();
+    showChatToast(rec);
   }
 
   function renderChannelTabs() {
@@ -1182,24 +1457,35 @@
     renderChat();
   }
 
-  function subscribeChatChannel(channel) {
+  function handleIncomingChatMessage(rec) {
+    if (!rec) return;
+    if (rec.channel === CURRENT_CHANNEL) {
+      chatMessages.push(rec);
+      renderChat();
+    }
+    maybeAlertNewMessage(rec);
+  }
+
+  function subscribeChatChannel() {
     if (chatRealtimeChannel) {
       db.removeChannel(chatRealtimeChannel);
       chatRealtimeChannel = null;
     }
-    chatRealtimeChannel = db.channel('chat-live')
-      .on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `channel=eq.${channel}` },
-        ({ new: rec }) => { if (rec) { chatMessages.push(rec); renderChat(); } }
-      )
-      .subscribe();
+    let channel = db.channel('chat-live');
+    CHAT_CHANNELS.forEach(c => {
+      channel = channel.on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `channel=eq.${c.key}` },
+        ({ new: rec }) => handleIncomingChatMessage(rec)
+      );
+    });
+    chatRealtimeChannel = channel.subscribe();
   }
 
   function switchChatChannel(channel) {
     CURRENT_CHANNEL = channel;
     renderChannelTabs();
     loadChatMessages(channel);
-    subscribeChatChannel(channel);
+    clearChatUnread(channel);
   }
 
   function renderChat() {
@@ -1239,14 +1525,22 @@
     if (e.key === 'Enter') sendChatMsg();
   });
 
+  // First click into Team Chat both unlocks alert audio (satisfies the
+  // browser's user-gesture requirement for AudioContext) and marks the
+  // currently-active channel as read.
+  document.querySelector('.sidebar-item[data-view="teamchat"]').addEventListener('click', () => {
+    unlockChatAudio();
+    clearChatUnread(CURRENT_CHANNEL);
+  });
+
   renderChannelTabs();
   loadChatMessages(CURRENT_CHANNEL);
-  subscribeChatChannel(CURRENT_CHANNEL);
+  subscribeChatChannel();
   loadOwnerChannelLabel();
   VIEW_REFRESH.teamchat = {
     refetch: () => loadChatMessages(CURRENT_CHANNEL),
     getChannel: () => chatRealtimeChannel,
-    resubscribe: () => subscribeChatChannel(CURRENT_CHANNEL),
+    resubscribe: () => subscribeChatChannel(),
   };
 
   // ── Emoji picker (desktop convenience — phone keyboards already have one)
@@ -1293,9 +1587,10 @@
 
     async function renderGreeting(phone) {
       if (!phone) return;
-      const { data: emp } = await db.from('employees').select('name, photo_url, role').eq('phone', phone).maybeSingle();
+      const { data: emp } = await db.from('employees').select('id, name, photo_url, role').eq('phone', phone).maybeSingle();
       if (!emp) return;
       CHAT_IDENTITY = { name: emp.name, role: emp.role };
+      CURRENT_EMPLOYEE_ID = emp.id;
       const avatar = emp.photo_url
         ? `<img class="greeting-avatar" src="${esc(emp.photo_url)}" alt="">`
         : `<div class="greeting-avatar-fallback">${esc((emp.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;
