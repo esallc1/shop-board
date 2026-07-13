@@ -189,7 +189,7 @@
 <div class="content">
   <div class="stub-view">
     <h2>Owner Board</h2>
-    <p>Additional views coming soon. For now, use the chat bubble in the bottom-right corner to reach the Manager or Advisor, or post to the group.</p>
+    <p>Additional views coming soon. For now, use the chat bubble in the bottom-right corner to reach the Manager, Advisor, or Bookkeeping, or post to the group.</p>
   </div>
 </div>
 
@@ -229,9 +229,10 @@
   let CHAT_IDENTITY = { name: null, role: null };
 
   const CHAT_CHANNELS = [
-    { key: 'group',         label: 'Group' },
-    { key: 'owner_manager', label: 'Manager' },
-    { key: 'owner_advisor', label: 'Advisor' },
+    { key: 'group',             label: 'Group' },
+    { key: 'owner_manager',     label: 'Manager' },
+    { key: 'owner_advisor',     label: 'Advisor' },
+    { key: 'owner_bookkeeping', label: 'Bookkeeping' },
   ];
   let CURRENT_CHANNEL = 'group';
   let chatMessages = [];
