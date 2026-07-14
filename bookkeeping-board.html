@@ -980,9 +980,15 @@
     if (e.key === 'Enter') sendChatMsg();
   });
 
+  // Re-applies the scroll-to-bottom that renderChat() already does on
+  // every load/new message — that call is a no-op while this view is
+  // hidden (scrollHeight reads 0 on a display:none element), so it has
+  // to run again here, now that the view is actually visible.
   document.querySelector('.sidebar-item[data-view="teamchat"]').addEventListener('click', () => {
     unlockChatAudio();
     clearChatUnread(CURRENT_CHANNEL);
+    const box = document.getElementById('chat-messages');
+    if (box) box.scrollTop = box.scrollHeight;
   });
 
   // ── Emoji picker

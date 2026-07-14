@@ -322,6 +322,12 @@
     panel.classList.toggle('open');
     if (panel.classList.contains('open')) {
       document.getElementById('chat-unread').style.display = 'none';
+      // Re-applies the scroll-to-bottom that renderChat() already does
+      // on every load/new message — that call is a no-op while this
+      // panel is closed (scrollHeight reads 0 on a display:none
+      // element), so it has to run again here, now that it's open.
+      const box = document.getElementById('chat-messages');
+      if (box) box.scrollTop = box.scrollHeight;
     }
   });
 
