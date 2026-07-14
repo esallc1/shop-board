@@ -125,6 +125,7 @@
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="shared/board-background.js"></script>
 </head>
 <body>
 
@@ -313,6 +314,8 @@
   const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  BoardBackground.init({ db, targetSelector: '.main-area', mountSelector: '.sidebar-btn-row' });
 
   const INVOICE_BUCKET = 'invoice-images';
   const SIGNED_URL_TTL = 3600; // seconds
@@ -1087,6 +1090,7 @@
 
     CHAT_IDENTITY = { name: emp.name, role: emp.role };
     CURRENT_EMPLOYEE_ID = emp.id;
+    BoardBackground.refresh(emp.id);
 
     const avatar = emp.photo_url
       ? `<img class="greeting-avatar" src="${esc(emp.photo_url)}" alt="">`

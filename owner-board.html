@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Lee Transmission — Owner Board</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="shared/board-background.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -221,6 +222,8 @@
   const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+  BoardBackground.init({ db, targetSelector: '.content', mountSelector: '.header-controls' });
+
   function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
   // ── Team Chat (real, Supabase-backed — owner-board = Owner's view)
@@ -398,9 +401,10 @@
 
     async function renderGreeting(phone) {
       if (!phone) return;
-      const { data: emp } = await db.from('employees').select('name, photo_url, role').eq('phone', phone).maybeSingle();
+      const { data: emp } = await db.from('employees').select('id, name, photo_url, role').eq('phone', phone).maybeSingle();
       if (!emp) return;
       CHAT_IDENTITY = { name: emp.name, role: emp.role };
+      BoardBackground.refresh(emp.id);
       const avatar = emp.photo_url
         ? `<img class="greeting-avatar" src="${esc(emp.photo_url)}" alt="">`
         : `<div class="greeting-avatar-fallback">${esc((emp.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;

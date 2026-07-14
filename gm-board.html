@@ -9,6 +9,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Lee Transmission — Manager Board</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="shared/board-background.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
 <style>
@@ -1442,6 +1443,8 @@
   const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  BoardBackground.init({ db, targetSelector: '.main-area', mountSelector: '.sidebar-btn-row' });
   const TOTAL_LIFTS = 6;
   const TECH_COLORS = [
     'rgba(245,197,24,0.75)','rgba(96,165,250,0.75)',
@@ -3910,6 +3913,7 @@
       if (!emp) return;
       CHAT_IDENTITY = { name: emp.name, role: emp.role };
       CURRENT_EMPLOYEE_ID = emp.id;
+      BoardBackground.refresh(emp.id);
       const avatar = emp.photo_url
         ? `<img class="greeting-avatar" src="${esc(emp.photo_url)}" alt="">`
         : `<div class="greeting-avatar-fallback">${esc((emp.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;
