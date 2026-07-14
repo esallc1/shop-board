@@ -139,6 +139,41 @@
   .history-lightbox.open { display: flex; }
   .history-lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
 
+  .history-breadcrumb { display: none; align-items: center; gap: 10px; margin-bottom: 16px; font-size: 0.8rem; }
+  .history-back-btn {
+    width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface); cursor: pointer; font-size: 0.9rem; color: var(--text);
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .history-back-btn:hover { background: var(--bg); }
+  .history-breadcrumb-path a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  .history-breadcrumb-path a:hover { text-decoration: underline; }
+  .history-breadcrumb-path .history-breadcrumb-current { color: var(--text); font-weight: 600; }
+  .history-breadcrumb-sep { color: var(--muted); margin: 0 4px; }
+
+  .history-folder-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 14px;
+  }
+  .history-folder-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 20px 14px; text-align: center; cursor: pointer;
+    transition: box-shadow 0.15s, transform 0.15s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+  .history-folder-card:hover { box-shadow: 0 6px 18px rgba(0,0,0,0.1); transform: translateY(-2px); }
+  .history-folder-icon { font-size: 1.8rem; margin-bottom: 8px; }
+  .history-folder-label { font-size: 0.85rem; font-weight: 700; color: var(--text); margin-bottom: 4px; word-break: break-word; }
+  .history-folder-count { font-size: 0.72rem; color: var(--muted); }
+
+  .history-month-group { margin-bottom: 22px; }
+  .history-month-group:last-child { margin-bottom: 0; }
+  .history-month-label {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--muted); font-weight: 700; margin-bottom: 8px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+
   /* ══════════════════════════════════
      DETAIL / EDIT MODAL — .modal-overlay/.modal-box/.modal-btn/
      .intake-field base rules are in the shared shell; this file only
@@ -268,6 +303,10 @@
       <div class="card-title"><div class="dot" style="background:var(--green)"></div>History</div>
       <div class="history-search-row">
         <input type="text" id="historySearchInput" placeholder="Search by vendor, category, PO#, or amount…">
+      </div>
+      <div class="history-breadcrumb" id="historyBreadcrumb">
+        <button type="button" class="history-back-btn" id="historyBackBtn" title="Back" aria-label="Back">←</button>
+        <span class="history-breadcrumb-path" id="historyBreadcrumbPath"></span>
       </div>
       <div id="history-table-wrap">
         <div style="color:var(--muted);padding:24px;text-align:center">Loading…</div>
@@ -671,6 +710,11 @@
   // or double-check later (no QuickBooks API calls this phase).
   // ══════════════════════════════════════════════════════════════
   let historyRows = [];
+  // Folder-cabinet browse state. null = top-level cabinet.
+  //   { kind: 'vendor', vendor }  { kind: 'jobrecords' }
+  //   { kind: 'expenses' }        { kind: 'expense-category', category }
+  let historyFolder = null;
+  const EXPENSE_CATEGORIES = ['Rent', 'Utilities', 'Tools/Equipment', 'Office Supplies', 'Insurance', 'Other'];
 
   async function loadHistory() {
     const { data, error } = await db.from('invoice_queue').select('*').eq('status', 'processed').order('processed_at', { ascending: false });
@@ -686,38 +730,204 @@
     return haystack.includes(term);
   }
 
+  // ── Router: search (when a term is typed) bypasses folder browsing
+  // entirely and shows flat matching results across every folder;
+  // otherwise render whatever level of the cabinet historyFolder points at.
   async function renderHistory() {
-    const wrap = document.getElementById('history-table-wrap');
     const term = document.getElementById('historySearchInput').value.trim().toLowerCase();
-    const rows = historyRows.filter(r => historyMatchesSearch(r, term));
+    updateHistoryBreadcrumb(term);
 
-    if (rows.length === 0) {
-      wrap.innerHTML = `<div style="color:var(--muted);padding:24px;text-align:center">${historyRows.length === 0 ? 'Nothing processed yet.' : 'No matches.'}</div>`;
+    if (term) {
+      await renderHistoryRowsTable(historyRows.filter(r => historyMatchesSearch(r, term)), { emptyMessage: 'No matches.' });
+      return;
+    }
+    if (!historyFolder) {
+      renderHistoryCabinet();
+    } else if (historyFolder.kind === 'vendor') {
+      await renderHistoryFolderRows(historyRows.filter(r => r.invoice_type === 'parts_vendor' && r.vendor === historyFolder.vendor));
+    } else if (historyFolder.kind === 'jobrecords') {
+      await renderHistoryFolderRows(historyRows.filter(r => r.invoice_type === 'repair_invoice'));
+    } else if (historyFolder.kind === 'expenses') {
+      renderHistoryExpenseCategories();
+    } else if (historyFolder.kind === 'expense-category') {
+      await renderHistoryFolderRows(historyRows.filter(r => r.invoice_type === 'shop_expense' && (EXPENSE_CATEGORIES.includes(r.category) ? r.category : 'Other') === historyFolder.category));
+    }
+  }
+
+  function navigateHistory(folder) {
+    historyFolder = folder;
+    renderHistory();
+  }
+
+  function updateHistoryBreadcrumb(term) {
+    const bc = document.getElementById('historyBreadcrumb');
+    const pathEl = document.getElementById('historyBreadcrumbPath');
+    if (term || !historyFolder) {
+      bc.style.display = 'none';
+      return;
+    }
+    bc.style.display = 'flex';
+    const segments = ['<a href="#" data-nav="root">History</a>'];
+    if (historyFolder.kind === 'vendor') {
+      segments.push(`<span class="history-breadcrumb-current">${esc(historyFolder.vendor)}</span>`);
+    } else if (historyFolder.kind === 'jobrecords') {
+      segments.push('<span class="history-breadcrumb-current">Job Records</span>');
+    } else if (historyFolder.kind === 'expenses') {
+      segments.push('<span class="history-breadcrumb-current">Shop Expenses</span>');
+    } else if (historyFolder.kind === 'expense-category') {
+      segments.push('<a href="#" data-nav="expenses">Shop Expenses</a>');
+      segments.push(`<span class="history-breadcrumb-current">${esc(historyFolder.category)}</span>`);
+    }
+    pathEl.innerHTML = segments.join(' <span class="history-breadcrumb-sep">/</span> ');
+    pathEl.querySelectorAll('a[data-nav]').forEach(a => {
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        navigateHistory(a.dataset.nav === 'root' ? null : { kind: a.dataset.nav });
+      });
+    });
+  }
+
+  document.getElementById('historyBackBtn').addEventListener('click', () => {
+    navigateHistory(historyFolder && historyFolder.kind === 'expense-category' ? { kind: 'expenses' } : null);
+  });
+
+  // ── Top-level cabinet: one folder per vendor with at least one
+  // processed Parts/Vendor invoice, plus Job Records and Shop
+  // Expenses. Folders appear automatically — nothing to create.
+  function renderHistoryCabinet() {
+    const wrap = document.getElementById('history-table-wrap');
+    const vendorCounts = {};
+    let jobCount = 0, expCount = 0;
+    historyRows.forEach(r => {
+      if (r.invoice_type === 'parts_vendor' && r.vendor) vendorCounts[r.vendor] = (vendorCounts[r.vendor] || 0) + 1;
+      else if (r.invoice_type === 'repair_invoice') jobCount++;
+      else if (r.invoice_type === 'shop_expense') expCount++;
+    });
+    const vendors = Object.entries(vendorCounts).sort((a, b) => a[0].localeCompare(b[0]));
+
+    if (vendors.length === 0 && jobCount === 0 && expCount === 0) {
+      wrap.innerHTML = '<div style="color:var(--muted);padding:24px;text-align:center">Nothing processed yet.</div>';
       return;
     }
 
-    let signedMap = {};
-    try {
-      const paths = rows.map(r => r.image_path);
-      const { data: signed, error } = await db.storage.from(INVOICE_BUCKET).createSignedUrls(paths, SIGNED_URL_TTL);
-      if (error) throw error;
-      (signed || []).forEach((s, i) => { if (s && s.signedUrl) signedMap[paths[i]] = s.signedUrl; });
-    } catch (err) {
-      console.error('[History] signed URL batch failed', err);
+    const card = (icon, kind, label, count, vendor) => `
+      <div class="history-folder-card" data-kind="${esc(kind)}"${vendor ? ` data-vendor="${esc(vendor)}"` : ''}>
+        <div class="history-folder-icon">${icon}</div>
+        <div class="history-folder-label">${esc(label)}</div>
+        <div class="history-folder-count">${count} receipt${count === 1 ? '' : 's'}</div>
+      </div>`;
+
+    wrap.innerHTML = '<div class="history-folder-grid">'
+      + vendors.map(([vendor, count]) => card('📁', 'vendor', vendor, count, vendor)).join('')
+      + card('🔧', 'jobrecords', 'Job Records', jobCount)
+      + card('🧾', 'expenses', 'Shop Expenses', expCount)
+      + '</div>';
+
+    wrap.querySelectorAll('.history-folder-card').forEach(el => {
+      el.addEventListener('click', () => {
+        const kind = el.dataset.kind;
+        navigateHistory(kind === 'vendor' ? { kind, vendor: el.dataset.vendor } : { kind });
+      });
+    });
+  }
+
+  // ── Shop Expenses sub-groups by category (vendor/payee on an
+  // expense is often generic, e.g. "Home Depot" for both Tools and
+  // Office Supplies — category is the more useful grouping here).
+  function renderHistoryExpenseCategories() {
+    const wrap = document.getElementById('history-table-wrap');
+    const counts = {};
+    historyRows.forEach(r => {
+      if (r.invoice_type !== 'shop_expense') return;
+      const cat = EXPENSE_CATEGORIES.includes(r.category) ? r.category : 'Other';
+      counts[cat] = (counts[cat] || 0) + 1;
+    });
+    const populated = EXPENSE_CATEGORIES.filter(c => counts[c] > 0);
+
+    if (populated.length === 0) {
+      wrap.innerHTML = '<div style="color:var(--muted);padding:24px;text-align:center">No shop expenses processed yet.</div>';
+      return;
     }
+
+    wrap.innerHTML = '<div class="history-folder-grid">' + populated.map(cat => `
+      <div class="history-folder-card" data-category="${esc(cat)}">
+        <div class="history-folder-icon">🧾</div>
+        <div class="history-folder-label">${esc(cat)}</div>
+        <div class="history-folder-count">${counts[cat]} receipt${counts[cat] === 1 ? '' : 's'}</div>
+      </div>`).join('') + '</div>';
+
+    wrap.querySelectorAll('.history-folder-card').forEach(el => {
+      el.addEventListener('click', () => navigateHistory({ kind: 'expense-category', category: el.dataset.category }));
+    });
+  }
+
+  // ── Folder contents: receipts grouped by month (newest month
+  // first, newest receipt first within a month), simplified row —
+  // the folder itself already tells you the vendor/type.
+  async function renderHistoryFolderRows(rows) {
+    const wrap = document.getElementById('history-table-wrap');
+    if (rows.length === 0) {
+      wrap.innerHTML = '<div style="color:var(--muted);padding:24px;text-align:center">Nothing here yet.</div>';
+      return;
+    }
+
+    const signedMap = await historySignedUrlMap(rows);
+    const groups = groupHistoryByMonth(rows);
+
+    wrap.innerHTML = [...groups.entries()].map(([monthKey, monthRows]) => `
+      <div class="history-month-group">
+        <div class="history-month-label">${formatMonthLabel(monthKey)}</div>
+        <table>
+          <thead><tr><th></th><th>PO# / Description</th><th>Amount</th><th>Date</th></tr></thead>
+          <tbody>${monthRows.map(r => historyFolderRow(r, signedMap)).join('')}</tbody>
+        </table>
+      </div>`).join('');
+
+    wrap.querySelectorAll('.history-thumb').forEach(img => {
+      img.addEventListener('click', () => openHistoryLightbox(img.dataset.full));
+    });
+  }
+
+  function historyFolderRow(r, signedMap) {
+    const thumb = signedMap[r.image_path]
+      ? `<img class="history-thumb" src="${esc(signedMap[r.image_path])}" data-full="${esc(signedMap[r.image_path])}" alt="">`
+      : `<div class="history-thumb-fallback">📄</div>`;
+    let mainCell;
+    if (r.po) {
+      mainCell = `<strong>PO #${esc(r.po)}</strong>${r.description ? `<div class="history-po-match">${esc(r.description)}</div>` : r.part_number ? `<div class="history-po-match">#${esc(r.part_number)}</div>` : ''}`;
+    } else if (r.description) {
+      mainCell = `<strong>${esc(r.description)}</strong>${r.part_number ? `<div class="history-po-match">#${esc(r.part_number)}</div>` : ''}`;
+    } else if (r.vendor) {
+      mainCell = esc(r.vendor);
+    } else {
+      mainCell = '—';
+    }
+    return `
+      <tr>
+        <td>${thumb}</td>
+        <td>${mainCell}</td>
+        <td>${r.amount != null ? '$' + Number(r.amount).toFixed(2) : '—'}</td>
+        <td>${r.invoice_date ? formatDateOnly(r.invoice_date) : '—'}</td>
+      </tr>`;
+  }
+
+  // ── Search results: flat, cross-folder, keeps the original full
+  // column set (Type/Vendor matter here since results span everything).
+  async function renderHistoryRowsTable(rows, opts = {}) {
+    const wrap = document.getElementById('history-table-wrap');
+    if (rows.length === 0) {
+      wrap.innerHTML = `<div style="color:var(--muted);padding:24px;text-align:center">${opts.emptyMessage || 'Nothing processed yet.'}</div>`;
+      return;
+    }
+
+    const signedMap = await historySignedUrlMap(rows);
 
     wrap.innerHTML = `
       <table>
         <thead>
           <tr>
-            <th></th>
-            <th>Type</th>
-            <th>Vendor / Category</th>
-            <th>Description / Part#</th>
-            <th>PO#</th>
-            <th>Amount</th>
-            <th>Date</th>
-            <th>Processed</th>
+            <th></th><th>Type</th><th>Vendor / Category</th><th>Description / Part#</th>
+            <th>PO#</th><th>Amount</th><th>Date</th><th>Processed</th>
           </tr>
         </thead>
         <tbody>
@@ -754,6 +964,37 @@
     wrap.querySelectorAll('.history-thumb').forEach(img => {
       img.addEventListener('click', () => openHistoryLightbox(img.dataset.full));
     });
+  }
+
+  async function historySignedUrlMap(rows) {
+    const signedMap = {};
+    try {
+      const paths = rows.map(r => r.image_path);
+      const { data: signed, error } = await db.storage.from(INVOICE_BUCKET).createSignedUrls(paths, SIGNED_URL_TTL);
+      if (error) throw error;
+      (signed || []).forEach((s, i) => { if (s && s.signedUrl) signedMap[paths[i]] = s.signedUrl; });
+    } catch (err) {
+      console.error('[History] signed URL batch failed', err);
+    }
+    return signedMap;
+  }
+
+  function groupHistoryByMonth(rows) {
+    const dateOf = r => r.invoice_date || (r.processed_at ? r.processed_at.slice(0, 10) : null);
+    const sorted = [...rows].sort((a, b) => (dateOf(b) || '').localeCompare(dateOf(a) || ''));
+    const groups = new Map();
+    sorted.forEach(r => {
+      const d = dateOf(r);
+      const key = d ? d.slice(0, 7) : 'unknown';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(r);
+    });
+    return groups;
+  }
+
+  function formatMonthLabel(key) {
+    if (key === 'unknown') return 'No Date';
+    return new Date(key + '-01T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   }
 
   function formatDateOnly(dateStr) {
