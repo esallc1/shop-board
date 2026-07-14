@@ -69,11 +69,22 @@
     gap: 14px;
   }
   .invoice-card {
+    position: relative;
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
     overflow: hidden; cursor: pointer; transition: box-shadow 0.15s, transform 0.15s;
     box-shadow: 0 2px 8px rgba(0,0,0,0.05);
   }
   .invoice-card:hover { box-shadow: 0 6px 18px rgba(0,0,0,0.1); transform: translateY(-2px); }
+  .invoice-delete-btn {
+    position: absolute; top: 6px; right: 6px; z-index: 2;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: rgba(255,255,255,0.9); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); cursor: pointer; opacity: 0.6;
+    transition: opacity 0.15s, color 0.15s, background 0.15s;
+  }
+  .invoice-delete-btn:hover { opacity: 1; color: #dc2626; background: #fff; }
+  .invoice-delete-btn svg { width: 13px; height: 13px; pointer-events: none; }
   .invoice-thumb {
     width: 100%; height: 130px; background: var(--surface-2);
     display: flex; align-items: center; justify-content: center;
@@ -492,6 +503,14 @@
 
     grid.innerHTML = invoiceQueueRows.map(r => `
       <div class="invoice-card" data-id="${esc(r.id)}">
+        <button type="button" class="invoice-delete-btn" data-del="${esc(r.id)}" title="Delete this invoice" aria-label="Delete this invoice">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+            <path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" />
+            <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" />
+            <path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
+          </svg>
+        </button>
         <div class="invoice-thumb">${signedMap[r.image_path] ? `<img src="${esc(signedMap[r.image_path])}" alt="">` : '📄'}</div>
         <div class="invoice-card-meta">
           <div class="invoice-card-uploader">${esc(r.uploaded_by_name)}</div>
@@ -502,6 +521,42 @@
     grid.querySelectorAll('.invoice-card').forEach(card => {
       card.addEventListener('click', () => openInvoiceDetail(card.dataset.id));
     });
+    grid.querySelectorAll('.invoice-delete-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteInvoiceCard(btn.dataset.del, btn);
+      });
+    });
+  }
+
+  // ── Delete (Phase 3) — storage object first, then the invoice_queue
+  // row. If the storage delete fails, the row is left in place and an
+  // error surfaces, rather than silently orphaning the DB row's
+  // image_path with no file behind it.
+  async function deleteInvoiceCard(id, btn) {
+    const row = invoiceQueueRows.find(r => String(r.id) === String(id));
+    if (!row) return;
+    if (!confirm("Delete this invoice? This can't be undone.")) return;
+
+    btn.disabled = true;
+
+    const { error: storageErr } = await db.storage.from(INVOICE_BUCKET).remove([row.image_path]);
+    if (storageErr) {
+      console.error('[Invoices] delete storage failed', storageErr);
+      alert('Delete failed: could not remove the invoice image. Nothing was deleted.');
+      btn.disabled = false;
+      return;
+    }
+
+    const { error: rowErr } = await db.from('invoice_queue').delete().eq('id', id);
+    if (rowErr) {
+      console.error('[Invoices] delete row failed', rowErr);
+      alert('The image was removed, but the invoice record failed to delete: ' + rowErr.message);
+      btn.disabled = false;
+      return;
+    }
+
+    loadInvoiceQueue();
   }
 
   function subscribeInvoiceQueue() {
