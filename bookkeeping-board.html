@@ -173,6 +173,16 @@
     color: var(--muted); font-weight: 700; margin-bottom: 8px; padding-bottom: 6px;
     border-bottom: 1px solid var(--border);
   }
+  .history-row-actions { text-align: right; }
+  .history-delete-btn {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: transparent; border: 1px solid var(--border);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--muted); cursor: pointer; opacity: 0.55;
+    transition: opacity 0.15s, color 0.15s, background 0.15s;
+  }
+  .history-delete-btn:hover { opacity: 1; color: #dc2626; background: #fff; }
+  .history-delete-btn svg { width: 13px; height: 13px; pointer-events: none; }
 
   /* ══════════════════════════════════
      DETAIL / EDIT MODAL — .modal-overlay/.modal-box/.modal-btn/
@@ -664,12 +674,14 @@
     });
   }
 
-  // ── Delete (Phase 3) — storage object first, then the invoice_queue
-  // row. If the storage delete fails, the row is left in place and an
-  // error surfaces, rather than silently orphaning the DB row's
-  // image_path with no file behind it.
-  async function deleteInvoiceCard(id, btn) {
-    const row = invoiceQueueRows.find(r => String(r.id) === String(id));
+  // ── Delete (Phase 3, reused by History below) — storage object
+  // first, then the invoice_queue row. If the storage delete fails,
+  // the row is left in place and an error surfaces, rather than
+  // silently orphaning the DB row's image_path with no file behind
+  // it. Works the same regardless of where the object currently sits
+  // (flat legacy path or a vendor/date, repair-invoices, or shop-
+  // expenses folder) — the bucket-wide delete policy doesn't care.
+  async function deleteInvoiceRow(row, btn, onSuccess) {
     if (!row) return;
     if (!confirm("Delete this invoice? This can't be undone.")) return;
 
@@ -683,7 +695,7 @@
       return;
     }
 
-    const { error: rowErr } = await db.from('invoice_queue').delete().eq('id', id);
+    const { error: rowErr } = await db.from('invoice_queue').delete().eq('id', row.id);
     if (rowErr) {
       console.error('[Invoices] delete row failed', rowErr);
       alert('The image was removed, but the invoice record failed to delete: ' + rowErr.message);
@@ -691,7 +703,12 @@
       return;
     }
 
-    loadInvoiceQueue();
+    onSuccess();
+  }
+
+  function deleteInvoiceCard(id, btn) {
+    const row = invoiceQueueRows.find(r => String(r.id) === String(id));
+    deleteInvoiceRow(row, btn, loadInvoiceQueue);
   }
 
   function subscribeInvoiceQueue() {
@@ -878,13 +895,20 @@
       <div class="history-month-group">
         <div class="history-month-label">${formatMonthLabel(monthKey)}</div>
         <table>
-          <thead><tr><th></th><th>PO# / Description</th><th>Amount</th><th>Date</th></tr></thead>
+          <thead><tr><th></th><th>PO# / Description</th><th>Amount</th><th>Date</th><th></th></tr></thead>
           <tbody>${monthRows.map(r => historyFolderRow(r, signedMap)).join('')}</tbody>
         </table>
       </div>`).join('');
 
     wrap.querySelectorAll('.history-thumb').forEach(img => {
       img.addEventListener('click', () => openHistoryLightbox(img.dataset.full));
+    });
+    wrap.querySelectorAll('.history-delete-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const row = historyRows.find(r => String(r.id) === String(btn.dataset.del));
+        deleteInvoiceRow(row, btn, loadHistory);
+      });
     });
   }
 
@@ -908,6 +932,16 @@
         <td>${mainCell}</td>
         <td>${r.amount != null ? '$' + Number(r.amount).toFixed(2) : '—'}</td>
         <td>${r.invoice_date ? formatDateOnly(r.invoice_date) : '—'}</td>
+        <td class="history-row-actions">
+          <button type="button" class="history-delete-btn" data-del="${esc(r.id)}" title="Delete this invoice" aria-label="Delete this invoice">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+              <path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" />
+              <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" />
+              <path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
+            </svg>
+          </button>
+        </td>
       </tr>`;
   }
 
