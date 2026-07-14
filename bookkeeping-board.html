@@ -151,6 +151,13 @@
   }
   .invoice-detail-img-wrap img { width: 100%; height: auto; max-height: 300px; object-fit: contain; }
   .invoice-detail-uploader { font-size: 0.75rem; color: var(--muted); margin-bottom: 14px; }
+  .auto-detect-status { font-size: 0.78rem; color: var(--accent); margin-bottom: 14px; font-weight: 600; }
+  .auto-badge {
+    display: inline-block; text-transform: none; letter-spacing: normal;
+    font-weight: 700; font-size: 0.68rem; color: #7c3aed;
+    background: #ede9fe; border-radius: 8px; padding: 1px 7px; margin-left: 6px;
+    vertical-align: middle;
+  }
   .po-search-wrap { position: relative; }
   .po-result-list {
     position: absolute; top: 100%; left: 0; right: 0; z-index: 10;
@@ -312,6 +319,7 @@
     <h3>Process Invoice</h3>
     <div class="invoice-detail-img-wrap"><img id="invDetailImg" alt="Invoice"></div>
     <div class="invoice-detail-uploader" id="invDetailUploader"></div>
+    <div class="auto-detect-status" id="autoDetectStatus" style="display:none"></div>
 
     <div class="intake-field">
       <label>Type</label>
@@ -324,7 +332,7 @@
 
     <div id="invPartsFields" style="display:none">
       <div class="intake-field po-search-wrap">
-        <label>PO Number</label>
+        <label>PO Number <span class="auto-badge" id="poAutoBadge" style="display:none">✨ auto-detected</span></label>
         <input type="text" id="invPoInput" placeholder="Search open jobs and archive by PO…" autocomplete="off">
         <div class="po-result-list" id="invPoResults"></div>
         <div class="invoice-matched-label" id="invMatchedLabel"></div>
@@ -353,16 +361,16 @@
     </div>
 
     <div class="intake-field">
-      <label>Vendor</label>
+      <label>Vendor <span class="auto-badge" id="vendorAutoBadge" style="display:none">✨ auto-detected</span></label>
       <input type="text" id="invVendorInput" list="invVendorList" placeholder="Vendor name" autocomplete="off">
       <datalist id="invVendorList"></datalist>
     </div>
     <div class="intake-field">
-      <label>Amount ($)</label>
+      <label>Amount ($) <span class="auto-badge" id="amountAutoBadge" style="display:none">✨ auto-detected</span></label>
       <input type="number" id="invAmountInput" placeholder="0.00" min="0" step="0.01">
     </div>
     <div class="intake-field">
-      <label>Date</label>
+      <label>Date <span class="auto-badge" id="dateAutoBadge" style="display:none">✨ auto-detected</span></label>
       <input type="date" id="invDateInput">
     </div>
     <div class="intake-field">
@@ -778,6 +786,12 @@
     document.getElementById('invMatchedLabel').textContent = '';
     document.getElementById('invPartsOrderMatch').innerHTML = '<div class="parts-order-match-empty">Enter a PO # above to check against parts on order.</div>';
     document.getElementById('invDetailError').textContent = '';
+    ['poAutoBadge', 'vendorAutoBadge', 'amountAutoBadge', 'dateAutoBadge'].forEach(id => {
+      document.getElementById(id).style.display = 'none';
+    });
+    const statusEl = document.getElementById('autoDetectStatus');
+    statusEl.style.display = 'none';
+    statusEl.textContent = '';
     updateInvoiceTypeFields();
     loadVendorSuggestions();
 
@@ -785,11 +799,86 @@
 
     try {
       const { data: signed, error } = await db.storage.from(INVOICE_BUCKET).createSignedUrl(row.image_path, SIGNED_URL_TTL);
-      if (!error && signed) document.getElementById('invDetailImg').src = signed.signedUrl;
+      if (!error && signed) {
+        document.getElementById('invDetailImg').src = signed.signedUrl;
+        runAutoDetect(row.id, signed.signedUrl);
+      }
     } catch (err) {
       console.error('[Invoices] signed URL failed', err);
     }
   }
+
+  // ── Auto-detect (Claude Haiku 4.5 vision) — best-effort pre-fill
+  // only. Never blocks the manual flow: on any failure the fields
+  // simply stay exactly as they'd have started (empty), same as
+  // before this feature existed. Guards against a stale response
+  // landing after Daiana has already closed/switched invoices.
+  async function runAutoDetect(invoiceId, imageUrl) {
+    const statusEl = document.getElementById('autoDetectStatus');
+    statusEl.style.display = 'block';
+    statusEl.textContent = '✨ Auto-detecting fields from the photo…';
+
+    let result = null;
+    try {
+      const resp = await fetch('/api/extract-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl }),
+      });
+      if (resp.ok) result = await resp.json();
+    } catch (err) {
+      console.error('[AutoDetect] request failed', err);
+    }
+
+    // The modal may have moved on to a different invoice (or closed)
+    // by the time this resolves — don't clobber whatever's on screen now.
+    if (!detailInvoice || String(detailInvoice.id) !== String(invoiceId)) return;
+
+    if (!result || (result.vendor == null && result.date == null && result.amount == null && result.po_number == null)) {
+      statusEl.style.display = 'none';
+      return;
+    }
+
+    statusEl.textContent = '✨ Auto-detected some fields below — please double-check before confirming.';
+
+    if (result.vendor) {
+      document.getElementById('invVendorInput').value = result.vendor;
+      document.getElementById('vendorAutoBadge').style.display = 'inline-block';
+    }
+    if (result.date) {
+      document.getElementById('invDateInput').value = result.date;
+      document.getElementById('dateAutoBadge').style.display = 'inline-block';
+    }
+    if (result.amount != null) {
+      document.getElementById('invAmountInput').value = result.amount;
+      document.getElementById('amountAutoBadge').style.display = 'inline-block';
+    }
+    if (result.po_number) {
+      document.getElementById('invPoInput').value = result.po_number;
+      document.getElementById('poAutoBadge').style.display = 'inline-block';
+      // Unchanged Phase 2 logic — runs the same parts_orders match it
+      // would run against a hand-typed PO#. Doesn't call runPoSearch
+      // (the job/RO suggestions dropdown), since popping that open
+      // unprompted before she's looked at the field would be premature.
+      runPartsOrderMatch(result.po_number);
+    }
+  }
+
+  // Auto-detected badges are a hint, not a guarantee — clear a field's
+  // badge as soon as she edits it, since it no longer reflects what's
+  // actually in the box.
+  document.getElementById('invVendorInput').addEventListener('input', () => {
+    document.getElementById('vendorAutoBadge').style.display = 'none';
+  });
+  document.getElementById('invDateInput').addEventListener('input', () => {
+    document.getElementById('dateAutoBadge').style.display = 'none';
+  });
+  document.getElementById('invAmountInput').addEventListener('input', () => {
+    document.getElementById('amountAutoBadge').style.display = 'none';
+  });
+  document.getElementById('invPoInput').addEventListener('input', () => {
+    document.getElementById('poAutoBadge').style.display = 'none';
+  });
 
   // ── Vendor suggestions (Phase 4) — no QuickBooks vendor lookup is
   // available in this environment, so the vendor field is a free-text
