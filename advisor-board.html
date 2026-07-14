@@ -1249,6 +1249,14 @@
       alert('Could not identify you on this board yet — try reopening it from CrisData.');
       return;
     }
+    // Camera-captured files can occasionally arrive (or become) zero-byte —
+    // seen in the wild as Supabase Storage rejecting the upload with
+    // "No content provided" once the request reaches it. Catch it here with
+    // an actionable message instead of sending a broken upload.
+    if (!file.size) {
+      alert('That photo looks empty — please try capturing it again.');
+      return;
+    }
 
     captureBusy = true;
     const feedId = 'cap-' + Date.now();
@@ -1288,10 +1296,19 @@
   document.getElementById('captureTriggerBtn').addEventListener('click', () => {
     document.getElementById('captureFileInput').click();
   });
-  document.getElementById('captureFileInput').addEventListener('change', (e) => {
+  document.getElementById('captureFileInput').addEventListener('change', async (e) => {
     const file = e.target.files[0];
-    e.target.value = ''; // reset so the same file (or camera) can be picked again immediately
-    if (file) captureAndUpload(file);
+    // Reset AFTER the upload attempt finishes, not before. Resetting the
+    // input's value immediately (while captureAndUpload's FileReader/upload
+    // work is still in flight, since this handler doesn't await it) was
+    // found to be able to invalidate a camera-captured File's underlying
+    // data on some mobile browsers — the File object still looks valid
+    // (correct .type/.name) but Supabase Storage receives a request with
+    // no file content at all. Matches the working pattern in gm-board.html's
+    // employee-photo upload, which never resets the input until well after
+    // the file has been fully used.
+    if (file) await captureAndUpload(file);
+    e.target.value = '';
   });
 
   // ── Team Chat (real, Supabase-backed — advisor-board = Advisor's view)
