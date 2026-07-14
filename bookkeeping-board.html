@@ -110,6 +110,12 @@
   .po-result-tag { display: block; font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
   .po-result-empty { padding: 10px 12px; font-size: 0.78rem; color: var(--muted); }
   .invoice-matched-label { font-size: 0.75rem; color: var(--green); font-weight: 700; margin-top: 4px; min-height: 16px; }
+  .parts-order-match { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 8px; background: var(--surface-2); }
+  .parts-order-match-empty { font-size: 0.78rem; color: var(--muted); }
+  .parts-order-match-item { padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
+  .parts-order-match-item:last-child { border-bottom: none; }
+  .parts-order-match-item strong { display: block; }
+  .parts-order-match-item .meta { color: var(--muted); font-size: 0.75rem; }
 
   /* ── Team Chat, Kiki widget, and the sidebar-drawer mobile treatment
      are all in the shared shell now. Only the bookkeeping-specific
@@ -253,6 +259,12 @@
         <input type="text" id="invPoInput" placeholder="Search open jobs and archive by PO…" autocomplete="off">
         <div class="po-result-list" id="invPoResults"></div>
         <div class="invoice-matched-label" id="invMatchedLabel"></div>
+      </div>
+      <div class="intake-field">
+        <label>Parts Ordered for This PO</label>
+        <div class="parts-order-match" id="invPartsOrderMatch">
+          <div class="parts-order-match-empty">Enter a PO # above to check against parts on order.</div>
+        </div>
       </div>
     </div>
 
@@ -518,6 +530,7 @@
     document.getElementById('invCategoryInput').value = '';
     document.getElementById('invNotesInput').value = '';
     document.getElementById('invMatchedLabel').textContent = '';
+    document.getElementById('invPartsOrderMatch').innerHTML = '<div class="parts-order-match-empty">Enter a PO # above to check against parts on order.</div>';
     document.getElementById('invDetailError').textContent = '';
     updateInvoiceTypeFields();
 
@@ -553,9 +566,41 @@
     document.getElementById('invMatchedLabel').textContent = '';
     clearTimeout(poSearchDebounce);
     const term = e.target.value.trim();
-    if (!term) { document.getElementById('invPoResults').style.display = 'none'; return; }
-    poSearchDebounce = setTimeout(() => runPoSearch(term), 300);
+    if (!term) {
+      document.getElementById('invPoResults').style.display = 'none';
+      document.getElementById('invPartsOrderMatch').innerHTML = '<div class="parts-order-match-empty">Enter a PO # above to check against parts on order.</div>';
+      return;
+    }
+    poSearchDebounce = setTimeout(() => { runPoSearch(term); runPartsOrderMatch(term); }, 300);
   });
+
+  // ── Parts order cross-check (Phase 2) — separate lookup against
+  // parts_orders (Advisor Board's Parts tab, Phase 1) by the same po
+  // text field. Cost-visibility only: shows what was actually ordered
+  // so Daiana can eyeball it against the invoice before confirming.
+  // Never blocks — "no match" just means parts_orders wasn't
+  // populated for this PO yet (e.g. a backfilled/older invoice).
+  async function runPartsOrderMatch(term) {
+    const box = document.getElementById('invPartsOrderMatch');
+    const { data, error } = await db.from('parts_orders').select('vehicle,part_needed,vendor,po').ilike('po', `%${term}%`);
+
+    if (error) {
+      console.error('[Invoices] parts_orders lookup failed', error);
+      box.innerHTML = `<div class="parts-order-match-empty">Could not check parts orders: ${esc(error.message)}</div>`;
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      box.innerHTML = '<div class="parts-order-match-empty">No matching PO found.</div>';
+      return;
+    }
+
+    box.innerHTML = data.map(r => `
+      <div class="parts-order-match-item">
+        <strong>${esc(r.vehicle || '—')} — PO #${esc(r.po)}</strong>
+        <div class="meta">${esc(r.part_needed)}${r.vendor ? ' · ' + esc(r.vendor) : ''}</div>
+      </div>`).join('');
+  }
 
   async function runPoSearch(term) {
     const SELECT = 'id,po,vehicle,customer';
@@ -591,6 +636,7 @@
         detailMatchedId = item.dataset.id;
         document.getElementById('invMatchedLabel').textContent = `✓ Linked to ${item.dataset.table.replace('shopboard_', '')} record`;
         box.style.display = 'none';
+        runPartsOrderMatch(item.dataset.po);
       });
     });
   }
