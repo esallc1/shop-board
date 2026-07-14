@@ -216,6 +216,7 @@
   .po-result-item:hover { background: var(--surface-2); }
   .po-result-tag { display: block; font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
   .po-result-empty { padding: 10px 12px; font-size: 0.78rem; color: var(--muted); }
+  .po-result-item.po-result-new { color: var(--accent); font-weight: 700; }
   .invoice-matched-label { font-size: 0.75rem; color: var(--green); font-weight: 700; margin-top: 4px; min-height: 16px; }
   .parts-order-match { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 8px; background: var(--surface-2); }
   .parts-order-match-empty { font-size: 0.78rem; color: var(--muted); }
@@ -422,10 +423,10 @@
       </div>
     </div>
 
-    <div class="intake-field">
+    <div class="intake-field po-search-wrap">
       <label>Vendor <span class="auto-badge" id="vendorAutoBadge" style="display:none">✨ auto-detected</span></label>
-      <input type="text" id="invVendorInput" list="invVendorList" placeholder="Vendor name" autocomplete="off">
-      <datalist id="invVendorList"></datalist>
+      <input type="text" id="invVendorInput" placeholder="Search vendors or type a new one…" autocomplete="off">
+      <div class="po-result-list" id="invVendorResults"></div>
     </div>
     <div class="intake-field">
       <label>Amount ($) <span class="auto-badge" id="amountAutoBadge" style="display:none">✨ auto-detected</span></label>
@@ -1074,6 +1075,8 @@
     document.getElementById('invPoResults').innerHTML = '';
     document.getElementById('invPoResults').style.display = 'none';
     document.getElementById('invVendorInput').value = '';
+    document.getElementById('invVendorResults').innerHTML = '';
+    document.getElementById('invVendorResults').style.display = 'none';
     document.getElementById('invAmountInput').value = '';
     document.getElementById('invCategoryInput').value = '';
     document.getElementById('invDateInput').value = new Date().toISOString().slice(0, 10);
@@ -1139,7 +1142,8 @@
     statusEl.textContent = '✨ Auto-detected some fields below — please double-check before confirming.';
 
     if (result.vendor) {
-      document.getElementById('invVendorInput').value = result.vendor;
+      if (!vendorNamesLoaded) await loadVendorSuggestions();
+      document.getElementById('invVendorInput').value = fuzzyMatchVendor(result.vendor) || result.vendor;
       document.getElementById('vendorAutoBadge').style.display = 'inline-block';
     }
     if (result.date) {
@@ -1172,8 +1176,13 @@
   // Auto-detected badges are a hint, not a guarantee — clear a field's
   // badge as soon as she edits it, since it no longer reflects what's
   // actually in the box.
-  document.getElementById('invVendorInput').addEventListener('input', () => {
+  let vendorSearchDebounce = null;
+  document.getElementById('invVendorInput').addEventListener('input', (e) => {
     document.getElementById('vendorAutoBadge').style.display = 'none';
+    clearTimeout(vendorSearchDebounce);
+    const term = e.target.value.trim();
+    if (!term) { document.getElementById('invVendorResults').style.display = 'none'; return; }
+    vendorSearchDebounce = setTimeout(() => runVendorSearch(term), 150);
   });
   document.getElementById('invDateInput').addEventListener('input', () => {
     document.getElementById('dateAutoBadge').style.display = 'none';
@@ -1191,10 +1200,18 @@
     document.getElementById('partNumberAutoBadge').style.display = 'none';
   });
 
-  // ── Vendor suggestions (Phase 4) — no QuickBooks vendor lookup is
-  // available in this environment, so the vendor field is a free-text
-  // input backed by a <datalist> of vendors already seen in this app's
-  // own data (parts_orders + previously classified invoices).
+  // ── Vendor combobox — no QuickBooks vendor lookup is available in
+  // this environment, so this is our own dedup guardrail: search
+  // against every vendor name already seen in this app's own data
+  // (parts_orders + previously classified invoices), same UX pattern
+  // as the PO search box above (type to filter, click to select).
+  // Picking an existing match reuses its exact spelling, so it lands
+  // in the same History folder/storage path as before — typing a name
+  // with no match offers "+ Add new vendor" instead of silently
+  // fragmenting into a near-duplicate (e.g. "Napa" vs "NAPA Auto Parts").
+  let vendorNames = [];
+  let vendorNamesLoaded = false;
+
   async function loadVendorSuggestions() {
     const [{ data: poVendors }, { data: invVendors }] = await Promise.all([
       db.from('parts_orders').select('vendor').not('vendor', 'is', null),
@@ -1203,8 +1220,65 @@
     const names = new Set();
     (poVendors || []).forEach(r => { if (r.vendor && r.vendor.trim()) names.add(r.vendor.trim()); });
     (invVendors || []).forEach(r => { if (r.vendor && r.vendor.trim()) names.add(r.vendor.trim()); });
-    const list = document.getElementById('invVendorList');
-    list.innerHTML = [...names].sort((a, b) => a.localeCompare(b)).map(v => `<option value="${esc(v)}">`).join('');
+    vendorNames = [...names].sort((a, b) => a.localeCompare(b));
+    vendorNamesLoaded = true;
+  }
+
+  function runVendorSearch(term) {
+    const box = document.getElementById('invVendorResults');
+    const lower = term.toLowerCase();
+    const matches = vendorNames.filter(v => v.toLowerCase().includes(lower));
+    const hasExact = vendorNames.some(v => v.toLowerCase() === lower);
+
+    let html = matches.map(v => `<div class="po-result-item" data-vendor="${esc(v)}">${esc(v)}</div>`).join('');
+    if (!hasExact) {
+      html += `<div class="po-result-item po-result-new" data-vendor="${esc(term)}">+ Add new vendor: "${esc(term)}"</div>`;
+    }
+    box.innerHTML = html;
+    box.style.display = 'block';
+
+    box.querySelectorAll('.po-result-item').forEach(item => {
+      item.addEventListener('click', () => {
+        document.getElementById('invVendorInput').value = item.dataset.vendor;
+        box.style.display = 'none';
+      });
+    });
+  }
+
+  document.addEventListener('click', (e) => {
+    const box = document.getElementById('invVendorResults');
+    const input = document.getElementById('invVendorInput');
+    if (box && box.style.display !== 'none' && !box.contains(e.target) && e.target !== input) {
+      box.style.display = 'none';
+    }
+  });
+
+  // Strips everything but letters/digits so spacing/punctuation-only
+  // variants compare equal — "AutoZone" and "Auto Zone" both become
+  // "autozone".
+  function normalizeVendorKey(s) {
+    return (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  // Three passes, most to least strict: exact match, then
+  // case-insensitive substring in either direction ("NAPA" from
+  // vision extraction should match an existing "NAPA Auto Parts",
+  // and vice versa), then a normalized exact match to catch pure
+  // spacing/punctuation differences a substring check would miss
+  // ("AutoZone" vs "Auto Zone"). Null if nothing reasonable is found,
+  // leaving the raw detected text as a (correct) "new vendor" proposal.
+  function fuzzyMatchVendor(detected) {
+    if (!detected) return null;
+    const lower = detected.trim().toLowerCase();
+    if (!lower) return null;
+    const exact = vendorNames.find(v => v.toLowerCase() === lower);
+    if (exact) return exact;
+    const partial = vendorNames.find(v => v.toLowerCase().includes(lower) || lower.includes(v.toLowerCase()));
+    if (partial) return partial;
+    const normDetected = normalizeVendorKey(detected);
+    if (!normDetected) return null;
+    const normMatch = vendorNames.find(v => normalizeVendorKey(v) === normDetected);
+    return normMatch || null;
   }
 
   function closeInvoiceDetail() {
