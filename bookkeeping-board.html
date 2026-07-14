@@ -96,6 +96,49 @@
   .invoice-card-time { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
 
   /* ══════════════════════════════════
+     HISTORY
+  ══════════════════════════════════ */
+  .history-search-row { margin-bottom: 16px; }
+  .history-search-row input {
+    width: 100%; max-width: 360px; padding: 8px 12px;
+    border: 1px solid var(--border); border-radius: 6px;
+    font-size: 0.85rem; font-family: inherit; color: var(--text);
+  }
+  .history-search-row input:focus { outline: none; border-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th {
+    text-align: left; padding: 9px 12px;
+    font-size: 0.65rem; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--muted);
+    border-bottom: 2px solid var(--border);
+    font-weight: 700;
+  }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg); }
+  .history-thumb {
+    width: 40px; height: 40px; border-radius: 6px; object-fit: cover;
+    background: var(--surface-2); cursor: pointer; display: block;
+  }
+  .history-thumb-fallback {
+    width: 40px; height: 40px; border-radius: 6px; background: var(--surface-2);
+    display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: var(--muted);
+  }
+  .history-type-badge {
+    display: inline-block; font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.5px; padding: 2px 8px; border-radius: 10px;
+  }
+  .history-type-badge.parts { background: #dbeafe; color: #1e40af; }
+  .history-type-badge.expense { background: #ede9fe; color: #5b21b6; }
+  .history-po-match { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+  .history-lightbox {
+    display: none; position: fixed; inset: 0; background: rgba(20,22,40,0.8);
+    z-index: 7000; align-items: center; justify-content: center; cursor: zoom-out;
+  }
+  .history-lightbox.open { display: flex; }
+  .history-lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
+
+  /* ══════════════════════════════════
      DETAIL / EDIT MODAL — .modal-overlay/.modal-box/.modal-btn/
      .intake-field base rules are in the shared shell; this file only
      keeps the bookkeeping-specific additions.
@@ -181,6 +224,7 @@
       <div class="sidebar-group">
         <div class="sidebar-group-label">Main</div>
         <div class="sidebar-item active" data-view="queue" data-label="Unprocessed Invoices"><span class="icon">🧾</span>Unprocessed Invoices</div>
+        <div class="sidebar-item" data-view="history" data-label="History"><span class="icon">📚</span>History</div>
         <div class="sidebar-item" data-view="capture" data-label="Capture Invoice"><span class="icon">📸</span>Capture Invoice</div>
       </div>
       <div class="sidebar-group">
@@ -206,6 +250,19 @@
       <div class="card-title"><div class="dot" style="background:var(--amber)"></div>Unprocessed Invoices</div>
       <div class="invoice-grid" id="invoice-queue-grid">
         <div style="color:var(--muted);padding:24px;grid-column:1/-1">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ HISTORY — searchable log of everything already processed ══ -->
+  <div class="view" id="view-history">
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--green)"></div>History</div>
+      <div class="history-search-row">
+        <input type="text" id="historySearchInput" placeholder="Search by vendor, category, PO#, or amount…">
+      </div>
+      <div id="history-table-wrap">
+        <div style="color:var(--muted);padding:24px;text-align:center">Loading…</div>
       </div>
     </div>
   </div>
@@ -283,17 +340,30 @@
     <div id="invExpenseFields" style="display:none">
       <div class="intake-field">
         <label>Category</label>
-        <input type="text" id="invCategoryInput" placeholder="e.g. Utilities, Rent, Supplies, Fuel">
+        <select id="invCategoryInput">
+          <option value="">- Choose category -</option>
+          <option value="Rent">Rent</option>
+          <option value="Utilities">Utilities</option>
+          <option value="Tools/Equipment">Tools/Equipment</option>
+          <option value="Office Supplies">Office Supplies</option>
+          <option value="Insurance">Insurance</option>
+          <option value="Other">Other</option>
+        </select>
       </div>
     </div>
 
     <div class="intake-field">
       <label>Vendor</label>
-      <input type="text" id="invVendorInput" placeholder="Vendor name">
+      <input type="text" id="invVendorInput" list="invVendorList" placeholder="Vendor name" autocomplete="off">
+      <datalist id="invVendorList"></datalist>
     </div>
     <div class="intake-field">
       <label>Amount ($)</label>
       <input type="number" id="invAmountInput" placeholder="0.00" min="0" step="0.01">
+    </div>
+    <div class="intake-field">
+      <label>Date</label>
+      <input type="date" id="invDateInput">
     </div>
     <div class="intake-field">
       <label>Notes</label>
@@ -304,6 +374,11 @@
     <button class="modal-btn" id="invConfirmBtn">Confirm</button>
     <button class="modal-btn sec" id="invCancelBtn">Cancel</button>
   </div>
+</div>
+
+<!-- History full-size image lightbox -->
+<div class="history-lightbox" id="historyLightbox">
+  <img id="historyLightboxImg" alt="Invoice">
 </div>
 
 <!-- Kiki AI Chat Widget — shared floating widget, independent of sidebar view -->
@@ -562,9 +637,118 @@
   function subscribeInvoiceQueue() {
     if (invoiceQueueChannel) db.removeChannel(invoiceQueueChannel);
     invoiceQueueChannel = db.channel('bookkeeping-board-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'invoice_queue' }, loadInvoiceQueue)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'invoice_queue' }, () => {
+        loadInvoiceQueue();
+        loadHistory();
+      })
       .subscribe();
   }
+
+  // ══════════════════════════════════════════════════════════════
+  // HISTORY — searchable log of everything already processed. Main
+  // way Daiana/Cris find something to manually enter into QuickBooks
+  // or double-check later (no QuickBooks API calls this phase).
+  // ══════════════════════════════════════════════════════════════
+  let historyRows = [];
+
+  async function loadHistory() {
+    const { data, error } = await db.from('invoice_queue').select('*').eq('status', 'processed').order('processed_at', { ascending: false });
+    if (error) { console.error('[History] load failed', error); historyRows = []; }
+    else historyRows = data || [];
+    renderHistory();
+  }
+
+  function historyMatchesSearch(row, term) {
+    if (!term) return true;
+    const haystack = [row.vendor, row.category, row.po, row.notes, row.amount != null ? String(row.amount) : '']
+      .filter(Boolean).join(' ').toLowerCase();
+    return haystack.includes(term);
+  }
+
+  async function renderHistory() {
+    const wrap = document.getElementById('history-table-wrap');
+    const term = document.getElementById('historySearchInput').value.trim().toLowerCase();
+    const rows = historyRows.filter(r => historyMatchesSearch(r, term));
+
+    if (rows.length === 0) {
+      wrap.innerHTML = `<div style="color:var(--muted);padding:24px;text-align:center">${historyRows.length === 0 ? 'Nothing processed yet.' : 'No matches.'}</div>`;
+      return;
+    }
+
+    let signedMap = {};
+    try {
+      const paths = rows.map(r => r.image_path);
+      const { data: signed, error } = await db.storage.from(INVOICE_BUCKET).createSignedUrls(paths, SIGNED_URL_TTL);
+      if (error) throw error;
+      (signed || []).forEach((s, i) => { if (s && s.signedUrl) signedMap[paths[i]] = s.signedUrl; });
+    } catch (err) {
+      console.error('[History] signed URL batch failed', err);
+    }
+
+    wrap.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th>Type</th>
+            <th>Vendor / Category</th>
+            <th>PO#</th>
+            <th>Amount</th>
+            <th>Date</th>
+            <th>Processed</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => {
+            const thumb = signedMap[r.image_path]
+              ? `<img class="history-thumb" src="${esc(signedMap[r.image_path])}" data-full="${esc(signedMap[r.image_path])}" alt="">`
+              : `<div class="history-thumb-fallback">📄</div>`;
+            const typeLabel = r.invoice_type === 'parts_vendor'
+              ? '<span class="history-type-badge parts">Parts/Vendor</span>'
+              : '<span class="history-type-badge expense">Shop Expense</span>';
+            const poCell = r.po
+              ? `${esc(r.po)}${r.matched_source_table ? `<div class="history-po-match">✓ matched job</div>` : ''}`
+              : '—';
+            return `
+            <tr>
+              <td>${thumb}</td>
+              <td>${typeLabel}</td>
+              <td>${esc(r.vendor || '—')}${r.invoice_type === 'shop_expense' && r.category ? `<div class="history-po-match">${esc(r.category)}</div>` : ''}</td>
+              <td>${poCell}</td>
+              <td>${r.amount != null ? '$' + Number(r.amount).toFixed(2) : '—'}</td>
+              <td>${r.invoice_date ? formatDateOnly(r.invoice_date) : '—'}</td>
+              <td>${formatDateTime(r.processed_at)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+
+    wrap.querySelectorAll('.history-thumb').forEach(img => {
+      img.addEventListener('click', () => openHistoryLightbox(img.dataset.full));
+    });
+  }
+
+  function formatDateOnly(dateStr) {
+    return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function openHistoryLightbox(url) {
+    document.getElementById('historyLightboxImg').src = url;
+    document.getElementById('historyLightbox').classList.add('open');
+  }
+  document.getElementById('historyLightbox').addEventListener('click', () => {
+    document.getElementById('historyLightbox').classList.remove('open');
+    document.getElementById('historyLightboxImg').src = '';
+  });
+
+  document.getElementById('historySearchInput').addEventListener('input', renderHistory);
+
+  loadHistory();
+  VIEW_REFRESH.history = {
+    refetch: loadHistory,
+    getChannel: () => invoiceQueueChannel,
+    resubscribe: subscribeInvoiceQueue,
+  };
 
   // ══════════════════════════════════════════════════════════════
   // INVOICE DETAIL / EDIT MODAL
@@ -589,11 +773,13 @@
     document.getElementById('invVendorInput').value = '';
     document.getElementById('invAmountInput').value = '';
     document.getElementById('invCategoryInput').value = '';
+    document.getElementById('invDateInput').value = new Date().toISOString().slice(0, 10);
     document.getElementById('invNotesInput').value = '';
     document.getElementById('invMatchedLabel').textContent = '';
     document.getElementById('invPartsOrderMatch').innerHTML = '<div class="parts-order-match-empty">Enter a PO # above to check against parts on order.</div>';
     document.getElementById('invDetailError').textContent = '';
     updateInvoiceTypeFields();
+    loadVendorSuggestions();
 
     document.getElementById('invoiceDetailModal').style.display = 'flex';
 
@@ -603,6 +789,22 @@
     } catch (err) {
       console.error('[Invoices] signed URL failed', err);
     }
+  }
+
+  // ── Vendor suggestions (Phase 4) — no QuickBooks vendor lookup is
+  // available in this environment, so the vendor field is a free-text
+  // input backed by a <datalist> of vendors already seen in this app's
+  // own data (parts_orders + previously classified invoices).
+  async function loadVendorSuggestions() {
+    const [{ data: poVendors }, { data: invVendors }] = await Promise.all([
+      db.from('parts_orders').select('vendor').not('vendor', 'is', null),
+      db.from('invoice_queue').select('vendor').not('vendor', 'is', null),
+    ]);
+    const names = new Set();
+    (poVendors || []).forEach(r => { if (r.vendor && r.vendor.trim()) names.add(r.vendor.trim()); });
+    (invVendors || []).forEach(r => { if (r.vendor && r.vendor.trim()) names.add(r.vendor.trim()); });
+    const list = document.getElementById('invVendorList');
+    list.innerHTML = [...names].sort((a, b) => a.localeCompare(b)).map(v => `<option value="${esc(v)}">`).join('');
   }
 
   function closeInvoiceDetail() {
@@ -710,6 +912,19 @@
     }
   });
 
+  // ── Storage reorg (Phase 4) — files upload flat at capture time
+  // (vendor isn't known yet); on confirm they're moved into
+  // invoice-images/<vendor-slug>/<yyyy-mm>/ (parts/vendor) or
+  // invoice-images/shop-expenses/<yyyy-mm>/ (shop expense), keyed off
+  // the invoice_date entered here. The 8 pre-Phase-4 flat files are
+  // never touched — this only applies going forward.
+  function slugifyVendor(name) {
+    return (name || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'vendor';
+  }
+
   async function confirmInvoiceDetail() {
     if (!detailInvoice) return;
     const errEl = document.getElementById('invDetailError');
@@ -719,17 +934,23 @@
     const vendor = document.getElementById('invVendorInput').value.trim();
     const amountRaw = document.getElementById('invAmountInput').value;
     const amount = amountRaw ? parseFloat(amountRaw) : null;
+    const invoice_date = document.getElementById('invDateInput').value || null;
     const notes = document.getElementById('invNotesInput').value.trim();
 
     if (!invoice_type) { errEl.textContent = 'Choose Parts/Vendor or Shop Expense.'; return; }
     if (!vendor) { errEl.textContent = 'Vendor is required.'; return; }
     if (amountRaw && isNaN(amount)) { errEl.textContent = 'Amount must be a number.'; return; }
+    if (!invoice_date) { errEl.textContent = 'Date is required.'; return; }
+    if (invoice_type === 'shop_expense' && !document.getElementById('invCategoryInput').value) {
+      errEl.textContent = 'Choose a category.'; return;
+    }
 
     const payload = {
       status: 'processed',
       invoice_type,
       vendor,
       amount,
+      invoice_date,
       notes: notes || null,
       processed_at: new Date().toISOString(),
       processed_by: CURRENT_EMPLOYEE_ID,
@@ -742,7 +963,7 @@
       payload.matched_source_id = detailMatchedId;
       payload.category = null;
     } else {
-      payload.category = document.getElementById('invCategoryInput').value.trim() || null;
+      payload.category = document.getElementById('invCategoryInput').value || null;
       payload.po = null;
       payload.matched_source_table = null;
       payload.matched_source_id = null;
@@ -751,12 +972,35 @@
     const btn = document.getElementById('invConfirmBtn');
     btn.disabled = true;
     btn.textContent = 'Saving…';
+
+    const yyyyMm = invoice_date.slice(0, 7);
+    const folder = invoice_type === 'parts_vendor' ? slugifyVendor(vendor) : 'shop-expenses';
+    const ext = (detailInvoice.image_path.split('.').pop() || 'jpg').toLowerCase();
+    const oldPath = detailInvoice.image_path;
+    const newPath = `${folder}/${yyyyMm}/${detailInvoice.id}.${ext}`;
+
+    // Move the storage object first — if this fails, nothing else
+    // changes and the row stays exactly as it was (still unprocessed,
+    // image still at its original path).
+    const { error: moveErr } = await db.storage.from(INVOICE_BUCKET).move(oldPath, newPath);
+    if (moveErr) {
+      console.error('[Invoices] file move failed', moveErr);
+      errEl.textContent = 'Could not file the image into its folder: ' + moveErr.message;
+      btn.disabled = false;
+      btn.textContent = 'Confirm';
+      return;
+    }
+    payload.image_path = newPath;
+
     const { error } = await db.from('invoice_queue').update(payload).eq('id', detailInvoice.id);
     btn.disabled = false;
     btn.textContent = 'Confirm';
 
     if (error) {
       console.error('[Invoices] confirm failed', error);
+      // Best-effort rollback so the row's image_path doesn't end up
+      // pointing at a file that no longer exists at the old location.
+      await db.storage.from(INVOICE_BUCKET).move(newPath, oldPath).catch(() => {});
       errEl.textContent = 'Save failed: ' + error.message;
       return;
     }
