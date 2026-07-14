@@ -343,6 +343,14 @@
           <div class="parts-order-match-empty">Enter a PO # above to check against parts on order.</div>
         </div>
       </div>
+      <div class="intake-field">
+        <label>Description <span class="auto-badge" id="descriptionAutoBadge" style="display:none">✨ auto-detected</span></label>
+        <input type="text" id="invDescriptionInput" placeholder="e.g. SPC DW EXTR">
+      </div>
+      <div class="intake-field">
+        <label>Part Number <span class="auto-badge" id="partNumberAutoBadge" style="display:none">✨ auto-detected</span></label>
+        <input type="text" id="invPartNumberInput" placeholder="Part/item number, if printed">
+      </div>
     </div>
 
     <div id="invExpenseFields" style="display:none">
@@ -668,7 +676,7 @@
 
   function historyMatchesSearch(row, term) {
     if (!term) return true;
-    const haystack = [row.vendor, row.category, row.po, row.notes, row.amount != null ? String(row.amount) : '']
+    const haystack = [row.vendor, row.category, row.po, row.notes, row.description, row.part_number, row.amount != null ? String(row.amount) : '']
       .filter(Boolean).join(' ').toLowerCase();
     return haystack.includes(term);
   }
@@ -700,6 +708,7 @@
             <th></th>
             <th>Type</th>
             <th>Vendor / Category</th>
+            <th>Description / Part#</th>
             <th>PO#</th>
             <th>Amount</th>
             <th>Date</th>
@@ -717,11 +726,15 @@
             const poCell = r.po
               ? `${esc(r.po)}${r.matched_source_table ? `<div class="history-po-match">✓ matched job</div>` : ''}`
               : '—';
+            const descCell = r.description || r.part_number
+              ? `${esc(r.description || '—')}${r.part_number ? `<div class="history-po-match">#${esc(r.part_number)}</div>` : ''}`
+              : '—';
             return `
             <tr>
               <td>${thumb}</td>
               <td>${typeLabel}</td>
               <td>${esc(r.vendor || '—')}${r.invoice_type === 'shop_expense' && r.category ? `<div class="history-po-match">${esc(r.category)}</div>` : ''}</td>
+              <td>${descCell}</td>
               <td>${poCell}</td>
               <td>${r.amount != null ? '$' + Number(r.amount).toFixed(2) : '—'}</td>
               <td>${r.invoice_date ? formatDateOnly(r.invoice_date) : '—'}</td>
@@ -782,11 +795,13 @@
     document.getElementById('invAmountInput').value = '';
     document.getElementById('invCategoryInput').value = '';
     document.getElementById('invDateInput').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('invDescriptionInput').value = '';
+    document.getElementById('invPartNumberInput').value = '';
     document.getElementById('invNotesInput').value = '';
     document.getElementById('invMatchedLabel').textContent = '';
     document.getElementById('invPartsOrderMatch').innerHTML = '<div class="parts-order-match-empty">Enter a PO # above to check against parts on order.</div>';
     document.getElementById('invDetailError').textContent = '';
-    ['poAutoBadge', 'vendorAutoBadge', 'amountAutoBadge', 'dateAutoBadge'].forEach(id => {
+    ['poAutoBadge', 'vendorAutoBadge', 'amountAutoBadge', 'dateAutoBadge', 'descriptionAutoBadge', 'partNumberAutoBadge'].forEach(id => {
       document.getElementById(id).style.display = 'none';
     });
     const statusEl = document.getElementById('autoDetectStatus');
@@ -834,7 +849,7 @@
     // by the time this resolves — don't clobber whatever's on screen now.
     if (!detailInvoice || String(detailInvoice.id) !== String(invoiceId)) return;
 
-    if (!result || (result.vendor == null && result.date == null && result.amount == null && result.po_number == null)) {
+    if (!result || (result.vendor == null && result.date == null && result.amount == null && result.po_number == null && result.description == null && result.part_number == null)) {
       statusEl.style.display = 'none';
       return;
     }
@@ -862,6 +877,14 @@
       // unprompted before she's looked at the field would be premature.
       runPartsOrderMatch(result.po_number);
     }
+    if (result.description) {
+      document.getElementById('invDescriptionInput').value = result.description;
+      document.getElementById('descriptionAutoBadge').style.display = 'inline-block';
+    }
+    if (result.part_number) {
+      document.getElementById('invPartNumberInput').value = result.part_number;
+      document.getElementById('partNumberAutoBadge').style.display = 'inline-block';
+    }
   }
 
   // Auto-detected badges are a hint, not a guarantee — clear a field's
@@ -878,6 +901,12 @@
   });
   document.getElementById('invPoInput').addEventListener('input', () => {
     document.getElementById('poAutoBadge').style.display = 'none';
+  });
+  document.getElementById('invDescriptionInput').addEventListener('input', () => {
+    document.getElementById('descriptionAutoBadge').style.display = 'none';
+  });
+  document.getElementById('invPartNumberInput').addEventListener('input', () => {
+    document.getElementById('partNumberAutoBadge').style.display = 'none';
   });
 
   // ── Vendor suggestions (Phase 4) — no QuickBooks vendor lookup is
@@ -1051,11 +1080,15 @@
       payload.matched_source_table = detailMatchedTable;
       payload.matched_source_id = detailMatchedId;
       payload.category = null;
+      payload.description = document.getElementById('invDescriptionInput').value.trim() || null;
+      payload.part_number = document.getElementById('invPartNumberInput').value.trim() || null;
     } else {
       payload.category = document.getElementById('invCategoryInput').value || null;
       payload.po = null;
       payload.matched_source_table = null;
       payload.matched_source_id = null;
+      payload.description = null;
+      payload.part_number = null;
     }
 
     const btn = document.getElementById('invConfirmBtn');

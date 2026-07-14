@@ -1,10 +1,11 @@
 // Server-side only — never expose ANTHROPIC_API_KEY to browser JS.
 // Takes a (short-lived, already-authorized) signed URL for an invoice
 // image already in Supabase Storage, fetches the bytes here, and asks
-// Claude Haiku 4.5 vision to extract vendor/date/amount/PO# as strict
-// JSON. Best-effort only: bookkeeping-board.html must treat every
-// field as a pre-fill suggestion, never a source of truth — Daiana
-// reviews and can overwrite anything before confirming.
+// Claude Haiku 4.5 vision to extract vendor/date/amount/PO#/
+// description/part_number as strict JSON. Best-effort only:
+// bookkeeping-board.html must treat every field as a pre-fill
+// suggestion, never a source of truth — Daiana reviews and can
+// overwrite anything before confirming.
 
 const SUPPORTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
@@ -38,7 +39,7 @@ export default async function handler(req, res) {
       mediaType = byExt[ext] || null;
     }
     if (!mediaType || !SUPPORTED_MEDIA_TYPES.includes(mediaType)) {
-      return res.status(200).json({ vendor: null, date: null, amount: null, po_number: null, note: 'Unsupported image format' });
+      return res.status(200).json({ vendor: null, date: null, amount: null, po_number: null, description: null, part_number: null, note: 'Unsupported image format' });
     }
 
     const arrayBuffer = await imgResponse.arrayBuffer();
@@ -46,15 +47,17 @@ export default async function handler(req, res) {
 
     const systemPrompt = `You are an expert at reading vendor invoices, receipts, and parts orders from photos taken on a shop floor — often at an angle, partially obscured, or on crumpled paper.
 
-Extract exactly these four fields from the image and respond with ONLY valid JSON, no markdown code fences, no prose, no explanation:
+Extract exactly these six fields from the image and respond with ONLY valid JSON, no markdown code fences, no prose, no explanation:
 
-{"vendor": string or null, "date": string ("YYYY-MM-DD") or null, "amount": number or null, "po_number": string or null}
+{"vendor": string or null, "date": string ("YYYY-MM-DD") or null, "amount": number or null, "po_number": string or null, "description": string or null, "part_number": string or null}
 
 Rules:
 - vendor: the business/company name that issued the invoice (who was paid), not the shop receiving it.
 - date: the invoice or transaction date, formatted YYYY-MM-DD. If the year is missing, use null rather than guessing.
 - amount: the total/grand total amount as a plain number (no currency symbol, no commas). If multiple totals appear, use the final total due.
 - po_number: a purchase order or reference number if one is visible on the document. Null if none is visible.
+- description: the line-item description of what was purchased, exactly as printed on the invoice (e.g. "SPC DW EXTR"). If there are multiple line items, use the primary/first one. Null if not legible.
+- part_number: the item/part number printed on the invoice, if any — this is often a separate value from the PO#. Null if none is visible.
 - Use null for any field you cannot read with reasonable confidence. Do not guess or estimate.
 - Respond with the JSON object and nothing else.`;
 
@@ -74,7 +77,7 @@ Rules:
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-            { type: 'text', text: 'Extract vendor, date, amount, and po_number from this invoice image. Respond with only the JSON object.' },
+            { type: 'text', text: 'Extract vendor, date, amount, po_number, description, and part_number from this invoice image. Respond with only the JSON object.' },
           ],
         }],
       }),
@@ -98,17 +101,20 @@ Rules:
       parsed = JSON.parse(jsonText);
     } catch (parseErr) {
       console.error('[extract-invoice] Could not parse model output as JSON:', rawText);
-      return res.status(200).json({ vendor: null, date: null, amount: null, po_number: null, note: 'Could not parse extraction result' });
+      return res.status(200).json({ vendor: null, date: null, amount: null, po_number: null, description: null, part_number: null, note: 'Could not parse extraction result' });
     }
 
     const amount = typeof parsed.amount === 'number' && isFinite(parsed.amount) ? parsed.amount : null;
     const dateOk = typeof parsed.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(parsed.date) ? parsed.date : null;
+    const asString = v => typeof v === 'string' && v.trim() ? v.trim() : null;
 
     return res.status(200).json({
-      vendor: typeof parsed.vendor === 'string' && parsed.vendor.trim() ? parsed.vendor.trim() : null,
+      vendor: asString(parsed.vendor),
       date: dateOk,
       amount,
-      po_number: typeof parsed.po_number === 'string' && parsed.po_number.trim() ? parsed.po_number.trim() : null,
+      po_number: asString(parsed.po_number),
+      description: asString(parsed.description),
+      part_number: asString(parsed.part_number),
     });
   } catch (e) {
     console.error('[extract-invoice] failed', e);
