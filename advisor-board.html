@@ -744,6 +744,7 @@
   };
 
   // ── Sidebar navigation
+  const ACTIVE_VIEW_KEY = 'advisorBoardActiveView';
   document.querySelectorAll('.sidebar-item[data-view]').forEach(item => {
     item.addEventListener('click', () => {
       document.querySelectorAll('.sidebar-item[data-view]').forEach(i => i.classList.remove('active'));
@@ -752,6 +753,7 @@
       document.getElementById('view-' + item.dataset.view).classList.add('active');
       document.getElementById('viewTopbarTitle').textContent = item.dataset.label || item.textContent.trim();
       currentViewKey = item.dataset.view;
+      sessionStorage.setItem(ACTIVE_VIEW_KEY, currentViewKey);
       closeMobileNav(); // no-op on desktop; on mobile, picking a view closes the drawer
     });
   });
@@ -1764,6 +1766,18 @@
 
     send.addEventListener('click', askAI);
     input.addEventListener('keydown', e => { if (e.key === 'Enter') askAI(); });
+  })();
+
+  // ── Restore active tab across a refresh. Fires a real click so every
+  // listener bound to that sidebar item (the generic view-switch above,
+  // plus Team Chat's own unlock/mark-read listener) runs exactly as it
+  // would for a manual click — no separate restoration codepath to
+  // keep in sync as tabs gain their own click side effects.
+  (function restoreActiveView() {
+    const saved = sessionStorage.getItem(ACTIVE_VIEW_KEY);
+    if (!saved || saved === currentViewKey) return;
+    const item = document.querySelector(`.sidebar-item[data-view="${saved}"]`);
+    if (item) item.click();
   })();
 </script>
 </body>
