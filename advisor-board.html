@@ -291,11 +291,11 @@
 
   <!-- ══ TAB 2: PARTS ══ -->
   <div class="view" id="view-parts">
-    <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px 18px;margin-bottom:16px;font-size:0.83rem;color:#92400e;">
-      <strong>Not yet wired to live data</strong> — no <code>parts_orders</code> (or equivalent) table exists in Supabase. Sample data shown below. Dev must create the table before this tab can be wired.
-    </div>
     <div class="card">
-      <div class="card-title"><div class="dot" style="background:var(--amber)"></div>Waiting for Parts</div>
+      <div class="card-title">
+        <div class="dot" style="background:var(--amber)"></div>Waiting for Parts
+        <button class="btn btn-green" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="orderPartBtn">+ Order Part</button>
+      </div>
       <table>
         <thead>
           <tr>
@@ -307,42 +307,16 @@
             <th></th>
           </tr>
         </thead>
-        <tbody>
-          <tr>
-            <td><strong>2017 Honda Accord</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1041</span></td>
-            <td>Rebuilt torque converter</td>
-            <td>Jul 6</td>
-            <td><strong style="color:var(--amber)">Jul 9</strong></td>
-            <td>Trans-Works</td>
-            <td><button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px" onclick="markReceived(this)">✓ Received</button></td>
-          </tr>
-          <tr>
-            <td><strong>2011 Chevy Silverado</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1037</span></td>
-            <td>4L60-E clutch pack kit (upgraded)</td>
-            <td>Jul 5</td>
-            <td><strong>Jul 8</strong></td>
-            <td>NAPA Pro</td>
-            <td><button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px" onclick="markReceived(this)">✓ Received</button></td>
-          </tr>
-          <tr>
-            <td><strong>2019 Toyota Camry</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1043</span></td>
-            <td>CVT trans cooler hose kit</td>
-            <td>Jul 7</td>
-            <td><strong style="color:var(--red)">Jul 11</strong></td>
-            <td>Toyota OEM</td>
-            <td><button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px" onclick="markReceived(this)">✓ Received</button></td>
-          </tr>
+        <tbody id="parts-waiting-tbody">
+          <tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">Loading…</td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="card">
       <div class="card-title"><div class="dot" style="background:var(--green)"></div>Recently Received</div>
-      <ul class="received-list">
-        <li class="received-item">Rebuilt 4L60-E (reman) — 2014 GMC Sierra PO #1029 · Received Jul 6</li>
-        <li class="received-item">Valve body kit — 2016 Ford Explorer PO #1033 · Received Jul 5</li>
-        <li class="received-item">Solenoid pack (6R80) — 2018 Ford F-150 PO #1031 · Received Jul 4</li>
-        <li class="received-item">Filter &amp; gasket set — 2013 Dodge RAM PO #1028 · Received Jul 3</li>
+      <ul class="received-list" id="parts-received-list">
+        <li class="received-item" style="color:var(--muted)">Loading…</li>
       </ul>
     </div>
   </div>
@@ -577,6 +551,40 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="orderPartModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="closeOrderPartModal">&times;</button>
+    <h3>Order Part</h3>
+    <div class="intake-field">
+      <label>PO / RO Number</label>
+      <input type="text" id="opPoInput" placeholder="e.g. 1041">
+    </div>
+    <div class="intake-field">
+      <label>Vehicle</label>
+      <input type="text" id="opVehicleInput" placeholder="Year / Make / Model">
+    </div>
+    <div class="intake-field">
+      <label>Part Needed</label>
+      <input type="text" id="opPartInput" placeholder="e.g. Rebuilt torque converter">
+    </div>
+    <div class="intake-field">
+      <label>Supplier / Vendor</label>
+      <input type="text" id="opVendorInput" placeholder="e.g. Trans-Works">
+    </div>
+    <div class="intake-field">
+      <label>Date Ordered</label>
+      <input type="date" id="opOrderedInput">
+    </div>
+    <div class="intake-field">
+      <label>Expected Date</label>
+      <input type="date" id="opExpectedInput">
+    </div>
+    <div class="intake-form-error" id="opFormError"></div>
+    <button class="modal-btn" id="opSaveBtn">Order Part</button>
+    <button class="modal-btn sec" id="opCancelBtn">Cancel</button>
+  </div>
+</div>
+
 <!-- Kiki AI Chat Widget — shared floating widget, independent of sidebar view -->
 <button id="ai-bubble" title="Ask Kiki"><img src="/kiki-avatar.png" alt="Kiki" /></button>
 <div id="ai-panel">
@@ -763,13 +771,155 @@
   document.getElementById('mobileNavToggle').addEventListener('click', openMobileNav);
   document.getElementById('sidebarBackdrop').addEventListener('click', closeMobileNav);
 
-  // ── Mark Part Received (local only — no parts table)
-  function markReceived(btn) {
-    const row = btn.closest('tr');
-    row.style.opacity = '0.45';
-    btn.textContent = 'Received ✓';
-    btn.disabled = true;
+  // ── Parts — load from Supabase
+  function formatShortDate(d) {
+    if (!d) return '—';
+    return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   }
+
+  async function loadAndRenderParts() {
+    const { data, error } = await db.from('parts_orders').select('*').order('expected_date', { ascending: true, nullsFirst: false });
+    const waitingTbody = document.getElementById('parts-waiting-tbody');
+    const receivedList = document.getElementById('parts-received-list');
+
+    if (error) {
+      console.error('[Parts] Load failed', error);
+      waitingTbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);text-align:center;padding:24px">Failed to load: ${esc(error.message)}</td></tr>`;
+      receivedList.innerHTML = '';
+      return;
+    }
+
+    const all = data || [];
+    const waiting = all.filter(r => !r.received);
+    const received = all.filter(r => r.received)
+      .sort((a, b) => new Date(b.received_at || b.created_at) - new Date(a.received_at || a.created_at))
+      .slice(0, 10);
+
+    if (waiting.length === 0) {
+      waitingTbody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">No parts on order.</td></tr>';
+    } else {
+      const today = new Date().toISOString().slice(0, 10);
+      waitingTbody.innerHTML = waiting.map(r => {
+        let expectedStyle = '';
+        if (r.expected_date) {
+          expectedStyle = r.expected_date < today ? 'color:var(--red)' : 'color:var(--amber)';
+        }
+        return `
+        <tr data-id="${esc(r.id)}">
+          <td><strong>${esc(r.vehicle || '—')}</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #${esc(r.po)}</span></td>
+          <td>${esc(r.part_needed)}</td>
+          <td>${formatShortDate(r.date_ordered)}</td>
+          <td><strong style="${expectedStyle}">${formatShortDate(r.expected_date)}</strong></td>
+          <td>${esc(r.vendor || '—')}</td>
+          <td><button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px" onclick="markReceived(this)">✓ Received</button></td>
+        </tr>`;
+      }).join('');
+    }
+
+    if (received.length === 0) {
+      receivedList.innerHTML = '<li class="received-item" style="color:var(--muted)">Nothing received yet.</li>';
+    } else {
+      receivedList.innerHTML = received.map(r => {
+        const when = r.received_at ? formatShortDate(r.received_at.slice(0, 10)) : '—';
+        return `<li class="received-item">${esc(r.part_needed)} — ${esc(r.vehicle || '—')} PO #${esc(r.po)} · Received ${when}</li>`;
+      }).join('');
+    }
+  }
+
+  async function markReceived(btn) {
+    const row = btn.closest('tr');
+    const id = row.dataset.id;
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    const { error } = await db.from('parts_orders').update({
+      received: true,
+      received_at: new Date().toISOString(),
+    }).eq('id', id);
+
+    if (error) {
+      console.error('[Parts] Mark received failed', error);
+      btn.disabled = false;
+      btn.textContent = '✓ Received';
+      alert('Save failed: ' + error.message);
+      return;
+    }
+
+    loadAndRenderParts();
+  }
+
+  let partsChannel = null;
+  function partsSubscribeRealtime() {
+    if (partsChannel) db.removeChannel(partsChannel);
+    partsChannel = db.channel('advisor-board-parts-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'parts_orders' }, loadAndRenderParts)
+      .subscribe();
+  }
+  partsSubscribeRealtime();
+
+  loadAndRenderParts();
+  VIEW_REFRESH.parts = {
+    refetch: loadAndRenderParts,
+    getChannel: () => partsChannel,
+    resubscribe: partsSubscribeRealtime,
+  };
+
+  function openOrderPartModal() {
+    document.getElementById('opPoInput').value = '';
+    document.getElementById('opVehicleInput').value = '';
+    document.getElementById('opPartInput').value = '';
+    document.getElementById('opVendorInput').value = '';
+    document.getElementById('opOrderedInput').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('opExpectedInput').value = '';
+    document.getElementById('opFormError').textContent = '';
+    document.getElementById('orderPartModal').style.display = 'flex';
+  }
+
+  function closeOrderPartModal() {
+    document.getElementById('orderPartModal').style.display = 'none';
+  }
+
+  async function saveOrderPart() {
+    const po = document.getElementById('opPoInput').value.trim();
+    const vehicle = document.getElementById('opVehicleInput').value.trim();
+    const part_needed = document.getElementById('opPartInput').value.trim();
+    const vendor = document.getElementById('opVendorInput').value.trim();
+    const date_ordered = document.getElementById('opOrderedInput').value || null;
+    const expected_date = document.getElementById('opExpectedInput').value || null;
+    const errEl = document.getElementById('opFormError');
+    errEl.textContent = '';
+
+    if (!po || !part_needed) {
+      errEl.textContent = 'PO/RO number and Part Needed are required.';
+      return;
+    }
+
+    const saveBtn = document.getElementById('opSaveBtn');
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+
+    try {
+      const { error } = await db.from('parts_orders').insert({
+        po, vehicle, part_needed, vendor, date_ordered, expected_date,
+        created_by_name: CHAT_IDENTITY.name || null,
+      });
+      if (error) throw error;
+
+      closeOrderPartModal();
+      loadAndRenderParts();
+    } catch (err) {
+      console.error('[Parts] Save failed', err);
+      errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Order Part';
+    }
+  }
+
+  document.getElementById('orderPartBtn').addEventListener('click', openOrderPartModal);
+  document.getElementById('closeOrderPartModal').addEventListener('click', closeOrderPartModal);
+  document.getElementById('opCancelBtn').addEventListener('click', closeOrderPartModal);
+  document.getElementById('opSaveBtn').addEventListener('click', saveOrderPart);
 
   // ── Log Payment (local only — no payments table)
   let totalCents = 500500;
