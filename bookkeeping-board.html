@@ -130,6 +130,7 @@
   }
   .history-type-badge.parts { background: #dbeafe; color: #1e40af; }
   .history-type-badge.expense { background: #ede9fe; color: #5b21b6; }
+  .history-type-badge.job { background: #dcfce7; color: #166534; }
   .history-po-match { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
   .history-lightbox {
     display: none; position: fixed; inset: 0; background: rgba(20,22,40,0.8);
@@ -327,12 +328,13 @@
         <option value="">- Choose type -</option>
         <option value="parts_vendor">Parts / Vendor Invoice</option>
         <option value="shop_expense">General Shop Expense</option>
+        <option value="repair_invoice">Repair Invoice / Job Record</option>
       </select>
     </div>
 
-    <div id="invPartsFields" style="display:none">
+    <div id="invPoWrap" style="display:none">
       <div class="intake-field po-search-wrap">
-        <label>PO Number <span class="auto-badge" id="poAutoBadge" style="display:none">✨ auto-detected</span></label>
+        <label>PO / RO Number <span class="auto-badge" id="poAutoBadge" style="display:none">✨ auto-detected</span></label>
         <input type="text" id="invPoInput" placeholder="Search open jobs and archive by PO…" autocomplete="off">
         <div class="po-result-list" id="invPoResults"></div>
         <div class="invoice-matched-label" id="invMatchedLabel"></div>
@@ -343,6 +345,9 @@
           <div class="parts-order-match-empty">Enter a PO # above to check against parts on order.</div>
         </div>
       </div>
+    </div>
+
+    <div id="invLineItemFields" style="display:none">
       <div class="intake-field">
         <label>Description <span class="auto-badge" id="descriptionAutoBadge" style="display:none">✨ auto-detected</span></label>
         <input type="text" id="invDescriptionInput" placeholder="e.g. SPC DW EXTR">
@@ -722,6 +727,8 @@
               : `<div class="history-thumb-fallback">📄</div>`;
             const typeLabel = r.invoice_type === 'parts_vendor'
               ? '<span class="history-type-badge parts">Parts/Vendor</span>'
+              : r.invoice_type === 'repair_invoice'
+              ? '<span class="history-type-badge job">Job Record</span>'
               : '<span class="history-type-badge expense">Shop Expense</span>';
             const poCell = r.po
               ? `${esc(r.po)}${r.matched_source_table ? `<div class="history-po-match">✓ matched job</div>` : ''}`
@@ -932,8 +939,21 @@
 
   function updateInvoiceTypeFields() {
     const type = document.getElementById('invTypeInput').value;
-    document.getElementById('invPartsFields').style.display = type === 'parts_vendor' ? 'block' : 'none';
+    // PO/RO lookup against parts_orders is shared by Parts/Vendor and
+    // Repair Invoice — both link back to a job/vehicle by PO#. Line
+    // item Description/Part Number only make sense for a vendor bill.
+    document.getElementById('invPoWrap').style.display = (type === 'parts_vendor' || type === 'repair_invoice') ? 'block' : 'none';
+    document.getElementById('invLineItemFields').style.display = type === 'parts_vendor' ? 'block' : 'none';
     document.getElementById('invExpenseFields').style.display = type === 'shop_expense' ? 'block' : 'none';
+
+    // Repair Invoice / Job Record is Lee Transmission's own bill to
+    // the customer, not a vendor bill — Vendor isn't really meaningful
+    // here, so default it (without clobbering anything already typed
+    // or auto-detected) rather than making her fill in the shop's own name.
+    if (type === 'repair_invoice') {
+      const vendorInput = document.getElementById('invVendorInput');
+      if (!vendorInput.value.trim()) vendorInput.value = 'Lee Transmission';
+    }
   }
   document.getElementById('invTypeInput').addEventListener('change', updateInvoiceTypeFields);
 
@@ -1055,8 +1075,10 @@
     const invoice_date = document.getElementById('invDateInput').value || null;
     const notes = document.getElementById('invNotesInput').value.trim();
 
-    if (!invoice_type) { errEl.textContent = 'Choose Parts/Vendor or Shop Expense.'; return; }
-    if (!vendor) { errEl.textContent = 'Vendor is required.'; return; }
+    if (!invoice_type) { errEl.textContent = 'Choose a type.'; return; }
+    // Repair Invoice / Job Record is Lee Transmission's own bill, not a
+    // vendor — Vendor is pre-filled but not required for this type.
+    if (invoice_type !== 'repair_invoice' && !vendor) { errEl.textContent = 'Vendor is required.'; return; }
     if (amountRaw && isNaN(amount)) { errEl.textContent = 'Amount must be a number.'; return; }
     if (!invoice_date) { errEl.textContent = 'Date is required.'; return; }
     if (invoice_type === 'shop_expense' && !document.getElementById('invCategoryInput').value) {
@@ -1066,7 +1088,7 @@
     const payload = {
       status: 'processed',
       invoice_type,
-      vendor,
+      vendor: vendor || null,
       amount,
       invoice_date,
       notes: notes || null,
@@ -1082,6 +1104,16 @@
       payload.category = null;
       payload.description = document.getElementById('invDescriptionInput').value.trim() || null;
       payload.part_number = document.getElementById('invPartNumberInput').value.trim() || null;
+    } else if (invoice_type === 'repair_invoice') {
+      // Same PO/RO linkage as Parts/Vendor — this is revenue
+      // documentation for a job, not a cost, so no category and no
+      // line-item description/part number (those are vendor-bill concepts).
+      payload.po = document.getElementById('invPoInput').value.trim() || null;
+      payload.matched_source_table = detailMatchedTable;
+      payload.matched_source_id = detailMatchedId;
+      payload.category = null;
+      payload.description = null;
+      payload.part_number = null;
     } else {
       payload.category = document.getElementById('invCategoryInput').value || null;
       payload.po = null;
@@ -1096,7 +1128,9 @@
     btn.textContent = 'Saving…';
 
     const yyyyMm = invoice_date.slice(0, 7);
-    const folder = invoice_type === 'parts_vendor' ? slugifyVendor(vendor) : 'shop-expenses';
+    const folder = invoice_type === 'parts_vendor' ? slugifyVendor(vendor)
+      : invoice_type === 'repair_invoice' ? 'repair-invoices'
+      : 'shop-expenses';
     const ext = (detailInvoice.image_path.split('.').pop() || 'jpg').toLowerCase();
     const oldPath = detailInvoice.image_path;
     const newPath = `${folder}/${yyyyMm}/${detailInvoice.id}.${ext}`;
