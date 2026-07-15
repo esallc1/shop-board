@@ -225,6 +225,101 @@
   .parts-order-match-item strong { display: block; }
   .parts-order-match-item .meta { color: var(--muted); font-size: 0.75rem; }
 
+  /* ══════════════════════════════════
+     OVERVIEW
+  ══════════════════════════════════ */
+  .ov-alert {
+    border-radius: var(--radius); padding: 14px 18px; margin-bottom: 18px;
+    font-size: 0.85rem; display: flex; flex-direction: column; gap: 5px;
+  }
+  .ov-alert.attention { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+  .ov-alert.calm { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+  .ov-alert-title { font-weight: 800; font-size: 0.9rem; }
+  .ov-alert-line { font-weight: 600; }
+
+  .ov-cards {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr));
+    gap: 14px; margin-bottom: 18px;
+  }
+  .ov-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+  .ov-card.clickable { cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; }
+  .ov-card.clickable:hover { box-shadow: 0 6px 18px rgba(0,0,0,0.1); transform: translateY(-2px); }
+  .ov-card-label {
+    font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.8px;
+    color: var(--muted); font-weight: 700; margin-bottom: 8px;
+  }
+  .ov-card-value { font-size: 1.5rem; font-weight: 800; color: var(--text); line-height: 1.1; }
+  .ov-card-sub { font-size: 0.72rem; color: var(--muted); margin-top: 5px; }
+  .ov-card-split { display: flex; gap: 16px; }
+  .ov-card-split > div { flex: 1; min-width: 0; }
+  .ov-card-split .ov-card-value { font-size: 1.15rem; }
+
+  .ov-core-hero { font-size: 1.35rem; font-weight: 800; color: var(--text); margin-bottom: 14px; }
+  .ov-core-list, .ov-returned-list { display: flex; flex-direction: column; gap: 8px; }
+  .ov-core-empty { color: var(--muted); font-size: 0.85rem; padding: 14px; text-align: center; }
+  .ov-core-row {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+  }
+  .ov-core-row.returned { opacity: 0.72; }
+  .ov-core-info { flex: 1; min-width: 0; }
+  .ov-core-label { font-size: 0.85rem; font-weight: 700; color: var(--text); }
+  .ov-core-meta { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+  .ov-core-amt { font-size: 0.95rem; font-weight: 800; color: var(--text); white-space: nowrap; }
+  .ov-core-btn { flex-shrink: 0; }
+  .ov-returned-toggle {
+    margin-top: 14px; background: transparent; border: none; color: var(--accent);
+    font-weight: 700; font-size: 0.8rem; cursor: pointer; padding: 4px 0;
+  }
+  .ov-returned-list { margin-top: 10px; }
+
+  /* ══════════════════════════════════
+     CORES editor (inside detail/edit modal)
+  ══════════════════════════════════ */
+  .cores-section {
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px;
+    background: var(--surface-2); margin-bottom: 14px;
+  }
+  .cores-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .cores-section-head label {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--muted); font-weight: 700;
+  }
+  .cores-add-btn {
+    background: var(--accent); color: #fff; border: none; border-radius: 6px;
+    padding: 5px 10px; font-size: 0.75rem; font-weight: 700; cursor: pointer;
+  }
+  .cores-add-btn:hover { opacity: 0.9; }
+  .cores-hint { font-size: 0.72rem; color: var(--muted); margin-bottom: 10px; }
+  .cores-empty { font-size: 0.78rem; color: var(--muted); padding: 6px 0; }
+  .cores-list { display: flex; flex-direction: column; gap: 8px; }
+  .core-line { display: flex; align-items: center; gap: 8px; }
+  .core-line input {
+    padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 0.82rem; font-family: inherit; color: var(--text); background: #fff;
+  }
+  .core-line .core-amount-input { width: 100px; flex-shrink: 0; }
+  .core-line .core-label-input { flex: 1; min-width: 0; }
+  .core-remove-btn {
+    width: 28px; height: 28px; flex-shrink: 0; border-radius: 6px;
+    border: 1px solid var(--border); background: #fff; color: var(--muted);
+    font-size: 1.1rem; line-height: 1; cursor: pointer;
+  }
+  .core-remove-btn:hover { color: #dc2626; border-color: #dc2626; }
+  .core-line.returned {
+    justify-content: space-between; padding: 8px 10px;
+    border: 1px solid var(--border); border-radius: 6px; background: #fff;
+  }
+  .core-static-amount { font-weight: 800; font-size: 0.85rem; white-space: nowrap; }
+  .core-static-label { flex: 1; margin: 0 10px; font-size: 0.82rem; color: var(--text); word-break: break-word; }
+  .core-returned-badge {
+    font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 2px 8px; border-radius: 10px; background: #dcfce7; color: #166534; flex-shrink: 0;
+  }
+
   /* ── Team Chat, Kiki widget, and the sidebar-drawer mobile treatment
      are all in the shared shell now. Only the bookkeeping-specific
      mobile override (invoice grid column width) stays local. ── */
@@ -277,7 +372,8 @@
     <div class="sidebar-scroll">
       <div class="sidebar-group">
         <div class="sidebar-group-label">Main</div>
-        <div class="sidebar-item active" data-view="queue" data-label="Unprocessed Invoices"><span class="icon">🧾</span>Unprocessed Invoices</div>
+        <div class="sidebar-item" data-view="overview" data-label="Overview"><span class="icon">📊</span>Overview</div>
+        <div class="sidebar-item" data-view="queue" data-label="Unprocessed Invoices"><span class="icon">🧾</span>Unprocessed Invoices</div>
         <div class="sidebar-item" data-view="history" data-label="History"><span class="icon">📚</span>History</div>
         <div class="sidebar-item" data-view="capture" data-label="Capture Invoice"><span class="icon">📸</span>Capture Invoice</div>
         <div class="sidebar-item" data-view="todo" data-label="To-Do"><span class="icon">✅</span>To-Do</div>
@@ -299,8 +395,23 @@
 
     <div class="content">
 
+  <!-- ══ OVERVIEW — at-a-glance dashboard, default landing tab ══ -->
+  <div class="view" id="view-overview">
+    <div class="ov-alert" id="ovAlert" style="display:none"></div>
+    <div class="ov-cards" id="ovCards"></div>
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--amber)"></div>Core Bank</div>
+      <div class="ov-core-hero" id="ovCoreHero">Outstanding Cores: $0.00</div>
+      <div class="ov-core-list" id="ovCoreList">
+        <div class="ov-core-empty">Loading…</div>
+      </div>
+      <button type="button" class="ov-returned-toggle" id="ovReturnedToggle" style="display:none">▸ Returned cores</button>
+      <div class="ov-returned-list" id="ovReturnedList" style="display:none"></div>
+    </div>
+  </div>
+
   <!-- ══ UNPROCESSED INVOICES QUEUE ══ -->
-  <div class="view active" id="view-queue">
+  <div class="view" id="view-queue">
     <div class="card">
       <div class="card-title"><div class="dot" style="background:var(--amber)"></div>Unprocessed Invoices</div>
       <div class="invoice-grid" id="invoice-queue-grid">
@@ -460,6 +571,20 @@
       <textarea id="invNotesInput" placeholder="Notes…"></textarea>
     </div>
 
+    <!-- Cores — Parts/Vendor only. Tracked separately from the invoice
+         amount; never modifies it. Returned cores show a badge and are
+         read-only to protect the returned state. -->
+    <div id="invCoresWrap" style="display:none">
+      <div class="cores-section">
+        <div class="cores-section-head">
+          <label>Cores</label>
+          <button type="button" class="cores-add-btn" id="invCoresAddBtn">+ Add core</button>
+        </div>
+        <div class="cores-hint">Refundable core deposits on this invoice. Tracked separately — they don't change the invoice amount. You'll get reminded to return them from the Overview tab.</div>
+        <div class="cores-list" id="invCoresList"></div>
+      </div>
+    </div>
+
     <div class="intake-form-error" id="invDetailError"></div>
     <button class="modal-btn" id="invConfirmBtn">Confirm</button>
     <button class="modal-btn sec" id="invCancelBtn">Cancel</button>
@@ -505,6 +630,11 @@
   let currentViewKey = 'queue';
 
   function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  // Attribute-safe escape — for values placed inside an HTML value="…" attr.
+  function escAttr(s) { return esc(s).replace(/"/g, '&quot;'); }
+  function fmtMoney(n) {
+    return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
   function formatDateTime(iso) {
     if (!iso) return '';
     return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -515,18 +645,37 @@
   let CHAT_IDENTITY = { name: null, role: null };
   let CURRENT_EMPLOYEE_ID = null;
 
-  // ── Sidebar navigation
+  // ── Sidebar navigation. Selected tab is remembered in sessionStorage
+  // (per browser tab) so a refresh restores the last view; when nothing
+  // is stored yet, boot defaults to Overview (see activateInitialView).
+  const TAB_KEY = 'bookkeepingBoardTab';
+
+  function activateView(view) {
+    const item = document.querySelector(`.sidebar-item[data-view="${view}"]`);
+    if (!item) return;
+    document.querySelectorAll('.sidebar-item[data-view]').forEach(i => i.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    item.classList.add('active');
+    document.getElementById('view-' + view).classList.add('active');
+    document.getElementById('viewTopbarTitle').textContent = item.dataset.label || item.textContent.trim();
+    currentViewKey = view;
+    try { sessionStorage.setItem(TAB_KEY, view); } catch (e) {}
+    if (view === 'overview') loadOverview(); // always fetch fresh on open
+    closeMobileNav(); // no-op on desktop; on mobile, picking a view closes the drawer
+  }
+
   document.querySelectorAll('.sidebar-item[data-view]').forEach(item => {
-    item.addEventListener('click', () => {
-      document.querySelectorAll('.sidebar-item[data-view]').forEach(i => i.classList.remove('active'));
-      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-      item.classList.add('active');
-      document.getElementById('view-' + item.dataset.view).classList.add('active');
-      document.getElementById('viewTopbarTitle').textContent = item.dataset.label || item.textContent.trim();
-      currentViewKey = item.dataset.view;
-      closeMobileNav(); // no-op on desktop; on mobile, picking a view closes the drawer
-    });
+    item.addEventListener('click', () => activateView(item.dataset.view));
   });
+
+  // Default to Overview only when there's no stored tab; a refresh
+  // restores whatever was last open.
+  function activateInitialView() {
+    let stored = null;
+    try { stored = sessionStorage.getItem(TAB_KEY); } catch (e) {}
+    const valid = stored && document.querySelector(`.sidebar-item[data-view="${stored}"]`);
+    activateView(valid ? stored : 'overview');
+  }
 
   // ── Mobile nav drawer (hamburger + backdrop). Inert on desktop —
   // the CSS driving .sidebar.open only exists inside the ≤768px
@@ -737,6 +886,11 @@
       .on('postgres_changes', { event: '*', schema: 'public', table: 'invoice_queue' }, () => {
         loadInvoiceQueue();
         loadHistory();
+        if (currentViewKey === 'overview') loadOverview(); // keeps the unprocessed count + spend live
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'core_charges' }, () => {
+        // Core Bank total/list + alert banner update live for everyone.
+        if (currentViewKey === 'overview') loadOverview();
       })
       .subscribe();
   }
@@ -1094,6 +1248,145 @@
   // with processed_at/processed_by and which list it refreshes after save.
   let isEditingHistoryRow = false;
 
+  // ── CORES editor state (Parts/Vendor only). Each entry:
+  //   { id, amount, label, returned, returned_at }
+  // id is null for a not-yet-saved line. Returned cores are read-only
+  // and never edited/removed here — the returned state is protected.
+  // coresOriginal snapshots what was loaded on an edit so save can diff
+  // (update kept / insert new / delete removed) — never touching a
+  // returned row.
+  let coreEditState = [];
+  let coresOriginal = [];
+
+  function coresEditableLineHtml(c, i) {
+    if (c.returned) {
+      return `<div class="core-line returned">
+        <div class="core-static-amount">${fmtMoney(c.amount)}</div>
+        <div class="core-static-label">${esc(c.label || 'Core')}</div>
+        <span class="core-returned-badge">Returned</span>
+      </div>`;
+    }
+    return `<div class="core-line" data-idx="${i}">
+      <input type="number" class="core-amount-input" min="0" step="0.01" placeholder="0.00" value="${c.amount != null && c.amount !== '' ? escAttr(String(c.amount)) : ''}">
+      <input type="text" class="core-label-input" placeholder="e.g. reman alternator core" value="${escAttr(c.label || '')}">
+      <button type="button" class="core-remove-btn" data-idx="${i}" title="Remove core" aria-label="Remove core">&times;</button>
+    </div>`;
+  }
+
+  function renderCoresEditor() {
+    const list = document.getElementById('invCoresList');
+    if (coreEditState.length === 0) {
+      list.innerHTML = '<div class="cores-empty">No cores on this invoice.</div>';
+      return;
+    }
+    list.innerHTML = coreEditState.map((c, i) => coresEditableLineHtml(c, i)).join('');
+    list.querySelectorAll('.core-remove-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        syncCoresFromDom();
+        coreEditState.splice(Number(btn.dataset.idx), 1);
+        renderCoresEditor();
+      });
+    });
+  }
+
+  // Pull the currently-typed amount/label back into coreEditState before
+  // any structural change (add/remove) re-renders the list, so in-progress
+  // input isn't lost. Returned lines have no inputs and are left alone.
+  function syncCoresFromDom() {
+    document.querySelectorAll('#invCoresList .core-line[data-idx]').forEach(line => {
+      const i = Number(line.dataset.idx);
+      if (!coreEditState[i] || coreEditState[i].returned) return;
+      coreEditState[i].amount = line.querySelector('.core-amount-input').value;
+      coreEditState[i].label = line.querySelector('.core-label-input').value;
+    });
+  }
+
+  document.getElementById('invCoresAddBtn').addEventListener('click', () => {
+    syncCoresFromDom();
+    coreEditState.push({ id: null, amount: '', label: '', returned: false, returned_at: null });
+    renderCoresEditor();
+    // focus the new amount input for fast entry
+    const lines = document.querySelectorAll('#invCoresList .core-line[data-idx] .core-amount-input');
+    if (lines.length) lines[lines.length - 1].focus();
+  });
+
+  async function loadCoresForInvoice(invoiceId) {
+    const { data, error } = await db.from('core_charges').select('*')
+      .eq('invoice_queue_id', invoiceId)
+      .order('charged_date', { ascending: true });
+    if (error) { console.error('[Cores] load failed', error); return []; }
+    return data || [];
+  }
+
+  // Returns an error string if cores are invalid, else null. Existing
+  // (saved) cores must keep a valid amount — clearing one is ambiguous,
+  // so we tell her to use × instead. New blank lines are simply skipped.
+  function validateCores() {
+    syncCoresFromDom();
+    for (const c of coreEditState) {
+      if (c.returned) continue;
+      const amt = parseFloat(c.amount);
+      const hasAmt = c.amount !== '' && c.amount != null && !isNaN(amt);
+      const hasLabel = (c.label || '').trim() !== '';
+      if (c.id) {
+        if (!hasAmt || amt <= 0) return 'Existing cores need an amount greater than 0 — use × to remove one instead of clearing it.';
+      } else {
+        if (!hasAmt && !hasLabel) continue; // empty new line — ignored
+        if (!hasAmt || amt <= 0) return 'Each core needs an amount greater than 0.';
+      }
+    }
+    return null;
+  }
+
+  // Persist cores after the invoice_queue row is saved. meta carries the
+  // vendor/po/charged_date inherited from the invoice. Throws on the first
+  // DB error so the caller can surface it.
+  async function persistCores(invoiceId, meta) {
+    syncCoresFromDom();
+    const clean = coreEditState.map(c => ({
+      id: c.id,
+      returned: c.returned,
+      amount: (c.amount === '' || c.amount == null) ? NaN : parseFloat(c.amount),
+      label: (c.label || '').trim(),
+    }));
+
+    const inserts = clean
+      .filter(c => !c.id && !c.returned && !isNaN(c.amount) && c.amount > 0)
+      .map(c => ({
+        invoice_queue_id: invoiceId,
+        amount: c.amount,
+        label: c.label || null,
+        vendor: meta.vendor || null,
+        po: meta.po || null,
+        charged_date: meta.charged_date || null,
+        returned: false,
+      }));
+
+    const ops = [];
+    if (inserts.length) ops.push(db.from('core_charges').insert(inserts));
+
+    if (isEditingHistoryRow) {
+      // Update kept, unreturned cores. The .eq('returned', false) guard
+      // makes sure we never overwrite a row that got marked returned
+      // elsewhere between load and save.
+      clean.filter(c => c.id && !c.returned && !isNaN(c.amount) && c.amount > 0).forEach(c => {
+        ops.push(db.from('core_charges')
+          .update({ amount: c.amount, label: c.label || null })
+          .eq('id', c.id).eq('returned', false));
+      });
+      // Delete unreturned originals that were removed via ×.
+      const currentIds = new Set(clean.filter(c => c.id).map(c => c.id));
+      coresOriginal.filter(o => !o.returned && !currentIds.has(o.id)).forEach(o => {
+        ops.push(db.from('core_charges').delete().eq('id', o.id).eq('returned', false));
+      });
+    }
+
+    if (!ops.length) return;
+    const results = await Promise.all(ops);
+    const bad = results.find(r => r && r.error);
+    if (bad && bad.error) throw bad.error;
+  }
+
   async function openInvoiceDetail(id) {
     const row = invoiceQueueRows.find(r => String(r.id) === String(id));
     if (!row) return;
@@ -1128,6 +1421,9 @@
     const statusEl = document.getElementById('autoDetectStatus');
     statusEl.style.display = 'none';
     statusEl.textContent = '';
+    coreEditState = [];
+    coresOriginal = [];
+    renderCoresEditor();
     updateInvoiceTypeFields();
     loadVendorSuggestions();
 
@@ -1183,6 +1479,9 @@
       document.getElementById(badgeId).style.display = 'none';
     });
     document.getElementById('autoDetectStatus').style.display = 'none';
+    coreEditState = [];
+    coresOriginal = [];
+    renderCoresEditor();
     updateInvoiceTypeFields();
     loadVendorSuggestions();
 
@@ -1198,6 +1497,20 @@
     // whatever PO# is already on the row.
     if (row.invoice_type === 'parts_vendor' && row.po) {
       runPartsOrderMatch(row.po);
+    }
+    // Load existing cores for a Parts/Vendor invoice. Returned ones
+    // come back read-only (badge + protected); unreturned are editable.
+    if (row.invoice_type === 'parts_vendor') {
+      const cores = await loadCoresForInvoice(row.id);
+      // Guard against the modal having moved on to another invoice.
+      if (detailInvoice && String(detailInvoice.id) === String(row.id)) {
+        coresOriginal = cores;
+        coreEditState = cores.map(c => ({
+          id: c.id, amount: c.amount, label: c.label,
+          returned: c.returned, returned_at: c.returned_at,
+        }));
+        renderCoresEditor();
+      }
     }
   }
 
@@ -1378,6 +1691,8 @@
     document.getElementById('invoiceDetailModal').style.display = 'none';
     detailInvoice = null;
     isEditingHistoryRow = false;
+    coreEditState = [];
+    coresOriginal = [];
   }
 
   function updateInvoiceTypeFields() {
@@ -1388,6 +1703,8 @@
     document.getElementById('invPoWrap').style.display = (type === 'parts_vendor' || type === 'repair_invoice') ? 'block' : 'none';
     document.getElementById('invLineItemFields').style.display = type === 'parts_vendor' ? 'block' : 'none';
     document.getElementById('invExpenseFields').style.display = type === 'shop_expense' ? 'block' : 'none';
+    // Cores are a Parts/Vendor concept only — never Shop Expense or Repair Invoice.
+    document.getElementById('invCoresWrap').style.display = type === 'parts_vendor' ? 'block' : 'none';
 
     // Repair Invoice / Job Record is Lee Transmission's own bill to
     // the customer, not a vendor bill — Vendor isn't really meaningful
@@ -1527,6 +1844,11 @@
     if (invoice_type === 'shop_expense' && !document.getElementById('invCategoryInput').value) {
       errEl.textContent = 'Choose a category.'; return;
     }
+    // Cores (Parts/Vendor only) — validate before we touch the DB.
+    if (invoice_type === 'parts_vendor') {
+      const coreErr = validateCores();
+      if (coreErr) { errEl.textContent = coreErr; return; }
+    }
 
     const payload = {
       status: 'processed',
@@ -1603,11 +1925,11 @@
     }
 
     const { error } = await db.from('invoice_queue').update(payload).eq('id', detailInvoice.id);
-    btn.disabled = false;
-    btn.textContent = btnDefaultText;
 
     if (error) {
       console.error('[Invoices] confirm failed', error);
+      btn.disabled = false;
+      btn.textContent = btnDefaultText;
       // Best-effort rollback so the row's image_path doesn't end up
       // pointing at a file that no longer exists at the old location.
       if (newPath !== oldPath) {
@@ -1617,14 +1939,217 @@
       return;
     }
 
+    // Cores (Parts/Vendor only) — AFTER the invoice row is processed and
+    // the file move succeeded. Never modifies the invoice amount; cores
+    // are tracked separately. A core failure here doesn't un-process the
+    // invoice — surface it and let her fix cores from History → Edit,
+    // rather than rolling the whole invoice back.
+    if (invoice_type === 'parts_vendor') {
+      try {
+        await persistCores(detailInvoice.id, { vendor, po: payload.po, charged_date: invoice_date });
+      } catch (coreErr) {
+        console.error('[Cores] save failed', coreErr);
+        btn.disabled = false;
+        btn.textContent = btnDefaultText;
+        alert('The invoice was saved, but its cores could not be saved: ' + (coreErr.message || 'unknown error') + '\n\nYou can add or fix them from History → Edit.');
+        closeInvoiceDetail();
+        if (isEditingHistoryRow) loadHistory(); else loadInvoiceQueue();
+        if (currentViewKey === 'overview') loadOverview();
+        return;
+      }
+    }
+
+    btn.disabled = false;
+    btn.textContent = btnDefaultText;
+
     closeInvoiceDetail();
     if (isEditingHistoryRow) loadHistory();
     else loadInvoiceQueue();
+    if (currentViewKey === 'overview') loadOverview();
   }
 
   document.getElementById('invConfirmBtn').addEventListener('click', confirmInvoiceDetail);
   document.getElementById('invCancelBtn').addEventListener('click', closeInvoiceDetail);
   document.getElementById('closeInvoiceDetailModal').addEventListener('click', closeInvoiceDetail);
+
+  // ══════════════════════════════════════════════════════════════
+  // OVERVIEW — at-a-glance dashboard + Core Bank. Default landing tab.
+  // Pulls three things: the unprocessed count, every core charge, and
+  // the processed invoices used for spend totals (repair_invoice
+  // excluded — that's revenue archival, not a cost). Refetched on open
+  // and live via the core_charges / invoice_queue realtime subscription.
+  // ══════════════════════════════════════════════════════════════
+  let overviewCores = [];
+  let returnedOpen = false;
+
+  async function loadOverview() {
+    let unprocessedCount = 0, cores = [], processed = [];
+    try {
+      const [countRes, coresRes, spendRes] = await Promise.all([
+        db.from('invoice_queue').select('id', { count: 'exact', head: true }).eq('status', 'unprocessed'),
+        db.from('core_charges').select('*').order('charged_date', { ascending: true }),
+        db.from('invoice_queue').select('invoice_type,amount,invoice_date').eq('status', 'processed'),
+      ]);
+      if (countRes.error) throw countRes.error;
+      if (coresRes.error) throw coresRes.error;
+      if (spendRes.error) throw spendRes.error;
+      unprocessedCount = countRes.count || 0;
+      cores = coresRes.data || [];
+      processed = spendRes.data || [];
+    } catch (err) {
+      console.error('[Overview] load failed', err);
+    }
+
+    const outstanding = cores.filter(c => !c.returned);
+    const outstandingTotal = outstanding.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+
+    renderOverviewAlert(unprocessedCount, outstandingTotal, outstanding.length);
+    renderOverviewCards(unprocessedCount, outstanding, outstandingTotal, processed);
+    renderCoreBank(cores);
+  }
+
+  function renderOverviewAlert(unprocessedCount, outstandingTotal, outstandingCount) {
+    const el = document.getElementById('ovAlert');
+    const lines = [];
+    if (unprocessedCount > 0) {
+      lines.push(`${unprocessedCount} invoice${unprocessedCount === 1 ? '' : 's'} waiting to be processed`);
+    }
+    if (outstandingTotal > 0) {
+      lines.push(`${fmtMoney(outstandingTotal)} in cores not yet returned — remind Josh or Kevin to take them back`);
+    }
+    if (lines.length === 0) {
+      el.className = 'ov-alert calm';
+      el.innerHTML = `<div class="ov-alert-title">✓ All caught up</div><div class="ov-alert-line">No invoices waiting and no cores outstanding.</div>`;
+    } else {
+      el.className = 'ov-alert attention';
+      el.innerHTML = `<div class="ov-alert-title">⚠ Needs attention</div>` +
+        lines.map(l => `<div class="ov-alert-line">${esc(l)}</div>`).join('');
+    }
+    el.style.display = 'flex';
+  }
+
+  function renderOverviewCards(unprocessedCount, outstanding, outstandingTotal, processed) {
+    // "This week" = last 7 days by invoice_date (today + prior 6).
+    // "This month" = current calendar month by invoice_date. Local dates
+    // throughout to match how the app stamps invoice_date.
+    const now = new Date();
+    const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const inWeek = d => { if (!d) return false; const dt = new Date(d + 'T00:00:00'); return dt >= cutoff; };
+    const inMonth = d => !!d && d.slice(0, 7) === ym;
+
+    let weekParts = 0, weekExp = 0, monthParts = 0, monthExp = 0;
+    processed.forEach(r => {
+      if (r.invoice_type === 'repair_invoice') return; // revenue, not a cost
+      const amt = Number(r.amount) || 0;
+      if (inWeek(r.invoice_date)) {
+        if (r.invoice_type === 'parts_vendor') weekParts += amt;
+        else if (r.invoice_type === 'shop_expense') weekExp += amt;
+      }
+      if (inMonth(r.invoice_date)) {
+        if (r.invoice_type === 'parts_vendor') monthParts += amt;
+        else if (r.invoice_type === 'shop_expense') monthExp += amt;
+      }
+    });
+
+    const coreCountLabel = outstanding.length === 1 ? '1 core outstanding' : `${outstanding.length} cores outstanding`;
+    document.getElementById('ovCards').innerHTML = `
+      <div class="ov-card clickable" data-nav="queue">
+        <div class="ov-card-label">Unprocessed Invoices</div>
+        <div class="ov-card-value">${unprocessedCount}</div>
+        <div class="ov-card-sub">${unprocessedCount > 0 ? 'Tap to process →' : 'Nothing waiting'}</div>
+      </div>
+      <div class="ov-card">
+        <div class="ov-card-label">Core Bank</div>
+        <div class="ov-card-value">${fmtMoney(outstandingTotal)}</div>
+        <div class="ov-card-sub">${coreCountLabel}</div>
+      </div>
+      <div class="ov-card">
+        <div class="ov-card-label">This Week</div>
+        <div class="ov-card-split">
+          <div><div class="ov-card-value">${fmtMoney(weekParts)}</div><div class="ov-card-sub">Parts / Vendor</div></div>
+          <div><div class="ov-card-value">${fmtMoney(weekExp)}</div><div class="ov-card-sub">Shop Expenses</div></div>
+        </div>
+      </div>
+      <div class="ov-card">
+        <div class="ov-card-label">This Month</div>
+        <div class="ov-card-split">
+          <div><div class="ov-card-value">${fmtMoney(monthParts)}</div><div class="ov-card-sub">Parts / Vendor</div></div>
+          <div><div class="ov-card-value">${fmtMoney(monthExp)}</div><div class="ov-card-sub">Shop Expenses</div></div>
+        </div>
+      </div>`;
+
+    document.querySelectorAll('#ovCards .ov-card[data-nav]').forEach(card => {
+      card.addEventListener('click', () => activateView(card.dataset.nav));
+    });
+  }
+
+  function coreRowHtml(c, isReturned) {
+    const meta = [c.vendor, c.po ? 'PO #' + c.po : '', c.charged_date]
+      .filter(Boolean).map(esc).join(' · ');
+    const returnedNote = isReturned && c.returned_at ? ` · returned ${esc(formatDateTime(c.returned_at))}` : '';
+    return `<div class="ov-core-row${isReturned ? ' returned' : ''}">
+      <div class="ov-core-info">
+        <div class="ov-core-label">${esc(c.label || 'Core')}</div>
+        <div class="ov-core-meta">${meta || '—'}${returnedNote}</div>
+      </div>
+      <div class="ov-core-amt">${fmtMoney(c.amount)}</div>
+      ${isReturned
+        ? `<button type="button" class="btn btn-ghost ov-core-btn" data-undo="${esc(c.id)}">Undo</button>`
+        : `<button type="button" class="btn btn-green ov-core-btn" data-return="${esc(c.id)}">Mark Returned</button>`}
+    </div>`;
+  }
+
+  function renderCoreBank(cores) {
+    overviewCores = cores;
+    const outstanding = cores.filter(c => !c.returned)
+      .sort((a, b) => (a.charged_date || '').localeCompare(b.charged_date || '')); // oldest first
+    const returned = cores.filter(c => c.returned)
+      .sort((a, b) => (b.returned_at || '').localeCompare(a.returned_at || '')); // most recently returned first
+    const total = outstanding.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+
+    document.getElementById('ovCoreHero').textContent = 'Outstanding Cores: ' + fmtMoney(total);
+
+    const list = document.getElementById('ovCoreList');
+    list.innerHTML = outstanding.length === 0
+      ? '<div class="ov-core-empty">No core debt — all cores returned.</div>'
+      : outstanding.map(c => coreRowHtml(c, false)).join('');
+
+    const toggle = document.getElementById('ovReturnedToggle');
+    const rlist = document.getElementById('ovReturnedList');
+    if (returned.length === 0) {
+      toggle.style.display = 'none';
+      rlist.style.display = 'none';
+      rlist.innerHTML = '';
+    } else {
+      toggle.style.display = 'block';
+      toggle.textContent = `${returnedOpen ? '▾' : '▸'} Returned cores (${returned.length})`;
+      rlist.style.display = returnedOpen ? 'flex' : 'none';
+      rlist.innerHTML = returned.slice(0, 50).map(c => coreRowHtml(c, true)).join('');
+    }
+
+    list.querySelectorAll('[data-return]').forEach(b => b.addEventListener('click', () => markCoreReturned(b.dataset.return)));
+    rlist.querySelectorAll('[data-undo]').forEach(b => b.addEventListener('click', () => undoCoreReturn(b.dataset.undo)));
+  }
+
+  async function markCoreReturned(id) {
+    const { error } = await db.from('core_charges')
+      .update({ returned: true, returned_at: new Date().toISOString() }).eq('id', id);
+    if (error) { console.error('[Cores] mark returned failed', error); alert('Could not mark returned: ' + error.message); return; }
+    loadOverview();
+  }
+
+  async function undoCoreReturn(id) {
+    const { error } = await db.from('core_charges')
+      .update({ returned: false, returned_at: null }).eq('id', id);
+    if (error) { console.error('[Cores] undo failed', error); alert('Could not undo: ' + error.message); return; }
+    loadOverview();
+  }
+
+  document.getElementById('ovReturnedToggle').addEventListener('click', () => {
+    returnedOpen = !returnedOpen;
+    renderCoreBank(overviewCores);
+  });
 
   // ══════════════════════════════════════════════════════════════
   // TO-DO — personal + assignable to-do list. Visible items: anything
@@ -2221,6 +2746,13 @@
       resubscribe: subscribeInvoiceQueue,
     };
 
+    // Overview shares the invoice_queue/core_charges realtime channel.
+    VIEW_REFRESH.overview = {
+      refetch: loadOverview,
+      getChannel: () => invoiceQueueChannel,
+      resubscribe: subscribeInvoiceQueue,
+    };
+
     renderChannelTabs();
     loadChatMessages(CURRENT_CHANNEL);
     subscribeChatChannel();
@@ -2242,6 +2774,10 @@
 
     initRefreshSafetyNet();
     initLogout();
+
+    // Land on the stored tab (refresh restores it) or Overview by default.
+    // Runs last so loadOverview() has its data-loading functions defined.
+    activateInitialView();
   }
 
   // ══════════════════════════════════════════════════════════════
