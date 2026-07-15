@@ -2087,7 +2087,9 @@
   function coreRowHtml(c, isReturned) {
     const meta = [c.vendor, c.po ? 'PO #' + c.po : '', c.charged_date]
       .filter(Boolean).map(esc).join(' · ');
-    const returnedNote = isReturned && c.returned_at ? ` · returned ${esc(formatDateTime(c.returned_at))}` : '';
+    const returnedNote = isReturned && c.returned_at
+      ? ` · Returned by ${esc(c.returned_by || 'someone')} • ${esc(formatDateTime(c.returned_at))}`
+      : '';
     return `<div class="ov-core-row${isReturned ? ' returned' : ''}">
       <div class="ov-core-info">
         <div class="ov-core-label">${esc(c.label || 'Core')}</div>
@@ -2133,15 +2135,18 @@
   }
 
   async function markCoreReturned(id) {
+    // returned_by = the current logged-in employee's display name (same
+    // value shown in the "Hi, X" greeting) — read dynamically, never hardcoded.
     const { error } = await db.from('core_charges')
-      .update({ returned: true, returned_at: new Date().toISOString() }).eq('id', id);
+      .update({ returned: true, returned_at: new Date().toISOString(), returned_by: CHAT_IDENTITY.name || null })
+      .eq('id', id);
     if (error) { console.error('[Cores] mark returned failed', error); alert('Could not mark returned: ' + error.message); return; }
     loadOverview();
   }
 
   async function undoCoreReturn(id) {
     const { error } = await db.from('core_charges')
-      .update({ returned: false, returned_at: null }).eq('id', id);
+      .update({ returned: false, returned_at: null, returned_by: null }).eq('id', id);
     if (error) { console.error('[Cores] undo failed', error); alert('Could not undo: ' + error.message); return; }
     loadOverview();
   }

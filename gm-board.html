@@ -122,6 +122,59 @@
   }
   .chart-wrap { position: relative; height: 150px; }
 
+  /* ── CORE BANK PANEL CARD ── */
+  .panel-grid { margin-bottom: 10px; }
+  .cb-card {
+    background: #ffffff;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    overflow: hidden;
+  }
+  .cb-head {
+    width: 100%;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 14px 16px;
+    background: none; border: none; cursor: pointer; text-align: left;
+    font-family: inherit;
+  }
+  .cb-head:hover { background: var(--surface-2); }
+  .cb-head-left { display: flex; align-items: center; gap: 10px; }
+  .cb-caret { color: #5b5ef4; font-size: 0.8rem; width: 12px; display: inline-block; }
+  .cb-title {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text); font-weight: 700;
+  }
+  .cb-head-right { display: flex; align-items: baseline; gap: 10px; }
+  .cb-total { font-size: 1.15rem; font-weight: 800; color: var(--text); letter-spacing: -0.5px; }
+  .cb-count { font-size: 0.7rem; color: var(--muted); font-weight: 600; }
+  .cb-body { padding: 0 16px 14px; border-top: 1px solid var(--border); }
+  .cb-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .cb-empty { color: var(--muted); font-size: 0.82rem; padding: 12px; text-align: center; }
+  .cb-row {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+  }
+  .cb-row.returned { opacity: 0.72; }
+  .cb-row-info { flex: 1; min-width: 0; }
+  .cb-row-label { font-size: 0.83rem; font-weight: 700; color: var(--text); }
+  .cb-row-meta { font-size: 0.7rem; color: var(--muted); margin-top: 2px; }
+  .cb-row-amt { font-size: 0.9rem; font-weight: 800; color: var(--text); white-space: nowrap; }
+  .cb-btn {
+    flex-shrink: 0; border-radius: 6px; padding: 6px 12px;
+    font-size: 0.72rem; font-weight: 700; cursor: pointer; font-family: inherit;
+    border: 1px solid transparent;
+  }
+  .cb-btn-return { background: #10b981; color: #fff; }
+  .cb-btn-return:hover { background: #059669; }
+  .cb-btn-undo { background: #fff; color: var(--muted); border-color: var(--border); }
+  .cb-btn-undo:hover { color: var(--text); border-color: #c5cadc; }
+  .cb-returned-toggle {
+    margin-top: 12px; background: none; border: none; color: #5b5ef4;
+    font-weight: 700; font-size: 0.76rem; cursor: pointer; padding: 4px 0; font-family: inherit;
+  }
+  .cb-returned { margin-top: 8px; }
+
   /* ── PLACEHOLDER CARDS ── */
   .placeholder-card {
     background: #ffffff;
@@ -996,6 +1049,7 @@
     <div id="overview-normal">
       <div class="kpi-row" id="ov-kpi-row"></div>
       <div class="chart-grid" id="ov-chart-grid"></div>
+      <div class="panel-grid" id="ov-panel-grid"></div>
     </div>
 
     <div id="overview-customize" style="display:none">
@@ -1342,6 +1396,13 @@
   const RO_AGING_THRESHOLD_DAYS_LABEL = RO_AGING_THRESHOLD_DAYS + '+ Days';
 
   const CARD_LIBRARY = [
+    // Core Bank is a rich panel card (its own render path, not a KPI/chart).
+    // forceDefaultOn: shown even for employees who already have a saved
+    // layout from before this card existed — the one exception to the
+    // "new cards never silently appear on" rule (see mergeOverviewLayout),
+    // so Kevin sees it without opening Customize.
+    { id: 'core_bank',            type: 'panel', label: 'Core Bank',                  group: 'Cores',             status: 'live', forceDefaultOn: true },
+
     { id: 'bay_utilization',      domId: 'bay', label: 'Bay Utilization',            group: 'Shop Floor',        status: 'live',       icon: '🔧', theme: 'kpi-gold'   },
     { id: 'open_repair_orders',   domId: 'ro',  label: 'Open Repair Orders',         group: 'Shop Floor',        status: 'live',       icon: '📋', theme: 'kpi-blue'   },
     { id: 'jobs_by_technician',   chart: true,  label: 'Jobs by Technician',         group: 'Shop Floor',        status: 'live'                                          },
@@ -1383,7 +1444,11 @@
   function mergeOverviewLayout(savedLayout) {
     const base = savedLayout === null ? DEFAULT_OVERVIEW_LAYOUT : savedLayout;
     const seen = new Set(base.map(e => e.card_id));
-    const missing = CARD_LIBRARY.filter(c => !seen.has(c.id)).map(c => ({ card_id: c.id, visible: false }));
+    // Newly-added library cards append hidden, EXCEPT forceDefaultOn cards
+    // (e.g. Core Bank) which append visible so they show up on an existing
+    // saved layout without the employee having to enable them. Once saved,
+    // the card is in `seen`, so this only ever forces it on the first time.
+    const missing = CARD_LIBRARY.filter(c => !seen.has(c.id)).map(c => ({ card_id: c.id, visible: !!c.forceDefaultOn }));
     return [...base, ...missing];
   }
 
@@ -1426,15 +1491,170 @@
 
     const kpiRow    = document.getElementById('ov-kpi-row');
     const chartGrid = document.getElementById('ov-chart-grid');
+    const panelGrid = document.getElementById('ov-panel-grid');
     if (!kpiRow || !chartGrid) return;
 
     // Chart.js instance is bound to the old canvas — destroy before the
     // skeleton rebuild removes that canvas from the DOM.
     if (techChart) { techChart.destroy(); techChart = null; }
 
-    kpiRow.innerHTML    = visibleCards.filter(c => !c.chart).map(kpiCardHTML).join('');
+    kpiRow.innerHTML    = visibleCards.filter(c => !c.chart && c.type !== 'panel').map(kpiCardHTML).join('');
     chartGrid.innerHTML = visibleCards.filter(c => c.chart).map(chartCardHTML).join('');
     chartGrid.style.display = chartGrid.innerHTML ? 'grid' : 'none';
+
+    if (panelGrid) {
+      panelGrid.innerHTML = visibleCards.filter(c => c.type === 'panel').map(panelCardHTML).join('');
+      panelGrid.style.display = panelGrid.innerHTML ? 'block' : 'none';
+      // Panel cards manage their own data/handlers; wire up any that rendered.
+      if (visibleCards.some(c => c.id === 'core_bank')) initCoreBankCard();
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // CORE BANK panel card — outstanding refundable core deposits from
+  // both boards (Bookkeeping stamps them at classify time). Read here,
+  // plus Mark Returned / Undo writes to core_charges (the only writes
+  // this otherwise read-only board makes). Realtime via gmSubscribeLive.
+  // ══════════════════════════════════════════════════════════════
+  let coreBankData = [];
+  let cbExpanded = false;      // collapsed tile <-> expanded body
+  let cbReturnedOpen = false;  // the nested "Returned" collapsible
+
+  function cbFmtMoney(n) {
+    return '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function cbFmtDate(iso) {
+    if (!iso) return '';
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function panelCardHTML(card) {
+    if (card.id !== 'core_bank') return '';
+    return `
+      <div class="cb-card" id="cbCard">
+        <button type="button" class="cb-head" id="cbHead" aria-expanded="false">
+          <span class="cb-head-left">
+            <span class="cb-caret" id="cbCaret">▸</span>
+            <span class="cb-title">Core Bank</span>
+          </span>
+          <span class="cb-head-right">
+            <span class="cb-total" id="cbTotal">—</span>
+            <span class="cb-count" id="cbCount"></span>
+          </span>
+        </button>
+        <div class="cb-body" id="cbBody" style="display:none">
+          <div class="cb-list" id="cbOutstanding"><div class="cb-empty">Loading…</div></div>
+          <button type="button" class="cb-returned-toggle" id="cbReturnedToggle" style="display:none">▸ Returned</button>
+          <div class="cb-list cb-returned" id="cbReturnedList" style="display:none"></div>
+        </div>
+      </div>`;
+  }
+
+  // Called on every skeleton rebuild (innerHTML replaces the elements, so
+  // handlers must be re-attached). Restores the expanded/returned state,
+  // repaints from cached data, then fetches fresh.
+  function initCoreBankCard() {
+    const head = document.getElementById('cbHead');
+    const body = document.getElementById('cbBody');
+    const caret = document.getElementById('cbCaret');
+    if (!head || !body || !caret) return;
+
+    body.style.display = cbExpanded ? 'block' : 'none';
+    caret.textContent = cbExpanded ? '▾' : '▸';
+    head.setAttribute('aria-expanded', cbExpanded ? 'true' : 'false');
+    head.onclick = () => {
+      cbExpanded = !cbExpanded;
+      body.style.display = cbExpanded ? 'block' : 'none';
+      caret.textContent = cbExpanded ? '▾' : '▸';
+      head.setAttribute('aria-expanded', cbExpanded ? 'true' : 'false');
+    };
+
+    const rt = document.getElementById('cbReturnedToggle');
+    rt.onclick = () => { cbReturnedOpen = !cbReturnedOpen; renderCoreBank(); };
+
+    renderCoreBank(); // paint from whatever's cached (may be empty on first paint)
+    loadCoreBank();   // then refresh from the DB
+  }
+
+  async function loadCoreBank() {
+    const { data, error } = await db.from('core_charges').select('*');
+    if (error) { console.error('[CoreBank] load failed', error); return; }
+    coreBankData = data || [];
+    renderCoreBank();
+  }
+
+  function coreBankRowHTML(c, isReturned) {
+    const meta = [c.vendor, c.po ? 'PO #' + c.po : '', c.charged_date]
+      .filter(Boolean).map(esc).join(' • ');
+    const retNote = `Returned by ${esc(c.returned_by || 'someone')} • ${esc(cbFmtDate(c.returned_at))}`;
+    return `<div class="cb-row${isReturned ? ' returned' : ''}">
+      <div class="cb-row-info">
+        <div class="cb-row-label">${esc(c.label || 'Core')}</div>
+        <div class="cb-row-meta">${isReturned ? retNote : (meta || '—')}</div>
+      </div>
+      <div class="cb-row-amt">${cbFmtMoney(c.amount)}</div>
+      ${isReturned
+        ? `<button type="button" class="cb-btn cb-btn-undo" data-cb-undo="${esc(c.id)}">Undo</button>`
+        : `<button type="button" class="cb-btn cb-btn-return" data-cb-return="${esc(c.id)}">Mark Returned</button>`}
+    </div>`;
+  }
+
+  function renderCoreBank() {
+    const totalEl = document.getElementById('cbTotal');
+    if (!totalEl) return; // Core Bank card not currently on screen
+
+    const outstanding = coreBankData.filter(c => !c.returned)
+      .sort((a, b) => (a.charged_date || '').localeCompare(b.charged_date || '')); // oldest first
+    const returned = coreBankData.filter(c => c.returned)
+      .sort((a, b) => (b.returned_at || '').localeCompare(a.returned_at || '')); // most recent first
+    const total = outstanding.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+
+    const countEl = document.getElementById('cbCount');
+    if (outstanding.length === 0) {
+      totalEl.textContent = '$0 — no core debt.';
+      countEl.textContent = '';
+    } else {
+      totalEl.textContent = cbFmtMoney(total);
+      countEl.textContent = outstanding.length === 1 ? '1 outstanding' : `${outstanding.length} outstanding`;
+    }
+
+    const list = document.getElementById('cbOutstanding');
+    list.innerHTML = outstanding.length === 0
+      ? '<div class="cb-empty">$0 — no core debt.</div>'
+      : outstanding.map(c => coreBankRowHTML(c, false)).join('');
+
+    const rtToggle = document.getElementById('cbReturnedToggle');
+    const rtList = document.getElementById('cbReturnedList');
+    if (returned.length === 0) {
+      rtToggle.style.display = 'none';
+      rtList.style.display = 'none';
+      rtList.innerHTML = '';
+    } else {
+      rtToggle.style.display = 'block';
+      rtToggle.textContent = `${cbReturnedOpen ? '▾' : '▸'} Returned (${returned.length})`;
+      rtList.style.display = cbReturnedOpen ? 'block' : 'none';
+      rtList.innerHTML = returned.slice(0, 50).map(c => coreBankRowHTML(c, true)).join('');
+    }
+
+    list.querySelectorAll('[data-cb-return]').forEach(b => b.addEventListener('click', () => markCoreReturned(b.dataset.cbReturn)));
+    rtList.querySelectorAll('[data-cb-undo]').forEach(b => b.addEventListener('click', () => undoCoreReturn(b.dataset.cbUndo)));
+  }
+
+  async function markCoreReturned(id) {
+    // returned_by = current logged-in employee's display name (same value
+    // as the "Hi, X" greeting) — read dynamically, never hardcoded.
+    const { error } = await db.from('core_charges')
+      .update({ returned: true, returned_at: new Date().toISOString(), returned_by: CHAT_IDENTITY.name || null })
+      .eq('id', id);
+    if (error) { console.error('[CoreBank] mark returned failed', error); alert('Could not mark returned: ' + error.message); return; }
+    loadCoreBank();
+  }
+
+  async function undoCoreReturn(id) {
+    const { error } = await db.from('core_charges')
+      .update({ returned: false, returned_at: null, returned_by: null }).eq('id', id);
+    if (error) { console.error('[CoreBank] undo failed', error); alert('Could not undo: ' + error.message); return; }
+    loadCoreBank();
   }
 
   // A card may be hidden (or not yet rendered on first paint), so every
@@ -2082,6 +2302,8 @@
       .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_lifts' },   () => loadAndRender())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_parking' }, () => loadAndRender())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_pickup' },  () => loadAndRender())
+      // Core Bank stays live from either board's returns/new cores.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'core_charges' },       () => loadCoreBank())
       .subscribe();
   }
   gmSubscribeLive();
