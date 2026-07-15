@@ -367,7 +367,7 @@
 <div class="modal-overlay" id="invoiceDetailModal" style="display:none">
   <div class="modal-box wide">
     <button class="modal-close" id="closeInvoiceDetailModal">&times;</button>
-    <h3>Process Invoice</h3>
+    <h3 id="invModalTitle">Process Invoice</h3>
     <div class="invoice-detail-img-wrap"><img id="invDetailImg" alt="Invoice"></div>
     <div class="invoice-detail-uploader" id="invDetailUploader"></div>
     <div class="auto-detect-status" id="autoDetectStatus" style="display:none"></div>
@@ -901,8 +901,17 @@
         </table>
       </div>`).join('');
 
+    // Clicking the row opens it for editing; the thumbnail and delete
+    // button are their own actions and stop the click from also
+    // triggering that (lightbox / delete shouldn't double as edit).
+    wrap.querySelectorAll('tr[data-id]').forEach(tr => {
+      tr.addEventListener('click', () => openHistoryEditModal(tr.dataset.id));
+    });
     wrap.querySelectorAll('.history-thumb').forEach(img => {
-      img.addEventListener('click', () => openHistoryLightbox(img.dataset.full));
+      img.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openHistoryLightbox(img.dataset.full);
+      });
     });
     wrap.querySelectorAll('.history-delete-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -928,7 +937,7 @@
       mainCell = '—';
     }
     return `
-      <tr>
+      <tr data-id="${esc(r.id)}" style="cursor:pointer">
         <td>${thumb}</td>
         <td>${mainCell}</td>
         <td>${r.amount != null ? '$' + Number(r.amount).toFixed(2) : '—'}</td>
@@ -1060,13 +1069,21 @@
   let detailInvoice = null;
   let detailMatchedTable = null;
   let detailMatchedId = null;
+  // false = classifying an Unprocessed invoice (openInvoiceDetail);
+  // true = editing an already-processed one from History
+  // (openHistoryEditModal). Changes what confirmInvoiceDetail() does
+  // with processed_at/processed_by and which list it refreshes after save.
+  let isEditingHistoryRow = false;
 
   async function openInvoiceDetail(id) {
     const row = invoiceQueueRows.find(r => String(r.id) === String(id));
     if (!row) return;
+    isEditingHistoryRow = false;
     detailInvoice = row;
     detailMatchedTable = null;
     detailMatchedId = null;
+    document.getElementById('invModalTitle').textContent = 'Process Invoice';
+    document.getElementById('invConfirmBtn').textContent = 'Confirm';
 
     document.getElementById('invDetailImg').src = '';
     document.getElementById('invDetailUploader').textContent = `Uploaded by ${row.uploaded_by_name} · ${formatDateTime(row.uploaded_at)}`;
@@ -1105,6 +1122,63 @@
       }
     } catch (err) {
       console.error('[Invoices] signed URL failed', err);
+    }
+  }
+
+  // ── Edit from History — reuses the same modal, pre-filled with the
+  // row's saved values instead of blank/auto-detected. No auto-detect
+  // re-run here: she already reviewed and confirmed these values once,
+  // so re-running vision extraction would just risk silently
+  // overwriting a correct value with a different AI guess.
+  async function openHistoryEditModal(id) {
+    const row = historyRows.find(r => String(r.id) === String(id));
+    if (!row) return;
+    isEditingHistoryRow = true;
+    detailInvoice = row;
+    detailMatchedTable = row.matched_source_table || null;
+    detailMatchedId = row.matched_source_id || null;
+
+    document.getElementById('invModalTitle').textContent = 'Edit Invoice';
+    document.getElementById('invConfirmBtn').textContent = 'Save Changes';
+
+    document.getElementById('invDetailImg').src = '';
+    document.getElementById('invDetailUploader').textContent = `Uploaded by ${row.uploaded_by_name} · ${formatDateTime(row.uploaded_at)}`;
+    document.getElementById('invTypeInput').value = row.invoice_type || '';
+    document.getElementById('invPoInput').value = row.po || '';
+    document.getElementById('invPoResults').innerHTML = '';
+    document.getElementById('invPoResults').style.display = 'none';
+    document.getElementById('invVendorInput').value = row.vendor || '';
+    document.getElementById('invVendorResults').innerHTML = '';
+    document.getElementById('invVendorResults').style.display = 'none';
+    document.getElementById('invAmountInput').value = row.amount != null ? row.amount : '';
+    document.getElementById('invCategoryInput').value = row.category || '';
+    document.getElementById('invDateInput').value = row.invoice_date || '';
+    document.getElementById('invDescriptionInput').value = row.description || '';
+    document.getElementById('invPartNumberInput').value = row.part_number || '';
+    document.getElementById('invNotesInput').value = row.notes || '';
+    document.getElementById('invMatchedLabel').textContent = row.matched_source_table
+      ? `✓ Linked to ${row.matched_source_table.replace('shopboard_', '')} record` : '';
+    document.getElementById('invPartsOrderMatch').innerHTML = '<div class="parts-order-match-empty">Enter a PO # above to check against parts on order.</div>';
+    document.getElementById('invDetailError').textContent = '';
+    ['poAutoBadge', 'vendorAutoBadge', 'amountAutoBadge', 'dateAutoBadge', 'descriptionAutoBadge', 'partNumberAutoBadge'].forEach(badgeId => {
+      document.getElementById(badgeId).style.display = 'none';
+    });
+    document.getElementById('autoDetectStatus').style.display = 'none';
+    updateInvoiceTypeFields();
+    loadVendorSuggestions();
+
+    document.getElementById('invoiceDetailModal').style.display = 'flex';
+
+    try {
+      const { data: signed, error } = await db.storage.from(INVOICE_BUCKET).createSignedUrl(row.image_path, SIGNED_URL_TTL);
+      if (!error && signed) document.getElementById('invDetailImg').src = signed.signedUrl;
+    } catch (err) {
+      console.error('[Invoices] signed URL failed', err);
+    }
+    // Same Phase 2 lookup as the classify flow — re-show it for
+    // whatever PO# is already on the row.
+    if (row.invoice_type === 'parts_vendor' && row.po) {
+      runPartsOrderMatch(row.po);
     }
   }
 
@@ -1284,6 +1358,7 @@
   function closeInvoiceDetail() {
     document.getElementById('invoiceDetailModal').style.display = 'none';
     detailInvoice = null;
+    isEditingHistoryRow = false;
   }
 
   function updateInvoiceTypeFields() {
@@ -1441,10 +1516,14 @@
       amount,
       invoice_date,
       notes: notes || null,
-      processed_at: new Date().toISOString(),
-      processed_by: CURRENT_EMPLOYEE_ID,
-      processed_by_name: CHAT_IDENTITY.name,
     };
+    // Editing an already-processed row shouldn't restamp who/when it
+    // was originally processed — only the classify flow sets these.
+    if (!isEditingHistoryRow) {
+      payload.processed_at = new Date().toISOString();
+      payload.processed_by = CURRENT_EMPLOYEE_ID;
+      payload.processed_by_name = CHAT_IDENTITY.name;
+    }
 
     if (invoice_type === 'parts_vendor') {
       payload.po = document.getElementById('invPoInput').value.trim() || null;
@@ -1473,6 +1552,7 @@
     }
 
     const btn = document.getElementById('invConfirmBtn');
+    const btnDefaultText = isEditingHistoryRow ? 'Save Changes' : 'Confirm';
     btn.disabled = true;
     btn.textContent = 'Saving…';
 
@@ -1484,34 +1564,43 @@
     const oldPath = detailInvoice.image_path;
     const newPath = `${folder}/${yyyyMm}/${detailInvoice.id}.${ext}`;
 
-    // Move the storage object first — if this fails, nothing else
-    // changes and the row stays exactly as it was (still unprocessed,
-    // image still at its original path).
-    const { error: moveErr } = await db.storage.from(INVOICE_BUCKET).move(oldPath, newPath);
-    if (moveErr) {
-      console.error('[Invoices] file move failed', moveErr);
-      errEl.textContent = 'Could not file the image into its folder: ' + moveErr.message;
-      btn.disabled = false;
-      btn.textContent = 'Confirm';
-      return;
+    // Only move if the correct folder actually changed — editing an
+    // invoice where nothing relevant changed (or only amount/notes
+    // did) shouldn't touch storage at all. When classifying a new
+    // invoice oldPath is always the flat capture-time path, so this
+    // is always true there.
+    if (newPath !== oldPath) {
+      // Move the storage object first — if this fails, nothing else
+      // changes and the row stays exactly as it was.
+      const { error: moveErr } = await db.storage.from(INVOICE_BUCKET).move(oldPath, newPath);
+      if (moveErr) {
+        console.error('[Invoices] file move failed', moveErr);
+        errEl.textContent = 'Could not file the image into its folder: ' + moveErr.message;
+        btn.disabled = false;
+        btn.textContent = btnDefaultText;
+        return;
+      }
+      payload.image_path = newPath;
     }
-    payload.image_path = newPath;
 
     const { error } = await db.from('invoice_queue').update(payload).eq('id', detailInvoice.id);
     btn.disabled = false;
-    btn.textContent = 'Confirm';
+    btn.textContent = btnDefaultText;
 
     if (error) {
       console.error('[Invoices] confirm failed', error);
       // Best-effort rollback so the row's image_path doesn't end up
       // pointing at a file that no longer exists at the old location.
-      await db.storage.from(INVOICE_BUCKET).move(newPath, oldPath).catch(() => {});
+      if (newPath !== oldPath) {
+        await db.storage.from(INVOICE_BUCKET).move(newPath, oldPath).catch(() => {});
+      }
       errEl.textContent = 'Save failed: ' + error.message;
       return;
     }
 
     closeInvoiceDetail();
-    loadInvoiceQueue();
+    if (isEditingHistoryRow) loadHistory();
+    else loadInvoiceQueue();
   }
 
   document.getElementById('invConfirmBtn').addEventListener('click', confirmInvoiceDetail);
