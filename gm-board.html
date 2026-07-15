@@ -960,6 +960,7 @@
         <div class="sidebar-item" data-view="teardown" data-label="Teardown"><span class="icon">🔩</span>Teardown</div>
         <div class="sidebar-item" data-view="comebacks" data-label="Comebacks"><span class="icon">↩️</span>Comebacks</div>
         <div class="sidebar-item" data-view="reports" data-label="Reports"><span class="icon">📈</span>Reports<span class="sidebar-soon-badge">Soon</span></div>
+        <div class="sidebar-item" data-view="todo" data-label="To-Do"><span class="icon">✅</span>To-Do</div>
       </div>
       <div class="sidebar-group">
         <div class="sidebar-group-label">Manage</div>
@@ -1133,6 +1134,24 @@
     <div class="stub-view">
       <h2>Reports</h2>
       <p>Shop-wide reporting — coming soon.</p>
+    </div>
+  </div>
+
+  <!-- ══ TO-DO ══ -->
+  <div class="view" id="view-todo">
+    <div class="card">
+      <div class="card-title"><div class="dot"></div>To-Do</div>
+      <div class="todo-add-bar">
+        <input type="text" id="todoTextInput" placeholder="Add a to-do…">
+        <select id="todoAssignInput">
+          <option value="">Assign to… (optional)</option>
+        </select>
+        <button class="btn btn-primary" id="todoAddBtn">+ Add</button>
+      </div>
+      <div class="todo-form-error" id="todoFormError"></div>
+      <div class="todo-list" id="todoList">
+        <div style="color:var(--muted);padding:24px;text-align:center">Loading…</div>
+      </div>
     </div>
   </div>
 
@@ -2070,6 +2089,199 @@
     refetch: loadAndRender,
     getChannel: () => gmLiveChannel,
     resubscribe: gmSubscribeLive,
+  };
+
+  // ══════════════════════════════════════════════════════════════
+  // TO-DO — personal + assignable to-do list. Visible items: anything
+  // you created (personal or delegated to someone else — kept visible
+  // to you as the creator, tagged "Assigned to X") plus anything
+  // assigned to you by anyone else (tagged "Assigned by X"). Completed
+  // items stay
+  // visible for TODO_VISIBLE_DAYS, then drop out of the query (never
+  // deleted — completed_at just stops matching the window). Not
+  // started here — every query is scoped to CURRENT_EMPLOYEE_ID,
+  // which isn't known until captureSessionAndGreet() resolves below;
+  // actual init calls live inside that function's renderGreeting().
+  // ══════════════════════════════════════════════════════════════
+  function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  const TODO_VISIBLE_DAYS = 3;
+  let todoRows = [];
+  let todoChannel = null;
+
+  async function loadTodoAssignees() {
+    const sel = document.getElementById('todoAssignInput');
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Assign to… (optional)</option>';
+    const { data, error } = await db.from('employees').select('id, name').eq('active', true).order('name');
+    if (error) { console.error('[Todo] load employees failed', error); return; }
+    (data || []).forEach(e => {
+      if (e.id === CURRENT_EMPLOYEE_ID) return; // assigning to yourself is just a personal to-do — leave it unset instead
+      const opt = document.createElement('option');
+      opt.value = e.id;
+      opt.textContent = e.name;
+      sel.appendChild(opt);
+    });
+    sel.value = current;
+  }
+
+  function formatTodoCompletedWhen(iso) {
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' at ' +
+      d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
+  async function loadAndRenderTodos() {
+    const box = document.getElementById('todoList');
+    if (!box) return;
+    if (!CURRENT_EMPLOYEE_ID) {
+      box.innerHTML = '<div class="todo-empty">Could not identify you on this board yet — try reopening it from CrisData.</div>';
+      return;
+    }
+    const cutoff = new Date(Date.now() - TODO_VISIBLE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await db.from('todos')
+      .select('*')
+      .or(`assigned_to.eq.${CURRENT_EMPLOYEE_ID},created_by.eq.${CURRENT_EMPLOYEE_ID}`)
+      .or(`completed_at.is.null,completed_at.gte.${cutoff}`)
+      .order('created_at', { ascending: false });
+    if (error) { console.error('[Todo] load failed', error); return; }
+    todoRows = data || [];
+    renderTodos();
+  }
+
+  function renderTodos() {
+    const box = document.getElementById('todoList');
+    if (!box) return;
+    if (todoRows.length === 0) {
+      box.innerHTML = '<div class="todo-empty">No to-dos right now.</div>';
+      return;
+    }
+    box.innerHTML = todoRows.map(t => {
+      const isCompleted = !!t.completed_at;
+      const canManage = t.created_by === CURRENT_EMPLOYEE_ID || t.assigned_to === CURRENT_EMPLOYEE_ID;
+      let tag = '';
+      if (t.assigned_to && t.created_by === CURRENT_EMPLOYEE_ID) {
+        tag = `<span class="todo-tag assigned-to">Assigned to ${esc(t.assigned_to_name || '—')}</span>`;
+      } else if (t.assigned_to === CURRENT_EMPLOYEE_ID && t.created_by !== CURRENT_EMPLOYEE_ID) {
+        tag = `<span class="todo-tag assigned-by">Assigned by ${esc(t.created_by_name || '—')}</span>`;
+      }
+      const completedNote = isCompleted
+        ? `<span class="todo-completed-note">Completed ${formatTodoCompletedWhen(t.completed_at)}</span>` : '';
+      return `
+        <div class="todo-item${isCompleted ? ' completed' : ''}" data-id="${esc(t.id)}">
+          <input type="checkbox" class="todo-checkbox" ${isCompleted ? 'checked' : ''}>
+          <div class="todo-body">
+            <div class="todo-text">${esc(t.text)}</div>
+            <div class="todo-meta">${tag}${completedNote}</div>
+          </div>
+          ${canManage ? `
+          <div class="todo-actions">
+            <button type="button" class="todo-action-btn todo-edit-btn" title="Edit">✏️</button>
+            <button type="button" class="todo-action-btn danger todo-delete-btn" title="Delete">🗑️</button>
+          </div>` : ''}
+        </div>`;
+    }).join('');
+
+    box.querySelectorAll('.todo-checkbox').forEach(cb => {
+      cb.addEventListener('change', () => toggleTodoComplete(cb.closest('.todo-item').dataset.id, cb.checked));
+    });
+    box.querySelectorAll('.todo-edit-btn').forEach(btn => {
+      btn.addEventListener('click', () => startEditTodo(btn.closest('.todo-item').dataset.id));
+    });
+    box.querySelectorAll('.todo-delete-btn').forEach(btn => {
+      btn.addEventListener('click', () => deleteTodo(btn.closest('.todo-item').dataset.id));
+    });
+  }
+
+  async function toggleTodoComplete(id, completed) {
+    const { error } = await db.from('todos')
+      .update({ completed_at: completed ? new Date().toISOString() : null })
+      .eq('id', id);
+    if (error) { console.error('[Todo] toggle failed', error); alert('Could not update: ' + error.message); return; }
+    loadAndRenderTodos();
+  }
+
+  function startEditTodo(id) {
+    const row = todoRows.find(t => String(t.id) === String(id));
+    const bodyEl = document.querySelector(`.todo-item[data-id="${id}"] .todo-text`);
+    if (!row || !bodyEl) return;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'todo-edit-input';
+    input.value = row.text;
+    bodyEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let done = false;
+    const save = async () => {
+      if (done) return;
+      done = true;
+      const newText = input.value.trim();
+      if (!newText || newText === row.text) { renderTodos(); return; }
+      const { error } = await db.from('todos').update({ text: newText }).eq('id', id);
+      if (error) { console.error('[Todo] edit failed', error); alert('Could not save: ' + error.message); }
+      loadAndRenderTodos();
+    };
+    input.addEventListener('blur', save);
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') input.blur();
+      if (e.key === 'Escape') { done = true; renderTodos(); }
+    });
+  }
+
+  async function deleteTodo(id) {
+    if (!confirm('Delete this to-do?')) return;
+    const { error } = await db.from('todos').delete().eq('id', id);
+    if (error) { console.error('[Todo] delete failed', error); alert('Could not delete: ' + error.message); return; }
+    loadAndRenderTodos();
+  }
+
+  async function addTodo() {
+    const textInput = document.getElementById('todoTextInput');
+    const assignSel = document.getElementById('todoAssignInput');
+    const errEl = document.getElementById('todoFormError');
+    errEl.textContent = '';
+    const text = textInput.value.trim();
+    if (!text) { errEl.textContent = 'Enter a to-do.'; return; }
+    if (!CURRENT_EMPLOYEE_ID) { errEl.textContent = 'Could not identify you on this board yet.'; return; }
+
+    const assignedId = assignSel.value || null;
+    const assignedName = assignedId ? assignSel.options[assignSel.selectedIndex].textContent : null;
+
+    const addBtn = document.getElementById('todoAddBtn');
+    addBtn.disabled = true;
+
+    const { error } = await db.from('todos').insert({
+      text,
+      created_by: CURRENT_EMPLOYEE_ID,
+      created_by_name: CHAT_IDENTITY.name || null,
+      assigned_to: assignedId,
+      assigned_to_name: assignedName,
+    });
+
+    addBtn.disabled = false;
+    if (error) { console.error('[Todo] add failed', error); errEl.textContent = 'Save failed: ' + error.message; return; }
+
+    textInput.value = '';
+    assignSel.value = '';
+    loadAndRenderTodos();
+  }
+
+  document.getElementById('todoAddBtn').addEventListener('click', addTodo);
+  document.getElementById('todoTextInput').addEventListener('keydown', e => { if (e.key === 'Enter') addTodo(); });
+
+  function todoSubscribeRealtime() {
+    if (todoChannel) db.removeChannel(todoChannel);
+    todoChannel = db.channel('gm-board-todos-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'todos' }, loadAndRenderTodos)
+      .subscribe();
+  }
+  VIEW_REFRESH.todo = {
+    refetch: loadAndRenderTodos,
+    getChannel: () => todoChannel,
+    resubscribe: todoSubscribeRealtime,
   };
 
   // ── Team Chat (real, Supabase-backed — gm-board = Manager's view)
@@ -3929,6 +4141,12 @@
       const wrap = document.getElementById('greetingWrap');
       wrap.innerHTML = `${avatar}<span>Hi, ${esc(emp.name)}</span>`;
       wrap.style.display = 'flex';
+
+      // To-Do queries are scoped to CURRENT_EMPLOYEE_ID, which just
+      // resolved above — safe to start now.
+      loadAndRenderTodos();
+      loadTodoAssignees();
+      todoSubscribeRealtime();
     }
 
     let phone = null;
