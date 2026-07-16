@@ -62,6 +62,7 @@ window.BoardSettings = (function () {
   let canEditShopOps = false;
   let onShopSettingsChanged = null;
   let shopLogoFile = null;      // pending logo upload (Owner/GM only)
+  let onOpenExtra = null;       // board-specific extra Settings sections
   // logos live in the existing public board-backgrounds bucket (same
   // anon storage policies already in place), under a shop-logo/ prefix.
   const LOGO_BUCKET = 'board-backgrounds';
@@ -282,6 +283,10 @@ window.BoardSettings = (function () {
           <div class="stgfeat-section-label">Shop / RO Settings</div>
           <div id="stgfeatShopBody"></div>
         </div>
+
+        <!-- Board-specific extra sections (e.g. Bookkeeping's Categories +
+             Types managers) render here via the onOpenExtra config hook. -->
+        <div id="stgfeatExtra"></div>
       </div>
     `;
     document.body.appendChild(modalEl);
@@ -340,6 +345,12 @@ window.BoardSettings = (function () {
 
     renderShopSection();
     loadShopSettings().then(renderShopSection);   // refresh in case another board changed it
+
+    // board-specific extra sections (rendered fresh each open)
+    if (typeof onOpenExtra === 'function') {
+      try { onOpenExtra(modalEl.querySelector('#stgfeatExtra')); }
+      catch (e) { console.error('[BoardSettings] onOpenExtra failed', e); }
+    }
 
     modalEl.classList.add('open');
   }
@@ -691,6 +702,7 @@ window.BoardSettings = (function () {
     canEditShopMoney = !!config.canEditShopMoney;
     canEditShopOps = !!config.canEditShopOps;
     onShopSettingsChanged = config.onShopSettingsChanged || null;
+    onOpenExtra = config.onOpenExtra || null;
     injectStyles();
     mountTrigger(config.mountSelector);
     loadShopSettings();   // warm the cache so getShopSettings() is current early

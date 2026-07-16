@@ -320,6 +320,58 @@
     padding: 2px 8px; border-radius: 10px; background: #dcfce7; color: #166534; flex-shrink: 0;
   }
 
+  /* Multi-PO itemized lines (mirrors the cores editor). */
+  .po-line { display: flex; align-items: center; gap: 8px; }
+  .po-line input {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 9px; font-size: 0.82rem; color: var(--text); outline: none; font-family: inherit;
+  }
+  .po-line input:focus { border-color: var(--accent); }
+  .po-line .po-line-label { flex: 1; min-width: 0; }
+  .po-line .po-line-amount { width: 92px; flex-shrink: 0; text-align: right; }
+  .po-line-po-wrap { position: relative; width: 130px; flex-shrink: 0; }
+  .po-line-po-wrap .po-line-po { width: 100%; }
+  .po-line-results {
+    display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 20;
+    background: #fff; border: 1px solid var(--border); border-radius: 6px; margin-top: 2px;
+    max-height: 180px; overflow-y: auto; box-shadow: 0 8px 24px rgba(20,22,40,0.14);
+  }
+  .po-line-results .po-result-item { padding: 7px 9px; font-size: 0.78rem; cursor: pointer; }
+  .po-line-results .po-result-item:hover { background: var(--bg); }
+  .po-line-results .po-result-empty { padding: 7px 9px; font-size: 0.76rem; color: var(--muted); }
+  .multipo-total {
+    margin-top: 10px; font-size: 0.84rem; font-weight: 700; display: flex; gap: 8px; align-items: center;
+  }
+  .multipo-total .mpt-ok { color: #166534; }
+  .multipo-total .mpt-warn { color: #b45309; }
+
+  /* Bookkeeping Settings managers (Categories + Types), rendered into the
+     shared gear panel's extra slot. */
+  .bk-mgr { margin-bottom: 6px; }
+  .bk-mgr-label {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.8px;
+    color: #8c93a8; font-weight: 700; margin: 14px 0 8px;
+  }
+  .bk-mgr-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .bk-mgr-row input, .bk-mgr-row select {
+    padding: 6px 8px; border: 1px solid #e2e5ee; border-radius: 6px;
+    font-size: 0.82rem; font-family: inherit; color: #1a1f36; background: #fff; min-width: 0;
+  }
+  .bk-mgr-row .bk-name { flex: 1; }
+  .bk-mgr-row .bk-counts { width: 108px; flex-shrink: 0; }
+  .bk-mini-btn {
+    width: 26px; height: 28px; flex-shrink: 0; border-radius: 6px; border: 1px solid #e2e5ee;
+    background: #fff; color: #8c93a8; font-size: 0.9rem; line-height: 1; cursor: pointer;
+  }
+  .bk-mini-btn.save:hover { color: #166534; border-color: #166534; }
+  .bk-mini-btn.del:hover { color: #dc2626; border-color: #dc2626; }
+  .bk-sys-tag {
+    font-size: 0.58rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
+    color: #64748b; background: #f1f5f9; border-radius: 4px; padding: 2px 6px; flex-shrink: 0;
+  }
+  .bk-counts-help { font-size: 0.7rem; color: #8c93a8; margin: 2px 0 10px; }
+  .bk-mgr-err { color: #dc2626; font-size: 0.76rem; min-height: 14px; }
+
   /* ── Team Chat, Kiki widget, and the sidebar-drawer mobile treatment
      are all in the shared shell now. Only the bookkeeping-specific
      mobile override (invoice grid column width) stays local. ── */
@@ -527,6 +579,29 @@
       </div>
     </div>
 
+    <!-- Multiple POs on one Parts/Vendor invoice (the FL Torque case).
+         OFF by default — the normal single-PO flow above is untouched. -->
+    <div id="invMultiPoWrap" style="display:none">
+      <div class="intake-field intake-field-row">
+        <label style="margin-bottom:0">This invoice covers multiple jobs</label>
+        <label class="intake-toggle">
+          <input type="checkbox" id="invMultiPoToggle">
+          <span class="intake-toggle-slider"></span>
+        </label>
+      </div>
+      <div id="invMultiPoSection" style="display:none">
+        <div class="cores-section">
+          <div class="cores-section-head">
+            <label>Jobs on this invoice</label>
+            <button type="button" class="cores-add-btn" id="invMultiPoAddBtn">+ Add job</button>
+          </div>
+          <div class="cores-hint">Each line = part/converter + its PO# + price. The prices should add up to the invoice/check total.</div>
+          <div class="cores-list" id="invMultiPoList"></div>
+          <div class="multipo-total" id="invMultiPoTotal"></div>
+        </div>
+      </div>
+    </div>
+
     <div id="invLineItemFields" style="display:none">
       <div class="intake-field">
         <label>Description <span class="auto-badge" id="descriptionAutoBadge" style="display:none">✨ auto-detected</span></label>
@@ -619,6 +694,8 @@
   BoardSettings.init({
     db, targetSelector: '.main-area', mountSelector: '.sidebar-btn-row',
     onNameSaved: (name) => { CHAT_IDENTITY.name = name; },
+    // Daiana's Categories + Types managers live in the gear panel.
+    onOpenExtra: (container) => renderBookkeepingSettings(container),
   });
 
   const INVOICE_BUCKET = 'invoice-images';
@@ -905,7 +982,182 @@
   //   { kind: 'vendor', vendor }  { kind: 'jobrecords' }
   //   { kind: 'expenses' }        { kind: 'expense-category', category }
   let historyFolder = null;
-  const EXPENSE_CATEGORIES = ['Rent', 'Utilities', 'Tools/Equipment', 'Office Supplies', 'Insurance', 'Other'];
+  // Expense categories + invoice types are DB-backed (editable in Settings)
+  // but keep hardcoded FALLBACKS so nothing breaks before the migration is
+  // applied. loadExpenseCategories/loadInvoiceTypes overwrite these when the
+  // tables exist. History grouping reads EXPENSE_CATEGORIES at call time.
+  let EXPENSE_CATEGORIES = ['Rent', 'Utilities', 'Tools/Equipment', 'Office Supplies', 'Insurance', 'Other'];
+  let INVOICE_TYPES = [
+    { key: 'parts_vendor',   name: 'Parts / Vendor Invoice',      counts_as: 'cost',        is_system: true },
+    { key: 'shop_expense',   name: 'General Shop Expense',        counts_as: 'cost',        is_system: true },
+    { key: 'repair_invoice', name: 'Repair Invoice / Job Record', counts_as: 'record_only', is_system: true },
+  ];
+  const SYSTEM_TYPE_KEYS = ['parts_vendor', 'shop_expense', 'repair_invoice'];
+
+  async function loadExpenseCategories() {
+    try {
+      const { data, error } = await db.from('expense_categories').select('name').order('sort_order').order('name');
+      if (error) throw error;
+      if (data && data.length) EXPENSE_CATEGORIES = data.map(c => c.name);
+    } catch (e) { console.warn('[Bookkeeping] expense_categories not loaded (using fallback):', e.message || e); }
+  }
+  async function loadInvoiceTypes() {
+    try {
+      const { data, error } = await db.from('invoice_types').select('*').order('sort_order').order('name');
+      if (error) throw error;
+      if (data && data.length) INVOICE_TYPES = data;
+    } catch (e) { console.warn('[Bookkeeping] invoice_types not loaded (using fallback):', e.message || e); }
+  }
+  // counts_as for a stored invoice_type key, with a safe fallback that
+  // preserves the original behavior (repair_invoice excluded from spend).
+  function countsAsFor(key) {
+    const t = INVOICE_TYPES.find(x => x.key === key);
+    if (t) return t.counts_as;
+    if (key === 'repair_invoice') return 'record_only';
+    return 'cost';
+  }
+  function typeSlug(name) {
+    return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'type';
+  }
+
+  // Rebuild the classify modal's Type + Category dropdowns from the loaded
+  // lists, preserving the current selection.
+  function populateTypeDropdown() {
+    const sel = document.getElementById('invTypeInput');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">- Choose type -</option>' +
+      INVOICE_TYPES.map(t => `<option value="${escAttr(t.key)}">${esc(t.name)}</option>`).join('');
+    sel.value = cur;
+  }
+  function populateCategoryDropdown() {
+    const sel = document.getElementById('invCategoryInput');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">- Choose category -</option>' +
+      EXPENSE_CATEGORIES.map(c => `<option value="${escAttr(c)}">${esc(c)}</option>`).join('');
+    sel.value = cur;
+  }
+
+  // ── Settings managers (Categories + Types) rendered into the shared
+  // gear panel's extra slot via BoardSettings' onOpenExtra hook. Fresh
+  // data each open; CRUD writes to expense_categories / invoice_types.
+  function bkCountsOptions(sel) {
+    return [
+      ['cost', 'Cost — adds to spend'],
+      ['credit', 'Credit — subtracts from spend'],
+      ['record_only', 'Record only — no money effect'],
+    ].map(([v, lab]) => `<option value="${v}"${sel === v ? ' selected' : ''}>${lab}</option>`).join('');
+  }
+
+  async function renderBookkeepingSettings(container) {
+    container.innerHTML = '<div class="bk-mgr-label">Loading…</div>';
+    let cats = null, types = null;
+    try { const { data, error } = await db.from('expense_categories').select('*').order('sort_order').order('name'); if (error) throw error; cats = data || []; } catch (e) { cats = null; }
+    try { const { data, error } = await db.from('invoice_types').select('*').order('sort_order').order('name'); if (error) throw error; types = data || []; } catch (e) { types = null; }
+
+    const notice = (t) => `<div class="bk-counts-help">${esc(t)}</div>`;
+
+    // Categories manager
+    let catHtml = '<div class="bk-mgr-label">Shop Expense Categories</div>';
+    if (cats === null) {
+      catHtml += notice('Run the migration to manage expense categories.');
+    } else {
+      catHtml += cats.map(c => `
+        <div class="bk-mgr-row">
+          <input class="bk-name" data-id="${escAttr(c.id)}" value="${escAttr(c.name)}">
+          <button type="button" class="bk-mini-btn save" data-act="cat-save" data-id="${escAttr(c.id)}" title="Rename">✓</button>
+          <button type="button" class="bk-mini-btn del" data-act="cat-del" data-id="${escAttr(c.id)}" title="Remove">×</button>
+        </div>`).join('');
+      catHtml += `<div class="bk-mgr-row">
+          <input class="bk-name" id="bkCatNew" placeholder="Add a category…">
+          <button type="button" class="bk-mini-btn save" data-act="cat-add" title="Add">＋</button>
+        </div>`;
+    }
+
+    // Types manager
+    let typeHtml = '<div class="bk-mgr-label" style="margin-top:18px">Invoice Types</div>';
+    if (types === null) {
+      typeHtml += notice('Run the migration to manage invoice types.');
+    } else {
+      typeHtml += types.map(t => {
+        if (t.is_system) {
+          return `<div class="bk-mgr-row">
+            <input class="bk-name" value="${escAttr(t.name)}" disabled>
+            <select class="bk-counts" disabled>${bkCountsOptions(t.counts_as)}</select>
+            <span class="bk-sys-tag" title="System type — protected">🔒</span>
+          </div>`;
+        }
+        return `<div class="bk-mgr-row">
+          <input class="bk-name" data-id="${escAttr(t.id)}" value="${escAttr(t.name)}">
+          <select class="bk-counts" data-id="${escAttr(t.id)}">${bkCountsOptions(t.counts_as)}</select>
+          <button type="button" class="bk-mini-btn save" data-act="type-save" data-id="${escAttr(t.id)}" title="Save">✓</button>
+          <button type="button" class="bk-mini-btn del" data-act="type-del" data-id="${escAttr(t.id)}" title="Remove">×</button>
+        </div>`;
+      }).join('');
+      typeHtml += `<div class="bk-mgr-row">
+          <input class="bk-name" id="bkTypeNew" placeholder="Add a type…">
+          <select class="bk-counts" id="bkTypeNewCounts">${bkCountsOptions('cost')}</select>
+          <button type="button" class="bk-mini-btn save" data-act="type-add" title="Add">＋</button>
+        </div>` +
+        '<div class="bk-counts-help">Cost adds to spend · Credit subtracts · Record only has no money effect. System types are protected.</div>';
+    }
+
+    container.innerHTML = `<div class="stgfeat-section">${catHtml}${typeHtml}<div class="bk-mgr-err" id="bkMgrErr"></div></div>`;
+
+    const errEl = container.querySelector('#bkMgrErr');
+    const fail = (m) => { if (errEl) errEl.textContent = m; };
+    const afterChange = async () => {
+      await loadExpenseCategories();
+      await loadInvoiceTypes();
+      if (currentViewKey === 'overview') loadOverview();
+      renderBookkeepingSettings(container);
+    };
+
+    // single delegated handler (assignment avoids duplicate listeners on re-render)
+    container.onclick = async (e) => {
+      const btn = e.target.closest('[data-act]');
+      if (!btn) return;
+      fail('');
+      const act = btn.dataset.act, id = btn.dataset.id;
+      const row = btn.closest('.bk-mgr-row');
+      try {
+        if (act === 'cat-add') {
+          const name = container.querySelector('#bkCatNew').value.trim();
+          if (!name) return;
+          const { error } = await db.from('expense_categories').insert({ name, sort_order: 999 });
+          if (error) throw error;
+        } else if (act === 'cat-save') {
+          const name = row.querySelector('.bk-name').value.trim();
+          if (!name) { fail('Name cannot be empty.'); return; }
+          const { error } = await db.from('expense_categories').update({ name }).eq('id', id);
+          if (error) throw error;
+        } else if (act === 'cat-del') {
+          const { error } = await db.from('expense_categories').delete().eq('id', id);
+          if (error) throw error;
+        } else if (act === 'type-add') {
+          const name = container.querySelector('#bkTypeNew').value.trim();
+          const counts_as = container.querySelector('#bkTypeNewCounts').value;
+          if (!name) return;
+          const key = typeSlug(name);
+          if (SYSTEM_TYPE_KEYS.includes(key)) { fail('That name collides with a system type.'); return; }
+          const { error } = await db.from('invoice_types').insert({ key, name, counts_as, is_system: false, sort_order: 999 });
+          if (error) throw error;
+        } else if (act === 'type-save') {
+          const name = row.querySelector('.bk-name').value.trim();
+          const counts_as = row.querySelector('.bk-counts').value;
+          if (!name) { fail('Name cannot be empty.'); return; }
+          const { error } = await db.from('invoice_types').update({ name, counts_as }).eq('id', id).eq('is_system', false);
+          if (error) throw error;
+        } else if (act === 'type-del') {
+          const { error } = await db.from('invoice_types').delete().eq('id', id).eq('is_system', false);
+          if (error) throw error;
+        } else { return; }
+        await afterChange();
+      } catch (err) {
+        console.error('[Bookkeeping Settings] op failed', err);
+        fail((/duplicate|unique/i.test(err.message || '') ? 'That name already exists.' : 'Save failed: ' + (err.message || 'unknown error')));
+      }
+    };
+  }
 
   async function loadHistory() {
     const { data, error } = await db.from('invoice_queue').select('*').eq('status', 'processed').order('processed_at', { ascending: false });
@@ -1387,6 +1639,171 @@
     if (bad && bad.error) throw bad.error;
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // MULTIPLE POs on one Parts/Vendor invoice (the FL Torque case).
+  // OFF by default — the single-PO flow above is 100% untouched. When
+  // ON, the single PO field is replaced by an itemized list writing to
+  // invoice_po_lines (same editor UX as Cores). Each line ties an
+  // amount to its own PO (cost-per-job). A running total vs the invoice
+  // total gives Daiana a ✓/⚠ check against the vendor's printed total.
+  // ══════════════════════════════════════════════════════════════
+  let multiPoOn = false;
+  let poLineState = [];  // [{ id, label, po, amount }]
+
+  function resetMultiPo() {
+    multiPoOn = false;
+    poLineState = [];
+    const t = document.getElementById('invMultiPoToggle');
+    if (t) t.checked = false;
+    document.getElementById('invMultiPoSection').style.display = 'none';
+    document.getElementById('invMultiPoList').innerHTML = '';
+    document.getElementById('invMultiPoTotal').innerHTML = '';
+  }
+
+  // Show the multi-PO toggle only for Parts/Vendor; when ON, the itemized
+  // list replaces the single-PO combobox. Called from updateInvoiceTypeFields.
+  function applyMultiPoVisibility(type) {
+    const wrap = document.getElementById('invMultiPoWrap');
+    const section = document.getElementById('invMultiPoSection');
+    const poWrap = document.getElementById('invPoWrap');
+    if (type !== 'parts_vendor') { wrap.style.display = 'none'; section.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    section.style.display = multiPoOn ? 'block' : 'none';
+    poWrap.style.display = multiPoOn ? 'none' : 'block';
+  }
+
+  function poLineHtml(l, i) {
+    return `<div class="po-line" data-idx="${i}">
+      <input type="text" class="po-line-label" placeholder="Part / converter" value="${escAttr(l.label || '')}">
+      <div class="po-line-po-wrap">
+        <input type="text" class="po-line-po" placeholder="PO #" value="${escAttr(l.po || '')}" autocomplete="off">
+        <div class="po-line-results"></div>
+      </div>
+      <input type="number" class="po-line-amount" min="0" step="0.01" placeholder="0.00" value="${l.amount != null && l.amount !== '' ? escAttr(String(l.amount)) : ''}">
+      <button type="button" class="core-remove-btn" data-idx="${i}" title="Remove line" aria-label="Remove line">&times;</button>
+    </div>`;
+  }
+
+  function renderPoLines() {
+    const list = document.getElementById('invMultiPoList');
+    if (poLineState.length === 0) { list.innerHTML = '<div class="cores-empty">No jobs added yet.</div>'; updateMultiPoTotal(); return; }
+    list.innerHTML = poLineState.map((l, i) => poLineHtml(l, i)).join('');
+    list.querySelectorAll('.po-line').forEach(line => {
+      const idx = Number(line.dataset.idx);
+      line.querySelector('.core-remove-btn').addEventListener('click', () => {
+        syncPoLinesFromDom(); poLineState.splice(idx, 1); renderPoLines();
+      });
+      line.querySelector('.po-line-label').addEventListener('input', () => { if (poLineState[idx]) poLineState[idx].label = line.querySelector('.po-line-label').value; });
+      line.querySelector('.po-line-amount').addEventListener('input', () => { if (poLineState[idx]) poLineState[idx].amount = line.querySelector('.po-line-amount').value; updateMultiPoTotal(); });
+      wirePoLineSearch(line, idx);
+    });
+    updateMultiPoTotal();
+  }
+
+  // Per-line PO combobox — same searchPos() lookup as the single field.
+  function wirePoLineSearch(line, idx) {
+    const input = line.querySelector('.po-line-po');
+    const box = line.querySelector('.po-line-results');
+    let deb = null;
+    input.addEventListener('input', () => {
+      if (poLineState[idx]) poLineState[idx].po = input.value;
+      clearTimeout(deb);
+      const term = input.value.trim();
+      if (!term) { box.style.display = 'none'; return; }
+      deb = setTimeout(async () => {
+        const results = await searchPos(term);
+        if (results.length === 0) {
+          box.innerHTML = '<div class="po-result-empty">No match — save as free text.</div>';
+        } else {
+          box.innerHTML = results.slice(0, 8).map(r =>
+            `<div class="po-result-item" data-po="${escAttr(r.po)}"><strong>PO #${esc(r.po)}</strong> — ${esc(r.vehicle || '')}${r.customer ? ' · ' + esc(r.customer) : ''}</div>`).join('');
+          box.querySelectorAll('.po-result-item').forEach(it => it.addEventListener('mousedown', () => {
+            input.value = it.dataset.po;
+            if (poLineState[idx]) poLineState[idx].po = it.dataset.po;
+            box.style.display = 'none';
+          }));
+        }
+        box.style.display = 'block';
+      }, 300);
+    });
+    input.addEventListener('blur', () => setTimeout(() => { box.style.display = 'none'; }, 160));
+  }
+
+  function syncPoLinesFromDom() {
+    document.querySelectorAll('#invMultiPoList .po-line[data-idx]').forEach(line => {
+      const i = Number(line.dataset.idx);
+      if (!poLineState[i]) return;
+      poLineState[i].label = line.querySelector('.po-line-label').value;
+      poLineState[i].po = line.querySelector('.po-line-po').value;
+      poLineState[i].amount = line.querySelector('.po-line-amount').value;
+    });
+  }
+
+  function updateMultiPoTotal() {
+    const el = document.getElementById('invMultiPoTotal');
+    const linesTotal = poLineState.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
+    const invTotal = parseFloat(document.getElementById('invAmountInput').value) || 0;
+    const match = Math.abs(linesTotal - invTotal) < 0.005;
+    el.innerHTML = `Lines total: <b>${fmtMoney(linesTotal)}</b> &nbsp;vs&nbsp; invoice total: <b>${fmtMoney(invTotal)}</b> ` +
+      (invTotal === 0 ? '' : (match ? '<span class="mpt-ok">✓ match</span>' : '<span class="mpt-warn">⚠ doesn\'t match</span>'));
+  }
+
+  async function loadPoLinesForInvoice(id) {
+    try {
+      const { data, error } = await db.from('invoice_po_lines').select('*').eq('invoice_queue_id', id).order('created_at');
+      if (error) throw error;
+      return data || [];
+    } catch (e) { console.warn('[MultiPO] load failed (table missing?):', e.message || e); return []; }
+  }
+
+  function validatePoLines() {
+    syncPoLinesFromDom();
+    const valid = poLineState.filter(l => { const a = parseFloat(l.amount); return (l.po || '').trim() && !isNaN(a) && a > 0; });
+    if (valid.length === 0) return 'Add at least one job line with a PO # and an amount.';
+    for (const l of poLineState) {
+      const hasAny = (l.po || '').trim() || (l.label || '').trim() || (l.amount !== '' && l.amount != null);
+      if (!hasAny) continue; // blank line — ignored
+      const a = parseFloat(l.amount);
+      if (!(l.po || '').trim() || isNaN(a) || a <= 0) return 'Each job line needs a PO # and an amount greater than 0 (or remove it).';
+    }
+    return null;
+  }
+
+  // Replace-all persist (editing a processed multi-PO invoice reloads its
+  // lines, so a clean replace is correct and simplest).
+  async function persistPoLines(invoiceId) {
+    syncPoLinesFromDom();
+    const del = await db.from('invoice_po_lines').delete().eq('invoice_queue_id', invoiceId);
+    if (del.error) throw del.error;
+    const inserts = poLineState
+      .filter(l => { const a = parseFloat(l.amount); return (l.po || '').trim() && !isNaN(a) && a > 0; })
+      .map(l => ({ invoice_queue_id: invoiceId, po: (l.po || '').trim(), label: (l.label || '').trim() || null, amount: parseFloat(l.amount) }));
+    if (inserts.length) {
+      const ins = await db.from('invoice_po_lines').insert(inserts);
+      if (ins.error) throw ins.error;
+    }
+  }
+
+  async function deletePoLines(invoiceId) {
+    const { error } = await db.from('invoice_po_lines').delete().eq('invoice_queue_id', invoiceId);
+    if (error) throw error;
+  }
+
+  document.getElementById('invMultiPoToggle').addEventListener('change', (e) => {
+    multiPoOn = e.target.checked;
+    applyMultiPoVisibility(document.getElementById('invTypeInput').value);
+    if (multiPoOn && poLineState.length === 0) { poLineState.push({ id: null, label: '', po: '', amount: '' }); renderPoLines(); }
+  });
+  document.getElementById('invMultiPoAddBtn').addEventListener('click', () => {
+    syncPoLinesFromDom();
+    poLineState.push({ id: null, label: '', po: '', amount: '' });
+    renderPoLines();
+    const labels = document.querySelectorAll('#invMultiPoList .po-line .po-line-label');
+    if (labels.length) labels[labels.length - 1].focus();
+  });
+  // keep the match indicator live as she edits the invoice total
+  document.getElementById('invAmountInput').addEventListener('input', () => { if (multiPoOn) updateMultiPoTotal(); });
+
   async function openInvoiceDetail(id) {
     const row = invoiceQueueRows.find(r => String(r.id) === String(id));
     if (!row) return;
@@ -1396,6 +1813,9 @@
     detailMatchedId = null;
     document.getElementById('invModalTitle').textContent = 'Process Invoice';
     document.getElementById('invConfirmBtn').textContent = 'Confirm';
+    populateTypeDropdown();
+    populateCategoryDropdown();
+    resetMultiPo();
 
     document.getElementById('invDetailImg').src = '';
     document.getElementById('invDetailUploader').textContent = `Uploaded by ${row.uploaded_by_name} · ${formatDateTime(row.uploaded_at)}`;
@@ -1455,6 +1875,9 @@
 
     document.getElementById('invModalTitle').textContent = 'Edit Invoice';
     document.getElementById('invConfirmBtn').textContent = 'Save Changes';
+    populateTypeDropdown();
+    populateCategoryDropdown();
+    resetMultiPo();
 
     document.getElementById('invDetailImg').src = '';
     document.getElementById('invDetailUploader').textContent = `Uploaded by ${row.uploaded_by_name} · ${formatDateTime(row.uploaded_at)}`;
@@ -1510,6 +1933,16 @@
           returned: c.returned, returned_at: c.returned_at,
         }));
         renderCoresEditor();
+      }
+      // Multi-PO: if this invoice has itemized PO lines, flip the toggle
+      // on and load them so editing reloads the breakdown.
+      const poLines = await loadPoLinesForInvoice(row.id);
+      if (detailInvoice && String(detailInvoice.id) === String(row.id) && poLines.length) {
+        multiPoOn = true;
+        document.getElementById('invMultiPoToggle').checked = true;
+        poLineState = poLines.map(l => ({ id: l.id, label: l.label || '', po: l.po || '', amount: l.amount != null ? l.amount : '' }));
+        applyMultiPoVisibility(row.invoice_type);
+        renderPoLines();
       }
     }
   }
@@ -1697,13 +2130,14 @@
 
   function updateInvoiceTypeFields() {
     const type = document.getElementById('invTypeInput').value;
-    // PO/RO lookup against parts_orders is shared by Parts/Vendor and
-    // Repair Invoice — both link back to a job/vehicle by PO#. Line
-    // item Description/Part Number only make sense for a vendor bill.
-    document.getElementById('invPoWrap').style.display = (type === 'parts_vendor' || type === 'repair_invoice') ? 'block' : 'none';
+    const isCustom = type && !SYSTEM_TYPE_KEYS.includes(type);
+    // PO/RO lookup is shared by Parts/Vendor and Repair Invoice — both
+    // link back to a job by PO#. Custom types get an OPTIONAL PO# too.
+    // Line-item Description/Part Number and Cores are Parts/Vendor only;
+    // Category is Shop Expense only.
+    document.getElementById('invPoWrap').style.display = (type === 'parts_vendor' || type === 'repair_invoice' || isCustom) ? 'block' : 'none';
     document.getElementById('invLineItemFields').style.display = type === 'parts_vendor' ? 'block' : 'none';
     document.getElementById('invExpenseFields').style.display = type === 'shop_expense' ? 'block' : 'none';
-    // Cores are a Parts/Vendor concept only — never Shop Expense or Repair Invoice.
     document.getElementById('invCoresWrap').style.display = type === 'parts_vendor' ? 'block' : 'none';
 
     // Repair Invoice / Job Record is Lee Transmission's own bill to
@@ -1714,6 +2148,8 @@
       const vendorInput = document.getElementById('invVendorInput');
       if (!vendorInput.value.trim()) vendorInput.value = 'Lee Transmission';
     }
+
+    applyMultiPoVisibility(type);  // multi-PO toggle is Parts/Vendor only
   }
   document.getElementById('invTypeInput').addEventListener('change', updateInvoiceTypeFields);
 
@@ -1763,7 +2199,9 @@
       </div>`).join('');
   }
 
-  async function runPoSearch(term) {
+  // Shared PO lookup used by the single-PO combobox AND each multi-PO
+  // line — OR across the three open board tables + completed_jobs archive.
+  async function searchPos(term) {
     const SELECT = 'id,po,vehicle,customer';
     const [{ data: lifts }, { data: parking }, { data: pickup }, { data: completed }] = await Promise.all([
       db.from('shopboard_lifts').select(SELECT).ilike('po', `%${term}%`),
@@ -1771,13 +2209,16 @@
       db.from('shopboard_pickup').select(SELECT).ilike('po', `%${term}%`),
       db.from('completed_jobs').select(SELECT).ilike('po', `%${term}%`),
     ]);
-    const results = [
+    return [
       ...(lifts || []).map(r => ({ ...r, _table: 'shopboard_lifts', _label: 'Open · Lift' })),
       ...(parking || []).map(r => ({ ...r, _table: 'shopboard_parking', _label: 'Open · Parking' })),
       ...(pickup || []).map(r => ({ ...r, _table: 'shopboard_pickup', _label: 'Open · Pickup' })),
       ...(completed || []).map(r => ({ ...r, _table: 'completed_jobs', _label: 'Archived' })),
     ].filter(r => r.po);
+  }
 
+  async function runPoSearch(term) {
+    const results = await searchPos(term);
     const box = document.getElementById('invPoResults');
     if (results.length === 0) {
       box.innerHTML = '<div class="po-result-empty">No matching PO found — you can still save this PO as free text.</div>';
@@ -1848,6 +2289,11 @@
     if (invoice_type === 'parts_vendor') {
       const coreErr = validateCores();
       if (coreErr) { errEl.textContent = coreErr; return; }
+      // Multi-PO itemized lines (only when the toggle is on)
+      if (multiPoOn) {
+        const poErr = validatePoLines();
+        if (poErr) { errEl.textContent = poErr; return; }
+      }
     }
 
     const payload = {
@@ -1866,10 +2312,19 @@
       payload.processed_by_name = CHAT_IDENTITY.name;
     }
 
+    const isCustomType = !SYSTEM_TYPE_KEYS.includes(invoice_type);
     if (invoice_type === 'parts_vendor') {
-      payload.po = document.getElementById('invPoInput').value.trim() || null;
-      payload.matched_source_table = detailMatchedTable;
-      payload.matched_source_id = detailMatchedId;
+      // Multi-PO invoices carry their PO breakdown in invoice_po_lines,
+      // so the single po / matched fields are cleared.
+      if (multiPoOn) {
+        payload.po = null;
+        payload.matched_source_table = null;
+        payload.matched_source_id = null;
+      } else {
+        payload.po = document.getElementById('invPoInput').value.trim() || null;
+        payload.matched_source_table = detailMatchedTable;
+        payload.matched_source_id = detailMatchedId;
+      }
       payload.category = null;
       payload.description = document.getElementById('invDescriptionInput').value.trim() || null;
       payload.part_number = document.getElementById('invPartNumberInput').value.trim() || null;
@@ -1883,11 +2338,20 @@
       payload.category = null;
       payload.description = null;
       payload.part_number = null;
-    } else {
+    } else if (invoice_type === 'shop_expense') {
       payload.category = document.getElementById('invCategoryInput').value || null;
       payload.po = null;
       payload.matched_source_table = null;
       payload.matched_source_id = null;
+      payload.description = null;
+      payload.part_number = null;
+    } else {
+      // Custom type — generic: vendor/date/amount + optional PO#.
+      // No cores, no category, no line items.
+      payload.po = document.getElementById('invPoInput').value.trim() || null;
+      payload.matched_source_table = detailMatchedTable;
+      payload.matched_source_id = detailMatchedId;
+      payload.category = null;
       payload.description = null;
       payload.part_number = null;
     }
@@ -1900,7 +2364,8 @@
     const yyyyMm = invoice_date.slice(0, 7);
     const folder = invoice_type === 'parts_vendor' ? slugifyVendor(vendor)
       : invoice_type === 'repair_invoice' ? 'repair-invoices'
-      : 'shop-expenses';
+      : invoice_type === 'shop_expense' ? 'shop-expenses'
+      : slugifyVendor(invoice_type);  // custom type → invoice-images/<type-slug>/
     const ext = (detailInvoice.image_path.split('.').pop() || 'jpg').toLowerCase();
     const oldPath = detailInvoice.image_path;
     const newPath = `${folder}/${yyyyMm}/${detailInvoice.id}.${ext}`;
@@ -1947,11 +2412,16 @@
     if (invoice_type === 'parts_vendor') {
       try {
         await persistCores(detailInvoice.id, { vendor, po: payload.po, charged_date: invoice_date });
+        // Multi-PO breakdown — replace when the toggle is on; clean up any
+        // leftover lines when it's off (e.g. she toggled a multi invoice
+        // back to single). A failure here doesn't un-process the invoice.
+        if (multiPoOn) await persistPoLines(detailInvoice.id);
+        else await deletePoLines(detailInvoice.id);
       } catch (coreErr) {
-        console.error('[Cores] save failed', coreErr);
+        console.error('[Cores/MultiPO] save failed', coreErr);
         btn.disabled = false;
         btn.textContent = btnDefaultText;
-        alert('The invoice was saved, but its cores could not be saved: ' + (coreErr.message || 'unknown error') + '\n\nYou can add or fix them from History → Edit.');
+        alert('The invoice was saved, but its cores or PO lines could not be saved: ' + (coreErr.message || 'unknown error') + '\n\nYou can add or fix them from History → Edit.');
         closeInvoiceDetail();
         if (isEditingHistoryRow) loadHistory(); else loadInvoiceQueue();
         if (currentViewKey === 'overview') loadOverview();
@@ -2038,18 +2508,21 @@
     const inWeek = d => { if (!d) return false; const dt = new Date(d + 'T00:00:00'); return dt >= cutoff; };
     const inMonth = d => !!d && d.slice(0, 7) === ym;
 
+    // Spend math respects each type's counts_as (from invoice_types):
+    //   cost        → adds to spend
+    //   credit      → SUBTRACTS from spend
+    //   record_only → ignored (repair_invoice is record_only → still excluded)
+    // parts_vendor / shop_expense keep their named buckets so existing
+    // numbers are unchanged; any other type (custom cost or credit) nets
+    // into the Shop Expenses bucket.
     let weekParts = 0, weekExp = 0, monthParts = 0, monthExp = 0;
     processed.forEach(r => {
-      if (r.invoice_type === 'repair_invoice') return; // revenue, not a cost
-      const amt = Number(r.amount) || 0;
-      if (inWeek(r.invoice_date)) {
-        if (r.invoice_type === 'parts_vendor') weekParts += amt;
-        else if (r.invoice_type === 'shop_expense') weekExp += amt;
-      }
-      if (inMonth(r.invoice_date)) {
-        if (r.invoice_type === 'parts_vendor') monthParts += amt;
-        else if (r.invoice_type === 'shop_expense') monthExp += amt;
-      }
+      const ca = countsAsFor(r.invoice_type);
+      if (ca === 'record_only') return;
+      const signed = (Number(r.amount) || 0) * (ca === 'credit' ? -1 : 1);
+      const bucket = r.invoice_type === 'parts_vendor' ? 'parts' : 'exp';
+      if (inWeek(r.invoice_date)) { if (bucket === 'parts') weekParts += signed; else weekExp += signed; }
+      if (inMonth(r.invoice_date)) { if (bucket === 'parts') monthParts += signed; else monthExp += signed; }
     });
 
     const coreCountLabel = outstanding.length === 1 ? '1 core outstanding' : `${outstanding.length} cores outstanding`;
@@ -2743,6 +3216,8 @@
   })();
 
   function bootBoard() {
+    loadExpenseCategories();
+    loadInvoiceTypes();
     loadInvoiceQueue();
     subscribeInvoiceQueue();
     VIEW_REFRESH.queue = {
