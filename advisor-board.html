@@ -3181,15 +3181,10 @@
     // Reads currentRo + currentLines + shop_settings. One number
     // (ro_number); the legal footer is small-print at page bottom.
     //
-    // Legal terms now live in shop_settings.legal_terms (editable in
-    // Settings → Shop Profile), owned/edited by Cris. CD_LEGAL_TERMS is
-    // only the pre-migration / not-yet-entered FALLBACK so the footer
-    // never renders blank before the row/column exists.
+    // Legal terms + MV# come from shop_settings and are printed ONLY
+    // when set — a customer-facing invoice must NEVER show an internal
+    // "(set in Settings)" / placeholder. Unset → the line is omitted.
     // ══════════════════════════════════════════════════════════
-    const CD_LEGAL_TERMS =
-      '[[ LEGAL TERMS PLACEHOLDER — set the invoice legal terms in ' +
-      'Settings → Shop Profile → Legal Terms. This placeholder is not ' +
-      'legally binding wording. ]]';
 
     function printRo() {
       if (!currentRo) return;
@@ -3347,8 +3342,8 @@
     <div class="sig">X — Customer signature</div>
   </div>
 
-  <div class="legal">${P(cfg.legal_terms || CD_LEGAL_TERMS)}</div>
-  ${cfg.mv_number ? `<div class="mv">MV# ${P(cfg.mv_number)}</div>` : '<div class="mv muted">MV# — (set in Settings)</div>'}
+  ${cfg.legal_terms ? `<div class="legal">${P(cfg.legal_terms)}</div>` : ''}
+  ${cfg.mv_number ? `<div class="mv">MV# ${P(cfg.mv_number)}</div>` : ''}
 </div>
 </body></html>`;
 
