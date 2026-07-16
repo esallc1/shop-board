@@ -221,6 +221,50 @@
   }
   .intake-toggle input:checked + .intake-toggle-slider { background: var(--accent); }
   .intake-toggle input:checked + .intake-toggle-slider::before { transform: translateX(18px); }
+
+  /* ── New RO (CrisData) — Phase 2 slice 1 additive intake. Prefixed
+     .cd-* so nothing here touches the live New Vehicle Intake flow. ── */
+  .cd-nav-tag {
+    margin-left: 6px; font-size: 0.58rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--accent); background: rgba(99,102,241,0.12);
+    border-radius: 4px; padding: 1px 5px; vertical-align: middle;
+  }
+  .cd-step { display: none; }
+  .cd-step.active { display: block; }
+  .cd-steplabel {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); font-weight: 700; margin-bottom: 12px;
+  }
+  .cd-row { display: flex; gap: 10px; }
+  .cd-row > .intake-field { flex: 1; }
+  .cd-hint { font-size: 0.72rem; color: var(--muted); margin: -6px 0 10px; }
+  .cd-decode-msg { font-size: 0.74rem; margin: 6px 0 0; min-height: 15px; }
+  .cd-decode-msg.ok { color: #15803d; }
+  .cd-decode-msg.warn { color: #b45309; }
+  .cd-decode-msg.err { color: #dc2626; }
+  .cd-loaded-customer {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; font-size: 0.82rem; color: var(--text); margin-bottom: 14px;
+  }
+  .cd-loaded-customer b { font-weight: 700; }
+  .cd-optional-toggle {
+    background: none; border: none; color: var(--accent); font-size: 0.75rem;
+    font-weight: 700; cursor: pointer; padding: 0; margin-bottom: 12px;
+  }
+  .cd-pick-item {
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+    margin-bottom: 8px; cursor: pointer; font-size: 0.84rem;
+  }
+  .cd-pick-item:hover { border-color: var(--accent); background: var(--bg); }
+  .cd-done-badge {
+    text-align: center; font-size: 1.6rem; font-weight: 800; color: var(--accent);
+    margin: 8px 0 4px;
+  }
+  .cd-done-summary {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 14px; font-size: 0.82rem; color: var(--text); line-height: 1.5;
+    margin: 12px 0;
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="shared/board-settings.js"></script>
@@ -261,6 +305,7 @@
         <div class="sidebar-group-label">Main</div>
         <div class="sidebar-item active" data-view="approval" data-label="Approval Queue"><span class="icon">📋</span>Approval Queue</div>
         <div class="sidebar-item" id="navNewVehicle"><span class="icon">🚗</span>New Vehicle Intake</div>
+        <div class="sidebar-item" id="navCdRo"><span class="icon">🆕</span>New RO (CrisData)<span class="cd-nav-tag">beta</span></div>
         <div class="sidebar-item" data-view="parts" data-label="Parts"><span class="icon">🔩</span>Parts</div>
         <div class="sidebar-item" data-view="payments" data-label="Payments"><span class="icon">💳</span>Payments</div>
         <div class="sidebar-item" data-view="customer-log" data-label="Customer Log"><span class="icon">📇</span>Customer Log</div>
@@ -602,6 +647,189 @@
     <div class="intake-form-error" id="opFormError"></div>
     <button class="modal-btn" id="opSaveBtn">Order Part</button>
     <button class="modal-btn sec" id="opCancelBtn">Cancel</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     New RO (CrisData) — Phase 2 slice 1: phone-first create path
+     through the RO mint. PARALLEL to the live New Vehicle Intake
+     modal above (which stays the shop's ALLDATA front door). Writes
+     to the Phase-1 tables: customers → vehicles → repair_orders.
+     ══════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="cdRoModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="cdCloseBtn">&times;</button>
+    <h3>New RO — CrisData</h3>
+
+    <!-- STEP 1: phone-first entry -->
+    <div class="cd-step active" id="cdStepPhone">
+      <div class="cd-steplabel">Step 1 of 4 · Customer phone</div>
+      <div class="intake-field">
+        <label>Phone Number</label>
+        <input type="tel" id="cdPhoneInput" placeholder="e.g. 561-555-0142" autocomplete="off">
+      </div>
+      <p class="cd-hint">We'll look up an existing customer, or start a new one.</p>
+      <div class="intake-form-error" id="cdPhoneError"></div>
+      <button class="modal-btn" id="cdPhoneNextBtn">Look up</button>
+      <button class="modal-btn sec" id="cdPhoneCancelBtn">Cancel</button>
+    </div>
+
+    <!-- STEP 1b: multiple matches pick-list -->
+    <div class="cd-step" id="cdStepPick">
+      <div class="cd-steplabel">Step 1 · Multiple customers on this phone</div>
+      <div id="cdPickList"></div>
+      <button class="modal-btn sec" id="cdPickNewBtn">None of these — new customer</button>
+    </div>
+
+    <!-- STEP 2: new customer -->
+    <div class="cd-step" id="cdStepCustomer">
+      <div class="cd-steplabel">Step 2 of 4 · New customer</div>
+      <div class="intake-field">
+        <label>Name *</label>
+        <input type="text" id="cdCustName" placeholder="Customer name" autocomplete="off">
+      </div>
+      <div class="intake-field">
+        <label>Phone *</label>
+        <input type="tel" id="cdCustPhone" placeholder="Primary phone" autocomplete="off">
+      </div>
+      <button type="button" class="cd-optional-toggle" id="cdOptionalToggle">+ Add details (optional)</button>
+      <div id="cdCustOptional" style="display:none">
+        <div class="intake-field">
+          <label>Email</label>
+          <input type="email" id="cdCustEmail" placeholder="name@example.com" autocomplete="off">
+        </div>
+        <div class="intake-field">
+          <label>Business Name</label>
+          <input type="text" id="cdCustBusiness" placeholder="If a company/fleet" autocomplete="off">
+        </div>
+        <div class="intake-field">
+          <label>Mailing Address</label>
+          <input type="text" id="cdCustAddr1" placeholder="Street address" autocomplete="off" style="margin-bottom:8px">
+          <input type="text" id="cdCustAddr2" placeholder="Apt / Suite (optional)" autocomplete="off">
+        </div>
+        <div class="cd-row">
+          <div class="intake-field"><label>City</label><input type="text" id="cdCustCity" autocomplete="off"></div>
+          <div class="intake-field"><label>State</label><input type="text" id="cdCustState" maxlength="2" placeholder="FL" autocomplete="off"></div>
+          <div class="intake-field"><label>ZIP</label><input type="text" id="cdCustZip" autocomplete="off"></div>
+        </div>
+        <div class="cd-row">
+          <div class="intake-field">
+            <label>Lead Source</label>
+            <select id="cdCustLeadSource">
+              <option value="">—</option>
+              <option value="google">Google</option>
+              <option value="referral">Referral</option>
+              <option value="repeat">Repeat customer</option>
+              <option value="drive_by">Drive-by / sign</option>
+              <option value="fleet">Fleet account</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="intake-field">
+            <label>Delivery Preference</label>
+            <select id="cdCustDelivery">
+              <option value="print" selected>Print</option>
+              <option value="email">Email</option>
+              <option value="both">Both</option>
+            </select>
+          </div>
+        </div>
+        <div class="intake-field intake-field-row">
+          <label style="margin-bottom:0">Tax Exempt</label>
+          <label class="intake-toggle">
+            <input type="checkbox" id="cdCustTaxExempt">
+            <span class="intake-toggle-slider"></span>
+          </label>
+        </div>
+      </div>
+      <div class="intake-form-error" id="cdCustError"></div>
+      <button class="modal-btn" id="cdCustSaveBtn">Create &amp; continue</button>
+      <button class="modal-btn sec" id="cdCustBackBtn">Back</button>
+    </div>
+
+    <!-- STEP 3: new vehicle -->
+    <div class="cd-step" id="cdStepVehicle">
+      <div class="cd-steplabel">Step 3 of 4 · Vehicle</div>
+      <div class="cd-loaded-customer" id="cdVehCustomerBanner"></div>
+
+      <div class="cd-row">
+        <div class="intake-field" style="flex:2">
+          <label>License Plate</label>
+          <input type="text" id="cdVehPlate" placeholder="Plate #" autocomplete="off">
+        </div>
+        <div class="intake-field">
+          <label>State</label>
+          <input type="text" id="cdVehPlateState" maxlength="2" placeholder="FL" autocomplete="off">
+        </div>
+      </div>
+      <button class="modal-btn sec" id="cdPlateDecodeBtn" style="margin-bottom:6px">Decode plate</button>
+
+      <div class="intake-field" style="margin-top:8px">
+        <label>VIN</label>
+        <input type="text" id="cdVehVin" placeholder="17-character VIN" maxlength="17" autocomplete="off" style="text-transform:uppercase">
+      </div>
+      <button class="modal-btn sec" id="cdVinDecodeBtn">Decode VIN (NHTSA)</button>
+      <p class="cd-decode-msg" id="cdDecodeMsg"></p>
+
+      <div class="cd-row" style="margin-top:8px">
+        <div class="intake-field"><label>Year</label><input type="number" id="cdVehYear" placeholder="2018" autocomplete="off"></div>
+        <div class="intake-field"><label>Make</label><input type="text" id="cdVehMake" autocomplete="off"></div>
+        <div class="intake-field"><label>Model</label><input type="text" id="cdVehModel" autocomplete="off"></div>
+      </div>
+      <div class="intake-field">
+        <label>Engine</label>
+        <input type="text" id="cdVehEngine" placeholder="e.g. 3.5L V6" autocomplete="off">
+      </div>
+      <div class="cd-row">
+        <div class="intake-field">
+          <label>Transmission Code</label>
+          <input type="text" id="cdVehTransCode" placeholder="hand-confirmed" autocomplete="off">
+        </div>
+        <div class="intake-field">
+          <label>Drive Type</label>
+          <select id="cdVehDrive">
+            <option value="">—</option>
+            <option value="FWD">FWD</option>
+            <option value="RWD">RWD</option>
+            <option value="AWD">AWD</option>
+            <option value="4WD">4WD</option>
+          </select>
+        </div>
+      </div>
+      <div class="intake-field">
+        <label>Unit Number (optional)</label>
+        <input type="text" id="cdVehUnit" placeholder="Fleet unit #" autocomplete="off">
+      </div>
+      <div class="intake-form-error" id="cdVehError"></div>
+      <button class="modal-btn" id="cdVehSaveBtn">Save &amp; continue</button>
+      <button class="modal-btn sec" id="cdVehCancelBtn">Cancel</button>
+    </div>
+
+    <!-- STEP 4: mint the RO -->
+    <div class="cd-step" id="cdStepMint">
+      <div class="cd-steplabel">Step 4 of 4 · Open the RO</div>
+      <div class="cd-loaded-customer" id="cdMintSummaryBanner"></div>
+      <div class="intake-field">
+        <label>Complaint / Concern</label>
+        <textarea id="cdMintComplaint" placeholder="What the customer reported"></textarea>
+      </div>
+      <div class="intake-field">
+        <label>Odometer In (optional)</label>
+        <input type="number" id="cdMintOdometer" placeholder="Miles" autocomplete="off">
+      </div>
+      <div class="intake-form-error" id="cdMintError"></div>
+      <button class="modal-btn" id="cdMintBtn">Create RO</button>
+      <button class="modal-btn sec" id="cdMintCancelBtn">Cancel</button>
+    </div>
+
+    <!-- DONE: confirmation -->
+    <div class="cd-step" id="cdStepDone">
+      <div class="cd-done-badge" id="cdDoneBadge">RO #—</div>
+      <div class="cd-steplabel" style="text-align:center">Repair order created</div>
+      <div class="cd-done-summary" id="cdDoneSummary"></div>
+      <button class="modal-btn" id="cdDoneNewBtn">Start another</button>
+      <button class="modal-btn sec" id="cdDoneCloseBtn">Close</button>
+    </div>
   </div>
 </div>
 
@@ -1833,6 +2061,358 @@
     document.getElementById('closeNewVehicleModal').addEventListener('click', closeNewVehicleModal);
     document.getElementById('nvCancelBtn').addEventListener('click', closeNewVehicleModal);
     document.getElementById('nvSaveBtn').addEventListener('click', saveNewVehicle);
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // NEW RO (CrisData) — Phase 2, slice 1: phone-first create path
+  // through the RO mint. Fully additive / parallel to the live New
+  // Vehicle Intake above — this writes to the Phase-1 CrisData tables
+  // (customers → vehicles → repair_orders) and does NOT touch the
+  // shopboard_* / ALLDATA path. repair_orders mints ro_number from the
+  // 6000 identity and po is DB-generated; we set NEITHER, we read both
+  // back via RETURNING.
+  //
+  // Slice 1 scope: brand-new customer + brand-new vehicle → minted RO.
+  // The match-and-load existing-customer branch is wired (it's clean),
+  // but returning-vehicle history, the comeback check, line items, and
+  // the shop-floor drop are HELD for later slices.
+  // ══════════════════════════════════════════════════════════════
+  (function () {
+    const $ = (id) => document.getElementById(id);
+    const digits = (s) => (s || '').replace(/\D/g, '');
+
+    // in-flight intake state, reset on open / start-another
+    let state = { customerId: null, customerName: null, vehicleId: null };
+
+    const STEPS = ['cdStepPhone','cdStepPick','cdStepCustomer','cdStepVehicle','cdStepMint','cdStepDone'];
+    function showStep(id) {
+      STEPS.forEach(s => $(s).classList.toggle('active', s === id));
+    }
+
+    function resetAll() {
+      state = { customerId: null, customerName: null, vehicleId: null };
+      // step 1
+      $('cdPhoneInput').value = '';
+      $('cdPhoneError').textContent = '';
+      // step 2
+      ['cdCustName','cdCustPhone','cdCustEmail','cdCustBusiness','cdCustAddr1',
+       'cdCustAddr2','cdCustCity','cdCustState','cdCustZip'].forEach(i => $(i).value = '');
+      $('cdCustLeadSource').value = '';
+      $('cdCustDelivery').value = 'print';
+      $('cdCustTaxExempt').checked = false;
+      $('cdCustOptional').style.display = 'none';
+      $('cdOptionalToggle').textContent = '+ Add details (optional)';
+      $('cdCustError').textContent = '';
+      // step 3
+      ['cdVehPlate','cdVehPlateState','cdVehVin','cdVehYear','cdVehMake','cdVehModel',
+       'cdVehEngine','cdVehTransCode','cdVehUnit'].forEach(i => $(i).value = '');
+      $('cdVehDrive').value = '';
+      $('cdDecodeMsg').textContent = '';
+      $('cdDecodeMsg').className = 'cd-decode-msg';
+      $('cdVehError').textContent = '';
+      // step 4
+      $('cdMintComplaint').value = '';
+      $('cdMintOdometer').value = '';
+      $('cdMintError').textContent = '';
+    }
+
+    function openModal() {
+      resetAll();
+      showStep('cdStepPhone');
+      $('cdRoModal').style.display = 'flex';
+      setTimeout(() => $('cdPhoneInput').focus(), 30);
+    }
+    function closeModal() { $('cdRoModal').style.display = 'none'; }
+
+    // ── STEP 1: phone lookup ──────────────────────────────────
+    // Stored phone_primary may be formatted any which way, so we
+    // normalize to digits on BOTH sides and match in JS. The customers
+    // table is tiny today; if it grows this becomes a normalized-column
+    // or RPC lookup, flagged for a later slice.
+    async function lookupPhone() {
+      const raw = $('cdPhoneInput').value;
+      const d = digits(raw);
+      $('cdPhoneError').textContent = '';
+      if (d.length < 7) { $('cdPhoneError').textContent = 'Enter a full phone number.'; return; }
+
+      const btn = $('cdPhoneNextBtn');
+      btn.disabled = true; btn.textContent = 'Looking up…';
+      try {
+        const { data, error } = await db
+          .from('customers')
+          .select('id, name, business_name, phone_primary')
+          .not('phone_primary', 'is', null);
+        if (error) throw error;
+        const matches = (data || []).filter(c => digits(c.phone_primary) === d);
+
+        if (matches.length === 0) {
+          // new customer — prefill the phone as entered
+          $('cdCustPhone').value = raw.trim();
+          $('cdCustName').value = '';
+          showStep('cdStepCustomer');
+          setTimeout(() => $('cdCustName').focus(), 30);
+        } else if (matches.length === 1) {
+          loadCustomer(matches[0]);
+        } else {
+          renderPickList(matches);
+          showStep('cdStepPick');
+        }
+      } catch (err) {
+        console.error('[CdRO] phone lookup failed', err);
+        $('cdPhoneError').textContent = 'Lookup failed: ' + (err.message || 'unknown error');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Look up';
+      }
+    }
+
+    function renderPickList(matches) {
+      const wrap = $('cdPickList');
+      wrap.innerHTML = '';
+      matches.forEach(c => {
+        const el = document.createElement('div');
+        el.className = 'cd-pick-item';
+        el.innerHTML = `<b>${escapeHtml(c.name || '(no name)')}</b>` +
+          (c.business_name ? ` — ${escapeHtml(c.business_name)}` : '');
+        el.addEventListener('click', () => loadCustomer(c));
+        wrap.appendChild(el);
+      });
+    }
+
+    // ── matched-customer branch: skip create, go straight to vehicle ──
+    function loadCustomer(c) {
+      state.customerId = c.id;
+      state.customerName = c.name;
+      const banner = $('cdVehCustomerBanner');
+      banner.innerHTML = `Customer: <b>${escapeHtml(c.name || '(no name)')}</b>` +
+        (c.business_name ? ` <span style="color:var(--muted)">· ${escapeHtml(c.business_name)}</span>` : '') +
+        ` <span style="color:var(--muted)">· existing</span>`;
+      showStep('cdStepVehicle');
+    }
+
+    // ── STEP 2: create new customer ───────────────────────────
+    async function createCustomer() {
+      const name = $('cdCustName').value.trim();
+      const phone = $('cdCustPhone').value.trim();
+      const errEl = $('cdCustError');
+      errEl.textContent = '';
+      if (!name || !phone) { errEl.textContent = 'Name and phone are required.'; return; }
+
+      const row = {
+        name,
+        phone_primary: phone,
+        email: $('cdCustEmail').value.trim() || null,
+        business_name: $('cdCustBusiness').value.trim() || null,
+        address_line1: $('cdCustAddr1').value.trim() || null,
+        address_line2: $('cdCustAddr2').value.trim() || null,
+        city: $('cdCustCity').value.trim() || null,
+        state: $('cdCustState').value.trim() || null,
+        postal_code: $('cdCustZip').value.trim() || null,
+        lead_source: $('cdCustLeadSource').value || null,
+        delivery_preference: $('cdCustDelivery').value || 'print',
+        tax_exempt: $('cdCustTaxExempt').checked,
+      };
+
+      const btn = $('cdCustSaveBtn');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        const { data, error } = await db.from('customers').insert(row).select('id, name, business_name').single();
+        if (error) throw error;
+        loadCustomer({ ...data });
+        // overwrite the "existing" tag — this is a fresh customer
+        $('cdVehCustomerBanner').innerHTML =
+          `Customer: <b>${escapeHtml(data.name)}</b> <span style="color:var(--muted)">· new</span>`;
+      } catch (err) {
+        console.error('[CdRO] create customer failed', err);
+        errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Create & continue';
+      }
+    }
+
+    // ── STEP 3: VIN decode via NHTSA vPIC (no key, CORS-open) ──
+    function mapDriveType(v) {
+      const s = (v || '').toUpperCase();
+      if (s.includes('FWD') || s.includes('FRONT')) return 'FWD';
+      if (s.includes('RWD') || s.includes('REAR')) return 'RWD';
+      if (s.includes('AWD') || s.includes('ALL-WHEEL') || s.includes('ALL WHEEL')) return 'AWD';
+      if (s.includes('4WD') || s.includes('4X4') || s.includes('4-WHEEL') || s.includes('FOUR')) return '4WD';
+      return '';
+    }
+
+    async function decodeVin() {
+      const vin = $('cdVehVin').value.trim().toUpperCase();
+      const msg = $('cdDecodeMsg');
+      msg.className = 'cd-decode-msg';
+      if (vin.length !== 17) { msg.className = 'cd-decode-msg err'; msg.textContent = 'VIN must be 17 characters.'; return; }
+
+      const btn = $('cdVinDecodeBtn');
+      btn.disabled = true; btn.textContent = 'Decoding…';
+      msg.textContent = 'Contacting NHTSA…';
+      try {
+        const resp = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${encodeURIComponent(vin)}?format=json`);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const json = await resp.json();
+        const r = (json.Results && json.Results[0]) || {};
+        if (r.ErrorCode && r.ErrorCode !== '0' && !r.Make && !r.Model) {
+          msg.className = 'cd-decode-msg warn';
+          msg.textContent = 'NHTSA had no clean match — fill in manually.';
+          return;
+        }
+        // prefill only where empty-or-decodable; leave transmission_code to hand entry
+        if (r.ModelYear) $('cdVehYear').value = r.ModelYear;
+        if (r.Make) $('cdVehMake').value = titleCase(r.Make);
+        if (r.Model) $('cdVehModel').value = titleCase(r.Model);
+        const eng = [r.DisplacementL ? (Number(r.DisplacementL).toFixed(1) + 'L') : '',
+                     r.EngineCylinders ? (r.EngineCylinders + '-cyl') : '',
+                     (r.FuelTypePrimary && r.FuelTypePrimary !== 'Gasoline') ? r.FuelTypePrimary : '']
+                    .filter(Boolean).join(' ');
+        if (eng) $('cdVehEngine').value = eng;
+        const dt = mapDriveType(r.DriveType);
+        if (dt) $('cdVehDrive').value = dt;
+
+        msg.className = 'cd-decode-msg ok';
+        const got = [r.ModelYear, titleCase(r.Make), titleCase(r.Model)].filter(Boolean).join(' ');
+        msg.textContent = got ? `Decoded: ${got}. Confirm transmission code by hand.` : 'Decoded — confirm fields.';
+      } catch (err) {
+        console.error('[CdRO] VIN decode failed', err);
+        msg.className = 'cd-decode-msg err';
+        msg.textContent = 'Decode failed (' + (err.message || 'network') + ') — enter manually.';
+      } finally {
+        btn.disabled = false; btn.textContent = 'Decode VIN (NHTSA)';
+      }
+    }
+
+    function decodePlate() {
+      const msg = $('cdDecodeMsg');
+      msg.className = 'cd-decode-msg warn';
+      msg.textContent = 'Plate decode is coming soon — use VIN decode or enter manually for now.';
+    }
+
+    // ── STEP 3 save: insert vehicle ───────────────────────────
+    async function saveVehicle() {
+      const errEl = $('cdVehError');
+      errEl.textContent = '';
+      if (!state.customerId) { errEl.textContent = 'No customer loaded — start over.'; return; }
+
+      const yearVal = parseInt($('cdVehYear').value, 10);
+      const row = {
+        customer_id: state.customerId,
+        plate: $('cdVehPlate').value.trim() || null,
+        plate_state: $('cdVehPlateState').value.trim() || null,
+        vin: $('cdVehVin').value.trim().toUpperCase() || null,
+        year: Number.isFinite(yearVal) ? yearVal : null,
+        make: $('cdVehMake').value.trim() || null,
+        model: $('cdVehModel').value.trim() || null,
+        engine: $('cdVehEngine').value.trim() || null,
+        transmission_code: $('cdVehTransCode').value.trim() || null,
+        drive_type: $('cdVehDrive').value || null,
+        unit_number: $('cdVehUnit').value.trim() || null,
+      };
+      // require at least something identifying the vehicle
+      if (!row.vin && !row.plate && !(row.year && row.make && row.model)) {
+        errEl.textContent = 'Enter a VIN, a plate, or year/make/model.';
+        return;
+      }
+
+      const btn = $('cdVehSaveBtn');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        const { data, error } = await db.from('vehicles').insert(row).select('id, year, make, model, vin, plate').single();
+        if (error) throw error;
+        state.vehicleId = data.id;
+        const vDesc = [data.year, data.make, data.model].filter(Boolean).join(' ') ||
+          (data.vin ? 'VIN ' + data.vin : (data.plate ? 'Plate ' + data.plate : 'Vehicle'));
+        $('cdMintSummaryBanner').innerHTML =
+          `<b>${escapeHtml(state.customerName || 'Customer')}</b><br>` +
+          `<span style="color:var(--muted)">${escapeHtml(vDesc)}</span>`;
+        showStep('cdStepMint');
+        setTimeout(() => $('cdMintComplaint').focus(), 30);
+      } catch (err) {
+        console.error('[CdRO] save vehicle failed', err);
+        errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Save & continue';
+      }
+    }
+
+    // ── STEP 4: mint the repair_order ─────────────────────────
+    async function mintRo() {
+      const errEl = $('cdMintError');
+      errEl.textContent = '';
+      if (!state.customerId || !state.vehicleId) { errEl.textContent = 'Missing customer/vehicle — start over.'; return; }
+
+      const odo = parseInt($('cdMintOdometer').value, 10);
+      const row = {
+        customer_id: state.customerId,
+        vehicle_id: state.vehicleId,
+        complaint: $('cdMintComplaint').value.trim() || null,
+        odometer_in: Number.isFinite(odo) ? odo : null,
+        // ro_number + po are DB-minted — deliberately NOT set here
+      };
+
+      const btn = $('cdMintBtn');
+      btn.disabled = true; btn.textContent = 'Creating…';
+      try {
+        const { data, error } = await db.from('repair_orders').insert(row)
+          .select('ro_number, po, complaint').single();
+        if (error) throw error;
+        $('cdDoneBadge').textContent = 'RO #' + data.ro_number;
+        $('cdDoneSummary').innerHTML =
+          `<b>Customer:</b> ${escapeHtml(state.customerName || '—')}<br>` +
+          `<b>RO #:</b> ${data.ro_number} &nbsp; <span style="color:var(--muted)">(po ${escapeHtml(data.po)})</span><br>` +
+          (data.complaint ? `<b>Complaint:</b> ${escapeHtml(data.complaint)}` : '<span style="color:var(--muted)">No complaint recorded</span>');
+        showStep('cdStepDone');
+      } catch (err) {
+        console.error('[CdRO] mint RO failed', err);
+        errEl.textContent = 'Create failed: ' + (err.message || 'unknown error');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Create RO';
+      }
+    }
+
+    // ── small helpers ─────────────────────────────────────────
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+    function titleCase(s) {
+      return String(s || '').toLowerCase().replace(/\b([a-z])/g, (m, c) => c.toUpperCase());
+    }
+
+    // ── wiring ────────────────────────────────────────────────
+    $('navCdRo').addEventListener('click', openModal);
+    $('cdCloseBtn').addEventListener('click', closeModal);
+    $('cdPhoneCancelBtn').addEventListener('click', closeModal);
+    $('cdVehCancelBtn').addEventListener('click', closeModal);
+    $('cdMintCancelBtn').addEventListener('click', closeModal);
+    $('cdDoneCloseBtn').addEventListener('click', closeModal);
+
+    $('cdPhoneNextBtn').addEventListener('click', lookupPhone);
+    $('cdPhoneInput').addEventListener('keydown', e => { if (e.key === 'Enter') lookupPhone(); });
+
+    $('cdPickNewBtn').addEventListener('click', () => {
+      $('cdCustPhone').value = $('cdPhoneInput').value.trim();
+      showStep('cdStepCustomer');
+      setTimeout(() => $('cdCustName').focus(), 30);
+    });
+
+    $('cdOptionalToggle').addEventListener('click', () => {
+      const box = $('cdCustOptional');
+      const open = box.style.display !== 'none';
+      box.style.display = open ? 'none' : 'block';
+      $('cdOptionalToggle').textContent = open ? '+ Add details (optional)' : '− Hide details';
+    });
+    $('cdCustSaveBtn').addEventListener('click', createCustomer);
+    $('cdCustBackBtn').addEventListener('click', () => showStep('cdStepPhone'));
+
+    $('cdVinDecodeBtn').addEventListener('click', decodeVin);
+    $('cdPlateDecodeBtn').addEventListener('click', decodePlate);
+    $('cdVehSaveBtn').addEventListener('click', saveVehicle);
+
+    $('cdMintBtn').addEventListener('click', mintRo);
+
+    $('cdDoneNewBtn').addEventListener('click', openModal);
   })();
 
   // ══════════════════════════════════════════════════════════════
