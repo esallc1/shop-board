@@ -61,6 +61,10 @@ window.BoardSettings = (function () {
   let canEditShopMoney = false;
   let canEditShopOps = false;
   let onShopSettingsChanged = null;
+  let shopLogoFile = null;      // pending logo upload (Owner/GM only)
+  // logos live in the existing public board-backgrounds bucket (same
+  // anon storage policies already in place), under a shop-logo/ prefix.
+  const LOGO_BUCKET = 'board-backgrounds';
 
   // Resolved settings the rest of the app reads. Always safe — falls
   // back to defaults (tax 0.07) when the row/table doesn't exist yet
@@ -76,6 +80,20 @@ window.BoardSettings = (function () {
       card_fee_pct: n(shopSettingsRow.card_fee_pct, SHOP_DEFAULTS.card_fee_pct),
       shop_supplies_default: n(shopSettingsRow.shop_supplies_default, SHOP_DEFAULTS.shop_supplies_default),
       hazmat_default: n(shopSettingsRow.hazmat_default, SHOP_DEFAULTS.hazmat_default),
+      // shop profile (Phase 3) — nulls until the migration seeds them
+      shop_name: shopSettingsRow.shop_name || null,
+      address_line: shopSettingsRow.address_line || null,
+      city_state_zip: shopSettingsRow.city_state_zip || null,
+      phone: shopSettingsRow.phone || null,
+      email: shopSettingsRow.email || null,
+      website: shopSettingsRow.website || null,
+      logo_url: shopSettingsRow.logo_url || null,
+      mv_number: shopSettingsRow.mv_number || null,
+      legal_terms: shopSettingsRow.legal_terms || null,
+      // true only once the Phase-3 migration added the profile columns —
+      // pre-migration the row simply won't carry these keys.
+      _hasProfile: ('shop_name' in shopSettingsRow),
+      _hasLegal: ('legal_terms' in shopSettingsRow),
       _exists: true,
       _id: shopSettingsRow.id,
     };
@@ -208,6 +226,24 @@ window.BoardSettings = (function () {
       #stgfeatShopBody code {
         background: #f0f1f5; border-radius: 4px; padding: 1px 4px; font-size: 0.78rem;
       }
+      .stgfeat-pfield { margin-bottom: 10px; }
+      .stgfeat-pfield label {
+        display: block; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px;
+        color: #8c93a8; font-weight: 700; margin-bottom: 4px;
+      }
+      .stgfeat-pfield input, .stgfeat-pfield textarea {
+        width: 100%; padding: 7px 10px; border: 1px solid #e2e5ee; border-radius: 6px;
+        font-size: 0.85rem; font-family: inherit; color: #1a1f36; box-sizing: border-box;
+      }
+      .stgfeat-pfield textarea { resize: vertical; line-height: 1.4; }
+      .stgfeat-pfield input:focus, .stgfeat-pfield textarea:focus { outline: none; border-color: #5b5ef4; }
+      .stgfeat-logo-row { display: flex; align-items: center; gap: 10px; }
+      .stgfeat-logo-preview {
+        width: 88px; height: 44px; border: 1px solid #e2e5ee; border-radius: 6px;
+        display: flex; align-items: center; justify-content: center; overflow: hidden;
+        background: #f7f8fa; color: #8c93a8; font-size: 0.7rem; flex-shrink: 0;
+      }
+      .stgfeat-logo-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
     `;
     document.head.appendChild(style);
   }
@@ -497,12 +533,51 @@ window.BoardSettings = (function () {
         <span class="stgfeat-static">${s.show_tech_on_ro ? 'Yes' : 'No'}</span>
       </div>`;
 
+    // SHOP PROFILE (invoice header + legal footer) — Owner/GM edit only.
+    shopLogoFile = null;
+    const pf = (id, label, val, type) =>
+      `<div class="stgfeat-pfield"><label>${label}</label><input type="${type || 'text'}" id="${id}" value="${esc(val || '')}"></div>`;
+    const profileBlock = (canEditShopMoney && s._hasProfile) ? `
+      <div class="stgfeat-section-label" style="margin-top:16px">Shop Profile (invoice)</div>
+      ${pf('stgfeatShopName', 'Shop Name', s.shop_name)}
+      ${pf('stgfeatAddress', 'Address', s.address_line)}
+      ${pf('stgfeatCityStateZip', 'City, State ZIP', s.city_state_zip)}
+      ${pf('stgfeatPhone', 'Phone', s.phone, 'tel')}
+      ${pf('stgfeatEmail', 'Email', s.email, 'email')}
+      ${pf('stgfeatWebsite', 'Website', s.website)}
+      ${pf('stgfeatMvNumber', 'MV Number', s.mv_number)}
+      <div class="stgfeat-pfield">
+        <label>Logo</label>
+        <div class="stgfeat-logo-row">
+          <div class="stgfeat-logo-preview" id="stgfeatLogoPreview">${s.logo_url ? `<img src="${esc(s.logo_url)}" alt="logo">` : 'No logo'}</div>
+          <input type="file" accept="image/*" id="stgfeatLogoFile" style="display:none">
+          <button type="button" class="stgfeat-btn sec" id="stgfeatLogoChoose">Choose logo…</button>
+        </div>
+      </div>
+      ${s._hasLegal ? `<div class="stgfeat-pfield">
+        <label>Legal Terms (invoice footer)</label>
+        <textarea id="stgfeatLegalTerms" rows="5" placeholder="Lien / authorization / warranty paragraph printed as small print on the invoice">${esc(s.legal_terms || '')}</textarea>
+      </div>` : ''}` : '';
+
     const canSave = canEditShopMoney || canEditShopOps;
-    body.innerHTML = moneyBlock + opsBlock +
+    body.innerHTML = moneyBlock + profileBlock + opsBlock +
       (canSave ? '<button type="button" class="stgfeat-btn block" id="stgfeatShopSaveBtn" style="margin-top:6px">Save Shop Settings</button>' : '') +
       '<div class="stgfeat-error" id="stgfeatShopError"></div>' +
-      (canEditShopMoney ? '' : '<div class="stgfeat-placeholder" style="margin-top:8px">Tax &amp; labor rate are set on the Owner / GM board.</div>');
+      (canEditShopMoney ? '' : '<div class="stgfeat-placeholder" style="margin-top:8px">Tax, labor rate, fees, and the shop profile / logo are set on the Owner / GM board.</div>');
 
+    if (canEditShopMoney && s._hasProfile) {
+      const fileInput = body.querySelector('#stgfeatLogoFile');
+      const preview = body.querySelector('#stgfeatLogoPreview');
+      body.querySelector('#stgfeatLogoChoose').addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', () => {
+        const f = fileInput.files[0];
+        if (!f) return;
+        shopLogoFile = f;
+        const reader = new FileReader();
+        reader.onload = () => { preview.innerHTML = `<img src="${reader.result}" alt="logo">`; };
+        reader.readAsDataURL(f);
+      });
+    }
     if (canSave) {
       body.querySelector('#stgfeatShopSaveBtn').addEventListener('click', saveShopSettings);
     }
@@ -532,14 +607,49 @@ window.BoardSettings = (function () {
       update.shop_supplies_default = Number.isFinite(supplies) && supplies >= 0 ? supplies : 0;
       const hazmat = parseFloat(modalEl.querySelector('#stgfeatHazmat').value);
       update.hazmat_default = Number.isFinite(hazmat) && hazmat >= 0 ? hazmat : 0;
+
+      // shop profile fields (only once the Phase-3 columns exist)
+      if (s._hasProfile) {
+        const t = (id) => { const el = modalEl.querySelector(id); return el && el.value.trim() ? el.value.trim() : null; };
+        update.shop_name = t('#stgfeatShopName');
+        update.address_line = t('#stgfeatAddress');
+        update.city_state_zip = t('#stgfeatCityStateZip');
+        update.phone = t('#stgfeatPhone');
+        update.email = t('#stgfeatEmail');
+        update.website = t('#stgfeatWebsite');
+        update.mv_number = t('#stgfeatMvNumber');
+      }
+      if (s._hasLegal) {
+        const legalEl = modalEl.querySelector('#stgfeatLegalTerms');
+        update.legal_terms = legalEl && legalEl.value.trim() ? legalEl.value.trim() : null;
+      }
     }
     if (canEditShopOps) {
       update.show_tech_on_ro = modalEl.querySelector('#stgfeatShowTech').checked;
     }
-    if (Object.keys(update).length === 0) return;
+    if (Object.keys(update).length === 0 && !shopLogoFile) return;
 
     saveBtn.disabled = true;
     saveBtn.textContent = 'Saving…';
+
+    // upload a new logo first (if chosen); on failure, keep the panel open.
+    if (canEditShopMoney && s._hasProfile && shopLogoFile) {
+      try {
+        const ext = (shopLogoFile.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+        const path = `shop-logo/${Date.now()}.${ext}`;
+        const { error: upErr } = await db.storage.from(LOGO_BUCKET).upload(path, shopLogoFile, { upsert: true });
+        if (upErr) throw upErr;
+        const { data: pub } = db.storage.from(LOGO_BUCKET).getPublicUrl(path);
+        update.logo_url = pub.publicUrl;
+      } catch (err) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Shop Settings';
+        console.error('[BoardSettings] logo upload failed', err);
+        errEl.textContent = 'Logo upload failed: ' + (err.message || 'unknown error');
+        return;
+      }
+    }
+
     const { error } = await db.from('shop_settings').update(update).eq('id', s._id);
 
     if (error) {

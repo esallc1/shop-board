@@ -285,6 +285,13 @@
   }
   .cd-ro-header .cd-hf-val { font-size: 0.88rem; color: var(--text); }
   .cd-ro-header .cd-hf-full { grid-column: 1 / -1; }
+  .cd-ro-edit {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 22px;
+    margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border);
+  }
+  .cd-ro-edit .intake-field { margin-bottom: 0; }
+  .cd-ro-edit .cd-hf-full { grid-column: 1 / -1; }
+  .cd-ro-edit textarea { min-height: 46px; }
   .cd-lines-table td, .cd-lines-table th { vertical-align: middle; }
   .cd-lines-table input, .cd-lines-table select {
     width: 100%; background: var(--bg); border: 1px solid var(--border);
@@ -634,8 +641,23 @@
           <div class="dot" style="background:var(--accent)"></div>
           <span id="cdRoDetailTitle">RO #—</span>
           <span id="cdRoDetailStatus" style="margin-left:10px"></span>
+          <button class="btn btn-primary" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdPrintBtn">🖨 Print / Save PDF</button>
         </div>
         <div class="cd-ro-header" id="cdRoHeaderGrid"></div>
+        <div class="cd-ro-edit">
+          <div class="intake-field">
+            <label>Miles Out</label>
+            <input type="number" id="cdRoMilesOut" placeholder="Odometer out" autocomplete="off">
+          </div>
+          <div class="intake-field">
+            <label>Technician</label>
+            <select id="cdRoTech"><option value="">— Unassigned —</option></select>
+          </div>
+          <div class="intake-field cd-hf-full">
+            <label>Advisory Notes</label>
+            <textarea id="cdRoAdvisory" placeholder="Advisories / recommendations beyond the complaint"></textarea>
+          </div>
+        </div>
       </div>
 
       <div class="card">
@@ -647,17 +669,18 @@
         <table class="cd-lines-table">
           <thead>
             <tr>
-              <th style="width:130px">Type</th>
+              <th style="width:120px">Type</th>
               <th>Description</th>
-              <th style="width:70px">Qty</th>
-              <th style="width:110px">Unit $</th>
-              <th style="width:52px;text-align:center">Tax</th>
-              <th style="width:100px;text-align:right">Line</th>
-              <th style="width:38px"></th>
+              <th style="width:110px">Part No</th>
+              <th style="width:64px">Qty</th>
+              <th style="width:100px">Unit $</th>
+              <th style="width:48px;text-align:center">Tax</th>
+              <th style="width:92px;text-align:right">Line</th>
+              <th style="width:34px"></th>
             </tr>
           </thead>
           <tbody id="cdLinesTbody">
-            <tr><td colspan="7" style="color:var(--muted);text-align:center;padding:20px">No lines yet — add one.</td></tr>
+            <tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px">No lines yet — add one.</td></tr>
           </tbody>
         </table>
 
@@ -2867,11 +2890,16 @@
 
     // ── DETAIL: open an RO ────────────────────────────────────
     async function openRo(roId) {
+      // NB: select repair_orders columns with '*' (not named) so this
+      // stays safe BEFORE the Phase-3 migration adds miles_out /
+      // advisory_notes / technician — naming a missing column would 400
+      // the whole query. Embedded customer/vehicle columns all exist
+      // from Phase 1.
       const { data, error } = await db
         .from('repair_orders')
-        .select('id, ro_number, po, status, complaint, odometer_in, ' +
-                'customers(name, phone_primary, tax_exempt), ' +
-                'vehicles(year, make, model, vin, plate)')
+        .select('*, ' +
+                'customers(name, phone_primary, phone_secondary, email, tax_exempt), ' +
+                'vehicles(year, make, model, engine, vin, plate, plate_state, transmission_code, drive_type)')
         .eq('id', roId).single();
       if (error || !data) {
         console.error('[CdRO] open RO failed', error);
@@ -2880,9 +2908,56 @@
       }
       currentRo = data;
       renderHeader();
+      await populateRoEditFields();
       await loadLines();
       $('cdRoListPanel').style.display = 'none';
       $('cdRoDetailPanel').style.display = 'block';
+    }
+
+    // ── editable per-RO fields (miles out, technician, advisory) ──
+    async function populateRoEditFields() {
+      $('cdRoMilesOut').value = currentRo.miles_out != null ? currentRo.miles_out : '';
+      $('cdRoAdvisory').value = currentRo.advisory_notes || '';
+      // tech dropdown from active techs, plus whatever's already stored
+      const sel = $('cdRoTech');
+      sel.innerHTML = '<option value="">— Unassigned —</option>';
+      let techs = [];
+      try {
+        const { data } = await db.from('employees').select('name').eq('role', 'tech').eq('active', true).order('name');
+        techs = (data || []).map(t => t.name);
+      } catch (e) { /* non-fatal */ }
+      const cur = currentRo.technician;
+      if (cur && !techs.includes(cur)) techs.push(cur);
+      techs.forEach(n => {
+        const opt = document.createElement('option');
+        opt.value = n; opt.textContent = n;
+        if (n === cur) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+
+    // true when the DB rejects a write because the column isn't there yet
+    // (Phase-3 migration not applied) — used to degrade quietly instead
+    // of alerting, so nothing breaks in the pre-migration window.
+    function isMissingColumn(error) {
+      if (!error) return false;
+      const code = error.code || '';
+      const msg = error.message || '';
+      // 42703 = Postgres "column does not exist"; PGRST204 = PostgREST
+      // "Could not find the '<col>' column ... in the schema cache"
+      // (what a write to a not-yet-migrated column actually returns).
+      return code === '42703' || code === 'PGRST204' ||
+        /column .* does not exist/i.test(msg) || /could not find the .* column/i.test(msg);
+    }
+
+    async function updateRoField(field, value) {
+      if (!currentRo) return;
+      currentRo[field] = value;
+      const { error } = await db.from('repair_orders').update({ [field]: value }).eq('id', currentRo.id);
+      if (error) {
+        if (isMissingColumn(error)) console.warn(`[CdRO] ${field} not saved — run the Phase-3 migration first.`);
+        else console.error('[CdRO] update RO field failed', field, error);
+      }
     }
 
     function renderHeader() {
@@ -2917,16 +2992,21 @@
     function renderLines() {
       const tb = $('cdLinesTbody');
       if (currentLines.length === 0) {
-        tb.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:20px">No lines yet — add one.</td></tr>';
+        tb.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px">No lines yet — add one.</td></tr>';
       } else {
         tb.innerHTML = currentLines.map(l => {
           const opts = LINE_TYPES.map(([v, lab]) =>
             `<option value="${v}"${l.line_type === v ? ' selected' : ''}>${lab}</option>`).join('');
           const lineTotal = num(l.quantity) * num(l.unit_price);
+          // Part No is only meaningful on parts lines
+          const partCell = l.line_type === 'parts'
+            ? `<input type="text" data-field="part_number" value="${esc(l.part_number || '')}" placeholder="Part #">`
+            : '<span style="color:var(--muted)">—</span>';
           return `
           <tr data-id="${esc(l.id)}">
             <td><select data-field="line_type">${opts}</select></td>
             <td><input type="text" data-field="description" value="${esc(l.description || '')}" placeholder="Description"></td>
+            <td>${partCell}</td>
             <td><input type="number" data-field="quantity" value="${l.quantity != null ? l.quantity : ''}" min="0" step="0.01"></td>
             <td><input type="number" data-field="unit_price" value="${l.unit_price != null ? l.unit_price : ''}" min="0" step="0.01"></td>
             <td style="text-align:center"><input type="checkbox" data-field="taxable"${l.taxable ? ' checked' : ''}></td>
@@ -3025,8 +3105,18 @@
       recalcTotals();
 
       const { error } = await db.from('ro_line_items').update(update).eq('id', id);
-      if (error) { console.error('[CdRO] update line failed', error); alert('Save failed: ' + error.message); return; }
+      if (error) {
+        if (isMissingColumn(error)) {
+          // part_number before the Phase-3 migration — degrade quietly
+          console.warn('[CdRO] part_number not saved — run the Phase-3 migration first.');
+        } else {
+          console.error('[CdRO] update line failed', error); alert('Save failed: ' + error.message); return;
+        }
+      }
       refreshListCacheFor(currentRo.id);
+
+      // a type change flips whether the Part No cell is shown → re-render
+      if (field === 'line_type') renderLines();
     }
 
     // Card processing fee = card_fee_pct × the RO total (subtotal + tax,
@@ -3084,12 +3174,199 @@
       renderList();  // reflect any total changes
     }
 
+    // ══════════════════════════════════════════════════════════
+    // PRINTABLE ONE-PAGE ESTIMATE / RO / INVOICE (Phase 3)
+    // Read-only: opens a print-optimized standalone document and
+    // fires the browser print dialog (Save-as-PDF works from there).
+    // Reads currentRo + currentLines + shop_settings. One number
+    // (ro_number); the legal footer is small-print at page bottom.
+    //
+    // Legal terms now live in shop_settings.legal_terms (editable in
+    // Settings → Shop Profile), owned/edited by Cris. CD_LEGAL_TERMS is
+    // only the pre-migration / not-yet-entered FALLBACK so the footer
+    // never renders blank before the row/column exists.
+    // ══════════════════════════════════════════════════════════
+    const CD_LEGAL_TERMS =
+      '[[ LEGAL TERMS PLACEHOLDER — set the invoice legal terms in ' +
+      'Settings → Shop Profile → Legal Terms. This placeholder is not ' +
+      'legally binding wording. ]]';
+
+    function printRo() {
+      if (!currentRo) return;
+      const ro = currentRo, c = ro.customers || {}, v = ro.vehicles || {};
+      const cfg = (window.BoardSettings && window.BoardSettings.getShopSettings)
+        ? window.BoardSettings.getShopSettings() : {};
+      const showTech = !!cfg.show_tech_on_ro;
+      const advisor = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) || '';
+      const P = (s) => esc(s == null ? '' : String(s));
+      const M = (n) => '$' + (Number(n) || 0).toFixed(2);
+
+      // category totals
+      const catSum = (t) => currentLines.filter(l => l.line_type === t)
+        .reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
+      const laborTotal = catSum('labor'), partsTotal = catSum('parts');
+      const hazmatTotal = catSum('hazmat'), suppliesTotal = catSum('shop_supply'), feesTotal = catSum('fee');
+      const taxableBase = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
+      const exempt = !!c.tax_exempt;
+      const rate = taxRate();
+      const taxTotal = exempt ? 0 : taxableBase * rate;
+      const invoiceTotal = laborTotal + partsTotal + hazmatTotal + suppliesTotal + feesTotal + taxTotal;
+
+      const laborLines = currentLines.filter(l => l.line_type === 'labor');
+      const partsLines = currentLines.filter(l => l.line_type === 'parts');
+
+      const laborRows = laborLines.length ? laborLines.map(l => `
+        <tr><td>${P(l.description)}</td><td class="tc">${showTech ? P(ro.technician) : ''}</td>
+        <td class="tr">${num(l.quantity)}</td><td class="tr">${M(l.unit_price)}</td>
+        <td class="tr">${M(num(l.quantity) * num(l.unit_price))}</td></tr>`).join('')
+        : '<tr><td colspan="5" class="muted">—</td></tr>';
+      const partsRows = partsLines.length ? partsLines.map(l => `
+        <tr><td>${P(l.description)}</td><td>${P(l.part_number)}</td>
+        <td class="tr">${num(l.quantity)}</td><td class="tr">${M(l.unit_price)}</td>
+        <td class="tr">${M(num(l.quantity) * num(l.unit_price))}</td></tr>`).join('')
+        : '<tr><td colspan="5" class="muted">—</td></tr>';
+
+      const totalRow = (label, val, note) =>
+        `<tr><td>${label}${note ? ' <sup>*</sup>' : ''}</td><td class="tr">${M(val)}</td></tr>`;
+
+      const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+      const idLine = [v.vin ? 'VIN ' + v.vin : '', (v.plate ? 'Plate ' + v.plate + (v.plate_state ? ' ' + v.plate_state : '') : '')].filter(Boolean).join('  ·  ');
+      const logo = cfg.logo_url ? `<img class="logo" src="${P(cfg.logo_url)}" alt="logo">` : '';
+
+      const doc = `<!doctype html><html><head><meta charset="utf-8"><title>RO ${P(ro.ro_number)} — ${P(cfg.shop_name || 'Invoice')}</title>
+<style>
+  @page { size: letter; margin: 0.4in; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, Arial, sans-serif; color: #111; font-size: 10px; line-height: 1.35; margin: 0; }
+  .inv { width: 100%; }
+  .tr { text-align: right; } .tc { text-align: center; } .muted { color: #888; }
+  .top { display: flex; justify-content: space-between; border-bottom: 2px solid #111; padding-bottom: 8px; }
+  .top .shop { display: flex; gap: 10px; }
+  .logo { max-height: 54px; max-width: 130px; object-fit: contain; }
+  .shopname { font-size: 15px; font-weight: 800; }
+  .shopmeta { color: #333; }
+  .doc-meta { text-align: right; font-size: 10px; }
+  .doc-meta .num { font-size: 17px; font-weight: 800; }
+  h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; color: #555; margin: 10px 0 3px; border-bottom: 1px solid #ccc; padding-bottom: 2px; }
+  .grid2 { display: flex; gap: 22px; } .grid2 > div { flex: 1; }
+  .kv { margin: 1px 0; } .kv b { display: inline-block; min-width: 92px; color: #444; font-weight: 600; }
+  table.lt { width: 100%; border-collapse: collapse; margin-top: 3px; }
+  table.lt th, table.lt td { border-bottom: 1px solid #ddd; padding: 3px 5px; text-align: left; }
+  table.lt th { background: #f2f2f4; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.4px; color: #555; }
+  .totals { width: 250px; margin-left: auto; margin-top: 8px; }
+  .totals table { width: 100%; border-collapse: collapse; }
+  .totals td { padding: 2px 5px; } .totals tr:last-child td { border-top: 2px solid #111; font-weight: 800; font-size: 12px; }
+  .foot-note { font-size: 8px; color: #777; margin-top: 3px; }
+  .auth { border: 1px solid #bbb; border-radius: 4px; padding: 8px; margin-top: 10px; font-size: 9px; }
+  .auth .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: baseline; }
+  .auth .box { border: 1px solid #666; width: 10px; height: 10px; display: inline-block; margin-right: 3px; vertical-align: middle; }
+  .sig { margin-top: 10px; border-top: 1px solid #111; width: 260px; padding-top: 2px; }
+  .legal { font-size: 7px; color: #555; line-height: 1.3; margin-top: 10px; border-top: 1px solid #ccc; padding-top: 5px; }
+  .mv { font-size: 8px; color: #333; margin-top: 3px; font-weight: 700; }
+</style></head><body onload="window.focus();window.print();">
+<div class="inv">
+  <div class="top">
+    <div class="shop">
+      ${logo}
+      <div>
+        <div class="shopname">${P(cfg.shop_name || 'Lee Transmission')}</div>
+        <div class="shopmeta">${P(cfg.address_line)}${cfg.city_state_zip ? ', ' + P(cfg.city_state_zip) : ''}</div>
+        <div class="shopmeta">${P(cfg.phone)}${cfg.email ? '  ·  ' + P(cfg.email) : ''}</div>
+        <div class="shopmeta">${P(cfg.website)}</div>
+      </div>
+    </div>
+    <div class="doc-meta">
+      <div class="num">Invoice #${P(ro.ro_number)}</div>
+      <div>Date: ${P(dateStr)}</div>
+      <div>Service Advisor: ${P(advisor) || '—'}</div>
+      ${showTech && ro.technician ? `<div>Technician: ${P(ro.technician)}</div>` : ''}
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <h2>Customer</h2>
+      <div class="kv"><b>Name</b> ${P(c.name)}</div>
+      <div class="kv"><b>Cell</b> ${P(c.phone_primary)}</div>
+      <div class="kv"><b>Email</b> ${P(c.email)}</div>
+    </div>
+    <div>
+      <h2>Vehicle</h2>
+      <div class="kv"><b>Vehicle</b> ${P([v.year, v.make, v.model].filter(Boolean).join(' '))}</div>
+      <div class="kv"><b>Engine</b> ${P(v.engine)}</div>
+      <div class="kv"><b>Trans code</b> ${P(v.transmission_code)}</div>
+      <div class="kv"><b>VIN</b> ${P(v.vin)}</div>
+      <div class="kv"><b>Plate</b> ${P(v.plate)}${v.plate_state ? ' ' + P(v.plate_state) : ''}</div>
+      <div class="kv"><b>Miles</b> in ${P(ro.odometer_in != null ? ro.odometer_in : '—')} / out ${P(ro.miles_out != null ? ro.miles_out : '—')}</div>
+    </div>
+  </div>
+
+  <h2>Customer Issues &amp; Advisories</h2>
+  <div class="kv"><b>Symptoms / DTC</b> ${P(ro.complaint) || '—'}</div>
+  <div class="kv"><b>Advisory notes</b> ${P(ro.advisory_notes) || '—'}</div>
+
+  <h2>Work Performed — Labor</h2>
+  <table class="lt"><thead><tr><th>Description</th><th class="tc">Tech</th><th class="tr">Hrs</th><th class="tr">Price</th><th class="tr">Total</th></tr></thead><tbody>${laborRows}</tbody></table>
+
+  <h2>Work Performed — Parts</h2>
+  <table class="lt"><thead><tr><th>Description</th><th>Part No</th><th class="tr">Qty</th><th class="tr">Price</th><th class="tr">Total</th></tr></thead><tbody>${partsRows}</tbody></table>
+
+  <div class="totals">
+    <table>
+      ${totalRow('Labor', laborTotal)}
+      ${totalRow('Parts', partsTotal)}
+      ${totalRow('Hazmat', hazmatTotal, true)}
+      ${totalRow('Shop Supplies', suppliesTotal, true)}
+      ${feesTotal > 0 ? totalRow('Fees', feesTotal) : ''}
+      ${totalRow(exempt ? 'Taxes (exempt)' : 'Taxes (' + (rate * 100).toFixed(2) + '%)', taxTotal)}
+      <tr><td>Invoice Total</td><td class="tr">${M(invoiceTotal)}</td></tr>
+    </table>
+    <div class="foot-note">* Shop supplies &amp; hazmat are flat shop charges, not per-part.</div>
+  </div>
+
+  <div class="auth">
+    <div class="row"><div><b>Authorization</b></div><div>Original estimate total: <b>${M(invoiceTotal)}</b></div></div>
+    <div class="row" style="margin-top:5px">
+      <span>Method:</span>
+      <span><span class="box"></span>Email</span>
+      <span><span class="box"></span>Text</span>
+      <span><span class="box"></span>Phone</span>
+      <span><span class="box"></span>Fax</span>
+      <span><span class="box"></span>In person</span>
+    </div>
+    <div class="row" style="margin-top:5px">
+      <span>Date: ______________</span>
+      <span>Contact: ______________________</span>
+      <span>Authorized by: ______________________</span>
+    </div>
+    <div class="sig">X — Customer signature</div>
+  </div>
+
+  <div class="legal">${P(cfg.legal_terms || CD_LEGAL_TERMS)}</div>
+  ${cfg.mv_number ? `<div class="mv">MV# ${P(cfg.mv_number)}</div>` : '<div class="mv muted">MV# — (set in Settings)</div>'}
+</div>
+</body></html>`;
+
+      const w = window.open('', '_blank', 'width=850,height=1100');
+      if (!w) { alert('Please allow pop-ups to print the invoice.'); return; }
+      w.document.open(); w.document.write(doc); w.document.close();
+    }
+
     // ── wiring ────────────────────────────────────────────────
     $('cdRoSearch').addEventListener('input', renderList);
     $('cdRoBackBtn').addEventListener('click', backToList);
     $('cdAddLineBtn').addEventListener('click', addLine);
     $('cdAddCardFeeBtn').addEventListener('click', addCardFee);
     $('cdRoNewBtn').addEventListener('click', () => $('navCdRo').click());
+    $('cdPrintBtn').addEventListener('click', printRo);
+
+    // per-RO editable fields persist on change
+    $('cdRoMilesOut').addEventListener('change', () => {
+      const v = parseInt($('cdRoMilesOut').value, 10);
+      updateRoField('miles_out', Number.isFinite(v) ? v : null);
+    });
+    $('cdRoTech').addEventListener('change', () => updateRoField('technician', $('cdRoTech').value || null));
+    $('cdRoAdvisory').addEventListener('change', () => updateRoField('advisory_notes', $('cdRoAdvisory').value.trim() || null));
 
     // expose for the New RO modal's "Open RO" button
     window.cdOpenRo = (roId) => { loadRecentList(); openRo(roId); };
