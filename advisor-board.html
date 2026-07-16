@@ -879,6 +879,23 @@
       <button class="modal-btn sec" id="cdCustBackBtn">Back</button>
     </div>
 
+    <!-- STEP 2b: returning customer — pick an existing vehicle or add one -->
+    <div class="cd-step" id="cdStepVehicles">
+      <div class="cd-steplabel">Returning customer</div>
+      <div class="cd-loaded-customer" id="cdVehiclesCustomerBanner"></div>
+      <button type="button" class="cd-optional-toggle" id="cdEditCustToggle">Edit details</button>
+      <div id="cdEditCustBox" style="display:none">
+        <div class="intake-field"><label>Name</label><input type="text" id="cdEditCustName" autocomplete="off"></div>
+        <div class="intake-field"><label>Phone</label><input type="tel" id="cdEditCustPhone" autocomplete="off"></div>
+        <div class="intake-form-error" id="cdEditCustError"></div>
+        <button class="modal-btn" id="cdEditCustSaveBtn" style="font-size:0.78rem;padding:7px 12px">Save details</button>
+      </div>
+      <div class="cd-steplabel" style="margin-top:16px">Their vehicles — pick the one that's back</div>
+      <div id="cdVehicleList"></div>
+      <button class="modal-btn" id="cdAddVehicleBtn">+ Add a different vehicle</button>
+      <button class="modal-btn sec" id="cdVehiclesBackBtn">Back</button>
+    </div>
+
     <!-- STEP 3: new vehicle -->
     <div class="cd-step" id="cdStepVehicle">
       <div class="cd-steplabel">Step 3 of 4 · Vehicle</div>
@@ -935,6 +952,17 @@
       <div class="intake-form-error" id="cdVehError"></div>
       <button class="modal-btn" id="cdVehSaveBtn">Save &amp; continue</button>
       <button class="modal-btn sec" id="cdVehCancelBtn">Cancel</button>
+    </div>
+
+    <!-- STEP 3b: comeback check (only when an EXISTING vehicle with a
+         prior RO is picked) -->
+    <div class="cd-step" id="cdStepComeback">
+      <div class="cd-steplabel">New job or comeback?</div>
+      <div class="cd-loaded-customer" id="cdComebackBanner"></div>
+      <p class="cd-hint" id="cdComebackQuestion" style="font-size:0.9rem;color:var(--text);margin:4px 0 14px"></p>
+      <div class="intake-form-error" id="cdComebackError"></div>
+      <button class="modal-btn" id="cdComebackYesBtn">Comeback</button>
+      <button class="modal-btn sec" id="cdComebackNewBtn">Something new</button>
     </div>
 
     <!-- STEP 4: mint the RO -->
@@ -2222,15 +2250,29 @@
     const digits = (s) => (s || '').replace(/\D/g, '');
 
     // in-flight intake state, reset on open / start-another
-    let state = { customerId: null, customerName: null, vehicleId: null };
+    const BLANK_STATE = {
+      customerId: null, customerName: null, customerBusiness: null, customerPhone: null,
+      vehicleId: null, vehicleDesc: null, parentRoId: null, priorRo: null, roId: null,
+    };
+    let state = { ...BLANK_STATE };
 
-    const STEPS = ['cdStepPhone','cdStepPick','cdStepCustomer','cdStepVehicle','cdStepMint','cdStepDone'];
+    const STEPS = ['cdStepPhone','cdStepPick','cdStepCustomer','cdStepVehicles',
+                   'cdStepVehicle','cdStepComeback','cdStepMint','cdStepDone'];
     function showStep(id) {
       STEPS.forEach(s => $(s).classList.toggle('active', s === id));
     }
 
+    function resetVehicleForm() {
+      ['cdVehPlate','cdVehPlateState','cdVehVin','cdVehYear','cdVehMake','cdVehModel',
+       'cdVehEngine','cdVehTransCode','cdVehUnit'].forEach(i => $(i).value = '');
+      $('cdVehDrive').value = '';
+      $('cdDecodeMsg').textContent = '';
+      $('cdDecodeMsg').className = 'cd-decode-msg';
+      $('cdVehError').textContent = '';
+    }
+
     function resetAll() {
-      state = { customerId: null, customerName: null, vehicleId: null };
+      state = { ...BLANK_STATE };
       // step 1
       $('cdPhoneInput').value = '';
       $('cdPhoneError').textContent = '';
@@ -2243,13 +2285,14 @@
       $('cdCustOptional').style.display = 'none';
       $('cdOptionalToggle').textContent = '+ Add details (optional)';
       $('cdCustError').textContent = '';
+      // step 2b (returning)
+      $('cdVehicleList').innerHTML = '';
+      $('cdEditCustBox').style.display = 'none';
+      $('cdEditCustError').textContent = '';
       // step 3
-      ['cdVehPlate','cdVehPlateState','cdVehVin','cdVehYear','cdVehMake','cdVehModel',
-       'cdVehEngine','cdVehTransCode','cdVehUnit'].forEach(i => $(i).value = '');
-      $('cdVehDrive').value = '';
-      $('cdDecodeMsg').textContent = '';
-      $('cdDecodeMsg').className = 'cd-decode-msg';
-      $('cdVehError').textContent = '';
+      resetVehicleForm();
+      // step 3b
+      $('cdComebackError').textContent = '';
       // step 4
       $('cdMintComplaint').value = '';
       $('cdMintOdometer').value = '';
@@ -2292,7 +2335,7 @@
           showStep('cdStepCustomer');
           setTimeout(() => $('cdCustName').focus(), 30);
         } else if (matches.length === 1) {
-          loadCustomer(matches[0]);
+          loadExistingCustomer(matches[0]);
         } else {
           renderPickList(matches);
           showStep('cdStepPick');
@@ -2313,19 +2356,139 @@
         el.className = 'cd-pick-item';
         el.innerHTML = `<b>${escapeHtml(c.name || '(no name)')}</b>` +
           (c.business_name ? ` — ${escapeHtml(c.business_name)}` : '');
-        el.addEventListener('click', () => loadCustomer(c));
+        el.addEventListener('click', () => loadExistingCustomer(c));
         wrap.appendChild(el);
       });
     }
 
-    // ── matched-customer branch: skip create, go straight to vehicle ──
-    function loadCustomer(c) {
+    function vehDesc(v) {
+      if (!v) return 'Vehicle';
+      return [v.year, v.make, v.model].filter(Boolean).join(' ') ||
+        (v.vin ? 'VIN ' + v.vin : (v.plate ? 'Plate ' + v.plate : 'Vehicle'));
+    }
+    function vehIdLine(v) {
+      return [v.vin ? 'VIN ' + v.vin : null, v.plate ? 'Plate ' + v.plate : null].filter(Boolean).join(' · ');
+    }
+    function customerBannerHtml(name, business, tag) {
+      return `Customer: <b>${escapeHtml(name || '(no name)')}</b>` +
+        (business ? ` <span style="color:var(--muted)">· ${escapeHtml(business)}</span>` : '') +
+        (tag ? ` <span style="color:var(--muted)">· ${tag}</span>` : '');
+    }
+
+    function setCustomer(c) {
       state.customerId = c.id;
       state.customerName = c.name;
-      const banner = $('cdVehCustomerBanner');
-      banner.innerHTML = `Customer: <b>${escapeHtml(c.name || '(no name)')}</b>` +
-        (c.business_name ? ` <span style="color:var(--muted)">· ${escapeHtml(c.business_name)}</span>` : '') +
-        ` <span style="color:var(--muted)">· existing</span>`;
+      state.customerBusiness = c.business_name || null;
+      state.customerPhone = c.phone_primary || null;
+    }
+
+    // ── returning-customer branch: load them + show their vehicles ──
+    async function loadExistingCustomer(c) {
+      setCustomer(c);
+      $('cdEditCustBox').style.display = 'none';
+      $('cdEditCustError').textContent = '';
+      $('cdVehiclesCustomerBanner').innerHTML = customerBannerHtml(c.name, c.business_name, 'existing');
+      showStep('cdStepVehicles');
+      await renderCustomerVehicles();
+    }
+
+    async function renderCustomerVehicles() {
+      const listEl = $('cdVehicleList');
+      listEl.innerHTML = '<div style="color:var(--muted);font-size:0.82rem;padding:6px 0">Loading vehicles…</div>';
+      const { data, error } = await db.from('vehicles')
+        .select('id, year, make, model, vin, plate')
+        .eq('customer_id', state.customerId)
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error('[CdRO] load vehicles failed', error);
+        listEl.innerHTML = `<div style="color:var(--red);font-size:0.82rem;padding:6px 0">Failed to load vehicles: ${escapeHtml(error.message)}</div>`;
+        return;
+      }
+      const vehicles = data || [];
+      if (vehicles.length === 0) {
+        listEl.innerHTML = '<div style="color:var(--muted);font-size:0.82rem;padding:6px 0">No vehicles on file yet — add one below.</div>';
+        return;
+      }
+      listEl.innerHTML = '';
+      vehicles.forEach(v => {
+        const el = document.createElement('div');
+        el.className = 'cd-pick-item';
+        const idLine = vehIdLine(v);
+        el.innerHTML = `<b>${escapeHtml(vehDesc(v))}</b>` +
+          (idLine ? `<br><span style="color:var(--muted);font-size:0.78rem">${escapeHtml(idLine)}</span>` : '');
+        el.addEventListener('click', () => selectExistingVehicle(v));
+        listEl.appendChild(el);
+      });
+    }
+
+    // ── an existing vehicle was picked → comeback check ──────────
+    async function selectExistingVehicle(v) {
+      state.vehicleId = v.id;
+      state.vehicleDesc = vehDesc(v);
+      // most-recent prior RO on this exact vehicle drives the question
+      const { data, error } = await db.from('repair_orders')
+        .select('id, ro_number, created_at')
+        .eq('vehicle_id', v.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) {
+        // don't block intake on a failed history read — proceed as a new job
+        console.error('[CdRO] comeback lookup failed', error);
+        state.parentRoId = null; state.priorRo = null;
+        goToMint();
+        return;
+      }
+      const prior = (data && data[0]) || null;
+      if (!prior) {
+        // no history on this vehicle → always a new job, skip the question
+        state.parentRoId = null; state.priorRo = null;
+        goToMint();
+        return;
+      }
+      state.priorRo = prior;
+      state.parentRoId = null; // decided on the comeback step
+      $('cdComebackBanner').innerHTML =
+        `<b>${escapeHtml(state.customerName || 'Customer')}</b><br>` +
+        `<span style="color:var(--muted)">${escapeHtml(state.vehicleDesc)}</span>`;
+      $('cdComebackQuestion').textContent = `Back on the last job (#${prior.ro_number}), or something new?`;
+      $('cdComebackYesBtn').textContent = `Comeback — link to #${prior.ro_number}`;
+      showStep('cdStepComeback');
+    }
+
+    // ── shared: land on the mint step with the right summary ─────
+    function goToMint() {
+      const comebackTag = state.parentRoId && state.priorRo
+        ? ` <span class="cd-exempt-tag">comeback of #${state.priorRo.ro_number}</span>` : '';
+      $('cdMintSummaryBanner').innerHTML =
+        `<b>${escapeHtml(state.customerName || 'Customer')}</b>${comebackTag}<br>` +
+        `<span style="color:var(--muted)">${escapeHtml(state.vehicleDesc || 'Vehicle')}</span>`;
+      showStep('cdStepMint');
+      setTimeout(() => $('cdMintComplaint').focus(), 30);
+    }
+
+    // ── edit-details affordance (returning customer, name + phone) ──
+    async function saveCustomerDetails() {
+      const name = $('cdEditCustName').value.trim();
+      const phone = $('cdEditCustPhone').value.trim();
+      const errEl = $('cdEditCustError');
+      errEl.textContent = '';
+      if (!name || !phone) { errEl.textContent = 'Name and phone are required.'; return; }
+      const btn = $('cdEditCustSaveBtn');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      const { error } = await db.from('customers')
+        .update({ name, phone_primary: phone }).eq('id', state.customerId);
+      btn.disabled = false; btn.textContent = 'Save details';
+      if (error) { console.error('[CdRO] edit customer failed', error); errEl.textContent = 'Save failed: ' + error.message; return; }
+      state.customerName = name; state.customerPhone = phone;
+      $('cdVehiclesCustomerBanner').innerHTML = customerBannerHtml(name, state.customerBusiness, 'existing');
+      $('cdEditCustBox').style.display = 'none';
+    }
+
+    // returning customer → "+ Add a different vehicle" → the create form
+    function addVehicleForExisting() {
+      resetVehicleForm();
+      state.vehicleId = null; state.parentRoId = null; state.priorRo = null;
+      $('cdVehCustomerBanner').innerHTML = customerBannerHtml(state.customerName, state.customerBusiness, 'existing');
       showStep('cdStepVehicle');
     }
 
@@ -2355,12 +2518,14 @@
       const btn = $('cdCustSaveBtn');
       btn.disabled = true; btn.textContent = 'Saving…';
       try {
-        const { data, error } = await db.from('customers').insert(row).select('id, name, business_name').single();
+        const { data, error } = await db.from('customers').insert(row).select('id, name, business_name, phone_primary').single();
         if (error) throw error;
-        loadCustomer({ ...data });
-        // overwrite the "existing" tag — this is a fresh customer
-        $('cdVehCustomerBanner').innerHTML =
-          `Customer: <b>${escapeHtml(data.name)}</b> <span style="color:var(--muted)">· new</span>`;
+        // brand-new customer → no vehicles yet, go straight to create-vehicle
+        setCustomer(data);
+        state.parentRoId = null; state.priorRo = null;
+        resetVehicleForm();
+        $('cdVehCustomerBanner').innerHTML = customerBannerHtml(data.name, data.business_name, 'new');
+        showStep('cdStepVehicle');
       } catch (err) {
         console.error('[CdRO] create customer failed', err);
         errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
@@ -2459,14 +2624,11 @@
       try {
         const { data, error } = await db.from('vehicles').insert(row).select('id, year, make, model, vin, plate').single();
         if (error) throw error;
+        // a brand-new vehicle is ALWAYS a new job — no comeback question
         state.vehicleId = data.id;
-        const vDesc = [data.year, data.make, data.model].filter(Boolean).join(' ') ||
-          (data.vin ? 'VIN ' + data.vin : (data.plate ? 'Plate ' + data.plate : 'Vehicle'));
-        $('cdMintSummaryBanner').innerHTML =
-          `<b>${escapeHtml(state.customerName || 'Customer')}</b><br>` +
-          `<span style="color:var(--muted)">${escapeHtml(vDesc)}</span>`;
-        showStep('cdStepMint');
-        setTimeout(() => $('cdMintComplaint').focus(), 30);
+        state.vehicleDesc = vehDesc(data);
+        state.parentRoId = null; state.priorRo = null;
+        goToMint();
       } catch (err) {
         console.error('[CdRO] save vehicle failed', err);
         errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
@@ -2485,6 +2647,7 @@
       const row = {
         customer_id: state.customerId,
         vehicle_id: state.vehicleId,
+        parent_ro_id: state.parentRoId || null,  // set only for a comeback
         complaint: $('cdMintComplaint').value.trim() || null,
         odometer_in: Number.isFinite(odo) ? odo : null,
         // ro_number + po are DB-minted — deliberately NOT set here
@@ -2494,13 +2657,16 @@
       btn.disabled = true; btn.textContent = 'Creating…';
       try {
         const { data, error } = await db.from('repair_orders').insert(row)
-          .select('id, ro_number, po, complaint').single();
+          .select('id, ro_number, po, complaint, parent_ro_id').single();
         if (error) throw error;
         state.roId = data.id;
+        const comebackLine = (state.parentRoId && state.priorRo)
+          ? `<b>Comeback of:</b> RO #${state.priorRo.ro_number}<br>` : '';
         $('cdDoneBadge').textContent = 'RO #' + data.ro_number;
         $('cdDoneSummary').innerHTML =
           `<b>Customer:</b> ${escapeHtml(state.customerName || '—')}<br>` +
           `<b>RO #:</b> ${data.ro_number} &nbsp; <span style="color:var(--muted)">(po ${escapeHtml(data.po)})</span><br>` +
+          comebackLine +
           (data.complaint ? `<b>Complaint:</b> ${escapeHtml(data.complaint)}` : '<span style="color:var(--muted)">No complaint recorded</span>');
         showStep('cdStepDone');
       } catch (err) {
@@ -2547,9 +2713,34 @@
     $('cdCustSaveBtn').addEventListener('click', createCustomer);
     $('cdCustBackBtn').addEventListener('click', () => showStep('cdStepPhone'));
 
+    // returning-customer vehicle picker
+    $('cdVehiclesBackBtn').addEventListener('click', () => showStep('cdStepPhone'));
+    $('cdAddVehicleBtn').addEventListener('click', addVehicleForExisting);
+    $('cdEditCustToggle').addEventListener('click', () => {
+      const box = $('cdEditCustBox');
+      const open = box.style.display !== 'none';
+      box.style.display = open ? 'none' : 'block';
+      if (!open) {
+        $('cdEditCustName').value = state.customerName || '';
+        $('cdEditCustPhone').value = state.customerPhone || '';
+        $('cdEditCustError').textContent = '';
+      }
+    });
+    $('cdEditCustSaveBtn').addEventListener('click', saveCustomerDetails);
+
     $('cdVinDecodeBtn').addEventListener('click', decodeVin);
     $('cdPlateDecodeBtn').addEventListener('click', decodePlate);
     $('cdVehSaveBtn').addEventListener('click', saveVehicle);
+
+    // comeback question
+    $('cdComebackYesBtn').addEventListener('click', () => {
+      state.parentRoId = state.priorRo ? state.priorRo.id : null;
+      goToMint();
+    });
+    $('cdComebackNewBtn').addEventListener('click', () => {
+      state.parentRoId = null;
+      goToMint();
+    });
 
     $('cdMintBtn').addEventListener('click', mintRo);
 
