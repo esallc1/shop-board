@@ -313,6 +313,18 @@ window.BoardSettings = (function () {
     pendingFile = null;
   }
 
+  // On a SUCCESSFUL save: show a brief "Saved ✓" state, then close the
+  // panel and restore the button's label (so it's clean on reopen).
+  // Failed saves never call this — they keep the panel open + show the
+  // error, per the requested behavior.
+  function flashSavedThenClose(saveBtn, defaultText) {
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saved ✓'; }
+    setTimeout(() => {
+      if (saveBtn && saveBtn.isConnected) { saveBtn.disabled = false; saveBtn.textContent = defaultText; }
+      closeModal();
+    }, 650);
+  }
+
   async function saveName() {
     const errEl = modalEl.querySelector('#stgfeatNameError');
     const saveBtn = modalEl.querySelector('#stgfeatNameSaveBtn');
@@ -329,10 +341,9 @@ window.BoardSettings = (function () {
 
     const { error } = await db.from('employees').update({ name }).eq('id', currentEmployeeId);
 
-    saveBtn.disabled = false;
-    saveBtn.textContent = 'Save';
-
     if (error) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save';
       console.error('[BoardSettings] name save failed', error);
       errEl.textContent = 'Save failed: ' + error.message;
       return;
@@ -342,6 +353,7 @@ window.BoardSettings = (function () {
     const greetingSpan = document.querySelector('#greetingWrap span');
     if (greetingSpan) greetingSpan.textContent = `Hi, ${name}`;
     if (typeof onNameSaved === 'function') onNameSaved(name);
+    flashSavedThenClose(saveBtn, 'Save');
   }
 
   function applyBackground(url) {
@@ -379,12 +391,11 @@ window.BoardSettings = (function () {
 
       applyBackground(url);
       pendingFile = null;
-      saveBtn.disabled = true;
+      flashSavedThenClose(saveBtn, 'Save Background');
     } catch (err) {
       console.error('[BoardSettings] background save failed', err);
       errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
       saveBtn.disabled = false;
-    } finally {
       saveBtn.textContent = 'Save Background';
     }
   }
@@ -530,18 +541,17 @@ window.BoardSettings = (function () {
     saveBtn.disabled = true;
     saveBtn.textContent = 'Saving…';
     const { error } = await db.from('shop_settings').update(update).eq('id', s._id);
-    saveBtn.disabled = false;
-    saveBtn.textContent = 'Save Shop Settings';
 
     if (error) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Shop Settings';
       console.error('[BoardSettings] shop settings save failed', error);
       errEl.textContent = 'Save failed: ' + error.message;
       return;
     }
-    await loadShopSettings();   // refresh cache (+ fires onShopSettingsChanged)
-    renderShopSection();
-    saveBtn.textContent = 'Saved ✓';
-    setTimeout(() => { if (saveBtn.isConnected) saveBtn.textContent = 'Save Shop Settings'; }, 1500);
+    await loadShopSettings();   // refresh cache (+ fires onShopSettingsChanged);
+                                // the panel re-renders fresh on next open.
+    flashSavedThenClose(saveBtn, 'Save Shop Settings');
   }
 
   function mountTrigger(mountSelector) {
