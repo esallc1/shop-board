@@ -1686,6 +1686,10 @@
   BoardSettings.init({
     db, targetSelector: '.main-area', mountSelector: '.sidebar-btn-row',
     onNameSaved: (name) => { CHAT_IDENTITY.name = name; },
+    // GM (manager) board: may edit money settings (tax %, labor rate)
+    // and the operational toggle. (CrisData Shop / RO settings.)
+    canEditShopMoney: true,
+    canEditShopOps: true,
   });
   const TOTAL_LIFTS = 6;
   const TECH_COLORS = [

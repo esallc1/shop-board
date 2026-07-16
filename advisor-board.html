@@ -641,7 +641,8 @@
       <div class="card">
         <div class="card-title">
           <div class="dot" style="background:var(--green)"></div>Line Items
-          <button class="btn btn-primary" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdAddLineBtn">+ Add line</button>
+          <button class="btn btn-ghost" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdAddCardFeeBtn">+ Card fee</button>
+          <button class="btn btn-primary" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdAddLineBtn">+ Add line</button>
         </div>
         <table class="cd-lines-table">
           <thead>
@@ -988,6 +989,13 @@
   BoardSettings.init({
     db, targetSelector: '.main-area', mountSelector: '.sidebar-btn-row',
     onNameSaved: (name) => { CHAT_IDENTITY.name = name; },
+    // Advisor board: may edit the operational toggle (show_tech_on_ro)
+    // but NOT money settings (tax %, labor rate) — those are Owner/GM.
+    canEditShopMoney: false,
+    canEditShopOps: true,
+    // when shop_settings changes (or first loads), refresh the RO Board's
+    // live tax label if a built RO is currently on screen.
+    onShopSettingsChanged: () => { if (window.cdRefreshShopSettings) window.cdRefreshShopSettings(); },
   });
 
   // ── VIEW REFRESH REGISTRY — connection-health safety net + manual
@@ -2567,10 +2575,21 @@
   (function () {
     const $ = (id) => document.getElementById(id);
 
-    // ── TAX: single configurable shop rate. Set the exact FL / Lee
-    // County rate here later; applied to taxable lines unless the
-    // customer is tax_exempt (then tax is suppressed to $0). ──
-    const CD_SHOP_TAX_RATE = 0.07;  // 7.0% placeholder — Cris to confirm
+    // ── TAX / LABOR: read from shop_settings via BoardSettings, with a
+    // hard 0.07 fallback so the RO Board never breaks before the
+    // shop_settings migration is applied (getShopSettings() returns
+    // defaults when the row/table is missing). Set the real FL / Lee
+    // County rate in-app (Owner/GM board → Settings → Shop / RO). ──
+    const CD_TAX_FALLBACK = 0.07;
+    function shopCfg() {
+      return (window.BoardSettings && window.BoardSettings.getShopSettings)
+        ? window.BoardSettings.getShopSettings()
+        : { tax_rate: CD_TAX_FALLBACK, default_labor_rate: null };
+    }
+    function taxRate() {
+      const r = shopCfg().tax_rate;
+      return (r != null && Number.isFinite(Number(r))) ? Number(r) : CD_TAX_FALLBACK;
+    }
 
     const money = (n) => '$' + (Number(n) || 0).toFixed(2);
     const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
@@ -2609,7 +2628,7 @@
       const subtotal = lines.reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
       const taxable = lines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
       const exempt = ro.customers && ro.customers.tax_exempt;
-      const tax = exempt ? 0 : taxable * CD_SHOP_TAX_RATE;
+      const tax = exempt ? 0 : taxable * taxRate();
       return subtotal + tax;
     }
 
@@ -2740,25 +2759,29 @@
       const subtotal = currentLines.reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
       const taxable = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
       const exempt = currentRo && currentRo.customers && currentRo.customers.tax_exempt;
-      const tax = exempt ? 0 : taxable * CD_SHOP_TAX_RATE;
+      const rate = taxRate();
+      const tax = exempt ? 0 : taxable * rate;
       $('cdSubtotal').textContent = money(subtotal);
       $('cdTax').textContent = money(tax);
       $('cdTotal').textContent = money(subtotal + tax);
       $('cdTaxLabel').innerHTML = exempt
         ? 'Tax <span class="cd-exempt-tag">exempt</span>'
-        : `Tax (${(CD_SHOP_TAX_RATE * 100).toFixed(2)}%)`;
+        : `Tax (${(rate * 100).toFixed(2)}%)`;
     }
 
     async function addLine() {
       if (!currentRo) return;
       const btn = $('cdAddLineBtn');
       btn.disabled = true;
+      // new lines default to Labor; prefill unit price from the shop's
+      // default_labor_rate (still overridable per line).
+      const laborRate = shopCfg().default_labor_rate;
       const row = {
         repair_order_id: currentRo.id,
         line_type: 'labor',
         description: null,
         quantity: 1,
-        unit_price: 0,
+        unit_price: (laborRate != null && Number.isFinite(Number(laborRate))) ? Number(laborRate) : 0,
         taxable: true,
         sort_order: currentLines.length,
       };
@@ -2770,6 +2793,16 @@
       refreshListCacheFor(currentRo.id);
     }
 
+    // flat default (or labor rate) that a line type prefills its unit
+    // price from; null for types with no shop default (parts, fee).
+    function defaultUnitFor(type) {
+      const cfg = shopCfg();
+      if (type === 'labor') return (cfg.default_labor_rate != null && Number.isFinite(Number(cfg.default_labor_rate))) ? Number(cfg.default_labor_rate) : null;
+      if (type === 'shop_supply') return Number.isFinite(Number(cfg.shop_supplies_default)) ? Number(cfg.shop_supplies_default) : null;
+      if (type === 'hazmat') return Number.isFinite(Number(cfg.hazmat_default)) ? Number(cfg.hazmat_default) : null;
+      return null;
+    }
+
     async function onFieldChange(id, inp) {
       const field = inp.dataset.field;
       let value;
@@ -2777,18 +2810,64 @@
       else if (field === 'quantity' || field === 'unit_price') value = num(inp.value);
       else value = inp.value;
 
-      // update local cache first so totals feel instant
       const line = currentLines.find(l => l.id === id);
-      if (line) line[field] = value;
-      // update the row's line-total cell + totals immediately
-      if (line) {
-        const tr = $('cdLinesTbody').querySelector(`tr[data-id="${CSS.escape(id)}"]`);
-        if (tr) tr.querySelector('.cd-line-total').textContent = money(num(line.quantity) * num(line.unit_price));
+      const update = { [field]: value };
+
+      // Switching a line to labor / shop_supply / hazmat prefills its unit
+      // price from the shop default — but only when the price is still 0
+      // (an untouched line), so we never clobber a manually entered amount.
+      if (field === 'line_type' && line && num(line.unit_price) === 0) {
+        const def = defaultUnitFor(value);
+        if (def != null && def !== 0) update.unit_price = def;
+      }
+
+      // update local cache first so totals feel instant
+      if (line) Object.assign(line, update);
+      const tr = $('cdLinesTbody').querySelector(`tr[data-id="${CSS.escape(id)}"]`);
+      if (line && tr) {
+        if (update.unit_price != null) {
+          const upInp = tr.querySelector('[data-field="unit_price"]');
+          if (upInp) upInp.value = update.unit_price;
+        }
+        tr.querySelector('.cd-line-total').textContent = money(num(line.quantity) * num(line.unit_price));
       }
       recalcTotals();
 
-      const { error } = await db.from('ro_line_items').update({ [field]: value }).eq('id', id);
+      const { error } = await db.from('ro_line_items').update(update).eq('id', id);
       if (error) { console.error('[CdRO] update line failed', error); alert('Save failed: ' + error.message); return; }
+      refreshListCacheFor(currentRo.id);
+    }
+
+    // Card processing fee = card_fee_pct × the RO total (subtotal + tax,
+    // pre-fee). Inserted as an editable non-taxable fee line. Whether it
+    // ONLY applies on card payment is a Payments-phase (P5) concern, not
+    // here — this just stages the line.
+    async function addCardFee() {
+      if (!currentRo) return;
+      const rate = shopCfg().card_fee_pct;
+      const pct = (rate != null && Number.isFinite(Number(rate))) ? Number(rate) : 0;
+      const subtotal = currentLines.reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
+      const taxable = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
+      const exempt = currentRo.customers && currentRo.customers.tax_exempt;
+      const total = subtotal + (exempt ? 0 : taxable * taxRate());
+      const feeAmt = Math.round(pct * total * 100) / 100;
+
+      const btn = $('cdAddCardFeeBtn');
+      btn.disabled = true;
+      const row = {
+        repair_order_id: currentRo.id,
+        line_type: 'fee',
+        description: `Card processing fee (${(pct * 100).toFixed(2)}%)`,
+        quantity: 1,
+        unit_price: feeAmt,
+        taxable: false,
+        sort_order: currentLines.length,
+      };
+      const { data, error } = await db.from('ro_line_items').insert(row).select('*').single();
+      btn.disabled = false;
+      if (error) { console.error('[CdRO] add card fee failed', error); alert('Add card fee failed: ' + error.message); return; }
+      currentLines.push(data);
+      renderLines();
       refreshListCacheFor(currentRo.id);
     }
 
@@ -2818,10 +2897,18 @@
     $('cdRoSearch').addEventListener('input', renderList);
     $('cdRoBackBtn').addEventListener('click', backToList);
     $('cdAddLineBtn').addEventListener('click', addLine);
+    $('cdAddCardFeeBtn').addEventListener('click', addCardFee);
     $('cdRoNewBtn').addEventListener('click', () => $('navCdRo').click());
 
     // expose for the New RO modal's "Open RO" button
     window.cdOpenRo = (roId) => { loadRecentList(); openRo(roId); };
+
+    // re-render live totals when shop_settings (tax rate) changes —
+    // called by BoardSettings' onShopSettingsChanged.
+    window.cdRefreshShopSettings = () => {
+      if (currentRo && $('cdRoDetailPanel').style.display !== 'none') recalcTotals();
+      if ($('cdRoListPanel') && $('cdRoListPanel').style.display !== 'none') renderList();
+    };
 
     // live refresh of the list when ROs change elsewhere
     let cdRosChannel = null;

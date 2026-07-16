@@ -46,6 +46,54 @@ window.BoardSettings = (function () {
   let stylesInjected = false;
   let modalEl = null;
 
+  // ── Shop / RO settings (shop_settings table) ──────────────────
+  // Single fixed-id row. Permission split is UI-level: which board
+  // renders an EDITABLE control (money vs operational) is decided by
+  // the flags passed to init() — same pattern as the Bookkeeping-only
+  // delete button. Money (tax %, labor rate) edits on Owner/GM only;
+  // the operational toggle (show_tech_on_ro) also edits on Advisor.
+  const SHOP_SETTINGS_ID = '00000000-0000-0000-0000-000000000001';
+  const SHOP_DEFAULTS = {
+    tax_rate: 0.07, default_labor_rate: null, show_tech_on_ro: false,
+    card_fee_pct: 0.03, shop_supplies_default: 0, hazmat_default: 0,
+  };
+  let shopSettingsRow = null;   // raw row, or null if table/row missing
+  let canEditShopMoney = false;
+  let canEditShopOps = false;
+  let onShopSettingsChanged = null;
+
+  // Resolved settings the rest of the app reads. Always safe — falls
+  // back to defaults (tax 0.07) when the row/table doesn't exist yet
+  // (pre-migration), so the RO Board never breaks between deploy and
+  // Cris applying the migration.
+  function getShopSettings() {
+    if (!shopSettingsRow) return { ...SHOP_DEFAULTS, _exists: false, _id: null };
+    const n = (v, d) => (v != null && Number.isFinite(Number(v))) ? Number(v) : d;
+    return {
+      tax_rate: n(shopSettingsRow.tax_rate, SHOP_DEFAULTS.tax_rate),
+      default_labor_rate: shopSettingsRow.default_labor_rate != null ? Number(shopSettingsRow.default_labor_rate) : null,
+      show_tech_on_ro: !!shopSettingsRow.show_tech_on_ro,
+      card_fee_pct: n(shopSettingsRow.card_fee_pct, SHOP_DEFAULTS.card_fee_pct),
+      shop_supplies_default: n(shopSettingsRow.shop_supplies_default, SHOP_DEFAULTS.shop_supplies_default),
+      hazmat_default: n(shopSettingsRow.hazmat_default, SHOP_DEFAULTS.hazmat_default),
+      _exists: true,
+      _id: shopSettingsRow.id,
+    };
+  }
+
+  async function loadShopSettings() {
+    try {
+      const { data, error } = await db.from('shop_settings').select('*').limit(1).maybeSingle();
+      if (error) throw error;          // e.g. 42P01 if table not created yet
+      shopSettingsRow = data || null;
+    } catch (err) {
+      // table missing (pre-migration) or transient — fall back silently
+      shopSettingsRow = null;
+      console.warn('[BoardSettings] shop_settings not loaded (using defaults):', err.message || err);
+    }
+    if (typeof onShopSettingsChanged === 'function') onShopSettingsChanged(getShopSettings());
+  }
+
   function esc(s) {
     return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
@@ -144,6 +192,22 @@ window.BoardSettings = (function () {
       .stgfeat-btn.sec { background: #f0f1f5; color: #1a1f36; border: 1px solid #e2e5ee; }
       .stgfeat-btn.danger { background: #fff; color: #dc2626; border: 1px solid #fca5a5; }
       .stgfeat-btn.block { display: block; width: 100%; }
+
+      .stgfeat-field {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; margin-bottom: 10px;
+      }
+      .stgfeat-field label { font-size: 0.82rem; color: #1a1f36; }
+      .stgfeat-field input[type="number"] {
+        width: 120px; padding: 7px 10px; border: 1px solid #e2e5ee; border-radius: 6px;
+        font-size: 0.85rem; font-family: inherit; color: #1a1f36; text-align: right;
+      }
+      .stgfeat-field input[type="number"]:focus { outline: none; border-color: #5b5ef4; }
+      .stgfeat-field-check input { width: 16px; height: 16px; cursor: pointer; }
+      .stgfeat-static { font-size: 0.85rem; color: #1a1f36; font-weight: 600; }
+      #stgfeatShopBody code {
+        background: #f0f1f5; border-radius: 4px; padding: 1px 4px; font-size: 0.78rem;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -179,8 +243,8 @@ window.BoardSettings = (function () {
         </div>
 
         <div class="stgfeat-section">
-          <div class="stgfeat-section-label">More Settings</div>
-          <div class="stgfeat-placeholder">More options will show up here in a future update.</div>
+          <div class="stgfeat-section-label">Shop / RO Settings</div>
+          <div id="stgfeatShopBody"></div>
         </div>
       </div>
     `;
@@ -237,6 +301,9 @@ window.BoardSettings = (function () {
       preview.style.backgroundImage = '';
       preview.textContent = 'No photo selected';
     }
+
+    renderShopSection();
+    loadShopSettings().then(renderShopSection);   // refresh in case another board changed it
 
     modalEl.classList.add('open');
   }
@@ -344,6 +411,139 @@ window.BoardSettings = (function () {
     preview.textContent = 'No photo selected';
   }
 
+  // ── Shop / RO settings: render + save ─────────────────────────
+  function renderShopSection() {
+    if (!modalEl) return;
+    const body = modalEl.querySelector('#stgfeatShopBody');
+    if (!body) return;
+    const s = getShopSettings();
+
+    if (!s._exists) {
+      body.innerHTML =
+        '<div class="stgfeat-placeholder">Run the <code>shop_settings</code> migration to enable shop/RO settings. ' +
+        'Until then the RO Board uses the default 7% tax rate.</div>';
+      return;
+    }
+
+    const pct = s.tax_rate != null ? (s.tax_rate * 100) : '';
+    const labor = s.default_labor_rate != null ? s.default_labor_rate : '';
+    const cardPct = s.card_fee_pct != null ? (s.card_fee_pct * 100) : '';
+    const supplies = s.shop_supplies_default != null ? s.shop_supplies_default : '';
+    const hazmat = s.hazmat_default != null ? s.hazmat_default : '';
+
+    // MONEY — editable on Owner/GM only; read-only elsewhere. Covers tax,
+    // labor rate, and the three fees (card % + flat shop-supplies/hazmat).
+    const moneyBlock = canEditShopMoney ? `
+      <div class="stgfeat-field">
+        <label>Tax Rate (%)</label>
+        <input type="number" id="stgfeatTaxRate" min="0" step="0.01" value="${pct}">
+      </div>
+      <div class="stgfeat-field">
+        <label>Default Labor Rate ($/hr)</label>
+        <input type="number" id="stgfeatLaborRate" min="0" step="0.01" value="${labor}" placeholder="not set">
+      </div>
+      <div class="stgfeat-field">
+        <label>Card Processing Fee (%)</label>
+        <input type="number" id="stgfeatCardFee" min="0" step="0.01" value="${cardPct}">
+      </div>
+      <div class="stgfeat-field">
+        <label>Shop Supplies ($ flat)</label>
+        <input type="number" id="stgfeatSupplies" min="0" step="0.01" value="${supplies}">
+      </div>
+      <div class="stgfeat-field">
+        <label>Hazmat ($ flat)</label>
+        <input type="number" id="stgfeatHazmat" min="0" step="0.01" value="${hazmat}">
+      </div>` : `
+      <div class="stgfeat-field">
+        <label>Tax Rate</label>
+        <span class="stgfeat-static">${s.tax_rate != null ? (s.tax_rate * 100).toFixed(2) + '%' : '—'}</span>
+      </div>
+      <div class="stgfeat-field">
+        <label>Default Labor Rate</label>
+        <span class="stgfeat-static">${s.default_labor_rate != null ? '$' + Number(s.default_labor_rate).toFixed(2) + '/hr' : '—'}</span>
+      </div>
+      <div class="stgfeat-field">
+        <label>Card Processing Fee</label>
+        <span class="stgfeat-static">${s.card_fee_pct != null ? (s.card_fee_pct * 100).toFixed(2) + '%' : '—'}</span>
+      </div>
+      <div class="stgfeat-field">
+        <label>Shop Supplies</label>
+        <span class="stgfeat-static">${s.shop_supplies_default != null ? '$' + Number(s.shop_supplies_default).toFixed(2) : '—'}</span>
+      </div>
+      <div class="stgfeat-field">
+        <label>Hazmat</label>
+        <span class="stgfeat-static">${s.hazmat_default != null ? '$' + Number(s.hazmat_default).toFixed(2) : '—'}</span>
+      </div>`;
+
+    // OPERATIONAL — editable on Advisor (and Owner/GM); read-only otherwise.
+    const opsBlock = canEditShopOps ? `
+      <div class="stgfeat-field stgfeat-field-check">
+        <label for="stgfeatShowTech">Show tech on RO</label>
+        <input type="checkbox" id="stgfeatShowTech"${s.show_tech_on_ro ? ' checked' : ''}>
+      </div>` : `
+      <div class="stgfeat-field">
+        <label>Show tech on RO</label>
+        <span class="stgfeat-static">${s.show_tech_on_ro ? 'Yes' : 'No'}</span>
+      </div>`;
+
+    const canSave = canEditShopMoney || canEditShopOps;
+    body.innerHTML = moneyBlock + opsBlock +
+      (canSave ? '<button type="button" class="stgfeat-btn block" id="stgfeatShopSaveBtn" style="margin-top:6px">Save Shop Settings</button>' : '') +
+      '<div class="stgfeat-error" id="stgfeatShopError"></div>' +
+      (canEditShopMoney ? '' : '<div class="stgfeat-placeholder" style="margin-top:8px">Tax &amp; labor rate are set on the Owner / GM board.</div>');
+
+    if (canSave) {
+      body.querySelector('#stgfeatShopSaveBtn').addEventListener('click', saveShopSettings);
+    }
+  }
+
+  async function saveShopSettings() {
+    const s = getShopSettings();
+    if (!s._exists) return;
+    const errEl = modalEl.querySelector('#stgfeatShopError');
+    const saveBtn = modalEl.querySelector('#stgfeatShopSaveBtn');
+    errEl.textContent = '';
+
+    const update = {};
+    if (canEditShopMoney) {
+      const taxEl = modalEl.querySelector('#stgfeatTaxRate');
+      const laborEl = modalEl.querySelector('#stgfeatLaborRate');
+      const pct = parseFloat(taxEl.value);
+      if (!Number.isFinite(pct) || pct < 0) { errEl.textContent = 'Enter a valid tax rate (%).'; return; }
+      update.tax_rate = pct / 100;                       // store as fraction
+      const labor = parseFloat(laborEl.value);
+      update.default_labor_rate = Number.isFinite(labor) ? labor : null;
+
+      const cardPct = parseFloat(modalEl.querySelector('#stgfeatCardFee').value);
+      if (!Number.isFinite(cardPct) || cardPct < 0) { errEl.textContent = 'Enter a valid card fee (%).'; return; }
+      update.card_fee_pct = cardPct / 100;               // store as fraction
+      const supplies = parseFloat(modalEl.querySelector('#stgfeatSupplies').value);
+      update.shop_supplies_default = Number.isFinite(supplies) && supplies >= 0 ? supplies : 0;
+      const hazmat = parseFloat(modalEl.querySelector('#stgfeatHazmat').value);
+      update.hazmat_default = Number.isFinite(hazmat) && hazmat >= 0 ? hazmat : 0;
+    }
+    if (canEditShopOps) {
+      update.show_tech_on_ro = modalEl.querySelector('#stgfeatShowTech').checked;
+    }
+    if (Object.keys(update).length === 0) return;
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving…';
+    const { error } = await db.from('shop_settings').update(update).eq('id', s._id);
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save Shop Settings';
+
+    if (error) {
+      console.error('[BoardSettings] shop settings save failed', error);
+      errEl.textContent = 'Save failed: ' + error.message;
+      return;
+    }
+    await loadShopSettings();   // refresh cache (+ fires onShopSettingsChanged)
+    renderShopSection();
+    saveBtn.textContent = 'Saved ✓';
+    setTimeout(() => { if (saveBtn.isConnected) saveBtn.textContent = 'Save Shop Settings'; }, 1500);
+  }
+
   function mountTrigger(mountSelector) {
     const container = document.querySelector(mountSelector);
     if (!container) return;
@@ -368,8 +568,12 @@ window.BoardSettings = (function () {
     db = config.db;
     targetEl = document.querySelector(config.targetSelector);
     onNameSaved = config.onNameSaved || null;
+    canEditShopMoney = !!config.canEditShopMoney;
+    canEditShopOps = !!config.canEditShopOps;
+    onShopSettingsChanged = config.onShopSettingsChanged || null;
     injectStyles();
     mountTrigger(config.mountSelector);
+    loadShopSettings();   // warm the cache so getShopSettings() is current early
   }
 
   async function refresh(employeeId) {
@@ -384,5 +588,5 @@ window.BoardSettings = (function () {
     applyBackground(data ? data.background_photo_url : null);
   }
 
-  return { init, refresh };
+  return { init, refresh, getShopSettings, reloadShopSettings: loadShopSettings };
 })();
