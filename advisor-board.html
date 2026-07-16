@@ -265,6 +265,58 @@
     padding: 12px 14px; font-size: 0.82rem; color: var(--text); line-height: 1.5;
     margin: 12px 0;
   }
+
+  /* ── RO Board (slice 2): find/open + line items + totals ── */
+  .cd-search-bar { margin-bottom: 12px; }
+  .cd-search-bar input {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 12px; font-size: 0.85rem; color: var(--text);
+    outline: none; font-family: inherit;
+  }
+  .cd-search-bar input:focus { border-color: var(--accent); }
+  #cdRoListTbody tr { cursor: pointer; }
+  #cdRoListTbody tr:hover td { background: var(--bg); }
+  .cd-ro-header {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 22px;
+  }
+  .cd-ro-header .cd-hf-label {
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); font-weight: 700; margin-bottom: 2px;
+  }
+  .cd-ro-header .cd-hf-val { font-size: 0.88rem; color: var(--text); }
+  .cd-ro-header .cd-hf-full { grid-column: 1 / -1; }
+  .cd-lines-table td, .cd-lines-table th { vertical-align: middle; }
+  .cd-lines-table input, .cd-lines-table select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; font-size: 0.82rem; color: var(--text);
+    outline: none; font-family: inherit;
+  }
+  .cd-lines-table input:focus, .cd-lines-table select:focus { border-color: var(--accent); }
+  .cd-lines-table input[type="number"] { text-align: right; }
+  .cd-line-total { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .cd-line-del {
+    background: none; border: none; color: var(--muted); font-size: 1.1rem;
+    cursor: pointer; line-height: 1; padding: 2px 4px;
+  }
+  .cd-line-del:hover { color: var(--red); }
+  .cd-totals {
+    margin-top: 16px; margin-left: auto; max-width: 300px;
+    border-top: 1px solid var(--border); padding-top: 12px;
+  }
+  .cd-totals-row {
+    display: flex; justify-content: space-between; font-size: 0.86rem;
+    color: var(--text); padding: 4px 0; font-variant-numeric: tabular-nums;
+  }
+  .cd-totals-row span:first-child { color: var(--muted); }
+  .cd-totals-grand {
+    font-weight: 800; font-size: 1rem; border-top: 1px solid var(--border);
+    margin-top: 4px; padding-top: 8px;
+  }
+  .cd-totals-grand span:first-child { color: var(--text); }
+  .cd-exempt-tag {
+    font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
+    color: #92400e; background: #fef3c7; border-radius: 4px; padding: 1px 5px; margin-left: 5px;
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="shared/board-settings.js"></script>
@@ -306,6 +358,7 @@
         <div class="sidebar-item active" data-view="approval" data-label="Approval Queue"><span class="icon">📋</span>Approval Queue</div>
         <div class="sidebar-item" id="navNewVehicle"><span class="icon">🚗</span>New Vehicle Intake</div>
         <div class="sidebar-item" id="navCdRo"><span class="icon">🆕</span>New RO (CrisData)<span class="cd-nav-tag">beta</span></div>
+        <div class="sidebar-item" data-view="cdros" data-label="RO Board"><span class="icon">📄</span>RO Board (CrisData)<span class="cd-nav-tag">beta</span></div>
         <div class="sidebar-item" data-view="parts" data-label="Parts"><span class="icon">🔩</span>Parts</div>
         <div class="sidebar-item" data-view="payments" data-label="Payments"><span class="icon">💳</span>Payments</div>
         <div class="sidebar-item" data-view="customer-log" data-label="Customer Log"><span class="icon">📇</span>Customer Log</div>
@@ -534,6 +587,84 @@
       <div class="todo-form-error" id="todoFormError"></div>
       <div class="todo-list" id="todoList">
         <div style="color:var(--muted);padding:24px;text-align:center">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ RO BOARD (CrisData) — Phase 2 slice 2: find/open an RO + build
+       line items with live totals. Beta / parallel; reads+writes ONLY
+       the Phase-1 tables (repair_orders, ro_line_items, customers,
+       vehicles). Does NOT touch the shop floor / Approval Queue / parts. ══ -->
+  <div class="view" id="view-cdros">
+    <!-- LIST panel: find-an-RO -->
+    <div id="cdRoListPanel">
+      <div class="card">
+        <div class="card-title">
+          <div class="dot" style="background:var(--accent)"></div>Repair Orders
+          <span class="cd-nav-tag" style="margin-left:6px">beta</span>
+          <button class="btn btn-primary" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdRoNewBtn">+ New RO</button>
+        </div>
+        <div class="cd-search-bar">
+          <input type="text" id="cdRoSearch" placeholder="Search RO#, customer, phone, plate, or VIN…" autocomplete="off">
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>RO #</th>
+              <th>Date</th>
+              <th>Customer</th>
+              <th>Vehicle</th>
+              <th>Status</th>
+              <th style="text-align:right">Total</th>
+            </tr>
+          </thead>
+          <tbody id="cdRoListTbody">
+            <tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- DETAIL panel: open RO -->
+    <div id="cdRoDetailPanel" style="display:none">
+      <button class="btn btn-ghost" id="cdRoBackBtn" style="font-size:0.78rem;padding:6px 12px;margin-bottom:12px">← Back to list</button>
+
+      <div class="card">
+        <div class="card-title">
+          <div class="dot" style="background:var(--accent)"></div>
+          <span id="cdRoDetailTitle">RO #—</span>
+          <span id="cdRoDetailStatus" style="margin-left:10px"></span>
+        </div>
+        <div class="cd-ro-header" id="cdRoHeaderGrid"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <div class="dot" style="background:var(--green)"></div>Line Items
+          <button class="btn btn-primary" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdAddLineBtn">+ Add line</button>
+        </div>
+        <table class="cd-lines-table">
+          <thead>
+            <tr>
+              <th style="width:130px">Type</th>
+              <th>Description</th>
+              <th style="width:70px">Qty</th>
+              <th style="width:110px">Unit $</th>
+              <th style="width:52px;text-align:center">Tax</th>
+              <th style="width:100px;text-align:right">Line</th>
+              <th style="width:38px"></th>
+            </tr>
+          </thead>
+          <tbody id="cdLinesTbody">
+            <tr><td colspan="7" style="color:var(--muted);text-align:center;padding:20px">No lines yet — add one.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="cd-totals" id="cdTotals">
+          <div class="cd-totals-row"><span>Subtotal</span><span id="cdSubtotal">$0.00</span></div>
+          <div class="cd-totals-row"><span id="cdTaxLabel">Tax</span><span id="cdTax">$0.00</span></div>
+          <div class="cd-totals-row cd-totals-grand"><span>Total</span><span id="cdTotal">$0.00</span></div>
+        </div>
       </div>
     </div>
   </div>
@@ -827,7 +958,8 @@
       <div class="cd-done-badge" id="cdDoneBadge">RO #—</div>
       <div class="cd-steplabel" style="text-align:center">Repair order created</div>
       <div class="cd-done-summary" id="cdDoneSummary"></div>
-      <button class="modal-btn" id="cdDoneNewBtn">Start another</button>
+      <button class="modal-btn" id="cdDoneOpenBtn">Open RO</button>
+      <button class="modal-btn sec" id="cdDoneNewBtn">Start another</button>
       <button class="modal-btn sec" id="cdDoneCloseBtn">Close</button>
     </div>
   </div>
@@ -2354,8 +2486,9 @@
       btn.disabled = true; btn.textContent = 'Creating…';
       try {
         const { data, error } = await db.from('repair_orders').insert(row)
-          .select('ro_number, po, complaint').single();
+          .select('id, ro_number, po, complaint').single();
         if (error) throw error;
+        state.roId = data.id;
         $('cdDoneBadge').textContent = 'RO #' + data.ro_number;
         $('cdDoneSummary').innerHTML =
           `<b>Customer:</b> ${escapeHtml(state.customerName || '—')}<br>` +
@@ -2413,6 +2546,301 @@
     $('cdMintBtn').addEventListener('click', mintRo);
 
     $('cdDoneNewBtn').addEventListener('click', openModal);
+    $('cdDoneOpenBtn').addEventListener('click', () => {
+      const id = state.roId;
+      closeModal();
+      // switch to the RO Board view via the normal nav path, then open it
+      const nav = document.querySelector('.sidebar-item[data-view="cdros"]');
+      if (nav) nav.click();
+      if (id && window.cdOpenRo) window.cdOpenRo(id);
+    });
+  })();
+
+  // ══════════════════════════════════════════════════════════════
+  // RO BOARD (CrisData) — Phase 2, slice 2: the visual RO.
+  // A find-an-RO list + an openable RO document with editable line
+  // items and live totals. Beta / parallel — reads+writes ONLY the
+  // Phase-1 tables (repair_orders, ro_line_items, customers, vehicles).
+  // Does NOT touch the shop floor, Approval Queue, or parts_orders.
+  // Exposes window.cdOpenRo(roId) so the New RO modal can land here.
+  // ══════════════════════════════════════════════════════════════
+  (function () {
+    const $ = (id) => document.getElementById(id);
+
+    // ── TAX: single configurable shop rate. Set the exact FL / Lee
+    // County rate here later; applied to taxable lines unless the
+    // customer is tax_exempt (then tax is suppressed to $0). ──
+    const CD_SHOP_TAX_RATE = 0.07;  // 7.0% placeholder — Cris to confirm
+
+    const money = (n) => '$' + (Number(n) || 0).toFixed(2);
+    const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
+
+    const LINE_TYPES = [
+      ['labor', 'Labor'], ['parts', 'Parts'], ['fee', 'Fee'],
+      ['shop_supply', 'Shop Supply'], ['hazmat', 'Hazmat'],
+    ];
+    const STATUS_LABEL = { estimate: 'Estimate', ro: 'RO', invoice: 'Invoice' };
+
+    let allRos = [];          // cached list rows (with embeds) for client-side search
+    let currentRo = null;     // the open RO (with embedded customer/vehicle)
+    let currentLines = [];    // ro_line_items for the open RO
+
+    // ── LIST: load + render ───────────────────────────────────
+    async function loadRecentList() {
+      const tb = $('cdRoListTbody');
+      const { data, error } = await db
+        .from('repair_orders')
+        .select('id, ro_number, po, status, created_at, ' +
+                'customers(name, phone_primary, tax_exempt), ' +
+                'vehicles(year, make, model, vin, plate), ' +
+                'ro_line_items(quantity, unit_price, taxable)')
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error('[CdRO] list load failed', error);
+        tb.innerHTML = `<tr><td colspan="6" style="color:var(--red);text-align:center;padding:24px">Failed to load: ${esc(error.message)}</td></tr>`;
+        return;
+      }
+      allRos = data || [];
+      renderList();
+    }
+
+    function roTotal(ro) {
+      const lines = ro.ro_line_items || [];
+      const subtotal = lines.reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
+      const taxable = lines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
+      const exempt = ro.customers && ro.customers.tax_exempt;
+      const tax = exempt ? 0 : taxable * CD_SHOP_TAX_RATE;
+      return subtotal + tax;
+    }
+
+    function vehDesc(v) {
+      if (!v) return '—';
+      return [v.year, v.make, v.model].filter(Boolean).join(' ') ||
+        (v.vin ? 'VIN ' + v.vin : (v.plate ? 'Plate ' + v.plate : '—'));
+    }
+
+    function renderList() {
+      const term = $('cdRoSearch').value.trim().toLowerCase();
+      const tb = $('cdRoListTbody');
+      let rows = allRos;
+      if (term) {
+        rows = allRos.filter(ro => {
+          const c = ro.customers || {}, v = ro.vehicles || {};
+          const hay = [
+            ro.po, String(ro.ro_number), c.name, c.phone_primary,
+            v.plate, v.vin,
+          ].filter(Boolean).join(' ').toLowerCase();
+          return hay.includes(term);
+        });
+      }
+      if (rows.length === 0) {
+        tb.innerHTML = `<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">${term ? 'No matching ROs.' : 'No repair orders yet — click + New RO.'}</td></tr>`;
+        return;
+      }
+      tb.innerHTML = rows.map(ro => {
+        const c = ro.customers || {}, v = ro.vehicles || {};
+        const date = ro.created_at ? new Date(ro.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+        return `
+        <tr data-id="${esc(ro.id)}">
+          <td><strong>#${esc(ro.po || ro.ro_number)}</strong></td>
+          <td>${date}</td>
+          <td>${esc(c.name || '—')}</td>
+          <td>${esc(vehDesc(v))}</td>
+          <td>${esc(STATUS_LABEL[ro.status] || ro.status || '—')}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">${money(roTotal(ro))}</td>
+        </tr>`;
+      }).join('');
+      tb.querySelectorAll('tr[data-id]').forEach(tr => {
+        tr.addEventListener('click', () => openRo(tr.dataset.id));
+      });
+    }
+
+    // ── DETAIL: open an RO ────────────────────────────────────
+    async function openRo(roId) {
+      const { data, error } = await db
+        .from('repair_orders')
+        .select('id, ro_number, po, status, complaint, odometer_in, ' +
+                'customers(name, phone_primary, tax_exempt), ' +
+                'vehicles(year, make, model, vin, plate)')
+        .eq('id', roId).single();
+      if (error || !data) {
+        console.error('[CdRO] open RO failed', error);
+        alert('Could not open RO: ' + ((error && error.message) || 'not found'));
+        return;
+      }
+      currentRo = data;
+      renderHeader();
+      await loadLines();
+      $('cdRoListPanel').style.display = 'none';
+      $('cdRoDetailPanel').style.display = 'block';
+    }
+
+    function renderHeader() {
+      const ro = currentRo, c = ro.customers || {}, v = ro.vehicles || {};
+      $('cdRoDetailTitle').textContent = 'RO #' + (ro.po || ro.ro_number);
+      const exempt = c.tax_exempt;
+      $('cdRoDetailStatus').innerHTML =
+        `<span class="badge badge-diag">${esc(STATUS_LABEL[ro.status] || ro.status || '—')}</span>` +
+        (exempt ? '<span class="cd-exempt-tag">tax exempt</span>' : '');
+      const idPlate = [v.vin ? 'VIN ' + v.vin : null, v.plate ? 'Plate ' + v.plate : null].filter(Boolean).join(' · ') || '—';
+      const field = (label, val, full) =>
+        `<div class="${full ? 'cd-hf-full' : ''}"><div class="cd-hf-label">${label}</div><div class="cd-hf-val">${esc(val || '—')}</div></div>`;
+      $('cdRoHeaderGrid').innerHTML =
+        field('Customer', c.name) +
+        field('Phone', c.phone_primary) +
+        field('Vehicle', vehDesc(v)) +
+        field('VIN / Plate', idPlate) +
+        field('Odometer In', ro.odometer_in != null ? (ro.odometer_in + ' mi') : '—') +
+        field('Status', STATUS_LABEL[ro.status] || ro.status) +
+        field('Complaint', ro.complaint, true);
+    }
+
+    async function loadLines() {
+      const { data, error } = await db.from('ro_line_items')
+        .select('*').eq('repair_order_id', currentRo.id)
+        .order('sort_order', { ascending: true }).order('created_at', { ascending: true });
+      if (error) { console.error('[CdRO] load lines failed', error); currentLines = []; }
+      else currentLines = data || [];
+      renderLines();
+    }
+
+    function renderLines() {
+      const tb = $('cdLinesTbody');
+      if (currentLines.length === 0) {
+        tb.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:20px">No lines yet — add one.</td></tr>';
+      } else {
+        tb.innerHTML = currentLines.map(l => {
+          const opts = LINE_TYPES.map(([v, lab]) =>
+            `<option value="${v}"${l.line_type === v ? ' selected' : ''}>${lab}</option>`).join('');
+          const lineTotal = num(l.quantity) * num(l.unit_price);
+          return `
+          <tr data-id="${esc(l.id)}">
+            <td><select data-field="line_type">${opts}</select></td>
+            <td><input type="text" data-field="description" value="${esc(l.description || '')}" placeholder="Description"></td>
+            <td><input type="number" data-field="quantity" value="${l.quantity != null ? l.quantity : ''}" min="0" step="0.01"></td>
+            <td><input type="number" data-field="unit_price" value="${l.unit_price != null ? l.unit_price : ''}" min="0" step="0.01"></td>
+            <td style="text-align:center"><input type="checkbox" data-field="taxable"${l.taxable ? ' checked' : ''}></td>
+            <td class="cd-line-total">${money(lineTotal)}</td>
+            <td><button class="cd-line-del" title="Delete line">×</button></td>
+          </tr>`;
+        }).join('');
+        // wire row inputs
+        tb.querySelectorAll('tr[data-id]').forEach(tr => {
+          const id = tr.dataset.id;
+          tr.querySelectorAll('[data-field]').forEach(inp => {
+            inp.addEventListener('change', () => onFieldChange(id, inp));
+          });
+          tr.querySelector('.cd-line-del').addEventListener('click', () => deleteLine(id));
+        });
+      }
+      recalcTotals();
+    }
+
+    function recalcTotals() {
+      const subtotal = currentLines.reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
+      const taxable = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
+      const exempt = currentRo && currentRo.customers && currentRo.customers.tax_exempt;
+      const tax = exempt ? 0 : taxable * CD_SHOP_TAX_RATE;
+      $('cdSubtotal').textContent = money(subtotal);
+      $('cdTax').textContent = money(tax);
+      $('cdTotal').textContent = money(subtotal + tax);
+      $('cdTaxLabel').innerHTML = exempt
+        ? 'Tax <span class="cd-exempt-tag">exempt</span>'
+        : `Tax (${(CD_SHOP_TAX_RATE * 100).toFixed(2)}%)`;
+    }
+
+    async function addLine() {
+      if (!currentRo) return;
+      const btn = $('cdAddLineBtn');
+      btn.disabled = true;
+      const row = {
+        repair_order_id: currentRo.id,
+        line_type: 'labor',
+        description: null,
+        quantity: 1,
+        unit_price: 0,
+        taxable: true,
+        sort_order: currentLines.length,
+      };
+      const { data, error } = await db.from('ro_line_items').insert(row).select('*').single();
+      btn.disabled = false;
+      if (error) { console.error('[CdRO] add line failed', error); alert('Add line failed: ' + error.message); return; }
+      currentLines.push(data);
+      renderLines();
+      refreshListCacheFor(currentRo.id);
+    }
+
+    async function onFieldChange(id, inp) {
+      const field = inp.dataset.field;
+      let value;
+      if (field === 'taxable') value = inp.checked;
+      else if (field === 'quantity' || field === 'unit_price') value = num(inp.value);
+      else value = inp.value;
+
+      // update local cache first so totals feel instant
+      const line = currentLines.find(l => l.id === id);
+      if (line) line[field] = value;
+      // update the row's line-total cell + totals immediately
+      if (line) {
+        const tr = $('cdLinesTbody').querySelector(`tr[data-id="${CSS.escape(id)}"]`);
+        if (tr) tr.querySelector('.cd-line-total').textContent = money(num(line.quantity) * num(line.unit_price));
+      }
+      recalcTotals();
+
+      const { error } = await db.from('ro_line_items').update({ [field]: value }).eq('id', id);
+      if (error) { console.error('[CdRO] update line failed', error); alert('Save failed: ' + error.message); return; }
+      refreshListCacheFor(currentRo.id);
+    }
+
+    async function deleteLine(id) {
+      const { error } = await db.from('ro_line_items').delete().eq('id', id);
+      if (error) { console.error('[CdRO] delete line failed', error); alert('Delete failed: ' + error.message); return; }
+      currentLines = currentLines.filter(l => l.id !== id);
+      renderLines();
+      refreshListCacheFor(currentRo.id);
+    }
+
+    // keep the cached list totals fresh without a full refetch
+    function refreshListCacheFor(roId) {
+      const ro = allRos.find(r => r.id === roId);
+      if (ro) ro.ro_line_items = currentLines.map(l => ({
+        quantity: l.quantity, unit_price: l.unit_price, taxable: l.taxable,
+      }));
+    }
+
+    function backToList() {
+      $('cdRoDetailPanel').style.display = 'none';
+      $('cdRoListPanel').style.display = 'block';
+      renderList();  // reflect any total changes
+    }
+
+    // ── wiring ────────────────────────────────────────────────
+    $('cdRoSearch').addEventListener('input', renderList);
+    $('cdRoBackBtn').addEventListener('click', backToList);
+    $('cdAddLineBtn').addEventListener('click', addLine);
+    $('cdRoNewBtn').addEventListener('click', () => $('navCdRo').click());
+
+    // expose for the New RO modal's "Open RO" button
+    window.cdOpenRo = (roId) => { loadRecentList(); openRo(roId); };
+
+    // live refresh of the list when ROs change elsewhere
+    let cdRosChannel = null;
+    function subscribeRealtime() {
+      if (cdRosChannel) db.removeChannel(cdRosChannel);
+      cdRosChannel = db.channel('advisor-board-cdros-live')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'repair_orders' }, () => {
+          if ($('cdRoListPanel').style.display !== 'none') loadRecentList();
+        })
+        .subscribe();
+    }
+    subscribeRealtime();
+
+    loadRecentList();
+    VIEW_REFRESH.cdros = {
+      refetch: loadRecentList,
+      getChannel: () => cdRosChannel,
+      resubscribe: subscribeRealtime,
+    };
   })();
 
   // ══════════════════════════════════════════════════════════════
