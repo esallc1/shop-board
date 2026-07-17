@@ -209,6 +209,11 @@
     background:linear-gradient(0deg, var(--asphalt) 60%, rgba(28,30,31,0));
     z-index:15;
   }
+  /* FAB clearance: when a sticky action bar is on screen (RO Diagnosis /
+     job detail), lift the shared "Catch this moment" FAB above it so it
+     never overlaps the Submit button. Views without a sticky-cta leave the
+     FAB at its default bottom-left position. */
+  body:has(.sticky-cta) #cmFab{ bottom:calc(90px + env(safe-area-inset-bottom)) !important; }
 
   /* ---------- Login ---------- */
   .login-wrap{
@@ -1385,10 +1390,10 @@ function renderRoDiag(){
       <div class="section">
         <h3>${t('codesLabel')}</h3>
         <div id="roCodesWrap">${roCodesHtml()}</div>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;max-width:100%">
           <input type="text" id="roCodeInput" placeholder="${t('codeInputPlaceholder')}" autocapitalize="characters" autocomplete="off"
-                 style="flex:1;background:var(--panel);border:1px solid var(--stroke);border-radius:10px;padding:11px 12px;color:var(--paper);font-family:ui-monospace,monospace;text-transform:uppercase">
-          <button class="btn btn-outline" id="roAddCodeBtn" style="flex:0 0 auto;padding:0 18px">${t('addCodeBtn')}</button>
+                 style="flex:1 1 auto;min-width:0;background:var(--panel);border:1px solid var(--stroke);border-radius:10px;padding:11px 12px;color:var(--paper);font-family:ui-monospace,monospace;text-transform:uppercase">
+          <button class="btn btn-outline" id="roAddCodeBtn" style="flex:0 0 auto;width:auto;padding:0 18px;white-space:nowrap">${t('addCodeBtn')}</button>
         </div>
       </div>
 
