@@ -320,6 +320,22 @@
     margin-top: 4px; padding-top: 8px;
   }
   .cd-totals-grand span:first-child { color: var(--text); }
+  /* ── Payments (Phase 5) ── */
+  .cd-pay-lbl { display: block; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 700; margin-bottom: 3px; }
+  .cd-pay-form input, .cd-pay-form select {
+    width: 100%; padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 0.85rem; font-family: inherit; color: var(--text); background: var(--surface); box-sizing: border-box;
+  }
+  .cd-pay-form input:focus, .cd-pay-form select:focus { outline: none; border-color: var(--accent); }
+  .cd-pay-del { background: none; border: none; color: var(--muted); font-size: 1rem; cursor: pointer; padding: 0 4px; }
+  .cd-pay-del:hover { color: var(--red); }
+  .cd-paid-badge {
+    font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 3px 8px; border-radius: 10px;
+  }
+  .cd-paid-full { background: #dcfce7; color: #166534; }
+  .cd-paid-partial { background: #fef3c7; color: #92400e; }
+  .cd-balance-clear span:last-child { color: #166534; }
   .cd-exempt-tag {
     font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
     color: #92400e; background: #fef3c7; border-radius: 4px; padding: 1px 5px; margin-left: 5px;
@@ -429,80 +445,30 @@
     </div>
   </div>
 
-  <!-- ══ TAB 3: PAYMENTS ══ -->
+  <!-- ══ TAB 3: PAYMENTS — read-only ledger. Payments are RECORDED on the
+       RO (RO Board → open RO → Payments); this is the shop-wide view. ══ -->
   <div class="view" id="view-payments">
-    <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px 18px;margin-bottom:16px;font-size:0.83rem;color:#92400e;">
-      <strong>Not yet wired to live data</strong> — no <code>payments</code> table exists in Supabase. Sample data shown below. Dev must create the table before this tab can be wired.
-    </div>
     <div class="card">
-      <div class="card-title"><div class="dot" style="background:var(--green)"></div>Log a Payment</div>
-      <div class="payment-form">
-        <div class="form-group">
-          <label class="form-label">Job / Vehicle</label>
-          <select>
-            <option>PO #1029 — 2014 GMC Sierra (J. Thornton)</option>
-            <option>PO #1033 — 2016 Ford Explorer (M. Castillo)</option>
-            <option>PO #1031 — 2018 Ford F-150 (R. Peña)</option>
-            <option>PO #1028 — 2013 Dodge RAM (A. Williams)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Amount ($)</label>
-          <input type="number" placeholder="0.00" min="0" step="0.01" style="width:100%" />
-        </div>
-        <div class="form-group">
-          <label class="form-label">Payment Method</label>
-          <select>
-            <option>Cash</option>
-            <option>Card at Counter</option>
-            <option>Clover</option>
-            <option>Check</option>
-          </select>
-        </div>
-        <div class="form-group" style="justify-content:flex-end">
-          <label class="form-label">&nbsp;</label>
-          <button class="btn btn-primary" onclick="logPayment()" style="align-self:flex-end">Log Payment</button>
-        </div>
+      <div class="card-title"><div class="dot" style="background:var(--blue)"></div>Recent Payments</div>
+      <div style="font-size:0.8rem;color:var(--muted);margin-bottom:12px">
+        Payments are recorded on each RO — open an RO in the <strong>RO Board</strong> and use its Payments section.
+        This is a read-only ledger of the 50 most recent payments.
       </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title"><div class="dot" style="background:var(--blue)"></div>Today's Payments</div>
-      <table id="payments-table">
+      <table id="cdPayLedgerTable">
         <thead>
           <tr>
-            <th>Time</th>
-            <th>Vehicle / PO#</th>
+            <th>Date</th>
+            <th>RO #</th>
+            <th>Vehicle</th>
             <th>Customer</th>
             <th>Method</th>
             <th style="text-align:right">Amount</th>
           </tr>
         </thead>
-        <tbody id="payments-body">
-          <tr>
-            <td style="color:var(--muted);font-size:0.78rem">8:42 AM</td>
-            <td><strong>2014 GMC Sierra</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1029</span></td>
-            <td>J. Thornton</td>
-            <td><span class="badge badge-approved">Clover</span></td>
-            <td style="text-align:right;font-weight:700">$2,450.00</td>
-          </tr>
-          <tr>
-            <td style="color:var(--muted);font-size:0.78rem">10:15 AM</td>
-            <td><strong>2016 Ford Explorer</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1033</span></td>
-            <td>M. Castillo</td>
-            <td><span class="badge badge-waiting">Cash</span></td>
-            <td style="text-align:right;font-weight:700">$680.00</td>
-          </tr>
-          <tr>
-            <td style="color:var(--muted);font-size:0.78rem">11:50 AM</td>
-            <td><strong>2013 Dodge RAM</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #1028</span></td>
-            <td>A. Williams</td>
-            <td><span class="badge badge-diag">Card at Counter</span></td>
-            <td style="text-align:right;font-weight:700">$1,875.00</td>
-          </tr>
+        <tbody id="cdPayLedgerBody">
+          <tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">Loading…</td></tr>
         </tbody>
       </table>
-      <div class="payment-total" id="payment-total">Today's Total: <span>$5,005.00</span></div>
     </div>
   </div>
 
@@ -699,6 +665,41 @@
           <div class="cd-totals-row"><span id="cdTaxLabel">Tax</span><span id="cdTax">$0.00</span></div>
           <div class="cd-totals-row cd-totals-grand"><span>Total</span><span id="cdTotal">$0.00</span></div>
         </div>
+      </div>
+
+      <!-- ══ PAYMENTS (Phase 5) — record-only ledger on the RO. Running
+           balance = RO total − Σ payments. Recordable at any stage. ══ -->
+      <div class="card" id="cdPaymentsCard">
+        <div class="card-title">
+          <div class="dot" style="background:var(--blue)"></div>Payments
+          <span id="cdPaidBadge" style="margin-left:auto"></span>
+        </div>
+        <div class="cd-pay-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+          <div style="flex:0 0 110px"><label class="cd-pay-lbl">Amount</label><input type="number" id="cdPayAmount" min="0" step="0.01" placeholder="0.00"></div>
+          <div style="flex:0 0 130px"><label class="cd-pay-lbl">Method</label><select id="cdPayMethod"></select></div>
+          <div style="flex:1 1 150px"><label class="cd-pay-lbl">Note (optional)</label><input type="text" id="cdPayNote" placeholder="e.g. deposit"></div>
+          <button class="btn btn-primary" id="cdPayRecordBtn" style="flex:0 0 auto;font-size:0.78rem;padding:8px 16px">Record</button>
+        </div>
+        <table class="cd-lines-table" id="cdPayTable">
+          <thead>
+            <tr>
+              <th style="width:130px">Date</th>
+              <th style="width:110px">Method</th>
+              <th>Note</th>
+              <th style="width:110px;text-align:right">Amount</th>
+              <th style="width:34px"></th>
+            </tr>
+          </thead>
+          <tbody id="cdPayTbody">
+            <tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px">No payments recorded yet.</td></tr>
+          </tbody>
+        </table>
+        <div class="cd-totals" id="cdPayTotals">
+          <div class="cd-totals-row"><span>Invoice Total</span><span id="cdPayTotal">$0.00</span></div>
+          <div class="cd-totals-row"><span>Amount Paid</span><span id="cdPayPaid">$0.00</span></div>
+          <div class="cd-totals-row cd-totals-grand" id="cdPayBalanceRow"><span>Balance Due</span><span id="cdPayBalance">$0.00</span></div>
+        </div>
+        <div id="cdPayError" style="color:var(--red);font-size:0.78rem;min-height:16px;margin-top:6px"></div>
       </div>
     </div>
   </div>
@@ -1466,31 +1467,9 @@
   document.getElementById('opCancelBtn').addEventListener('click', closeOrderPartModal);
   document.getElementById('opSaveBtn').addEventListener('click', saveOrderPart);
 
-  // ── Log Payment (local only — no payments table)
-  let totalCents = 500500;
-  function logPayment() {
-    const sel = document.querySelector('#view-payments select');
-    const amtInput = document.querySelectorAll('#view-payments input[type=number]')[0];
-    const methodSel = document.querySelectorAll('#view-payments select')[1];
-    const amt = parseFloat(amtInput.value);
-    if (!amt || amt <= 0) { amtInput.style.borderColor = 'var(--red)'; return; }
-    amtInput.style.borderColor = '';
-    const [po, vehicle] = sel.options[sel.selectedIndex].text.split(' — ');
-    const method = methodSel.value;
-    const now = new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
-    const methodBadge = { Cash:'badge-waiting', 'Card at Counter':'badge-diag', Clover:'badge-approved', Check:'badge-parts' };
-    const row = document.createElement('tr');
-    row.innerHTML = `
-      <td style="color:var(--muted);font-size:0.78rem">${now}</td>
-      <td><strong>${esc(vehicle.trim())}</strong><br><span style="color:var(--muted);font-size:0.78rem">${esc(po.trim())}</span></td>
-      <td>—</td>
-      <td><span class="badge ${methodBadge[method] || 'badge-parts'}">${esc(method)}</span></td>
-      <td style="text-align:right;font-weight:700">$${amt.toFixed(2)}</td>`;
-    document.getElementById('payments-body').prepend(row);
-    totalCents += Math.round(amt * 100);
-    document.querySelector('#payment-total span').textContent = '$' + (totalCents / 100).toLocaleString('en-US', {minimumFractionDigits:2});
-    amtInput.value = '';
-  }
+  // (Payments tab is now a real read-only ledger — see loadPayLedger in the
+  //  RO Board IIFE. The old local-only logPayment stub was removed; payments
+  //  are recorded on the RO.)
 
   // ── Add Customer Log Note (local only — no customer_log table)
   function addNote() {
@@ -2923,9 +2902,23 @@
     // gives the estimate-vs-invoice paper distinction off ONE number.
     const DOC_LABEL = { estimate: 'ESTIMATE', ro: 'REPAIR ORDER', invoice: 'INVOICE', closed: 'INVOICE' };
 
+    // ── PAYMENT METHODS (Phase 5, Slice 1) — seeded as a constant here.
+    // Slice 2 moves this to an editable list in the Payments Settings
+    // category; `method` is stored as the string `value`, so that swap
+    // needs no schema change. {value stored, label shown}.
+    const PAYMENT_METHODS = [
+      { value: 'cash', label: 'Cash' },
+      { value: 'card', label: 'Card' },
+      { value: 'koalifi', label: 'Koalifi' },
+      { value: 'snap', label: 'Snap' },
+      { value: 'check', label: 'Check' },
+    ];
+    const methodLabel = (v) => { const m = PAYMENT_METHODS.find(x => x.value === v); return m ? m.label : (v || '—'); };
+
     let allRos = [];          // cached list rows (with embeds) for client-side search
     let currentRo = null;     // the open RO (with embedded customer/vehicle)
     let currentLines = [];    // ro_line_items for the open RO
+    let currentPayments = [];  // ro_payments for the open RO (Phase 5)
 
     // ── LIST: load + render ───────────────────────────────────
     async function loadRecentList() {
@@ -3019,6 +3012,7 @@
       renderHeader();
       await populateRoEditFields();
       await loadLines();
+      await loadPayments();
       $('cdRoListPanel').style.display = 'none';
       $('cdRoDetailPanel').style.display = 'block';
     }
@@ -3138,6 +3132,15 @@
       recalcTotals();
     }
 
+    // RO total (subtotal + tax) as a number — the single source both the
+    // totals card and the payments balance read.
+    function roTotalNum() {
+      const subtotal = currentLines.reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
+      const taxable = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
+      const exempt = currentRo && currentRo.customers && currentRo.customers.tax_exempt;
+      return subtotal + (exempt ? 0 : taxable * taxRate());
+    }
+
     function recalcTotals() {
       const subtotal = currentLines.reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
       const taxable = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
@@ -3150,6 +3153,139 @@
       $('cdTaxLabel').innerHTML = exempt
         ? 'Tax <span class="cd-exempt-tag">exempt</span>'
         : `Tax (${(rate * 100).toFixed(2)}%)`;
+      renderPaymentsSummary();   // balance depends on the RO total
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // PAYMENTS (Phase 5, Slice 1) — record-only ledger on the RO.
+    // Running balance = RO total − Σ payments. Deposits + split payments
+    // are just multiple rows. Recordable at ANY stage; closing is still
+    // manual (paid-in-full ≠ picked up).
+    // ══════════════════════════════════════════════════════════
+    function paidSum() {
+      return currentPayments.reduce((s, p) => s + num(p.amount), 0);
+    }
+    // 'unpaid' | 'partial' | 'paid' — written to completed_jobs on close.
+    function paymentStatusFor(total, paid) {
+      if (paid <= 0) return 'unpaid';
+      if (paid >= total - 0.005) return 'paid';
+      return 'partial';
+    }
+
+    function renderPaymentsSummary() {
+      if (!$('cdPayTotal')) return;
+      const total = roTotalNum();
+      const paid = paidSum();
+      const balance = total - paid;
+      $('cdPayTotal').textContent = money(total);
+      $('cdPayPaid').textContent = money(paid);
+      $('cdPayBalance').textContent = money(balance);
+      const badge = $('cdPaidBadge');
+      const row = $('cdPayBalanceRow');
+      row.classList.remove('cd-balance-clear');
+      if (paid > 0 && balance <= 0.005) {
+        badge.innerHTML = '<span class="cd-paid-badge cd-paid-full">Paid in full</span>';
+        row.classList.add('cd-balance-clear');
+      } else if (paid > 0) {
+        badge.innerHTML = '<span class="cd-paid-badge cd-paid-partial">Partial</span>';
+      } else {
+        badge.innerHTML = '';
+      }
+    }
+
+    async function loadPayments() {
+      if (!currentRo) { currentPayments = []; renderPayments(); return; }
+      const { data, error } = await db.from('ro_payments')
+        .select('*').eq('repair_order_id', currentRo.id)
+        .order('paid_at', { ascending: true });
+      if (error) { console.error('[CdRO] load payments failed', error); currentPayments = []; }
+      else currentPayments = data || [];
+      renderPayments();
+    }
+
+    function renderPayments() {
+      const tb = $('cdPayTbody');
+      if (!tb) return;
+      if (currentPayments.length === 0) {
+        tb.innerHTML = '<tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px">No payments recorded yet.</td></tr>';
+      } else {
+        tb.innerHTML = currentPayments.map(p => {
+          const d = p.paid_at ? new Date(p.paid_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+          return `
+          <tr data-id="${esc(String(p.id))}">
+            <td>${esc(d)}</td>
+            <td>${esc(methodLabel(p.method))}</td>
+            <td>${esc(p.note || '')}</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">${money(p.amount)}</td>
+            <td><button class="cd-pay-del" title="Delete payment">×</button></td>
+          </tr>`;
+        }).join('');
+        tb.querySelectorAll('tr[data-id]').forEach(tr => {
+          tr.querySelector('.cd-pay-del').addEventListener('click', () => deletePayment(tr.dataset.id));
+        });
+      }
+      renderPaymentsSummary();
+    }
+
+    async function recordPayment() {
+      if (!currentRo) return;
+      const errEl = $('cdPayError'); errEl.textContent = '';
+      const amt = num($('cdPayAmount').value);
+      if (!(amt > 0)) { errEl.textContent = 'Enter an amount greater than 0.'; return; }
+      const btn = $('cdPayRecordBtn'); btn.disabled = true;
+      const row = {
+        repair_order_id: currentRo.id,
+        po: currentRo.po || String(currentRo.ro_number),
+        amount: amt,
+        method: $('cdPayMethod').value,
+        note: $('cdPayNote').value.trim() || null,
+      };
+      const { data, error } = await db.from('ro_payments').insert(row).select('*').single();
+      btn.disabled = false;
+      if (error) { console.error('[CdRO] record payment failed', error); errEl.textContent = 'Save failed: ' + error.message; return; }
+      currentPayments.push(data);
+      renderPayments();
+      $('cdPayAmount').value = '';
+      $('cdPayNote').value = '';
+    }
+
+    async function deletePayment(id) {
+      const { error } = await db.from('ro_payments').delete().eq('id', id);
+      if (error) { console.error('[CdRO] delete payment failed', error); alert('Delete failed: ' + error.message); return; }
+      currentPayments = currentPayments.filter(p => String(p.id) !== String(id));
+      renderPayments();
+    }
+
+    // ── Payments TAB — shop-wide read-only ledger (50 most recent) ──
+    async function loadPayLedger() {
+      const tb = $('cdPayLedgerBody');
+      if (!tb) return;
+      const { data, error } = await db.from('ro_payments')
+        .select('id, amount, method, paid_at, po, repair_orders(ro_number, customers(name), vehicles(year, make, model))')
+        .order('paid_at', { ascending: false }).limit(50);
+      if (error) {
+        tb.innerHTML = `<tr><td colspan="6" style="color:var(--red);text-align:center;padding:20px">Failed to load: ${esc(error.message)}</td></tr>`;
+        return;
+      }
+      const rows = data || [];
+      if (rows.length === 0) {
+        tb.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">No payments recorded yet.</td></tr>';
+        return;
+      }
+      tb.innerHTML = rows.map(p => {
+        const ro = p.repair_orders || {}, c = ro.customers || {}, v = ro.vehicles || {};
+        const veh = [v.year, v.make, v.model].filter(Boolean).join(' ') || '—';
+        const dt = p.paid_at ? new Date(p.paid_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
+        return `
+        <tr>
+          <td style="color:var(--muted);font-size:0.8rem">${esc(dt)}</td>
+          <td><strong>#${esc(p.po || ro.ro_number || '—')}</strong></td>
+          <td>${esc(veh)}</td>
+          <td>${esc(c.name || '—')}</td>
+          <td>${esc(methodLabel(p.method))}</td>
+          <td style="text-align:right;font-weight:700;font-variant-numeric:tabular-nums">${money(p.amount)}</td>
+        </tr>`;
+      }).join('');
     }
 
     async function addLine() {
@@ -3372,6 +3508,17 @@
       const taxAmt = exempt ? 0 : taxableBase * taxRate();
       const total = laborSub + partsSub + taxAmt;
 
+      // REAL payment figures from ro_payments (Phase 5). Re-fetch rather than
+      // trust the in-memory cache so the archive is correct even if the close
+      // is fired from an auto-hook later. Degrades to 0/unpaid if the payments
+      // table isn't there yet (pre-migration).
+      let paid = 0;
+      try {
+        const { data: pays, error: pErr } = await db.from('ro_payments').select('amount').eq('repair_order_id', ro.id);
+        if (!pErr && pays) paid = pays.reduce((s, p) => s + num(p.amount), 0);
+      } catch (e) { console.warn('[CdRO] payments sum for archive failed', e); }
+      const balance = total - paid;
+
       const payload = {
         source_table: 'repair_orders',
         source_id: String(ro.id),
@@ -3388,9 +3535,9 @@
         parts_subtotal: partsSub,
         tax: taxAmt,
         total_amount: total,
-        amount_paid: 0,
-        balance_due: total,
-        payment_status: 'unpaid',   // payments wired in Phase 5
+        amount_paid: paid,
+        balance_due: balance,
+        payment_status: paymentStatusFor(total, paid),
       };
 
       // upsert-by-(po, source_table): look for our own prior archive row
@@ -3608,6 +3755,15 @@
     $('cdAddCardFeeBtn').addEventListener('click', addCardFee);
     $('cdRoNewBtn').addEventListener('click', () => $('navCdRo').click());
     $('cdPrintBtn').addEventListener('click', printRo);
+    // Payments (Phase 5): seed the method dropdown from the constant + wire Record.
+    $('cdPayMethod').innerHTML = PAYMENT_METHODS.map(m => `<option value="${m.value}">${m.label}</option>`).join('');
+    $('cdPayRecordBtn').addEventListener('click', recordPayment);
+    $('cdPayAmount').addEventListener('keydown', (e) => { if (e.key === 'Enter') recordPayment(); });
+    // Payments TAB ledger — load now, refresh whenever the tab is opened.
+    const payNav = document.querySelector('.sidebar-item[data-view="payments"]');
+    if (payNav) payNav.addEventListener('click', loadPayLedger);
+    loadPayLedger();
+    if (typeof VIEW_REFRESH !== 'undefined') VIEW_REFRESH.payments = { refetch: loadPayLedger };
     // Stage selector — free movement; setStage reverts on failure so a
     // rejected move (e.g. 'closed' pre-migration) snaps back visibly.
     $('cdRoStage').addEventListener('change', async () => {
