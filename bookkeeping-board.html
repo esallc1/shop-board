@@ -192,10 +192,24 @@
   .modal-box.wide { max-width: 560px; }
 
   .invoice-detail-img-wrap {
+    position: relative;
     width: 100%; max-height: 300px; overflow: hidden; border-radius: 8px;
     background: var(--surface-2); margin-bottom: 12px; display: flex; align-items: center; justify-content: center;
   }
   .invoice-detail-img-wrap img { width: 100%; height: auto; max-height: 300px; object-fit: contain; }
+  /* Rotate controls — overlay bottom-right of the receipt preview. Rotating
+     re-saves the corrected file to storage so the AI extractor reads it upright. */
+  .invoice-rotate-controls {
+    position: absolute; bottom: 8px; right: 8px; display: flex; gap: 6px; z-index: 2;
+  }
+  .invoice-rotate-btn {
+    width: 32px; height: 32px; border-radius: 6px; border: none; cursor: pointer;
+    background: rgba(20,22,40,0.62); color: #fff; font-size: 1rem; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .invoice-rotate-btn:hover { background: rgba(20,22,40,0.85); }
+  .invoice-rotate-btn:disabled { opacity: 0.5; cursor: default; }
   .invoice-detail-uploader { font-size: 0.75rem; color: var(--muted); margin-bottom: 14px; }
   .auto-detect-status { font-size: 0.78rem; color: var(--accent); margin-bottom: 14px; font-weight: 600; }
   .auto-badge {
@@ -551,7 +565,13 @@
   <div class="modal-box wide">
     <button class="modal-close" id="closeInvoiceDetailModal">&times;</button>
     <h3 id="invModalTitle">Process Invoice</h3>
-    <div class="invoice-detail-img-wrap"><img id="invDetailImg" alt="Invoice"></div>
+    <div class="invoice-detail-img-wrap">
+      <img id="invDetailImg" alt="Invoice">
+      <div class="invoice-rotate-controls">
+        <button type="button" class="invoice-rotate-btn" id="invRotateLeft" title="Rotate left (re-saves the file)" aria-label="Rotate left">↺</button>
+        <button type="button" class="invoice-rotate-btn" id="invRotateRight" title="Rotate right (re-saves the file)" aria-label="Rotate right">↻</button>
+      </div>
+    </div>
     <div class="invoice-detail-uploader" id="invDetailUploader"></div>
     <div class="auto-detect-status" id="autoDetectStatus" style="display:none"></div>
 
@@ -2016,6 +2036,89 @@
       document.getElementById('partNumberAutoBadge').style.display = 'inline-block';
     }
   }
+
+  // ── Rotate the receipt & PERSIST it back to storage ──────────
+  // Josh sometimes captures a receipt sideways; the AI extractor reads the
+  // stored file, so a purely visual rotation wouldn't help. This rotates the
+  // pixels and OVERWRITES the file at its existing image_path (the invoice-
+  // images bucket has an anon UPDATE policy — same one the classify move
+  // relies on), so both the preview AND what the extractor reads are upright.
+  // In the classify flow (not History edit) it then re-runs auto-detect on
+  // the corrected orientation. Accumulates: each click rotates the current
+  // saved file another 90°.
+  async function rotateInvoiceImage(direction) {
+    if (!detailInvoice || !detailInvoice.image_path) return;
+    const path = detailInvoice.image_path;
+    const invoiceId = detailInvoice.id;
+    const btnL = document.getElementById('invRotateLeft');
+    const btnR = document.getElementById('invRotateRight');
+    const errEl = document.getElementById('invDetailError');
+    const statusEl = document.getElementById('autoDetectStatus');
+    errEl.textContent = '';
+    btnL.disabled = btnR.disabled = true;
+    statusEl.style.display = 'block';
+    statusEl.textContent = '↻ Rotating & re-saving the photo…';
+
+    try {
+      // pull the current stored bytes via a fresh signed URL
+      const { data: signed, error: sErr } = await db.storage.from(INVOICE_BUCKET).createSignedUrl(path, SIGNED_URL_TTL);
+      if (sErr || !signed) throw sErr || new Error('Could not read the stored image.');
+      const resp = await fetch(signed.signedUrl);
+      if (!resp.ok) throw new Error('Image fetch failed (' + resp.status + ').');
+      const srcBlob = await resp.blob();
+
+      // decode respecting any EXIF orientation so the rotation matches what
+      // she sees; the canvas re-encode then bakes pixels + drops EXIF.
+      let bitmap;
+      try { bitmap = await createImageBitmap(srcBlob, { imageOrientation: 'from-image' }); }
+      catch (e) { bitmap = await createImageBitmap(srcBlob); }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.height;   // 90° swap
+      canvas.height = bitmap.width;
+      const ctx = canvas.getContext('2d');
+      if (direction === 'right') { ctx.translate(canvas.width, 0); ctx.rotate(Math.PI / 2); }
+      else { ctx.translate(0, canvas.height); ctx.rotate(-Math.PI / 2); }
+      ctx.drawImage(bitmap, 0, 0);
+      if (bitmap.close) bitmap.close();
+
+      const outType = (srcBlob.type === 'image/png') ? 'image/png' : 'image/jpeg';
+      const outBlob = await new Promise((res) => canvas.toBlob(res, outType, 0.92));
+      if (!outBlob) throw new Error('Could not encode the rotated image.');
+
+      // overwrite the SAME path so the extractor reads the corrected file
+      const { error: upErr } = await db.storage.from(INVOICE_BUCKET)
+        .upload(path, outBlob, { upsert: true, contentType: outType });
+      if (upErr) throw upErr;
+
+      // refresh the preview with a fresh signed URL (bypasses cache)
+      const { data: signed2 } = await db.storage.from(INVOICE_BUCKET).createSignedUrl(path, SIGNED_URL_TTL);
+      const newUrl = (signed2 && signed2.signedUrl)
+        ? signed2.signedUrl
+        : signed.signedUrl + (signed.signedUrl.includes('?') ? '&' : '?') + 'r=' + Date.now();
+      document.getElementById('invDetailImg').src = newUrl;
+
+      // guard against the modal having moved on to another invoice while we awaited
+      if (detailInvoice && String(detailInvoice.id) === String(invoiceId)) {
+        if (!isEditingHistoryRow) {
+          runAutoDetect(invoiceId, newUrl);   // re-read the corrected orientation
+        } else {
+          statusEl.style.display = 'none';
+        }
+      } else {
+        statusEl.style.display = 'none';
+      }
+    } catch (err) {
+      console.error('[Invoices] rotate failed', err);
+      statusEl.style.display = 'none';
+      errEl.textContent = 'Rotate failed: ' + (err.message || 'unknown error');
+    } finally {
+      btnL.disabled = btnR.disabled = false;
+    }
+  }
+
+  document.getElementById('invRotateLeft').addEventListener('click', () => rotateInvoiceImage('left'));
+  document.getElementById('invRotateRight').addEventListener('click', () => rotateInvoiceImage('right'));
 
   // Auto-detected badges are a hint, not a guarantee — clear a field's
   // badge as soon as she edits it, since it no longer reflects what's
