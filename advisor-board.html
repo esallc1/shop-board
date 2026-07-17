@@ -4005,6 +4005,20 @@
     const item = document.querySelector(`.sidebar-item[data-view="${saved}"]`);
     if (item) item.click();
   })();
+
+  // Deep-link: the CrisData Shop Floor (crisdata-floor.html) links each car to
+  // advisor-board.html?ro=<id> to open that RO in the RO Board. Retries briefly
+  // in case window.cdOpenRo isn't wired yet.
+  (function openRoFromQuery() {
+    const roId = new URLSearchParams(window.location.search).get('ro');
+    if (!roId) return;
+    const nav = document.querySelector('.sidebar-item[data-view="cdros"]');
+    if (nav) nav.click();
+    (function tryOpen(n) {
+      if (window.cdOpenRo) { window.cdOpenRo(roId); return; }
+      if (n > 0) setTimeout(() => tryOpen(n - 1), 150);
+    })(25);
+  })();
 </script>
 </body>
 </html>

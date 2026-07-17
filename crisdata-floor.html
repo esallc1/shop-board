@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CrisData · Shop Floor</title>
+<!-- ============================================================
+     CrisData Shop Floor (v2 spatial map) — Phase 6, Slice 1.
+     NEW view, parallel to the v1 shop-board.html (untouched).
+     Read-only this slice: live non-Closed CrisData ROs render as car
+     tiles, all stacked in JUST ARRIVED (placement/drag is a later slice).
+     v2 design language (same tokens as advisor-board / board-settings).
+     ============================================================ -->
+<style>
+  :root {
+    --bg:#f5f6fa; --surface:#ffffff; --surface-2:#f0f1f5; --border:#e2e5ee;
+    --text:#1a1f36; --muted:#8c93a8; --radius:10px;
+    --accent:#5b5ef4; --green:#10b981; --amber:#f59e0b; --red:#ef4444; --blue:#3b82f6;
+    /* map zone tints (neutral, restyleable) */
+    --z-front:#e9f0fb;  --z-front-line:#b9cef0;  --z-front-ink:#3f6098;
+    --z-side:#e9f2ec;   --z-side-line:#bcd6bf;   --z-side-ink:#4a7553;
+    --z-over:#f7efe0;   --z-over-line:#e2c99f;   --z-over-ink:#9a7736;
+    --z-back:#eceef3;   --z-back-line:#c5cbd6;   --z-back-ink:#5a6472;
+    --z-arr:#eaedfe;    --z-arr-line:#5b5ef4;    --z-arr-ink:#3a3fc4;
+    --bldg:#e5e9f0;     --bldg-line:#aeb8c6;     --bay:#ffffff; --bay-line:#b4bfcc; --bay-ink:#6d7885;
+    --floor:#d9dfe7;    --floor-line:#9aa4b1;    --street:#cfd6e1; --street-ink:#5a6472;
+    --other:#eef1f5;    --other-line:#c7cfdb;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:'Segoe UI', system-ui, sans-serif; font-size:14px; }
+
+  .topbar {
+    display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+    padding:16px 24px; background:var(--surface); border-bottom:1px solid var(--border);
+    position:sticky; top:0; z-index:5;
+  }
+  .brand { display:flex; flex-direction:column; }
+  .brand .kicker { font-size:0.68rem; font-weight:800; letter-spacing:1.5px; text-transform:uppercase; color:var(--accent); }
+  .brand h1 { margin:2px 0 0; font-size:1.15rem; font-weight:800; letter-spacing:.2px; }
+  .brand .beta { font-size:0.62rem; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); background:var(--surface-2); border:1px solid var(--border); border-radius:20px; padding:2px 8px; margin-left:8px; }
+
+  .counts { display:flex; gap:10px; margin-left:auto; flex-wrap:wrap; }
+  .count-tile {
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    padding:8px 16px; min-width:92px; text-align:center;
+  }
+  .count-tile .n { font-size:1.35rem; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; }
+  .count-tile .l { font-size:0.64rem; font-weight:700; letter-spacing:.6px; text-transform:uppercase; color:var(--muted); margin-top:4px; }
+  .count-tile.accent .n { color:var(--accent); }
+  .count-tile.green .n  { color:var(--green); }
+  .count-tile.blue .n   { color:var(--blue); }
+
+  .refresh-btn {
+    background:transparent; border:1px solid var(--border); border-radius:8px; color:var(--muted);
+    width:38px; height:38px; display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .refresh-btn:hover { background:var(--surface-2); }
+  .refresh-btn svg { width:16px; height:16px; }
+  .refresh-btn.spin svg { animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .stage { padding:22px 24px 40px; }
+  .floor-note { font-size:0.78rem; color:var(--muted); margin:0 auto 12px; max-width:1320px; }
+  .floor-note b { color:var(--text); }
+
+  .floor-map { position:relative; max-width:1320px; margin:0 auto; }
+  .floor-map svg { display:block; width:100%; height:auto; }
+
+  /* HTML car dock overlaid on the JUST ARRIVED svg zone */
+  .car-dock {
+    position:absolute; overflow-y:auto; padding:6px;
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .car-tile {
+    background:var(--surface); border:1px solid var(--border); border-left-width:4px; border-radius:8px;
+    padding:7px 9px; cursor:pointer; box-shadow:0 1px 2px rgba(20,30,60,.06); transition:transform .08s, box-shadow .08s;
+    text-decoration:none; color:inherit; display:block;
+  }
+  .car-tile:hover { transform:translateY(-1px); box-shadow:0 4px 10px rgba(20,30,60,.12); }
+  .car-tile .ct-top { display:flex; align-items:baseline; gap:6px; }
+  .car-tile .ct-ro { font-weight:800; font-size:0.82rem; }
+  .car-tile .ct-stage { margin-left:auto; font-size:0.58rem; font-weight:800; letter-spacing:.4px; text-transform:uppercase; padding:1px 6px; border-radius:9px; }
+  .car-tile .ct-veh { font-size:0.78rem; color:var(--text); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .car-tile .ct-cust { font-size:0.72rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .st-estimate { background:#eef0fe; color:#3a3fc4; } .bl-estimate { border-left-color:#8b8ff5; }
+  .st-ro       { background:#e7f0fb; color:#2f6098; } .bl-ro       { border-left-color:#3b82f6; }
+  .st-invoice  { background:#e6f8f0; color:#0b7a52; } .bl-invoice  { border-left-color:#10b981; }
+  .dock-empty { font-size:0.75rem; color:var(--muted); text-align:center; padding:14px 6px; }
+  .dock-head { font-size:0.6rem; font-weight:800; letter-spacing:.6px; text-transform:uppercase; color:var(--z-arr-ink); padding:2px 4px 0; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">
+      <span class="kicker">CrisData</span>
+      <div style="display:flex;align-items:center"><h1>Shop Floor</h1><span class="beta">v2 · beta</span></div>
+    </div>
+    <div class="counts" id="counts">
+      <div class="count-tile"><div class="n" id="cOnLot">–</div><div class="l">On Lot</div></div>
+      <div class="count-tile"><div class="n" id="cEstimate">–</div><div class="l">Estimates</div></div>
+      <div class="count-tile blue"><div class="n" id="cActive">–</div><div class="l">Active RO</div></div>
+      <div class="count-tile green"><div class="n" id="cInvoice">–</div><div class="l">Invoice / Ready</div></div>
+    </div>
+    <button class="refresh-btn" id="refreshBtn" title="Refresh" aria-label="Refresh">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+    </button>
+  </div>
+
+  <div class="stage">
+    <p class="floor-note">Read-only this slice — every open RO shows in <b>Just Arrived</b> until drag-to-place lands. Tap a car to open its RO. Inside bays are fixed spots; outside areas are loose zones.</p>
+    <div class="floor-map" id="floorMap">
+      <!-- ============ LOT MAP (v2) — zones carry id + data-zone for future car placement ============ -->
+      <svg viewBox="0 0 1320 850" xmlns="http://www.w3.org/2000/svg" aria-label="Lee Transmission lot map">
+        <defs>
+          <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#2b3444" flood-opacity="0.14"/></filter>
+          <pattern id="hatch" width="8" height="8" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="var(--floor)"/><line x1="0" y1="0" x2="0" y2="8" stroke="#c2cad4" stroke-width="1.3"/></pattern>
+          <style>
+            .zlabel{font-family:'Segoe UI',system-ui,sans-serif;font-weight:800;letter-spacing:1.6px;text-transform:uppercase;}
+            .zsub{font-family:'Segoe UI',system-ui,sans-serif;font-size:11px;fill:var(--muted);letter-spacing:.2px;}
+            .ulabel{font-family:'Segoe UI',system-ui,sans-serif;font-weight:800;letter-spacing:1px;fill:var(--text);}
+            .usub{font-family:'Segoe UI',system-ui,sans-serif;font-size:8.5px;letter-spacing:1px;fill:var(--muted);text-transform:uppercase;}
+            .blabel{font-family:'Segoe UI',system-ui,sans-serif;font-size:9px;font-weight:700;letter-spacing:.4px;fill:var(--bay-ink);}
+            .flabel{font-family:'Segoe UI',system-ui,sans-serif;font-size:8px;font-weight:800;letter-spacing:.4px;fill:var(--floor-line);}
+          </style>
+        </defs>
+
+        <!-- lot background frame -->
+        <rect x="0" y="0" width="1320" height="850" fill="var(--bg)"/>
+        <rect x="24" y="102" width="1272" height="724" rx="20" fill="none" stroke="var(--border)" stroke-width="2" stroke-dasharray="2 8"/>
+
+        <!-- LEE ST (main road, customer/front edge) -->
+        <g id="z-lee-st" data-zone="lee_st">
+          <rect x="24" y="20" width="1272" height="66" rx="10" fill="var(--street)"/>
+          <line x1="60" y1="53" x2="470" y2="53" stroke="#ffffff" stroke-width="3" stroke-dasharray="20 16" stroke-linecap="round" opacity=".85"/>
+          <line x1="850" y1="53" x2="1260" y2="53" stroke="#ffffff" stroke-width="3" stroke-dasharray="20 16" stroke-linecap="round" opacity=".85"/>
+          <text class="zlabel" x="660" y="49" text-anchor="middle" font-size="17" fill="var(--street-ink)">Lee St</text>
+          <text class="zsub" x="660" y="66" text-anchor="middle" fill="#6a7686">Main road · customer side</text>
+        </g>
+
+        <!-- N compass -->
+        <g transform="translate(1244,150)">
+          <line x1="0" y1="26" x2="0" y2="-18" stroke="var(--muted)" stroke-width="2"/>
+          <path d="M0 -26 L7 -10 L0 -15 L-7 -10 Z" fill="var(--muted)"/>
+          <text x="0" y="44" text-anchor="middle" font-family="'Segoe UI',sans-serif" font-size="12" font-weight="800" fill="var(--muted)">N</text>
+        </g>
+
+        <!-- SIDE (owned apron, past unit 12) -->
+        <g id="z-side" data-zone="side">
+          <rect x="48" y="150" width="176" height="330" rx="12" fill="var(--z-side)" stroke="var(--z-side-line)" stroke-width="1.75" stroke-dasharray="7 5"/>
+          <text class="zlabel" x="136" y="308" text-anchor="middle" font-size="14" fill="var(--z-side-ink)">Side</text>
+          <text class="zsub" x="136" y="326" text-anchor="middle">owned apron</text>
+        </g>
+
+        <!-- FRONT (customer parking, main-door side) -->
+        <g id="z-front" data-zone="front">
+          <rect x="248" y="150" width="520" height="286" rx="14" fill="var(--z-front)" stroke="var(--z-front-line)" stroke-width="1.75" stroke-dasharray="7 5"/>
+          <text class="zlabel" x="508" y="285" text-anchor="middle" font-size="17" fill="var(--z-front-ink)">Front</text>
+          <text class="zsub" x="508" y="305" text-anchor="middle">customer parking · main-door side</text>
+        </g>
+
+        <!-- OVERFLOW (front of other businesses) -->
+        <g id="z-overflow" data-zone="overflow">
+          <rect x="792" y="150" width="416" height="286" rx="14" fill="var(--z-over)" stroke="var(--z-over-line)" stroke-width="1.75" stroke-dasharray="7 5"/>
+          <text class="zlabel" x="1000" y="284" text-anchor="middle" font-size="15" fill="var(--z-over-ink)">Overflow</text>
+          <text class="zsub" x="1000" y="304" text-anchor="middle">in front of other businesses</text>
+        </g>
+
+        <!-- ============ THE BUILDING (diagonal, matching the aerial) ============ -->
+        <g transform="rotate(16 470 560)">
+          <!-- OTHER PLAZA UNITS 1–10 (customer side above, roll-up below) -->
+          <g id="z-other-units" data-zone="other_units">
+            <rect x="596" y="486" width="574" height="150" rx="6" fill="var(--other)" stroke="var(--other-line)" stroke-width="1.75"/>
+            <g stroke="var(--other-line)" stroke-width="1.25" opacity=".8">
+              <line x1="653" y1="486" x2="653" y2="636"/><line x1="710" y1="486" x2="710" y2="636"/><line x1="767" y1="486" x2="767" y2="636"/><line x1="824" y1="486" x2="824" y2="636"/><line x1="881" y1="486" x2="881" y2="636"/><line x1="939" y1="486" x2="939" y2="636"/><line x1="996" y1="486" x2="996" y2="636"/><line x1="1053" y1="486" x2="1053" y2="636"/><line x1="1110" y1="486" x2="1110" y2="636"/>
+            </g>
+            <text class="ulabel" x="883" y="558" text-anchor="middle" font-size="13" fill="#7a8594">OTHER PLAZA UNITS</text>
+            <text class="usub" x="883" y="574" text-anchor="middle">units 1–10</text>
+          </g>
+
+          <!-- building shell for units 11 & 12 -->
+          <rect x="230" y="486" width="366" height="150" rx="7" fill="var(--bldg)" stroke="var(--bldg-line)" stroke-width="2.25" filter="url(#soft)"/>
+          <line x1="413" y1="486" x2="413" y2="636" stroke="var(--bldg-line)" stroke-width="2.25"/>
+
+          <!-- main-door (customer) side marker along the top edge -->
+          <line x1="236" y1="486" x2="590" y2="486" stroke="var(--z-front-line)" stroke-width="4" stroke-linecap="round"/>
+
+          <!-- UNIT 12 (end unit, next to the side apron) -->
+          <g id="unit-12" data-zone="unit_12">
+            <text class="ulabel" x="321" y="506" text-anchor="middle" font-size="12">UNIT 12</text>
+            <text class="usub"   x="321" y="518" text-anchor="middle">Lee Transmission</text>
+            <g id="u12-lift-1" data-zone="u12_lift_1"><rect class="bay" x="244" y="528" width="45" height="70" rx="4" fill="var(--bay)" stroke="var(--bay-line)" stroke-width="1.5"/><text class="blabel" x="266" y="566" text-anchor="middle">L1</text></g>
+            <g id="u12-lift-2" data-zone="u12_lift_2"><rect class="bay" x="297" y="528" width="45" height="70" rx="4" fill="var(--bay)" stroke="var(--bay-line)" stroke-width="1.5"/><text class="blabel" x="319" y="566" text-anchor="middle">L2</text></g>
+            <g id="u12-lift-3" data-zone="u12_lift_3"><rect class="bay" x="350" y="528" width="45" height="70" rx="4" fill="var(--bay)" stroke="var(--bay-line)" stroke-width="1.5"/><text class="blabel" x="372" y="566" text-anchor="middle">L3</text></g>
+            <g id="u12-floor" data-zone="u12_floor"><rect x="300" y="606" width="90" height="22" rx="4" fill="url(#hatch)" stroke="var(--floor-line)" stroke-width="1.3" stroke-dasharray="4 3"/><text class="flabel" x="345" y="620" text-anchor="middle">FLOOR · blocks lift exit</text></g>
+          </g>
+
+          <!-- UNIT 11 -->
+          <g id="unit-11" data-zone="unit_11">
+            <text class="ulabel" x="504" y="506" text-anchor="middle" font-size="12">UNIT 11</text>
+            <text class="usub"   x="504" y="518" text-anchor="middle">Lee Transmission</text>
+            <g id="u11-lift-1" data-zone="u11_lift_1"><rect class="bay" x="427" y="528" width="45" height="70" rx="4" fill="var(--bay)" stroke="var(--bay-line)" stroke-width="1.5"/><text class="blabel" x="449" y="566" text-anchor="middle">L1</text></g>
+            <g id="u11-lift-2" data-zone="u11_lift_2"><rect class="bay" x="480" y="528" width="45" height="70" rx="4" fill="var(--bay)" stroke="var(--bay-line)" stroke-width="1.5"/><text class="blabel" x="502" y="566" text-anchor="middle">L2</text></g>
+            <g id="u11-lift-3" data-zone="u11_lift_3"><rect class="bay" x="533" y="528" width="45" height="70" rx="4" fill="var(--bay)" stroke="var(--bay-line)" stroke-width="1.5"/><text class="blabel" x="555" y="566" text-anchor="middle">L3</text></g>
+            <g id="u11-floor" data-zone="u11_floor"><rect x="483" y="606" width="90" height="22" rx="4" fill="url(#hatch)" stroke="var(--floor-line)" stroke-width="1.3" stroke-dasharray="4 3"/><text class="flabel" x="528" y="620" text-anchor="middle">FLOOR · blocks lift exit</text></g>
+          </g>
+
+          <!-- roll-up doors along the bottom (back-road / working side) -->
+          <g stroke="var(--z-arr-line)" stroke-width="4" stroke-linecap="round" opacity=".9">
+            <line x1="244" y1="636" x2="289" y2="636"/><line x1="297" y1="636" x2="342" y2="636"/><line x1="350" y1="636" x2="395" y2="636"/>
+            <line x1="427" y1="636" x2="472" y2="636"/><line x1="480" y1="636" x2="525" y2="636"/><line x1="533" y1="636" x2="578" y2="636"/>
+          </g>
+        </g>
+
+        <!-- BACK ROAD (small shared road, roll-up side) -->
+        <g id="z-back-road" data-zone="back_road">
+          <rect x="470" y="742" width="738" height="66" rx="12" fill="var(--z-back)" stroke="var(--z-back-line)" stroke-width="1.75"/>
+          <line x1="500" y1="775" x2="770" y2="775" stroke="var(--z-back-line)" stroke-width="3" stroke-dasharray="16 14" stroke-linecap="round"/>
+          <text class="zlabel" x="960" y="772" text-anchor="middle" font-size="14" fill="var(--z-back-ink)">Back Road</text>
+          <text class="zsub" x="960" y="790" text-anchor="middle">small shared road · roll-up side</text>
+        </g>
+
+        <!-- JUST ARRIVED (check-in staging, roll-up side) — axis-aligned host for the car dock -->
+        <g id="z-just-arrived" data-zone="just_arrived">
+          <rect id="z-just-arrived-rect" x="44" y="602" width="300" height="212" rx="14" fill="var(--z-arr)" stroke="var(--z-arr-line)" stroke-width="2.5"/>
+          <g transform="translate(70,632)"><line x1="0" y1="-12" x2="0" y2="14" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/><path d="M0 -12 L22 -6 L0 0 Z" fill="var(--accent)"/></g>
+          <text class="zlabel" x="94" y="634" font-size="14" fill="var(--z-arr-ink)">Just Arrived</text>
+          <text class="zsub" x="94" y="650" fill="var(--z-arr-ink)" opacity=".8">check-in staging · roll-up side</text>
+        </g>
+      </svg>
+
+      <!-- car tiles get docked over the JUST ARRIVED zone -->
+      <div class="car-dock" id="carDock"><div class="dock-empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+  (function () {
+    const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const STAGE_LABEL = { estimate:'Est', ro:'Active', invoice:'Invoice', closed:'Closed' };
+
+    let cars = [];
+
+    function vehDesc(v) {
+      if (!v) return '—';
+      return [v.year, v.make, v.model].filter(Boolean).join(' ')
+        || (v.plate ? 'Plate ' + v.plate : (v.vin ? 'VIN ' + v.vin : '—'));
+    }
+
+    async function loadCars() {
+      const { data, error } = await db.from('repair_orders')
+        .select('id, ro_number, po, status, created_at, customers(name), vehicles(year, make, model, plate, vin)')
+        .neq('status', 'closed')
+        .order('created_at', { ascending: false });
+      if (error) { console.error('[Floor] load failed', error); return; }
+      cars = data || [];
+      renderCounts();
+      renderDock();
+    }
+
+    function renderCounts() {
+      const by = (s) => cars.filter(c => c.status === s).length;
+      $('cOnLot').textContent = cars.length;
+      $('cEstimate').textContent = by('estimate');
+      $('cActive').textContent = by('ro');
+      $('cInvoice').textContent = by('invoice');
+    }
+
+    function renderDock() {
+      const dock = $('carDock');
+      if (cars.length === 0) { dock.innerHTML = '<div class="dock-empty">No cars on the lot.</div>'; positionDock(); return; }
+      dock.innerHTML = cars.map(c => {
+        const st = c.status || 'estimate';
+        const veh = vehDesc(c.vehicles);
+        const cust = (c.customers && c.customers.name) || '—';
+        return `
+        <a class="car-tile bl-${esc(st)}" href="advisor-board.html?ro=${encodeURIComponent(c.id)}" title="Open RO #${esc(c.po || c.ro_number)}">
+          <div class="ct-top">
+            <span class="ct-ro">#${esc(c.po || c.ro_number)}</span>
+            <span class="ct-stage st-${esc(st)}">${esc(STAGE_LABEL[st] || st)}</span>
+          </div>
+          <div class="ct-veh">${esc(veh)}</div>
+          <div class="ct-cust">${esc(cust)}</div>
+        </a>`;
+      }).join('');
+      positionDock();
+    }
+
+    // Overlay the HTML car dock onto the JUST ARRIVED svg zone (below its label).
+    function positionDock() {
+      const zone = $('z-just-arrived-rect');
+      const map = $('floorMap');
+      const dock = $('carDock');
+      if (!zone || !map || !dock) return;
+      const zr = zone.getBoundingClientRect();
+      const mr = map.getBoundingClientRect();
+      const headOffset = 64;   // clear the two-line "Just Arrived" title inside the zone
+      dock.style.left = (zr.left - mr.left + 8) + 'px';
+      dock.style.top = (zr.top - mr.top + headOffset) + 'px';
+      dock.style.width = (zr.width - 16) + 'px';
+      dock.style.height = (zr.height - headOffset - 10) + 'px';
+    }
+
+    // ── realtime: new / closed / changed ROs update the floor live ──
+    function subscribe() {
+      db.channel('crisdata-floor')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'repair_orders' }, loadCars)
+        .subscribe((status) => { if (status === 'SUBSCRIBED') loadCars(); });
+    }
+
+    $('refreshBtn').addEventListener('click', async (e) => {
+      const b = e.currentTarget; b.classList.add('spin');
+      await loadCars();
+      setTimeout(() => b.classList.remove('spin'), 400);
+    });
+    window.addEventListener('resize', positionDock);
+
+    loadCars();
+    subscribe();
+  })();
+  </script>
+</body>
+</html>
