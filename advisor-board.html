@@ -642,7 +642,16 @@
           <div class="dot" style="background:var(--accent)"></div>
           <span id="cdRoDetailTitle">RO #—</span>
           <span id="cdRoDetailStatus" style="margin-left:10px"></span>
-          <button class="btn btn-primary" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdPrintBtn">🖨 Print / Save PDF</button>
+          <label style="margin-left:auto;font-size:0.72rem;color:var(--muted);display:flex;align-items:center;gap:6px">
+            Stage
+            <select id="cdRoStage" style="font-size:0.75rem;padding:4px 8px;border-radius:6px">
+              <option value="estimate">Estimate</option>
+              <option value="ro">Active RO</option>
+              <option value="invoice">Invoice</option>
+              <option value="closed">Closed</option>
+            </select>
+          </label>
+          <button class="btn btn-primary" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdPrintBtn">🖨 Print / Save PDF</button>
         </div>
         <div class="cd-ro-header" id="cdRoHeaderGrid"></div>
         <div class="cd-ro-edit">
@@ -2816,7 +2825,17 @@
       ['labor', 'Labor'], ['parts', 'Parts'], ['fee', 'Fee'],
       ['shop_supply', 'Shop Supply'], ['hazmat', 'Hazmat'],
     ];
-    const STATUS_LABEL = { estimate: 'Estimate', ro: 'RO', invoice: 'Invoice' };
+    // ── RO STATUS LIFECYCLE (Phase 4, Slice 1) ────────────────
+    // The MONEY/DOCUMENT axis (quote -> job -> paid), NOT the car's
+    // physical shop-floor location. Free movement in any direction, no
+    // guards — the advisor drives it manually. STAGES is the ordered
+    // list the selector renders; STATUS_LABEL its display names.
+    const STAGES = ['estimate', 'ro', 'invoice', 'closed'];
+    const STATUS_LABEL = { estimate: 'Estimate', ro: 'Active RO', invoice: 'Invoice', closed: 'Closed' };
+    // Stage drives the printed document's IDENTITY — same layout/engine,
+    // same one ro_number, only the header label changes. This is what
+    // gives the estimate-vs-invoice paper distinction off ONE number.
+    const DOC_LABEL = { estimate: 'ESTIMATE', ro: 'REPAIR ORDER', invoice: 'INVOICE', closed: 'INVOICE' };
 
     let allRos = [];          // cached list rows (with embeds) for client-side search
     let currentRo = null;     // the open RO (with embedded customer/vehicle)
@@ -2971,6 +2990,9 @@
       $('cdRoDetailStatus').innerHTML =
         `<span class="badge badge-diag">${esc(STATUS_LABEL[ro.status] || ro.status || '—')}</span>` +
         (exempt ? '<span class="cd-exempt-tag">tax exempt</span>' : '');
+      // reflect the current stage in the selector (STAGES-guarded so an
+      // unknown value doesn't blank it)
+      $('cdRoStage').value = STAGES.includes(ro.status) ? ro.status : 'estimate';
       const idPlate = [v.vin ? 'VIN ' + v.vin : null, v.plate ? 'Plate ' + v.plate : null].filter(Boolean).join(' · ') || '—';
       const field = (label, val, full) =>
         `<div class="${full ? 'cd-hf-full' : ''}"><div class="cd-hf-label">${label}</div><div class="cd-hf-val">${esc(val || '—')}</div></div>`;
@@ -3179,6 +3201,138 @@
     }
 
     // ══════════════════════════════════════════════════════════
+    // RO STATUS LIFECYCLE (Phase 4, Slice 1)
+    // The single choke-point that moves an RO through
+    //   estimate -> ro (Active RO) -> invoice -> closed
+    // FREE MOVEMENT: forward or back, no guards. Persists status and
+    // re-renders the header/badge/print label off the new stage.
+    //
+    // ── AUTO-FIRE HOOK ────────────────────────────────────────
+    // Specific transitions are meant to fire automatically LATER without
+    // a refactor: this function is the seam. When Phase-5 payments /
+    // CTM authorization land, they call setStage(...) directly —
+    //   * authorization recorded  -> setStage('ro')
+    //   * payment captured         -> setStage('invoice') / setStage('closed')
+    // Do NOT wall that off here (no "manual only" flag): the manual
+    // selector and a future auto caller share this one path. Passing
+    // { silent:true } lets an auto caller skip the archive-failure alert.
+    // ══════════════════════════════════════════════════════════
+    async function setStage(next, opts) {
+      opts = opts || {};
+      if (!currentRo || !STAGES.includes(next)) return;
+      const prev = currentRo.status;
+      if (next === prev) return;
+
+      // optimistic local update so the UI feels instant
+      currentRo.status = next;
+      renderHeader();
+
+      const { error } = await db.from('repair_orders').update({ status: next }).eq('id', currentRo.id);
+      if (error) {
+        // 'closed' before the Phase-4 enum migration -> invalid_enum
+        // (22P02 / 22023). Degrade quietly: warn, revert, no data loss.
+        // The other three stages are valid today.
+        if (isMissingEnumValue(error)) {
+          console.warn(`[CdRO] stage '${next}' not saved — run the Phase-4 migration (add 'closed' to ro_status) first.`);
+          if (!opts.silent) alert(`Can't move to "${STATUS_LABEL[next]}" yet — the "closed" stage needs the Phase-4 migration applied first.`);
+        } else {
+          console.error('[CdRO] set stage failed', error);
+          if (!opts.silent) alert('Could not change stage: ' + error.message);
+        }
+        currentRo.status = prev;   // revert
+        renderHeader();
+        return;
+      }
+
+      // keep the cached list row in sync so the list column is right
+      const cached = allRos.find(r => r.id === currentRo.id);
+      if (cached) cached.status = next;
+
+      // Closing archives the job into completed_jobs for that po.
+      if (next === 'closed') await archiveToCompletedJobs(opts);
+    }
+
+    // Postgres rejects an out-of-range enum with 22P02 ("invalid input
+    // value for enum") or 22023 — used to detect a status='closed' write
+    // that landed before the Phase-4 enum migration was applied, so we
+    // can degrade quietly the same way isMissingColumn covers columns.
+    function isMissingEnumValue(error) {
+      if (!error) return false;
+      const code = error.code || '';
+      const msg = error.message || '';
+      return code === '22P02' || code === '22023' ||
+        /invalid input value for enum/i.test(msg);
+    }
+
+    // ── CLOSE ARCHIVE ─────────────────────────────────────────
+    // Moving to Closed writes/updates the permanent completed_jobs
+    // archive row for this po, reusing the reserved billing columns.
+    // Keyed on (po, source_table='repair_orders') so re-closing UPDATES
+    // the same row and a CrisData close never clobbers a shop-floor
+    // pickup row that happens to share the po. Payments are Phase 5 —
+    // nothing captured yet, so amount_paid=0 / balance_due=total.
+    async function archiveToCompletedJobs(opts) {
+      opts = opts || {};
+      const ro = currentRo, c = ro.customers || {}, v = ro.vehicles || {};
+      const catSum = (t) => currentLines.filter(l => l.line_type === t)
+        .reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
+      const laborSub = catSum('labor');
+      // everything that isn't labor rolls up as "parts" on the archive's
+      // coarse two-bucket billing columns (parts + fees + supplies + hazmat)
+      const partsSub = currentLines.filter(l => l.line_type !== 'labor')
+        .reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
+      const taxableBase = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
+      const exempt = !!c.tax_exempt;
+      const taxAmt = exempt ? 0 : taxableBase * taxRate();
+      const total = laborSub + partsSub + taxAmt;
+
+      const payload = {
+        source_table: 'repair_orders',
+        source_id: String(ro.id),
+        po: ro.po || String(ro.ro_number),
+        vehicle: vehDesc(v),
+        customer: c.name || null,
+        customer_phone: c.phone_primary || null,
+        work: ro.complaint || null,
+        notes: ro.advisory_notes || null,
+        assigned_tech: ro.technician || null,
+        arrival_date: ro.created_at ? ro.created_at.slice(0, 10) : null,
+        status: 'closed',
+        labor_subtotal: laborSub,
+        parts_subtotal: partsSub,
+        tax: taxAmt,
+        total_amount: total,
+        amount_paid: 0,
+        balance_due: total,
+        payment_status: 'unpaid',   // payments wired in Phase 5
+      };
+
+      // upsert-by-(po, source_table): look for our own prior archive row
+      const { data: existing, error: selErr } = await db
+        .from('completed_jobs')
+        .select('id')
+        .eq('po', payload.po)
+        .eq('source_table', 'repair_orders')
+        .limit(1);
+      if (selErr) {
+        console.error('[CdRO] archive lookup failed', selErr);
+        if (!opts.silent) alert('Closed, but archive lookup failed: ' + selErr.message);
+        return;
+      }
+
+      let wErr;
+      if (existing && existing.length) {
+        ({ error: wErr } = await db.from('completed_jobs').update(payload).eq('id', existing[0].id));
+      } else {
+        ({ error: wErr } = await db.from('completed_jobs').insert(payload));
+      }
+      if (wErr) {
+        console.error('[CdRO] archive write failed', wErr);
+        if (!opts.silent) alert('Stage set to Closed, but the archive write failed: ' + wErr.message);
+      }
+    }
+
+    // ══════════════════════════════════════════════════════════
     // PRINTABLE ONE-PAGE ESTIMATE / RO / INVOICE (Phase 3)
     // Read-only: opens a print-optimized standalone document and
     // fires the browser print dialog (Save-as-PDF works from there).
@@ -3199,6 +3353,11 @@
       const advisor = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) || '';
       const P = (s) => esc(s == null ? '' : String(s));
       const M = (n) => '$' + (Number(n) || 0).toFixed(2);
+      // Stage drives the document's identity — ESTIMATE (the quote the
+      // customer approves) vs REPAIR ORDER vs INVOICE (final doc). Same
+      // layout, same one ro_number; only this label changes.
+      const docLabel = DOC_LABEL[ro.status] || 'INVOICE';
+      const docTitle = docLabel.charAt(0) + docLabel.slice(1).toLowerCase();  // "Invoice" / "Estimate" / "Repair order"
 
       // category totals
       const catSum = (t) => currentLines.filter(l => l.line_type === t)
@@ -3232,7 +3391,7 @@
       const idLine = [v.vin ? 'VIN ' + v.vin : '', (v.plate ? 'Plate ' + v.plate + (v.plate_state ? ' ' + v.plate_state : '') : '')].filter(Boolean).join('  ·  ');
       const logo = cfg.logo_url ? `<img class="logo" src="${P(cfg.logo_url)}" alt="">` : '';
 
-      const doc = `<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${P(ro.ro_number)} — ${P(cfg.shop_name || 'Lee Transmission')}</title>
+      const doc = `<!doctype html><html><head><meta charset="utf-8"><title>${P(docTitle)} ${P(ro.ro_number)} — ${P(cfg.shop_name || 'Lee Transmission')}</title>
 <style>
   @page { size: letter; margin: 0.5in; }
   * { box-sizing: border-box; }
@@ -3280,7 +3439,7 @@
       </div>
     </div>
     <div class="doc-meta">
-      <div class="num">Invoice #${P(ro.ro_number)}</div>
+      <div class="num">${P(docLabel)} #${P(ro.ro_number)}</div>
       <div>Date: ${P(dateStr)}</div>
       <div>Service Advisor: ${P(advisor) || '—'}</div>
       ${showTech && ro.technician ? `<div>Technician: ${P(ro.technician)}</div>` : ''}
@@ -3363,6 +3522,15 @@
     $('cdAddCardFeeBtn').addEventListener('click', addCardFee);
     $('cdRoNewBtn').addEventListener('click', () => $('navCdRo').click());
     $('cdPrintBtn').addEventListener('click', printRo);
+    // Stage selector — free movement; setStage reverts on failure so a
+    // rejected move (e.g. 'closed' pre-migration) snaps back visibly.
+    $('cdRoStage').addEventListener('change', async () => {
+      const target = $('cdRoStage').value;
+      await setStage(target);
+      // re-sync in case setStage reverted (renderHeader already ran, but
+      // the <select> holds its own value)
+      $('cdRoStage').value = STAGES.includes(currentRo.status) ? currentRo.status : 'estimate';
+    });
 
     // per-RO editable fields persist on change
     $('cdRoMilesOut').addEventListener('change', () => {

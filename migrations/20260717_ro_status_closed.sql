@@ -1,0 +1,45 @@
+-- ============================================================
+-- CrisData Phase 4, Slice 1 — RO status lifecycle: add the 4th stage.
+-- Run in the Supabase SQL Editor (project hygemiszxwmyrkmhbjub).
+--
+-- The RO already mints as 'estimate' and the enum today is
+-- ('estimate', 'ro', 'invoice'). This slice adds the closing stage so
+-- the lifecycle is:
+--
+--     estimate  ->  ro (Active RO)  ->  invoice  ->  closed
+--
+-- This is the MONEY/DOCUMENT axis (quote -> job -> paid), NOT the car's
+-- physical location on the shop floor — that stays on shopboard_* and is
+-- untouched here.
+--
+-- SCOPE: one enum value. No new columns:
+--   * repair_orders.status already exists (Phase 1).
+--   * completed_jobs already carries the reserved billing columns
+--     (labor_subtotal / parts_subtotal / tax / total_amount / amount_paid
+--     / balance_due / payment_status) the Close archive fills — see
+--     migrations/20260711_completed_jobs.sql. Nothing to add there.
+--
+-- ⚠️ POSTGRES CAVEAT — run this file BY ITSELF, as its own statement.
+--   `ALTER TYPE ... ADD VALUE` cannot run inside a transaction block, and
+--   the new value cannot be USED until the statement that adds it has
+--   committed. Running just this one line in the SQL Editor auto-commits,
+--   so it's fine standalone; do NOT paste it into a larger multi-statement
+--   batch that also writes status='closed'.
+--
+-- Idempotent (ADD VALUE IF NOT EXISTS): safe to paste / re-run. The app
+-- has a pre-migration fallback — writing status='closed' before this is
+-- applied degrades quietly (warns, no data loss), and the other three
+-- stages work today. ADDITIVE ONLY; does not touch the live shop floor.
+-- ============================================================
+
+alter type public.ro_status add value if not exists 'closed';
+
+-- ── VERIFY (run separately, after the ALTER commits) ──────────
+-- Expect exactly these four labels, in this order:
+--     estimate | ro | invoice | closed
+--
+--   select e.enumlabel
+--     from pg_enum e
+--     join pg_type t on t.oid = e.enumtypid
+--    where t.typname = 'ro_status'
+--    order by e.enumsortorder;
