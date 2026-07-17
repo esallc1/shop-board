@@ -525,7 +525,10 @@ const I18N = {
     toastClipSaved: "Voice note saved",
     toastMicDenied: "Microphone access denied — check permissions",
     toastClipFailed: "Voice note failed to upload",
-    toastCodeExists: "Code already added"
+    toastCodeExists: "Code already added",
+    deleteClip: "Delete",
+    toastClipDelFailed: "Couldn't delete voice note",
+    toastClipCapped: "2-minute limit reached — recording stopped"
   },
   es: {
     loginSubtitle: "Inicia sesión con tu número de teléfono y PIN",
@@ -604,7 +607,10 @@ const I18N = {
     toastClipSaved: "Nota de voz guardada",
     toastMicDenied: "Acceso al micrófono denegado — revisa permisos",
     toastClipFailed: "No se pudo subir la nota de voz",
-    toastCodeExists: "Código ya agregado"
+    toastCodeExists: "Código ya agregado",
+    deleteClip: "Eliminar",
+    toastClipDelFailed: "No se pudo eliminar la nota de voz",
+    toastClipCapped: "Límite de 2 minutos — grabación detenida"
   },
   ht: {
     loginSubtitle: "Konekte avèk nimewo telefòn ak PIN ou",
@@ -683,7 +689,10 @@ const I18N = {
     toastClipSaved: "Nòt vwa sove",
     toastMicDenied: "Aksè mikwofòn refize — tcheke pèmisyon",
     toastClipFailed: "Nòt vwa pa t ka telechaje",
-    toastCodeExists: "Kòd deja ajoute"
+    toastCodeExists: "Kòd deja ajoute",
+    deleteClip: "Efase",
+    toastClipDelFailed: "Pa t ka efase nòt vwa",
+    toastClipCapped: "Limit 2 minit rive — anrejistreman kanpe"
   }
 };
 function t(key){
@@ -1354,7 +1363,11 @@ function roClipsHtml(){
   if(!RO_DIAG.clips.length) return '';
   return RO_DIAG.clips.map((cl, i) => `
     <div style="margin-top:8px">
-      <div style="font-size:12px;color:var(--gauge);margin-bottom:3px">${t('clipLabel')} ${i+1}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">
+        <span style="font-size:12px;color:var(--gauge)">${t('clipLabel')} ${i+1}</span>
+        <button class="ro-clip-del" data-clipid="${escRo(cl.id)}" type="button"
+                style="background:none;border:none;color:var(--danger);font-size:12px;font-weight:700;cursor:pointer;padding:2px 4px">${t('deleteClip')}</button>
+      </div>
       ${cl.url ? `<audio controls preload="none" src="${escRo(cl.url)}" style="width:100%"></audio>`
                : `<div style="color:var(--danger);font-size:12px">—</div>`}
     </div>`).join('');
@@ -1430,6 +1443,7 @@ function bindRoDiag(){
   });
 
   bindCodeRemovers();
+  bindClipDeleters();
 
   const recBtn = document.getElementById('roRecBtn');
   if(recBtn) recBtn.addEventListener('click', () => {
@@ -1448,9 +1462,14 @@ function refreshCodesUI(){
   const wrap = document.getElementById('roCodesWrap');
   if(wrap){ wrap.innerHTML = roCodesHtml(); bindCodeRemovers(); }
 }
+function bindClipDeleters(){
+  document.querySelectorAll('.ro-clip-del').forEach(b => {
+    b.addEventListener('click', () => deleteClip(b.dataset.clipid));
+  });
+}
 function refreshClipsUI(){
   const wrap = document.getElementById('roClipsWrap');
-  if(wrap) wrap.innerHTML = roClipsHtml();
+  if(wrap){ wrap.innerHTML = roClipsHtml(); bindClipDeleters(); }
 }
 
 async function addCode(raw){
@@ -1498,11 +1517,14 @@ function updateRecUI(){
   const timer = document.getElementById('roRecTimer');
   if(timer && !RO_DIAG.recording) timer.textContent = '';
 }
+// Per-clip length cap (storage/egress discipline — same reason big videos
+// go to YouTube). Recording auto-stops at the cap.
+const MAX_CLIP_SECONDS = 120;
+function mmss(s){ return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); }
 function updateRecTimer(){
   const timer = document.getElementById('roRecTimer');
   if(!timer) return;
-  const s = RO_DIAG.recSeconds;
-  timer.textContent = '● ' + Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+  timer.textContent = '● ' + mmss(RO_DIAG.recSeconds) + ' / ' + mmss(MAX_CLIP_SECONDS);
 }
 
 async function startRecording(){
@@ -1529,7 +1551,11 @@ async function startRecording(){
   rec.start();
   updateRecUI();
   updateRecTimer();
-  RO_DIAG.recTimer = setInterval(() => { RO_DIAG.recSeconds++; updateRecTimer(); }, 1000);
+  RO_DIAG.recTimer = setInterval(() => {
+    RO_DIAG.recSeconds++;
+    updateRecTimer();
+    if(RO_DIAG.recSeconds >= MAX_CLIP_SECONDS){ showToast(t('toastClipCapped')); stopRecording(); }
+  }, 1000);
 }
 
 function stopRecording(){
@@ -1549,6 +1575,21 @@ async function uploadClip(blob, mime){
   RO_DIAG.clips.push({ id: row.id, file_path: path, url: URL.createObjectURL(blob) });
   refreshClipsUI();
   showToast(t('toastClipSaved'));
+}
+
+// Delete one voice note before submit — removes the storage object AND the
+// attachments row, then drops it from the list. Each clip is independent, so
+// this never touches the others.
+async function deleteClip(id){
+  const clip = RO_DIAG.clips.find(c => c.id === id);
+  if(!clip) return;
+  try { await db.storage.from('crisdata-attachments').remove([clip.file_path]); }
+  catch(e){ console.warn('[RoDiag] clip storage remove failed', e); }
+  const { error } = await db.from('attachments').delete().eq('id', id);
+  if(error){ console.error('[RoDiag] clip row delete failed', error); showToast(t('toastClipDelFailed')); return; }
+  if(clip.url && clip.url.indexOf('blob:') === 0) URL.revokeObjectURL(clip.url);
+  RO_DIAG.clips = RO_DIAG.clips.filter(c => c.id !== id);
+  refreshClipsUI();
 }
 
 async function submitDiagnosis(){

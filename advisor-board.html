@@ -1268,7 +1268,13 @@
       .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_parking' }, loadAndRenderQueue)
       // CrisData diagnosis pushes (Phase 4, Slice 2) surface live too
       .on('postgres_changes', { event: '*', schema: 'public', table: 'repair_orders' },      loadAndRenderQueue)
-      .subscribe();
+      .subscribe((status) => {
+        // Re-pull on every (re)connect so anything submitted while the
+        // realtime socket was briefly down — e.g. a diagnosis pushed during
+        // a network blip or the tab being asleep — is caught the moment the
+        // subscription comes (back) up, not just on the next live change.
+        if (status === 'SUBSCRIBED') loadAndRenderQueue();
+      });
   }
   approvalSubscribeRealtime();
 
