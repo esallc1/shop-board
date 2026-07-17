@@ -697,37 +697,8 @@ function bindLangSwitch(){
 }
 
 /* ---------------- Seed data ---------------- */
-const SEED_TECHS = [
-  {id:'t_alex', name:'Alex', phone:'2395550101', pin:'1111'},
-  {id:'t_cory', name:'Cory', phone:'2395550102', pin:'2222'},
-  {id:'t_capote', name:'Capote', phone:'2395550103', pin:'3333'},
-  {id:'t_alnardier', name:'Alnardier', phone:'2395550104', pin:'4444'},
-];
-
-function uid(){ return 'j_' + Math.random().toString(36).slice(2,9); }
-
-const SEED_JOBS = [
-  {
-    id:'j_seed1', vin:'1GKS2GKC9FR123456', vehicle:'2015 GMC Acadia',
-    customer:'M. Reyes', complaint:'Transmission slips going into 3rd gear, especially cold mornings.',
-    assignedTechId:'t_alex', status:'new', flagHours:null,
-    diagnosis:'', beforePhotos:[], partPhotos:[], createdAt: Date.now()-3600000
-  },
-  {
-    id:'j_seed2', vin:'3FA6P0H79HR234567', vehicle:'2017 Ford Fusion',
-    customer:'D. Whitfield', complaint:'Check engine light on, hard shift 1-2, occasional clunk.',
-    assignedTechId:'t_alex', status:'approved', flagHours:3.5,
-    diagnosis:'Pulled codes P0741 (TCC solenoid). Fluid burnt, filter clogged. Recommend full service + solenoid replacement.',
-    beforePhotos:[], partPhotos:[], createdAt: Date.now()-7200000
-  },
-  {
-    id:'j_seed3', vin:'1GKS2GKC9FR123456', vehicle:'2015 GMC Acadia',
-    customer:'M. Reyes', complaint:'Same vehicle, prior visit 4 months ago — customer said "transmission jerks when cold."',
-    assignedTechId:'t_alex', status:'done', flagHours:4.0,
-    diagnosis:'Replaced shift solenoid pack. Test drove cold start, shifted clean.',
-    beforePhotos:[], partPhotos:[], createdAt: Date.now()-432000000
-  },
-];
+// (Removed the local SEED_TECHS fake-credential list + SEED_JOBS demo data:
+//  login now verifies against the employees table, jobs come from Supabase.)
 
 // In-memory only — resets on reload (no Supabase writes)
 const CLOCK_STATE = { step: 0, punches: [] };
@@ -763,6 +734,7 @@ let STATE = {
   jobs: [],
   roJobs: [],           // CrisData ROs assigned to this tech (Phase 4 Slice 2)
   currentTechId: null,
+  currentTech: null,    // the matched employees row (source of name/phone/role)
   view: 'login', // login | list | detail | roDiag
   activeJobId: null,
   activeRoId: null,     // open RO in the Diagnosis view
@@ -774,11 +746,27 @@ let STATE = {
 };
 
 async function initData(){
-  // Only load tech auth from local storage — jobs come from Supabase after login
-  let techs = await sGet('techs_v2');
-  if(!techs){ techs = SEED_TECHS; await sSet('techs_v2', techs); }
-  STATE.techs = techs;
+  // Auth is verified LIVE against the employees table (same source as the
+  // shared crisdata.html login) — no local seed list. Jobs load after login.
   STATE.jobs = [];
+}
+
+// Verify credentials against the real employees table (mirrors crisdata.html).
+// Returns a normalized tech object { id, name, phone, role } or null.
+async function findEmployee(phone, pin){
+  const { data, error } = await db.from('employees')
+    .select('name, phone, pin, role')
+    .eq('phone', phone).eq('pin', pin).eq('active', true).maybeSingle();
+  if(error){ console.error('[Login] employee verify failed', error); return null; }
+  return data ? { id: data.phone, name: data.name, phone: data.phone, role: data.role } : null;
+}
+// Restore an already-authenticated session by phone alone (no PIN re-entry).
+async function findEmployeeByPhone(phone){
+  const { data, error } = await db.from('employees')
+    .select('name, phone, role')
+    .eq('phone', phone).eq('active', true).maybeSingle();
+  if(error){ console.error('[Login] session restore failed', error); return null; }
+  return data ? { id: data.phone, name: data.name, phone: data.phone, role: data.role } : null;
 }
 
 function showToast(msg){
@@ -840,8 +828,9 @@ function bindLogin(){
 async function doLogin(){
   const phone = STATE.loginPhone;
   const pin = STATE.loginPin;
-  const tech = STATE.techs.find(t => t.phone === phone && t.pin === pin);
+  const tech = await findEmployee(phone, pin);
   if(tech){
+    STATE.currentTech = tech;
     STATE.currentTechId = tech.id;
     localStorage.setItem(SESSION_KEY, tech.id);
     STATE.loginPhone = '';
@@ -892,7 +881,7 @@ function jobsFlaggedThisWeekCount(){
 // Re-pull this tech's jobs from Supabase (read-only) without dropping the
 // session or clobbering any not-yet-submitted diagnosis text / local-only photos.
 async function refreshData(){
-  const tech = STATE.techs.find(t => t.id === STATE.currentTechId);
+  const tech = STATE.currentTech;
   if(!tech) return;
 
   const drafts = {};
@@ -942,7 +931,7 @@ function bindClock(){
   const btn = document.getElementById('clockBtn');
   if(!btn) return;
   btn.addEventListener('click', async () => {
-    const tech = STATE.techs.find(t => t.id === STATE.currentTechId);
+    const tech = STATE.currentTech;
     const type = PUNCH_TYPES[CLOCK_STATE.step];
     const now  = new Date();
     const timeStr = now.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
@@ -973,7 +962,7 @@ function bindClock(){
 }
 
 function renderList(){
-  const tech = STATE.techs.find(t => t.id === STATE.currentTechId);
+  const tech = STATE.currentTech;
   const upNextCount = jobsForTab('up_next').length;
   const historyCount = jobsForTab('history').length;
   // RO Diagnosis tab count = assigned ROs still needing a tech diagnosis.
@@ -1090,6 +1079,7 @@ function bindList(){
     localStorage.removeItem(SESSION_KEY);
     STATE.view = 'login';
     STATE.currentTechId = null;
+    STATE.currentTech = null;
     STATE.loginPhone = '';
     STATE.loginPin = '';
     STATE.loginError = '';
@@ -1591,8 +1581,9 @@ async function submitDiagnosis(){
   const passPhone = params.get('u');
   const passPin = params.get('p');
   if(passPhone && passPin){
-    const tech = STATE.techs.find(t => t.phone === passPhone && t.pin === passPin);
+    const tech = await findEmployee(passPhone, passPin);
     if(tech){
+      STATE.currentTech = tech;
       STATE.currentTechId = tech.id;
       localStorage.setItem(SESSION_KEY, tech.id);
       STATE.activeTab = 'up_next';
@@ -1608,8 +1599,9 @@ async function submitDiagnosis(){
   if(!authenticated){
     const storedTechId = localStorage.getItem(SESSION_KEY);
     if(storedTechId){
-      const tech = STATE.techs.find(t => t.id === storedTechId);
+      const tech = await findEmployeeByPhone(storedTechId);
       if(tech){
+        STATE.currentTech = tech;
         STATE.currentTechId = tech.id;
         STATE.activeTab = 'up_next';
         await loadSupabaseData(tech.name);
