@@ -327,6 +327,7 @@
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="shared/board-settings.js"></script>
+<script src="shared/catch-moment.js"></script>
 </head>
 <body>
 
@@ -1048,6 +1049,9 @@
     // live tax label if a built RO is currently on screen.
     onShopSettingsChanged: () => { if (window.cdRefreshShopSettings) window.cdRefreshShopSettings(); },
   });
+
+  // "Catch this moment" capture FAB — lands in the Owner Marketing tab.
+  CatchMoment.init({ db, getName: () => CHAT_IDENTITY.name });
 
   // ── VIEW REFRESH REGISTRY — connection-health safety net + manual
   // refresh button (see bottom of file). Each view's section below

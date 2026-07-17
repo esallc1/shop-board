@@ -10,6 +10,7 @@
 <title>Lee Transmission — Manager Board</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="shared/board-settings.js"></script>
+<script src="shared/catch-moment.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
 <style>
@@ -1691,6 +1692,10 @@
     canEditShopMoney: true,
     canEditShopOps: true,
   });
+
+  // "Catch this moment" capture FAB — lands in the Owner Marketing tab.
+  CatchMoment.init({ db, getName: () => CHAT_IDENTITY.name });
+
   const TOTAL_LIFTS = 6;
   const TECH_COLORS = [
     'rgba(245,197,24,0.75)','rgba(96,165,250,0.75)',

@@ -6,6 +6,7 @@
 <title>Lee Transmission — Owner Board</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="shared/board-settings.js"></script>
+<script src="shared/catch-moment.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
 <style>
   /* ── CONTENT ── */
@@ -131,6 +132,63 @@
   .chat-toast-sender { font-weight: 700; margin-bottom: 2px; }
   .chat-toast-msg { color: #e2e5ee; line-height: 1.4; overflow-wrap: anywhere; }
   @keyframes chatToastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ── Marketing Content tab ── */
+  .mkt-tools { display: flex; flex-direction: column; gap: 14px; }
+  .mkt-tool { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .mkt-tool-hint { font-size: 0.78rem; color: var(--muted); }
+  .mkt-yt { align-items: stretch; }
+  .mkt-yt input {
+    flex: 1; min-width: 160px; background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 11px; font-size: 0.85rem; color: var(--text); outline: none; font-family: inherit;
+  }
+  .mkt-yt input:focus { border-color: var(--accent); }
+  .mkt-tool-status { font-size: 0.8rem; margin-top: 10px; min-height: 16px; }
+  .mkt-tool-status.ok { color: #15803d; } .mkt-tool-status.err { color: var(--red); } .mkt-tool-status.wait { color: var(--accent); }
+  .mkt-count { margin-left: 8px; font-size: 0.78rem; color: var(--muted); font-weight: 600; }
+
+  .mkt-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .mkt-empty { color: var(--muted); font-size: 0.82rem; padding: 16px; grid-column: 1 / -1; text-align: center; }
+  .mkt-item { position: relative; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: #fff; }
+  .mkt-thumb {
+    position: relative; width: 100%; aspect-ratio: 4 / 3; background: #eef0f5;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: hidden;
+  }
+  .mkt-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .mkt-thumb .mkt-play {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 2.2rem; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,0.55); pointer-events: none;
+  }
+  .mkt-thumb .mkt-badge {
+    position: absolute; top: 6px; left: 6px; font-size: 0.58rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.4px; background: rgba(20,22,40,0.72); color: #fff; border-radius: 4px; padding: 2px 6px;
+  }
+  .mkt-loading { color: var(--muted); font-size: 0.72rem; }
+  .mkt-meta { padding: 8px 10px; }
+  .mkt-meta .mkt-caption { font-size: 0.8rem; color: var(--text); line-height: 1.35; margin-bottom: 3px; overflow-wrap: anywhere; }
+  .mkt-meta .mkt-byline { font-size: 0.7rem; color: var(--muted); }
+  .mkt-del {
+    position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border-radius: 6px;
+    border: none; background: rgba(20,22,40,0.6); color: #fff; font-size: 0.95rem; line-height: 1; cursor: pointer;
+  }
+  .mkt-del:hover { background: var(--red); }
+
+  .mkt-viewer {
+    display: none; position: fixed; inset: 0; z-index: 7000; background: rgba(10,12,20,0.92);
+    align-items: center; justify-content: center; padding: 24px;
+  }
+  .mkt-viewer.open { display: flex; }
+  .mkt-viewer-inner { max-width: 92vw; max-height: 88vh; display: flex; }
+  .mkt-viewer-inner img, .mkt-viewer-inner video { max-width: 92vw; max-height: 88vh; border-radius: 8px; }
+  .mkt-viewer-inner iframe { width: min(90vw, 960px); height: min(50.6vw, 540px); border: 0; border-radius: 8px; }
+  .mkt-viewer-close {
+    position: absolute; top: 18px; right: 22px; background: none; border: none; color: #fff;
+    font-size: 2rem; cursor: pointer; line-height: 1;
+  }
+  @media (max-width: 768px) {
+    .mkt-gallery { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+    .mkt-yt input { min-width: 0; }
+  }
 </style>
 </head>
 <body>
@@ -150,6 +208,7 @@
       <div class="sidebar-group">
         <div class="sidebar-group-label">Main</div>
         <div class="sidebar-item active" data-view="todo" data-label="To-Do"><span class="icon">✅</span>To-Do</div>
+        <div class="sidebar-item" data-view="marketing" data-label="Marketing Content"><span class="icon">📸</span>Marketing Content</div>
       </div>
     </div>
   </nav>
@@ -182,6 +241,36 @@
     </div>
   </div>
 
+  <!-- ══ MARKETING CONTENT ══ -->
+  <div class="view" id="view-marketing">
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--accent)"></div>Add to the library</div>
+      <div class="mkt-tools">
+        <div class="mkt-tool">
+          <button class="btn btn-primary" id="mktBulkPhotoBtn">⬆ Bulk upload photos</button>
+          <input type="file" accept="image/*" multiple id="mktBulkPhotoInput" style="display:none">
+          <span class="mkt-tool-hint">Add several photos at once.</span>
+        </div>
+        <div class="mkt-tool mkt-yt">
+          <input type="text" id="mktYtUrl" placeholder="Paste a YouTube link (unlisted is fine)…">
+          <input type="text" id="mktYtCaption" placeholder="Caption (optional)">
+          <button class="btn btn-primary" id="mktYtAddBtn">+ Add video link</button>
+        </div>
+      </div>
+      <div class="mkt-tool-status" id="mktToolStatus"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--green)"></div>Pictures <span class="mkt-count" id="mktPhotoCount"></span></div>
+      <div class="mkt-gallery" id="mktPhotoGallery"><div class="mkt-empty">Loading…</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><div class="dot" style="background:var(--red)"></div>Videos <span class="mkt-count" id="mktVideoCount"></span></div>
+      <div class="mkt-gallery" id="mktVideoGallery"><div class="mkt-empty">Loading…</div></div>
+    </div>
+  </div>
+
     </div>
   </main>
 </div>
@@ -208,6 +297,12 @@
   </div>
 </div>
 
+<!-- Marketing viewer — full photo / video player -->
+<div class="mkt-viewer" id="mktViewer">
+  <button class="mkt-viewer-close" id="mktViewerClose" aria-label="Close">&times;</button>
+  <div class="mkt-viewer-inner" id="mktViewerInner"></div>
+</div>
+
 <script>
   // ── Supabase
   const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
@@ -222,6 +317,9 @@
     canEditShopMoney: true,
     canEditShopOps: true,
   });
+
+  // "Catch this moment" capture FAB — lands in this board's Marketing tab.
+  CatchMoment.init({ db, getName: () => CHAT_IDENTITY.name });
 
   function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
@@ -448,6 +546,230 @@
     refetch: loadAndRenderTodos,
     getChannel: () => todoChannel,
     resubscribe: todoSubscribeRealtime,
+  };
+
+  // ══════════════════════════════════════════════════════════════
+  // MARKETING CONTENT — where "Catch this moment" captures land + where
+  // Cris consolidates his scattered marketing. Two galleries (Pictures,
+  // Videos). File items (photos + short clips) live in the private
+  // marketing-content bucket (signed URLs); video LINKS point to YouTube
+  // (thumbnail + embed). Owner-only; live via realtime.
+  // ══════════════════════════════════════════════════════════════
+  const MKT_BUCKET = 'marketing-content';
+  const MKT_TTL = 3600;
+  let marketingRows = [];
+  let marketingChannel = null;
+  let mktBusy = false;
+
+  function ytId(url) {
+    if (!url) return null;
+    const patterns = [
+      /youtu\.be\/([A-Za-z0-9_-]{11})/,
+      /[?&]v=([A-Za-z0-9_-]{11})/,
+      /youtube\.com\/shorts\/([A-Za-z0-9_-]{11})/,
+      /youtube\.com\/embed\/([A-Za-z0-9_-]{11})/,
+    ];
+    for (const re of patterns) { const m = url.match(re); if (m) return m[1]; }
+    return null;
+  }
+  function fmtMktDate(iso) {
+    if (!iso) return '';
+    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  async function loadMarketing() {
+    try {
+      const { data, error } = await db.from('marketing_content').select('*').order('captured_at', { ascending: false });
+      if (error) throw error;
+      marketingRows = data || [];
+    } catch (err) {
+      console.warn('[Marketing] load failed (migration not run?):', err.message || err);
+      const note = '<div class="mkt-empty">Run the marketing_content migration to enable this tab.</div>';
+      document.getElementById('mktPhotoGallery').innerHTML = note;
+      document.getElementById('mktVideoGallery').innerHTML = '';
+      document.getElementById('mktPhotoCount').textContent = '';
+      document.getElementById('mktVideoCount').textContent = '';
+      return;
+    }
+    await renderMarketing();
+  }
+
+  async function renderMarketing() {
+    const photos = marketingRows.filter(r => r.media_type === 'photo');
+    const videos = marketingRows.filter(r => r.media_type === 'video');
+    document.getElementById('mktPhotoCount').textContent = photos.length ? `(${photos.length})` : '';
+    document.getElementById('mktVideoCount').textContent = videos.length ? `(${videos.length})` : '';
+
+    // Batch-sign the file items' paths.
+    const filePaths = marketingRows.filter(r => r.storage === 'file' && r.file_path).map(r => r.file_path);
+    let signedMap = {};
+    if (filePaths.length) {
+      try {
+        const { data: signed } = await db.storage.from(MKT_BUCKET).createSignedUrls(filePaths, MKT_TTL);
+        (signed || []).forEach(s => { if (s && s.path && s.signedUrl) signedMap[s.path] = s.signedUrl; });
+      } catch (e) { console.warn('[Marketing] signing failed', e); }
+    }
+
+    renderGallery('mktPhotoGallery', photos, signedMap, 'No pictures yet — hit "Catch this moment" on any board.');
+    renderGallery('mktVideoGallery', videos, signedMap, 'No videos yet — capture a clip or add a YouTube link above.');
+  }
+
+  function renderGallery(elId, rows, signedMap, emptyMsg) {
+    const el = document.getElementById(elId);
+    if (rows.length === 0) { el.innerHTML = `<div class="mkt-empty">${esc(emptyMsg)}</div>`; return; }
+    el.innerHTML = rows.map(r => {
+      const isYt = r.storage === 'youtube';
+      const yid = isYt ? ytId(r.youtube_url) : null;
+      let thumbInner, badge = '';
+      if (r.media_type === 'video') {
+        badge = '<span class="mkt-badge">Video</span>';
+        if (isYt && yid) {
+          thumbInner = `<img src="https://img.youtube.com/vi/${esc(yid)}/hqdefault.jpg" alt=""><span class="mkt-play">▶</span>`;
+        } else {
+          thumbInner = `<span style="font-size:2rem">🎬</span><span class="mkt-play">▶</span>`;
+        }
+      } else {
+        const url = signedMap[r.file_path];
+        thumbInner = url ? `<img src="${esc(url)}" alt="">` : '<span class="mkt-loading">…</span>';
+      }
+      const cap = r.caption ? `<div class="mkt-caption">${esc(r.caption)}</div>` : '';
+      const by = [r.captured_by || 'Someone', fmtMktDate(r.captured_at)].filter(Boolean).join(' · ');
+      return `
+        <div class="mkt-item" data-id="${esc(r.id)}">
+          <div class="mkt-thumb" data-id="${esc(r.id)}">${thumbInner}${badge}</div>
+          <button class="mkt-del" data-id="${esc(r.id)}" title="Delete">×</button>
+          <div class="mkt-meta">${cap}<div class="mkt-byline">${esc(by)}</div></div>
+        </div>`;
+    }).join('');
+
+    el.querySelectorAll('.mkt-thumb').forEach(t => t.addEventListener('click', () => openViewer(t.dataset.id, signedMap)));
+    el.querySelectorAll('.mkt-del').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); deleteMarketing(b.dataset.id); }));
+  }
+
+  function openViewer(id, signedMap) {
+    const r = marketingRows.find(x => String(x.id) === String(id));
+    if (!r) return;
+    const inner = document.getElementById('mktViewerInner');
+    if (r.media_type === 'video') {
+      const yid = r.storage === 'youtube' ? ytId(r.youtube_url) : null;
+      if (yid) inner.innerHTML = `<iframe src="https://www.youtube.com/embed/${esc(yid)}?autoplay=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+      else {
+        const url = signedMap[r.file_path];
+        inner.innerHTML = url ? `<video src="${esc(url)}" controls autoplay playsinline></video>` : '<div style="color:#fff">Clip unavailable.</div>';
+      }
+    } else {
+      const url = signedMap[r.file_path];
+      inner.innerHTML = url ? `<img src="${esc(url)}" alt="">` : '<div style="color:#fff">Image unavailable.</div>';
+    }
+    document.getElementById('mktViewer').classList.add('open');
+  }
+  function closeViewer() {
+    document.getElementById('mktViewer').classList.remove('open');
+    document.getElementById('mktViewerInner').innerHTML = '';  // stops any playing media
+  }
+  document.getElementById('mktViewerClose').addEventListener('click', closeViewer);
+  document.getElementById('mktViewer').addEventListener('click', (e) => { if (e.target.id === 'mktViewer') closeViewer(); });
+
+  async function deleteMarketing(id) {
+    const r = marketingRows.find(x => String(x.id) === String(id));
+    if (!r) return;
+    if (!confirm('Delete this item? This can\'t be undone.')) return;
+    try {
+      if (r.storage === 'file' && r.file_path) {
+        const { error: sErr } = await db.storage.from(MKT_BUCKET).remove([r.file_path]);
+        if (sErr) throw sErr;  // remove the object first, then the row
+      }
+      const { error } = await db.from('marketing_content').delete().eq('id', id);
+      if (error) throw error;
+      loadMarketing();
+    } catch (err) {
+      console.error('[Marketing] delete failed', err);
+      alert('Delete failed: ' + (err.message || 'unknown error'));
+    }
+  }
+
+  function mktStatus(msg, cls) {
+    const el = document.getElementById('mktToolStatus');
+    el.textContent = msg || '';
+    el.className = 'mkt-tool-status' + (cls ? ' ' + cls : '');
+  }
+
+  // Bulk photo upload (multi-file)
+  async function bulkUploadPhotos(files) {
+    if (mktBusy || !files || !files.length) return;
+    mktBusy = true;
+    let ok = 0, fail = 0;
+    for (const file of files) {
+      if (!file.type.startsWith('image/') || !file.size) { fail++; continue; }
+      mktStatus(`Uploading ${ok + fail + 1} of ${files.length}…`, 'wait');
+      try {
+        const id = crypto.randomUUID();
+        const now = new Date();
+        const yyyyMm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+        const path = `photos/${yyyyMm}/${id}.${ext}`;
+        const { error: upErr } = await db.storage.from(MKT_BUCKET).upload(path, file, { upsert: false });
+        if (upErr) throw upErr;
+        const { error: insErr } = await db.from('marketing_content').insert({
+          media_type: 'photo', storage: 'file', file_path: path,
+          captured_by: CHAT_IDENTITY.name || null, captured_at: new Date().toISOString(),
+        });
+        if (insErr) throw insErr;
+        ok++;
+      } catch (err) { console.error('[Marketing] bulk upload failed', err); fail++; }
+    }
+    mktBusy = false;
+    mktStatus(`Uploaded ${ok}${fail ? `, ${fail} failed` : ''} ✓`, fail ? 'err' : 'ok');
+    loadMarketing();
+  }
+
+  async function addYoutube() {
+    const urlEl = document.getElementById('mktYtUrl');
+    const capEl = document.getElementById('mktYtCaption');
+    const url = urlEl.value.trim();
+    if (!url) return;
+    if (!ytId(url)) { mktStatus('That doesn\'t look like a YouTube link.', 'err'); return; }
+    const btn = document.getElementById('mktYtAddBtn');
+    btn.disabled = true;
+    try {
+      const { error } = await db.from('marketing_content').insert({
+        media_type: 'video', storage: 'youtube', youtube_url: url,
+        caption: capEl.value.trim() || null,
+        captured_by: CHAT_IDENTITY.name || null, captured_at: new Date().toISOString(),
+      });
+      if (error) throw error;
+      urlEl.value = ''; capEl.value = '';
+      mktStatus('Video link added ✓', 'ok');
+      loadMarketing();
+    } catch (err) {
+      console.error('[Marketing] add youtube failed', err);
+      mktStatus('Failed: ' + (err.message || 'unknown error'), 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById('mktBulkPhotoBtn').addEventListener('click', () => document.getElementById('mktBulkPhotoInput').click());
+  document.getElementById('mktBulkPhotoInput').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length) await bulkUploadPhotos(files);
+    e.target.value = '';  // reset AFTER (request-ordering fix)
+  });
+  document.getElementById('mktYtAddBtn').addEventListener('click', addYoutube);
+  document.getElementById('mktYtUrl').addEventListener('keydown', e => { if (e.key === 'Enter') addYoutube(); });
+
+  function marketingSubscribeRealtime() {
+    if (marketingChannel) db.removeChannel(marketingChannel);
+    marketingChannel = db.channel('owner-board-marketing-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'marketing_content' }, loadMarketing)
+      .subscribe();
+  }
+  loadMarketing();
+  marketingSubscribeRealtime();
+  VIEW_REFRESH.marketing = {
+    refetch: loadMarketing,
+    getChannel: () => marketingChannel,
+    resubscribe: marketingSubscribeRealtime,
   };
 
   // ── Team Chat (real, Supabase-backed — owner-board = Owner's view)

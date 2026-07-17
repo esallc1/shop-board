@@ -289,6 +289,7 @@
   .clock-no-punches{ font-size:12px; color:var(--stroke); text-align:center; padding:4px 0 2px; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="shared/catch-moment.js"></script>
 </head>
 <body>
 <div id="app"></div>
@@ -309,6 +310,9 @@ async function sSet(key, value){
 const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// "Catch this moment" capture FAB — lands in the Owner Marketing tab.
+if (window.CatchMoment) CatchMoment.init({ db, getName: () => GREETING.name });
 
 // Supabase status string → local status key
 function sbStatusToLocal(row, table) {
