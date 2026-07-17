@@ -151,6 +151,7 @@
   .btn-go{ background:var(--go-green); color:#08210C; }
   .btn-outline{ background:transparent; border:1px solid var(--stroke); color:var(--paper); }
   .btn-ghost{ background:var(--panel-raised); color:var(--paper); border:1px solid var(--stroke); }
+  .btn-danger{ background:var(--danger); color:#fff; border:1px solid var(--danger); }
   .btn:disabled{ opacity:0.4; }
   .btn-row{ display:flex; gap:10px; }
   .btn-row .btn{ flex:1; }
@@ -392,7 +393,31 @@ async function loadSupabaseData(techName) {
   // Fix assignedTechId now that STATE is populated
   STATE.jobs.forEach(j => { j.assignedTechId = STATE.currentTechId; });
 
+  await loadAssignedRos(techName);
   await loadTodaysPunches(techName);
+}
+
+// Phase 4, Slice 2 — CrisData ROs assigned to this tech for diagnosis.
+// Parallel/beta: entirely separate from the shopboard job list above.
+// Matched on repair_orders.technician == tech.name (the advisor's Phase-3
+// tech dropdown writes that field). Read-only pull; embeds customer +
+// vehicle for the read-only header. Degrades to [] if the table/columns
+// aren't there yet (pre-migration) so the rest of the board never breaks.
+async function loadAssignedRos(techName){
+  if(!techName){ STATE.roJobs = []; return; }
+  const { data, error } = await db.from('repair_orders')
+    .select('id, ro_number, po, complaint, status, technician, created_at, ' +
+            'diagnosis_recommendation, diagnosis_submitted_at, diagnosis_reviewed_at, ' +
+            'customers(name, phone_primary), ' +
+            'vehicles(year, make, model, engine, vin, plate, plate_state, transmission_code)')
+    .eq('technician', techName)
+    .order('created_at', { ascending: false });
+  if(error){
+    console.warn('[RoDiag] assigned-RO load failed (pre-migration is fine):', error.message);
+    STATE.roJobs = [];
+    return;
+  }
+  STATE.roJobs = data || [];
 }
 
 // Rebuild CLOCK_STATE from today's Supabase punch rows
@@ -473,7 +498,29 @@ const I18N = {
     punchLabelBack: "Back from Lunch",
     punchLabelEod: "End of Day",
     clockNoPunches: "No punches recorded yet today",
-    ctaUndoDone: "← Back to In Progress"
+    ctaUndoDone: "← Back to In Progress",
+    tabRoDiag: "RO Diagnosis",
+    emptyRoTitle: "No assigned ROs",
+    emptyRoBody: "ROs assigned to you for diagnosis show up here.",
+    roStateNeeds: "Needs diagnosis",
+    roStateSubmitted: "Submitted",
+    roStateReviewed: "Writer reviewed",
+    codesLabel: "Trouble Codes (DTC)",
+    codeInputPlaceholder: "Add a code — e.g. P0730",
+    addCodeBtn: "Add",
+    noCodesYet: "No codes added yet.",
+    recLabel: "Recommendation",
+    recPlaceholder: "Type your recommendation, or record it below.",
+    recordBtn: "🎤 Record",
+    recordingStop: "⏹ Stop",
+    clipLabel: "Voice note",
+    ctaSubmitRoDiag: "Submit Diagnosis to Service Writer",
+    toastNeedSomething: "Add at least one code or a recommendation first",
+    toastDiagSubmitted: "Diagnosis sent to service writer",
+    toastClipSaved: "Voice note saved",
+    toastMicDenied: "Microphone access denied — check permissions",
+    toastClipFailed: "Voice note failed to upload",
+    toastCodeExists: "Code already added"
   },
   es: {
     loginSubtitle: "Inicia sesión con tu número de teléfono y PIN",
@@ -530,7 +577,29 @@ const I18N = {
     punchLabelBack: "Regreso del Almuerzo",
     punchLabelEod: "Fin del Día",
     clockNoPunches: "Sin registros hoy",
-    ctaUndoDone: "← Volver a En Progreso"
+    ctaUndoDone: "← Volver a En Progreso",
+    tabRoDiag: "Diagnóstico RO",
+    emptyRoTitle: "Sin ROs asignados",
+    emptyRoBody: "Los ROs asignados a ti para diagnóstico aparecen aquí.",
+    roStateNeeds: "Necesita diagnóstico",
+    roStateSubmitted: "Enviado",
+    roStateReviewed: "Revisado por asesor",
+    codesLabel: "Códigos de Falla (DTC)",
+    codeInputPlaceholder: "Agregar código — ej. P0730",
+    addCodeBtn: "Agregar",
+    noCodesYet: "Aún no hay códigos.",
+    recLabel: "Recomendación",
+    recPlaceholder: "Escribe tu recomendación, o grábala abajo.",
+    recordBtn: "🎤 Grabar",
+    recordingStop: "⏹ Detener",
+    clipLabel: "Nota de voz",
+    ctaSubmitRoDiag: "Enviar Diagnóstico al Asesor",
+    toastNeedSomething: "Agrega al menos un código o una recomendación",
+    toastDiagSubmitted: "Diagnóstico enviado al asesor",
+    toastClipSaved: "Nota de voz guardada",
+    toastMicDenied: "Acceso al micrófono denegado — revisa permisos",
+    toastClipFailed: "No se pudo subir la nota de voz",
+    toastCodeExists: "Código ya agregado"
   },
   ht: {
     loginSubtitle: "Konekte avèk nimewo telefòn ak PIN ou",
@@ -587,7 +656,29 @@ const I18N = {
     punchLabelBack: "Retou Nan Travay",
     punchLabelEod: "Fen Jounen",
     clockNoPunches: "Pa gen anrejistrement jodi a",
-    ctaUndoDone: "← Tounen nan N ap Travay"
+    ctaUndoDone: "← Tounen nan N ap Travay",
+    tabRoDiag: "Dyagnostik RO",
+    emptyRoTitle: "Pa gen RO asiyen",
+    emptyRoBody: "RO ki asiyen pou ou pou dyagnostik ap parèt isit la.",
+    roStateNeeds: "Bezwen dyagnostik",
+    roStateSubmitted: "Voye",
+    roStateReviewed: "Konseye revize",
+    codesLabel: "Kòd Pwoblèm (DTC)",
+    codeInputPlaceholder: "Ajoute yon kòd — egz. P0730",
+    addCodeBtn: "Ajoute",
+    noCodesYet: "Poko gen kòd.",
+    recLabel: "Rekòmandasyon",
+    recPlaceholder: "Tape rekòmandasyon ou, oswa anrejistre l anba.",
+    recordBtn: "🎤 Anrejistre",
+    recordingStop: "⏹ Kanpe",
+    clipLabel: "Nòt vwa",
+    ctaSubmitRoDiag: "Voye Dyagnostik Bay Konseye a",
+    toastNeedSomething: "Ajoute omwen yon kòd oswa yon rekòmandasyon",
+    toastDiagSubmitted: "Dyagnostik voye bay konseye a",
+    toastClipSaved: "Nòt vwa sove",
+    toastMicDenied: "Aksè mikwofòn refize — tcheke pèmisyon",
+    toastClipFailed: "Nòt vwa pa t ka telechaje",
+    toastCodeExists: "Kòd deja ajoute"
   }
 };
 function t(key){
@@ -670,9 +761,11 @@ async function loadGreeting(phone) {
 let STATE = {
   techs: [],
   jobs: [],
+  roJobs: [],           // CrisData ROs assigned to this tech (Phase 4 Slice 2)
   currentTechId: null,
-  view: 'login', // login | list | detail
+  view: 'login', // login | list | detail | roDiag
   activeJobId: null,
+  activeRoId: null,     // open RO in the Diagnosis view
   activeTab: 'up_next',
   loginPhone: '',
   loginPin: '',
@@ -701,6 +794,7 @@ function render(){
   if(STATE.view === 'login'){ app.innerHTML = renderLogin(); bindLogin(); }
   else if(STATE.view === 'list'){ app.innerHTML = renderList(); bindList(); }
   else if(STATE.view === 'detail'){ app.innerHTML = renderDetail(); bindDetail(); }
+  else if(STATE.view === 'roDiag'){ app.innerHTML = renderRoDiag(); bindRoDiag(); }
 }
 
 /* ---------------- LOGIN ---------------- */
@@ -882,7 +976,9 @@ function renderList(){
   const tech = STATE.techs.find(t => t.id === STATE.currentTechId);
   const upNextCount = jobsForTab('up_next').length;
   const historyCount = jobsForTab('history').length;
-  const list = jobsForTab(STATE.activeTab).sort((a,b)=> a.createdAt-b.createdAt);
+  // RO Diagnosis tab count = assigned ROs still needing a tech diagnosis.
+  const roDiagCount = (STATE.roJobs || []).filter(ro => roDiagState(ro) === 'needs').length;
+  const list = STATE.activeTab==='ro_diag' ? [] : jobsForTab(STATE.activeTab).sort((a,b)=> a.createdAt-b.createdAt);
 
   return `
     <div class="topbar">
@@ -908,9 +1004,10 @@ function renderList(){
     <div class="tabs">
       <div class="tab ${STATE.activeTab==='up_next'?'active':''}" data-tab="up_next">${t('tabUpNext')} <span class="count">${upNextCount}</span></div>
       <div class="tab ${STATE.activeTab==='history'?'active':''}" data-tab="history">${t('tabHistory')} <span class="count">${historyCount}</span></div>
+      <div class="tab ${STATE.activeTab==='ro_diag'?'active':''}" data-tab="ro_diag">${t('tabRoDiag')} <span class="count">${roDiagCount}</span></div>
     </div>
     <div class="job-list">
-      ${list.length === 0 ? `
+      ${STATE.activeTab==='ro_diag' ? renderRoCards() : (list.length === 0 ? `
         <div class="empty-state">
           <h3>${STATE.activeTab==='up_next' ? t('emptyUpNextTitle') : t('emptyHistoryTitle')}</h3>
           <p>${STATE.activeTab==='up_next' ? t('emptyUpNextBody') : t('emptyHistoryBody')}</p>
@@ -933,9 +1030,57 @@ function renderList(){
             ${hasRepeatComplaint(j) && j.status!=='done' ? `<div class="repeat-flag">${t('repeatFlag')}</div>` : ''}
           </div>
         </div>
-      `).join('')}
+      `).join(''))}
     </div>
   `;
+}
+
+/* ---------------- RO DIAGNOSIS (Phase 4, Slice 2) ---------------- */
+// Simple escaper for CrisData-sourced strings (renderList's tags use raw
+// interpolation on trusted shopboard data; RO data is likewise app-entered,
+// but codes/recommendation are free text so we escape defensively).
+function escRo(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function roVehDesc(v){
+  if(!v) return '—';
+  return [v.year, v.make, v.model].filter(Boolean).join(' ') ||
+    (v.vin ? 'VIN ' + v.vin : (v.plate ? 'Plate ' + v.plate : '—'));
+}
+
+// Card state from the two handoff timestamps.
+function roDiagState(ro){
+  if(ro.diagnosis_submitted_at && !ro.diagnosis_reviewed_at) return 'submitted';
+  if(ro.diagnosis_reviewed_at) return 'reviewed';
+  return 'needs';
+}
+
+function renderRoCards(){
+  const ros = STATE.roJobs;
+  if(!ros || ros.length === 0){
+    return `<div class="empty-state"><h3>${t('emptyRoTitle')}</h3><p>${t('emptyRoBody')}</p></div>`;
+  }
+  const stateLabel = { needs: t('roStateNeeds'), submitted: t('roStateSubmitted'), reviewed: t('roStateReviewed') };
+  return ros.map(ro => {
+    const v = ro.vehicles || {}, c = ro.customers || {};
+    const st = roDiagState(ro);
+    return `
+      <div class="tag ro-tag ro-state-${st}" data-roid="${escRo(ro.id)}">
+        <div class="tag-top">
+          <div>
+            <div class="tag-vehicle">${escRo(roVehDesc(v))}</div>
+            <div class="tag-vin mono">RO #${escRo(ro.po || ro.ro_number)}</div>
+          </div>
+          <div class="status-pill ro-pill-${st}">${escRo(stateLabel[st])}</div>
+        </div>
+        <div class="tag-complaint">
+          <b>${t('complaintLabel')}</b>
+          ${escRo(ro.complaint) || '—'}
+        </div>
+        <div class="tag-meta">
+          <div class="tag-customer">${escRo(c.name || '—')}</div>
+        </div>
+      </div>`;
+  }).join('');
 }
 
 function bindList(){
@@ -962,12 +1107,16 @@ function bindList(){
   document.querySelectorAll('.tab').forEach(el => {
     el.addEventListener('click', () => { STATE.activeTab = el.dataset.tab; render(); });
   });
-  document.querySelectorAll('.tag').forEach(el => {
+  document.querySelectorAll('.tag[data-id]').forEach(el => {
     el.addEventListener('click', () => {
       STATE.activeJobId = el.dataset.id;
       STATE.view = 'detail';
       render();
     });
+  });
+  // RO Diagnosis cards → open the Diagnosis view
+  document.querySelectorAll('.tag[data-roid]').forEach(el => {
+    el.addEventListener('click', () => openRoDiag(el.dataset.roid));
   });
 }
 
@@ -1147,6 +1296,288 @@ function bindDetail(){
     });
     if(ok) render();
   });
+}
+
+/* ---------------- RO DIAGNOSIS VIEW (Phase 4, Slice 2) ---------------- */
+// Digital replacement for ALLDATA's printed tech sheet. Read-only complaint
+// + vehicle up top; structured DTC chips (one ro_diagnostic_codes row each,
+// any format, stored UPPERCASE); a recommendation the tech types AND/OR
+// records (MediaRecorder → crisdata-attachments bucket, kind='diagnosis_audio',
+// as source of truth — transcript deferred to a future Whisper backend).
+// Submit stamps diagnosis_submitted_at → pushes the RO into the advisor's
+// Approval Queue. Built assigned-mode; kept clean so grab-a-job + payout can
+// bolt on later (do NOT build those now).
+let RO_DIAG = null;
+
+async function openRoDiag(roId){
+  const ro = STATE.roJobs.find(r => r.id === roId);
+  if(!ro) return;
+  RO_DIAG = { ro, codes: [], clips: [], recommendation: ro.diagnosis_recommendation || '',
+              recorder: null, chunks: [], recording: false, recSeconds: 0, recTimer: null };
+  STATE.activeRoId = roId;
+  await loadRoCodes(roId);
+  await loadRoClips(roId);
+  STATE.view = 'roDiag';
+  render();
+}
+
+async function loadRoCodes(roId){
+  const { data, error } = await db.from('ro_diagnostic_codes')
+    .select('id, code').eq('repair_order_id', roId).order('created_at', { ascending: true });
+  if(error){ console.warn('[RoDiag] codes load failed:', error.message); RO_DIAG.codes = []; return; }
+  RO_DIAG.codes = data || [];
+}
+
+// Private bucket → short-lived signed URLs for playback.
+async function loadRoClips(roId){
+  const { data, error } = await db.from('attachments')
+    .select('id, file_path').eq('entity_type', 'repair_order').eq('entity_id', roId)
+    .eq('kind', 'diagnosis_audio').order('created_at', { ascending: true });
+  if(error){ console.warn('[RoDiag] clips load failed:', error.message); RO_DIAG.clips = []; return; }
+  const clips = [];
+  for(const a of (data || [])){
+    let url = '';
+    try {
+      const { data: s } = await db.storage.from('crisdata-attachments').createSignedUrl(a.file_path, 3600);
+      url = (s && s.signedUrl) || '';
+    } catch(e){ /* leave url empty; row still shows */ }
+    clips.push({ id: a.id, file_path: a.file_path, url });
+  }
+  RO_DIAG.clips = clips;
+}
+
+function roCodesHtml(){
+  if(!RO_DIAG.codes.length) return `<div style="color:var(--gauge);font-size:13px;padding:2px 0 8px">${t('noCodesYet')}</div>`;
+  return `<div style="display:flex;flex-wrap:wrap;margin-bottom:8px">` + RO_DIAG.codes.map(c => `
+    <span style="display:inline-flex;align-items:center;gap:7px;background:var(--panel-raised);border:1px solid var(--stroke);border-radius:16px;padding:6px 11px;margin:0 7px 7px 0;font-family:ui-monospace,monospace;font-weight:700;letter-spacing:0.03em;color:var(--paper)">
+      ${escRo(c.code)}
+      <button data-codeid="${escRo(c.id)}" class="ro-code-x" aria-label="remove" style="background:none;border:none;color:var(--gauge);font-size:16px;line-height:1;cursor:pointer;padding:0">×</button>
+    </span>`).join('') + `</div>`;
+}
+
+function roClipsHtml(){
+  if(!RO_DIAG.clips.length) return '';
+  return RO_DIAG.clips.map((cl, i) => `
+    <div style="margin-top:8px">
+      <div style="font-size:12px;color:var(--gauge);margin-bottom:3px">${t('clipLabel')} ${i+1}</div>
+      ${cl.url ? `<audio controls preload="none" src="${escRo(cl.url)}" style="width:100%"></audio>`
+               : `<div style="color:var(--danger);font-size:12px">—</div>`}
+    </div>`).join('');
+}
+
+function renderRoDiag(){
+  if(!RO_DIAG || !RO_DIAG.ro){ STATE.view = 'list'; return renderList(); }
+  const ro = RO_DIAG.ro, v = ro.vehicles || {}, c = ro.customers || {};
+  const idLine = [v.vin ? 'VIN ' + v.vin : '', v.plate ? 'Plate ' + v.plate + (v.plate_state ? ' ' + v.plate_state : '') : '']
+    .filter(Boolean).join('  ·  ') || '—';
+  const kv = (label, val) => `<div style="margin:3px 0"><span style="color:var(--gauge);display:inline-block;min-width:96px">${label}</span> ${escRo(val || '—')}</div>`;
+  return `
+    <div class="back-row">
+      <button class="back-btn" id="btnRoBack">${t('backToBoard')}</button>
+    </div>
+    <div class="detail">
+      <div class="detail-hero">
+        <h2>${escRo(roVehDesc(v))}</h2>
+        <div class="detail-vin mono">RO #${escRo(ro.po || ro.ro_number)}</div>
+      </div>
+
+      <div class="section">
+        <h3>${t('complaintLabel')} — ${escRo(c.name || '—')}</h3>
+        <div class="complaint-box">${escRo(ro.complaint) || '—'}</div>
+        <div style="margin-top:10px;font-size:13px">
+          ${kv('Vehicle', roVehDesc(v))}
+          ${kv('VIN / Plate', idLine)}
+          ${kv('Engine', v.engine)}
+          ${kv('Trans', v.transmission_code)}
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>${t('codesLabel')}</h3>
+        <div id="roCodesWrap">${roCodesHtml()}</div>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="roCodeInput" placeholder="${t('codeInputPlaceholder')}" autocapitalize="characters" autocomplete="off"
+                 style="flex:1;background:var(--panel);border:1px solid var(--stroke);border-radius:10px;padding:11px 12px;color:var(--paper);font-family:ui-monospace,monospace;text-transform:uppercase">
+          <button class="btn btn-outline" id="roAddCodeBtn" style="flex:0 0 auto;padding:0 18px">${t('addCodeBtn')}</button>
+        </div>
+      </div>
+
+      <div class="section" style="border-bottom:none">
+        <h3>${t('recLabel')}</h3>
+        <textarea id="roRecText" placeholder="${t('recPlaceholder')}">${escRo(RO_DIAG.recommendation)}</textarea>
+        <div style="display:flex;align-items:center;gap:12px;margin-top:8px">
+          <button class="btn btn-ghost" id="roRecBtn" type="button" style="flex:0 0 auto">${t('recordBtn')}</button>
+          <span id="roRecTimer" style="color:var(--gauge);font-variant-numeric:tabular-nums"></span>
+        </div>
+        <div id="roClipsWrap">${roClipsHtml()}</div>
+      </div>
+    </div>
+    <div class="sticky-cta">
+      <button class="btn btn-primary" id="btnRoSubmit">${t('ctaSubmitRoDiag')}</button>
+    </div>
+  `;
+}
+
+function bindRoDiag(){
+  document.getElementById('btnRoBack').addEventListener('click', () => {
+    if(RO_DIAG && RO_DIAG.recording && RO_DIAG.recorder){ try { RO_DIAG.recorder.stop(); } catch(e){} }
+    STATE.view = 'list'; STATE.activeTab = 'ro_diag'; render();
+  });
+
+  const recText = document.getElementById('roRecText');
+  if(recText) recText.addEventListener('input', e => { RO_DIAG.recommendation = e.target.value; });
+
+  const addBtn = document.getElementById('roAddCodeBtn');
+  const codeInput = document.getElementById('roCodeInput');
+  if(addBtn) addBtn.addEventListener('click', () => addCode(codeInput.value));
+  if(codeInput) codeInput.addEventListener('keydown', e => {
+    if(e.key === 'Enter'){ e.preventDefault(); addCode(codeInput.value); }
+  });
+
+  bindCodeRemovers();
+
+  const recBtn = document.getElementById('roRecBtn');
+  if(recBtn) recBtn.addEventListener('click', () => {
+    if(RO_DIAG.recording) stopRecording(); else startRecording();
+  });
+
+  document.getElementById('btnRoSubmit').addEventListener('click', submitDiagnosis);
+}
+
+function bindCodeRemovers(){
+  document.querySelectorAll('.ro-code-x').forEach(b => {
+    b.addEventListener('click', () => removeCode(b.dataset.codeid));
+  });
+}
+function refreshCodesUI(){
+  const wrap = document.getElementById('roCodesWrap');
+  if(wrap){ wrap.innerHTML = roCodesHtml(); bindCodeRemovers(); }
+}
+function refreshClipsUI(){
+  const wrap = document.getElementById('roClipsWrap');
+  if(wrap) wrap.innerHTML = roClipsHtml();
+}
+
+async function addCode(raw){
+  const code = (raw || '').trim().toUpperCase();
+  if(!code) return;
+  if(RO_DIAG.codes.some(c => c.code === code)){ showToast(t('toastCodeExists')); return; }
+  const { data, error } = await db.from('ro_diagnostic_codes')
+    .insert({ repair_order_id: RO_DIAG.ro.id, code }).select('id, code').single();
+  if(error){ console.error('[RoDiag] add code failed', error); showToast('Save failed'); return; }
+  RO_DIAG.codes.push(data);
+  refreshCodesUI();
+  const inp = document.getElementById('roCodeInput');
+  if(inp){ inp.value = ''; inp.focus(); }
+}
+
+async function removeCode(id){
+  const { error } = await db.from('ro_diagnostic_codes').delete().eq('id', id);
+  if(error){ console.error('[RoDiag] remove code failed', error); showToast('Delete failed'); return; }
+  RO_DIAG.codes = RO_DIAG.codes.filter(c => c.id !== id);
+  refreshCodesUI();
+}
+
+// ── Voice: record → upload audio (source of truth). Cross-platform
+//    (webm/opus on Chrome/Android, mp4/aac on iOS Safari). No transcript
+//    (deferred to the Whisper-backend thread).
+function pickAudioMime(){
+  const cands = ['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/aac','audio/mpeg'];
+  if(!window.MediaRecorder) return '';
+  for(const m of cands){ try { if(MediaRecorder.isTypeSupported(m)) return m; } catch(e){} }
+  return '';
+}
+function extForMime(mime){
+  mime = mime || '';
+  if(mime.indexOf('webm') >= 0) return 'webm';
+  if(mime.indexOf('mp4') >= 0)  return 'm4a';
+  if(mime.indexOf('aac') >= 0)  return 'aac';
+  if(mime.indexOf('mpeg') >= 0) return 'mp3';
+  return 'bin';
+}
+function updateRecUI(){
+  const btn = document.getElementById('roRecBtn');
+  if(!btn) return;
+  btn.textContent = RO_DIAG.recording ? t('recordingStop') : t('recordBtn');
+  btn.classList.toggle('btn-danger', !!RO_DIAG.recording);
+  const timer = document.getElementById('roRecTimer');
+  if(timer && !RO_DIAG.recording) timer.textContent = '';
+}
+function updateRecTimer(){
+  const timer = document.getElementById('roRecTimer');
+  if(!timer) return;
+  const s = RO_DIAG.recSeconds;
+  timer.textContent = '● ' + Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
+}
+
+async function startRecording(){
+  if(RO_DIAG.recording) return;
+  if(!navigator.mediaDevices || !window.MediaRecorder){ showToast(t('toastMicDenied')); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch(e){ console.warn('[RoDiag] mic denied', e); showToast(t('toastMicDenied')); return; }
+  const mime = pickAudioMime();
+  let rec;
+  try { rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream); }
+  catch(e){ rec = new MediaRecorder(stream); }
+  RO_DIAG.recorder = rec; RO_DIAG.chunks = []; RO_DIAG.recording = true; RO_DIAG.recSeconds = 0;
+  rec.ondataavailable = e => { if(e.data && e.data.size) RO_DIAG.chunks.push(e.data); };
+  rec.onstop = async () => {
+    stream.getTracks().forEach(tr => tr.stop());
+    clearInterval(RO_DIAG.recTimer);
+    RO_DIAG.recording = false;
+    updateRecUI();
+    const type = rec.mimeType || mime || 'audio/webm';
+    const blob = new Blob(RO_DIAG.chunks, { type });
+    if(blob.size > 0) await uploadClip(blob, type);
+  };
+  rec.start();
+  updateRecUI();
+  updateRecTimer();
+  RO_DIAG.recTimer = setInterval(() => { RO_DIAG.recSeconds++; updateRecTimer(); }, 1000);
+}
+
+function stopRecording(){
+  if(RO_DIAG.recorder && RO_DIAG.recording){ try { RO_DIAG.recorder.stop(); } catch(e){} }
+}
+
+async function uploadClip(blob, mime){
+  const ro = RO_DIAG.ro;
+  const path = `repair_order/${ro.id}/diagnosis/${Date.now()}.${extForMime(mime)}`;
+  const { error: upErr } = await db.storage.from('crisdata-attachments')
+    .upload(path, blob, { contentType: mime || 'application/octet-stream', upsert: false });
+  if(upErr){ console.error('[RoDiag] clip upload failed', upErr); showToast(t('toastClipFailed')); return; }
+  const { data: row, error: insErr } = await db.from('attachments')
+    .insert({ entity_type: 'repair_order', entity_id: ro.id, kind: 'diagnosis_audio', file_path: path })
+    .select('id').single();
+  if(insErr){ console.error('[RoDiag] clip attach-row failed', insErr); showToast(t('toastClipFailed')); return; }
+  RO_DIAG.clips.push({ id: row.id, file_path: path, url: URL.createObjectURL(blob) });
+  refreshClipsUI();
+  showToast(t('toastClipSaved'));
+}
+
+async function submitDiagnosis(){
+  const ro = RO_DIAG.ro;
+  const rec = (RO_DIAG.recommendation || '').trim();
+  if(RO_DIAG.codes.length === 0 && !rec && RO_DIAG.clips.length === 0){
+    showToast(t('toastNeedSomething')); return;
+  }
+  const btn = document.getElementById('btnRoSubmit');
+  if(btn) btn.disabled = true;
+  const now = new Date().toISOString();
+  // submitted → queue; clear reviewed so a re-submit re-opens it for the writer
+  const { error } = await db.from('repair_orders')
+    .update({ diagnosis_recommendation: rec || null, diagnosis_submitted_at: now, diagnosis_reviewed_at: null })
+    .eq('id', ro.id);
+  if(error){
+    console.error('[RoDiag] submit failed', error);
+    showToast('Save failed'); if(btn) btn.disabled = false; return;
+  }
+  ro.diagnosis_recommendation = rec || null; ro.diagnosis_submitted_at = now; ro.diagnosis_reviewed_at = null;
+  const listRo = STATE.roJobs.find(r => r.id === ro.id);
+  if(listRo){ listRo.diagnosis_recommendation = rec || null; listRo.diagnosis_submitted_at = now; listRo.diagnosis_reviewed_at = null; }
+  showToast(t('toastDiagSubmitted'));
+  setTimeout(() => { STATE.view = 'list'; STATE.activeTab = 'ro_diag'; render(); }, 700);
 }
 
 /* ---------------- Boot ---------------- */

@@ -1097,13 +1097,15 @@
     ];
 
     const grid = document.getElementById('queue-grid');
+    // CrisData diagnosis-ready ROs (Phase 4, Slice 2) sit at the TOP of the queue.
+    const cdCards = await loadCdDiagCards();
 
-    if (all.length === 0) {
+    if (all.length === 0 && !cdCards) {
       grid.innerHTML = '<div style="color:var(--muted);padding:32px;grid-column:1/-1;text-align:center">No jobs awaiting approval right now.</div>';
       return;
     }
 
-    grid.innerHTML = all.map(job => `
+    grid.innerHTML = cdCards + all.map(job => `
       <div class="job-card" data-id="${esc(String(job.id))}" data-table="${esc(job._table)}">
         <div class="job-card-header">
           <div>
@@ -1141,6 +1143,82 @@
     const valid = parseFloat(input.value) > 0;
     btn.disabled = !valid;
     if (valid && hint) hint.style.display = 'none';
+  }
+
+  // ── CrisData diagnosis-ready ROs (Phase 4, Slice 2) ──────────
+  // A tech submitted a diagnosis on my-numbers (diagnosis_submitted_at set,
+  // not yet reviewed). This is the "push" landing in the advisor's queue:
+  // codes + recommendation + voice clips shown so Josh builds the estimate
+  // without re-keying. "Open in RO Board" stamps diagnosis_reviewed_at
+  // (drops it off the queue) and jumps to the RO Board. Wrapped in try/skip
+  // so the queue never breaks if the Slice-2 migration isn't applied yet.
+  async function loadCdDiagCards() {
+    let ros;
+    try {
+      const { data, error } = await db.from('repair_orders')
+        .select('id, ro_number, po, complaint, diagnosis_recommendation, technician, ' +
+                'customers(name), vehicles(year, make, model), ro_diagnostic_codes(code)')
+        .not('diagnosis_submitted_at', 'is', null)
+        .is('diagnosis_reviewed_at', null)
+        .order('diagnosis_submitted_at', { ascending: true });
+      if (error) { console.warn('[Queue] CrisData diagnosis load skipped:', error.message); return ''; }
+      ros = data || [];
+    } catch (e) { console.warn('[Queue] CrisData diagnosis load errored:', e); return ''; }
+    if (!ros.length) return '';
+
+    const chip = (c) => `<span style="display:inline-block;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:3px 10px;margin:0 6px 6px 0;font-family:ui-monospace,monospace;font-weight:700;font-size:0.78rem">${esc(c)}</span>`;
+    const cards = [];
+    for (const ro of ros) {
+      const v = ro.vehicles || {}, c = ro.customers || {};
+      const veh = [v.year, v.make, v.model].filter(Boolean).join(' ') || '—';
+      const codes = (ro.ro_diagnostic_codes || []).map(x => x.code);
+      const codeChips = codes.length ? codes.map(chip).join('') : '<span style="color:var(--muted)">No codes</span>';
+
+      // voice clips → short-lived signed URLs (private bucket)
+      let clipsHtml = '';
+      try {
+        const { data: atts } = await db.from('attachments')
+          .select('file_path').eq('entity_type', 'repair_order').eq('entity_id', ro.id)
+          .eq('kind', 'diagnosis_audio').order('created_at', { ascending: true });
+        for (const a of (atts || [])) {
+          const { data: s } = await db.storage.from('crisdata-attachments').createSignedUrl(a.file_path, 3600);
+          if (s && s.signedUrl) clipsHtml += `<audio controls preload="none" src="${esc(s.signedUrl)}" style="width:100%;margin-top:6px"></audio>`;
+        }
+      } catch (e) { /* clips are optional */ }
+
+      cards.push(`
+      <div class="job-card" data-roid="${esc(String(ro.id))}" style="border-left:3px solid var(--accent)">
+        <div class="job-card-header">
+          <div>
+            <div class="job-vehicle">${esc(veh)} — RO #${esc(ro.po || ro.ro_number)}</div>
+            <div class="job-customer">${esc(c.name || '—')}${ro.technician ? ' · tech ' + esc(ro.technician) : ''}</div>
+          </div>
+          <span class="badge badge-diag">Diagnosis Ready</span>
+        </div>
+        <div class="job-body">
+          <div class="job-section-label">Customer Complaint</div>
+          <div class="job-diagnosis">${esc(ro.complaint || '—')}</div>
+          <div class="job-section-label" style="margin-top:8px">Trouble Codes</div>
+          <div>${codeChips}</div>
+          <div class="job-section-label" style="margin-top:8px">Recommendation</div>
+          <div class="job-diagnosis">${esc(ro.diagnosis_recommendation || '—')}</div>
+          ${clipsHtml ? `<div class="job-section-label" style="margin-top:8px">Voice Notes</div>${clipsHtml}` : ''}
+        </div>
+        <div class="job-footer">
+          <button class="btn btn-green" onclick="openCdRoFromQueue('${esc(String(ro.id))}')">Open in RO Board →</button>
+        </div>
+      </div>`);
+    }
+    return cards.join('');
+  }
+
+  // Stamp reviewed (drops it off the queue) and jump to the RO Board detail.
+  async function openCdRoFromQueue(roId) {
+    try { await db.from('repair_orders').update({ diagnosis_reviewed_at: new Date().toISOString() }).eq('id', roId); }
+    catch (e) { console.warn('[Queue] mark-reviewed failed', e); }
+    const nav = document.querySelector('.sidebar-item[data-view="cdros"]');
+    if (nav) nav.click();
+    if (window.cdOpenRo) window.cdOpenRo(roId);
   }
 
   // ── Approve Job — writes to Supabase (advisor/manager only action)
@@ -1188,6 +1266,8 @@
     approvalChannel = db.channel('advisor-board-live')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_lifts' },   loadAndRenderQueue)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_parking' }, loadAndRenderQueue)
+      // CrisData diagnosis pushes (Phase 4, Slice 2) surface live too
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'repair_orders' },      loadAndRenderQueue)
       .subscribe();
   }
   approvalSubscribeRealtime();
