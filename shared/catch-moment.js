@@ -27,6 +27,10 @@ window.CatchMoment = (function () {
   let stylesInjected = false;
   let modalEl = null;
   let busy = false;
+  // review-then-save state
+  let pendingFile = null;
+  let pendingType = null;        // 'photo' | 'video'
+  let pendingPreviewUrl = null;  // object URL for the preview element
 
   function esc(s) {
     return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -87,6 +91,31 @@ window.CatchMoment = (function () {
       .cm-hint { font-size: 0.72rem; color: #8c93a8; }
       .cm-status { font-size: 0.82rem; margin-top: 12px; min-height: 18px; }
       .cm-status.ok { color: #15803d; } .cm-status.err { color: #dc2626; } .cm-status.wait { color: #5b5ef4; }
+
+      /* review-then-save step */
+      .cm-preview {
+        width: 100%; border-radius: 10px; overflow: hidden; background: #0d0f18; margin-bottom: 12px;
+        display: flex; align-items: center; justify-content: center; max-height: 46vh;
+      }
+      .cm-preview img, .cm-preview video { max-width: 100%; max-height: 46vh; display: block; }
+      .cm-review-btns { display: flex; gap: 8px; margin-top: 4px; }
+      .cm-btn {
+        flex: 1; padding: 10px; border-radius: 8px; border: none; font-family: inherit;
+        font-size: 0.83rem; font-weight: 700; cursor: pointer;
+      }
+      .cm-btn.primary { background: #5b5ef4; color: #fff; }
+      .cm-btn.primary:hover { opacity: 0.92; }
+      .cm-btn.primary:disabled { opacity: 0.5; cursor: default; }
+      .cm-btn.sec { background: #f0f1f5; color: #1a1f36; border: 1px solid #e2e5ee; }
+      .cm-btn.danger { background: #fff; color: #dc2626; border: 1px solid #fca5a5; }
+
+      /* Keep the fixed FAB from covering the last sidebar item on desktop
+         (gm-board's nav runs longest). Pads the shared shell's scroll
+         area so the last link always clears the FAB. Phone layout (drawer
+         nav) is untouched. */
+      @media (min-width: 769px) {
+        .sidebar-scroll { padding-bottom: 84px; }
+      }
     `;
     document.head.appendChild(style);
   }
@@ -99,16 +128,31 @@ window.CatchMoment = (function () {
       <div class="cm-box">
         <button type="button" class="cm-close" id="cmCloseBtn">&times;</button>
         <h3>Catch this moment</h3>
-        <div class="cm-sub">A photo or a short clip — it lands in the Owner's Marketing tab.</div>
-        <div class="cm-choices">
-          <button type="button" class="cm-choice" id="cmPhotoBtn"><span class="cm-choice-emoji">📷</span>Photo</button>
-          <button type="button" class="cm-choice" id="cmVideoBtn"><span class="cm-choice-emoji">🎬</span>Short clip</button>
+
+        <div id="cmChooseScreen">
+          <div class="cm-sub">A photo or a short clip — you'll review it before it saves.</div>
+          <div class="cm-choices">
+            <button type="button" class="cm-choice" id="cmPhotoBtn"><span class="cm-choice-emoji">📷</span>Photo</button>
+            <button type="button" class="cm-choice" id="cmVideoBtn"><span class="cm-choice-emoji">🎬</span>Short clip</button>
+          </div>
+          <div class="cm-hint">Clips are capped at ~60s / ${MAX_CLIP_MB} MB. Bigger, polished videos go on YouTube — add the link from the Marketing tab.</div>
+          <div class="cm-status" id="cmChooseStatus"></div>
         </div>
-        <input type="text" class="cm-caption" id="cmCaption" placeholder="Add a caption (optional)" maxlength="200">
-        <div class="cm-hint">Clips are capped at ~60s / ${MAX_CLIP_MB} MB. Bigger, polished videos go on YouTube — add the link from the Marketing tab.</div>
+
+        <div id="cmReviewScreen" style="display:none">
+          <div class="cm-sub">Looks good? Add a caption if you like, then Save.</div>
+          <div class="cm-preview" id="cmPreview"></div>
+          <input type="text" class="cm-caption" id="cmCaption" placeholder="Add a caption (optional)" maxlength="200">
+          <div class="cm-review-btns">
+            <button type="button" class="cm-btn primary" id="cmSaveBtn">Save</button>
+            <button type="button" class="cm-btn sec" id="cmRetakeBtn">Retake</button>
+            <button type="button" class="cm-btn danger" id="cmDiscardBtn">Discard</button>
+          </div>
+          <div class="cm-status" id="cmStatus"></div>
+        </div>
+
         <input type="file" accept="image/*" capture="environment" id="cmPhotoInput" style="display:none">
         <input type="file" accept="video/*" capture="environment" id="cmVideoInput" style="display:none">
-        <div class="cm-status" id="cmStatus"></div>
       </div>
     `;
     document.body.appendChild(modalEl);
@@ -119,16 +163,25 @@ window.CatchMoment = (function () {
     modalEl.querySelector('#cmPhotoBtn').addEventListener('click', () => modalEl.querySelector('#cmPhotoInput').click());
     modalEl.querySelector('#cmVideoBtn').addEventListener('click', () => modalEl.querySelector('#cmVideoInput').click());
 
-    modalEl.querySelector('#cmPhotoInput').addEventListener('change', async (e) => {
+    modalEl.querySelector('#cmPhotoInput').addEventListener('change', (e) => {
       const file = e.target.files[0];
-      if (file) await handleUpload(file, 'photo');
-      e.target.value = '';  // reset AFTER (request-ordering fix)
+      if (file) onFilePicked(file, 'photo');
+      e.target.value = '';  // reset AFTER we've grabbed the File (request-ordering fix)
     });
-    modalEl.querySelector('#cmVideoInput').addEventListener('change', async (e) => {
+    modalEl.querySelector('#cmVideoInput').addEventListener('change', (e) => {
       const file = e.target.files[0];
-      if (file) await handleUpload(file, 'video');
+      if (file) onFilePicked(file, 'video');
       e.target.value = '';
     });
+
+    modalEl.querySelector('#cmSaveBtn').addEventListener('click', doSave);
+    modalEl.querySelector('#cmRetakeBtn').addEventListener('click', () => {
+      const type = pendingType;
+      clearPending();
+      showChoose();
+      modalEl.querySelector(type === 'photo' ? '#cmPhotoInput' : '#cmVideoInput').click();
+    });
+    modalEl.querySelector('#cmDiscardBtn').addEventListener('click', () => { clearPending(); showChoose(); });
     return modalEl;
   }
 
@@ -137,35 +190,77 @@ window.CatchMoment = (function () {
     el.textContent = msg || '';
     el.className = 'cm-status' + (cls ? ' ' + cls : '');
   }
-  function setBusy(b) {
-    busy = b;
-    modalEl.querySelector('#cmPhotoBtn').disabled = b;
-    modalEl.querySelector('#cmVideoBtn').disabled = b;
+  function setChooseStatus(msg, cls) {
+    const el = modalEl.querySelector('#cmChooseStatus');
+    el.textContent = msg || '';
+    el.className = 'cm-status' + (cls ? ' ' + cls : '');
+  }
+
+  function showChoose() {
+    modalEl.querySelector('#cmChooseScreen').style.display = 'block';
+    modalEl.querySelector('#cmReviewScreen').style.display = 'none';
+    setChooseStatus('');
+  }
+  function showReview() {
+    modalEl.querySelector('#cmChooseScreen').style.display = 'none';
+    modalEl.querySelector('#cmReviewScreen').style.display = 'block';
+    setStatus('');
+  }
+
+  function clearPending() {
+    pendingFile = null;
+    pendingType = null;
+    if (pendingPreviewUrl) { URL.revokeObjectURL(pendingPreviewUrl); pendingPreviewUrl = null; }
+    if (modalEl) {
+      modalEl.querySelector('#cmPreview').innerHTML = '';
+      modalEl.querySelector('#cmCaption').value = '';
+    }
   }
 
   function openModal() {
     ensureModal();
-    modalEl.querySelector('#cmCaption').value = '';
-    setStatus('');
-    setBusy(false);
+    clearPending();
+    showChoose();
     modalEl.classList.add('open');
   }
-  function closeModal() { if (modalEl) modalEl.classList.remove('open'); }
+  function closeModal() {
+    clearPending();
+    if (modalEl) modalEl.classList.remove('open');
+  }
 
-  async function handleUpload(file, mediaType) {
-    if (busy) return;
-    const name = getName && getName();
+  // Validate + preview the picked file, then wait for Save. Nothing is
+  // uploaded here — the user reviews the shot (and can Retake/Discard)
+  // and only Save commits it to marketing_content.
+  function onFilePicked(file, mediaType) {
     const isPhoto = mediaType === 'photo';
-    if (isPhoto && !file.type.startsWith('image/')) { setStatus('Please choose an image.', 'err'); return; }
-    if (!isPhoto && !file.type.startsWith('video/')) { setStatus('Please choose a video.', 'err'); return; }
-    if (!file.size) { setStatus('That file looks empty — try again.', 'err'); return; }
+    if (isPhoto && !file.type.startsWith('image/')) { setChooseStatus('Please choose an image.', 'err'); return; }
+    if (!isPhoto && !file.type.startsWith('video/')) { setChooseStatus('Please choose a video.', 'err'); return; }
+    if (!file.size) { setChooseStatus('That file looks empty — try again.', 'err'); return; }
     if (!isPhoto && file.size > MAX_CLIP_MB * 1024 * 1024) {
-      setStatus(`That clip is over ${MAX_CLIP_MB} MB. Put it on YouTube (unlisted) and add the link from the Marketing tab.`, 'err');
+      setChooseStatus(`That clip is over ${MAX_CLIP_MB} MB. Put it on YouTube (unlisted) and add the link from the Marketing tab.`, 'err');
       return;
     }
 
-    setBusy(true);
-    setStatus(isPhoto ? 'Uploading photo…' : 'Uploading clip…', 'wait');
+    clearPending();
+    pendingFile = file;
+    pendingType = mediaType;
+    pendingPreviewUrl = URL.createObjectURL(file);
+    const preview = modalEl.querySelector('#cmPreview');
+    preview.innerHTML = isPhoto
+      ? `<img src="${pendingPreviewUrl}" alt="preview">`
+      : `<video src="${pendingPreviewUrl}" controls playsinline></video>`;
+    showReview();
+  }
+
+  async function doSave() {
+    if (busy || !pendingFile) return;
+    const file = pendingFile, mediaType = pendingType, isPhoto = mediaType === 'photo';
+    const name = getName && getName();
+
+    busy = true;
+    const saveBtn = modalEl.querySelector('#cmSaveBtn');
+    saveBtn.disabled = true;
+    setStatus(isPhoto ? 'Saving photo…' : 'Saving clip…', 'wait');
     try {
       const id = crypto.randomUUID();
       const now = new Date();
@@ -189,14 +284,14 @@ window.CatchMoment = (function () {
       if (insErr) throw insErr;
 
       setStatus('Saved ✓  It\'ll show in the Owner\'s Marketing tab.', 'ok');
-      modalEl.querySelector('#cmCaption').value = '';
-      setTimeout(() => { if (modalEl.classList.contains('open')) closeModal(); }, 1200);
+      setTimeout(() => { if (modalEl.classList.contains('open')) closeModal(); }, 1000);
     } catch (err) {
-      console.error('[CatchMoment] upload failed', err);
+      console.error('[CatchMoment] save failed', err);
       const missing = err && (err.message || '').match(/bucket|not found|does not exist/i);
-      setStatus('Upload failed: ' + (err.message || 'unknown error') + (missing ? ' (has the migration been run?)' : ''), 'err');
+      setStatus('Save failed: ' + (err.message || 'unknown error') + (missing ? ' (has the migration been run?)' : ''), 'err');
+      saveBtn.disabled = false;  // let them retry Save
     } finally {
-      setBusy(false);
+      busy = false;
     }
   }
 
