@@ -126,12 +126,58 @@ window.BoardSettings = (function () {
     return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  // ── PAYMENT METHODS (Phase 5, Slice 2) — the editable list backing the RO
+  // payment picker. Deactivate/reactivate (never hard-delete): inactive drops
+  // out of the picker for NEW payments but past payments keep their stored
+  // text. Warmed on init like shop_settings; the RO Board reads active methods
+  // via getPaymentMethods(), with the constant below as a pre-migration
+  // fallback so nothing breaks before the table exists.
+  const PAYMENT_METHOD_FALLBACK = [
+    { value: 'cash', label: 'Cash' }, { value: 'card', label: 'Card' },
+    { value: 'koalifi', label: 'Koalifi' }, { value: 'snap', label: 'Snap' },
+    { value: 'check', label: 'Check' },
+  ];
+  let paymentMethodsRows = null;   // all rows (active + inactive), or null if table missing
+
+  async function loadPaymentMethods() {
+    try {
+      const { data, error } = await db.from('payment_methods').select('*').order('sort_order').order('label');
+      if (error) throw error;
+      paymentMethodsRows = data || [];
+    } catch (err) {
+      paymentMethodsRows = null;
+      console.warn('[BoardSettings] payment_methods not loaded (using fallback):', err.message || err);
+    }
+  }
+
+  // Active methods for the picker, as {value,label}. Falls back to the
+  // constant when the table is missing/empty (pre-migration).
+  function getPaymentMethods() {
+    if (!paymentMethodsRows || paymentMethodsRows.length === 0) return PAYMENT_METHOD_FALLBACK.slice();
+    return paymentMethodsRows.filter(m => m.active).map(m => ({ value: m.value, label: m.label }));
+  }
+
+  // Label for ANY method value (active, inactive, or historical) so past
+  // payments always render correctly. Falls back to a title-cased value.
+  function paymentMethodLabel(value) {
+    if (value == null) return '—';
+    const rows = paymentMethodsRows || PAYMENT_METHOD_FALLBACK;
+    const hit = rows.find(m => m.value === value);
+    if (hit) return hit.label;
+    return String(value).charAt(0).toUpperCase() + String(value).slice(1);
+  }
+
+  function methodSlug(label) {
+    return (label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  }
+
   // ── Category nav icons ────────────────────────────────────────
   const ICONS = {
     user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>',
     shop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v11h16V9"/><path d="M9 20v-6h6v6"/></svg>',
     receipt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v18l2-1 2 1 2-1 2 1 2-1 2 1V3z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
     grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+    card: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>',
   };
 
   function injectStyles() {
@@ -254,6 +300,25 @@ window.BoardSettings = (function () {
       .stgfeat-btn.danger { background: #fff; color: #dc2626; border: 1px solid #fca5a5; }
       .stgfeat-btn.block { display: block; width: 100%; }
 
+      /* ── Payment methods list ── */
+      .stgfeat-method-row {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        padding: 8px 0; border-bottom: 1px solid #f0f1f5;
+      }
+      .stgfeat-method-row.inactive .stgfeat-method-label { color: #8c93a8; }
+      .stgfeat-method-label { font-size: 0.88rem; color: #1a1f36; }
+      .stgfeat-method-tag {
+        font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
+        color: #8c93a8; background: #f0f1f5; border-radius: 8px; padding: 1px 6px; margin-left: 6px;
+      }
+      .stgfeat-method-toggle { padding: 5px 10px; font-size: 0.75rem; flex-shrink: 0; }
+      .stgfeat-method-add { display: flex; gap: 8px; margin-top: 12px; }
+      .stgfeat-method-add input {
+        flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid #e2e5ee; border-radius: 6px;
+        font-size: 0.85rem; font-family: inherit; color: #1a1f36;
+      }
+      .stgfeat-method-add input:focus { outline: none; border-color: #5b5ef4; }
+
       .stgfeat-field {
         display: flex; align-items: center; justify-content: space-between;
         gap: 12px; margin-bottom: 10px;
@@ -329,8 +394,7 @@ window.BoardSettings = (function () {
       { id: 'myprofile',   label: 'My Profile',    icon: ICONS.user,    visible: true,             render: renderMyProfilePane },
       { id: 'shopprofile', label: 'Shop Profile',  icon: ICONS.shop,    visible: canEditShopMoney, render: renderShopProfilePane },
       { id: 'ropricing',   label: 'RO & Pricing',  icon: ICONS.receipt, visible: canEditShopMoney, render: renderRoPricingPane },
-      // ── Phase 5: add the 'Payments' category here (Owner/GM only, i.e.
-      //    visible: canEditShopMoney) — the layout already supports it. ──
+      { id: 'payments',    label: 'Payments',      icon: ICONS.card,    visible: canEditShopMoney, render: renderPaymentsPane },
     ];
     if (typeof onOpenExtra === 'function') {
       cats.push({
@@ -475,6 +539,64 @@ window.BoardSettings = (function () {
       </div>`;
 
     content.querySelector('#stgfeatShopSaveBtn').addEventListener('click', saveShopSettings);
+  }
+
+  // ── Pane: Payments (editable methods, Phase 5 Slice 2) — Owner/GM ─
+  // Deactivate/reactivate toggle (never hard-delete) so past payments keep
+  // their stored text and an inactive method can come back.
+  async function renderPaymentsPane(content) {
+    const head = catHeader('Payments', 'Methods shown when recording a payment on an RO. Deactivating hides a method from new payments — past payments keep it.');
+    content.innerHTML = head + '<div class="stgfeat-placeholder">Loading…</div>';
+    await loadPaymentMethods();
+    if (paymentMethodsRows === null) {
+      content.innerHTML = head + '<div class="stgfeat-placeholder">Run the <code>payment_methods</code> migration to manage payment methods.</div>';
+      return;
+    }
+    const rows = paymentMethodsRows.slice().sort((a, b) => (a.sort_order - b.sort_order) || String(a.label).localeCompare(String(b.label)));
+    const rowsHtml = rows.map(m => `
+      <div class="stgfeat-method-row${m.active ? '' : ' inactive'}">
+        <span class="stgfeat-method-label">${esc(m.label)}${m.active ? '' : '<span class="stgfeat-method-tag">inactive</span>'}</span>
+        <button type="button" class="stgfeat-btn sec stgfeat-method-toggle" data-id="${esc(m.id)}" data-active="${m.active ? '1' : '0'}">${m.active ? 'Deactivate' : 'Reactivate'}</button>
+      </div>`).join('');
+    content.innerHTML = head +
+      `<div class="stgfeat-section">
+        <div class="stgfeat-section-label">Payment Methods</div>
+        ${rowsHtml}
+        <div class="stgfeat-method-add">
+          <input type="text" id="stgfeatMethodNew" placeholder="Add a method…">
+          <button type="button" class="stgfeat-btn" id="stgfeatMethodAddBtn">Add</button>
+        </div>
+        <div class="stgfeat-error" id="stgfeatMethodErr"></div>
+      </div>`;
+
+    const errEl = content.querySelector('#stgfeatMethodErr');
+    const fail = (m) => { if (errEl) errEl.textContent = m; };
+
+    content.querySelectorAll('.stgfeat-method-toggle').forEach(b => {
+      b.addEventListener('click', async () => {
+        fail('');
+        const next = b.dataset.active !== '1';
+        const { error } = await db.from('payment_methods').update({ active: next }).eq('id', b.dataset.id);
+        if (error) { console.error('[BoardSettings] method toggle failed', error); fail('Update failed: ' + error.message); return; }
+        renderPaymentsPane(content);
+      });
+    });
+
+    content.querySelector('#stgfeatMethodAddBtn').addEventListener('click', async () => {
+      fail('');
+      const label = content.querySelector('#stgfeatMethodNew').value.trim();
+      if (!label) return;
+      const value = methodSlug(label);
+      if (!value) { fail('Enter a valid name.'); return; }
+      const maxSort = rows.reduce((mx, r) => Math.max(mx, r.sort_order || 0), -1);
+      const { error } = await db.from('payment_methods').insert({ value, label, active: true, sort_order: maxSort + 1 });
+      if (error) {
+        console.error('[BoardSettings] method add failed', error);
+        fail(/duplicate|unique/i.test(error.message || '') ? 'That method already exists.' : 'Add failed: ' + error.message);
+        return;
+      }
+      renderPaymentsPane(content);
+    });
   }
 
   // ── Pane: Shop Profile (invoice header + legal footer) — Owner/GM ─
@@ -785,7 +907,8 @@ window.BoardSettings = (function () {
     extraLabel = config.extraLabel || 'More';
     injectStyles();
     mountTrigger(config.mountSelector);
-    loadShopSettings();   // warm the cache so getShopSettings() is current early
+    loadShopSettings();       // warm the cache so getShopSettings() is current early
+    loadPaymentMethods();     // warm the payment-method cache for the RO picker
   }
 
   async function refresh(employeeId) {
@@ -800,5 +923,8 @@ window.BoardSettings = (function () {
     applyBackground(data ? data.background_photo_url : null);
   }
 
-  return { init, refresh, getShopSettings, reloadShopSettings: loadShopSettings };
+  return {
+    init, refresh, getShopSettings, reloadShopSettings: loadShopSettings,
+    getPaymentMethods, paymentMethodLabel, reloadPaymentMethods: loadPaymentMethods,
+  };
 })();

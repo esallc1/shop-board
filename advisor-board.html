@@ -2902,18 +2902,36 @@
     // gives the estimate-vs-invoice paper distinction off ONE number.
     const DOC_LABEL = { estimate: 'ESTIMATE', ro: 'REPAIR ORDER', invoice: 'INVOICE', closed: 'INVOICE' };
 
-    // ── PAYMENT METHODS (Phase 5, Slice 1) — seeded as a constant here.
-    // Slice 2 moves this to an editable list in the Payments Settings
-    // category; `method` is stored as the string `value`, so that swap
-    // needs no schema change. {value stored, label shown}.
-    const PAYMENT_METHODS = [
+    // ── PAYMENT METHODS (Phase 5) — the active list now comes from the
+    // editable payment_methods table via BoardSettings (Slice 2); this
+    // constant is only the pre-migration / BoardSettings-missing fallback.
+    // `method` is stored as the string `value`.
+    const PAYMENT_METHODS_FALLBACK = [
       { value: 'cash', label: 'Cash' },
       { value: 'card', label: 'Card' },
       { value: 'koalifi', label: 'Koalifi' },
       { value: 'snap', label: 'Snap' },
       { value: 'check', label: 'Check' },
     ];
-    const methodLabel = (v) => { const m = PAYMENT_METHODS.find(x => x.value === v); return m ? m.label : (v || '—'); };
+    // Active methods for the picker (fresh each RO open, so Settings edits
+    // take effect); label lookup covers inactive/historical methods too.
+    function activePaymentMethods() {
+      return (window.BoardSettings && window.BoardSettings.getPaymentMethods)
+        ? window.BoardSettings.getPaymentMethods() : PAYMENT_METHODS_FALLBACK;
+    }
+    const methodLabel = (v) => {
+      if (window.BoardSettings && window.BoardSettings.paymentMethodLabel) return window.BoardSettings.paymentMethodLabel(v);
+      const m = PAYMENT_METHODS_FALLBACK.find(x => x.value === v);
+      return m ? m.label : (v || '—');
+    };
+    function populateMethodPicker() {
+      const sel = $('cdPayMethod');
+      if (!sel) return;
+      const methods = activePaymentMethods();
+      const cur = sel.value;
+      sel.innerHTML = methods.map(m => `<option value="${m.value}">${esc(m.label)}</option>`).join('');
+      if (cur && methods.some(m => m.value === cur)) sel.value = cur;
+    }
 
     let allRos = [];          // cached list rows (with embeds) for client-side search
     let currentRo = null;     // the open RO (with embedded customer/vehicle)
@@ -3194,6 +3212,7 @@
     }
 
     async function loadPayments() {
+      populateMethodPicker();   // reflect the current active methods each open
       if (!currentRo) { currentPayments = []; renderPayments(); return; }
       const { data, error } = await db.from('ro_payments')
         .select('*').eq('repair_order_id', currentRo.id)
@@ -3755,8 +3774,9 @@
     $('cdAddCardFeeBtn').addEventListener('click', addCardFee);
     $('cdRoNewBtn').addEventListener('click', () => $('navCdRo').click());
     $('cdPrintBtn').addEventListener('click', printRo);
-    // Payments (Phase 5): seed the method dropdown from the constant + wire Record.
-    $('cdPayMethod').innerHTML = PAYMENT_METHODS.map(m => `<option value="${m.value}">${m.label}</option>`).join('');
+    // Payments (Phase 5): seed the method dropdown (refreshed on each RO open
+    // by loadPayments → populateMethodPicker) + wire Record.
+    populateMethodPicker();
     $('cdPayRecordBtn').addEventListener('click', recordPayment);
     $('cdPayAmount').addEventListener('keydown', (e) => { if (e.key === 'Enter') recordPayment(); });
     // Payments TAB ledger — load now, refresh whenever the tab is opened.
