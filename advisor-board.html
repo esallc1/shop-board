@@ -590,10 +590,11 @@
               <th>Vehicle</th>
               <th>Status</th>
               <th style="text-align:right">Total</th>
+              <th style="text-align:center">Check-in</th>
             </tr>
           </thead>
           <tbody id="cdRoListTbody">
-            <tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">Loading…</td></tr>
+            <tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -617,6 +618,7 @@
               <option value="closed">Closed</option>
             </select>
           </label>
+          <button class="btn" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdRoArrivedBtn"></button>
           <button class="btn btn-primary" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdPrintBtn">🖨 Print / Save PDF</button>
         </div>
         <div class="cd-ro-header" id="cdRoHeaderGrid"></div>
@@ -2943,7 +2945,7 @@
       const tb = $('cdRoListTbody');
       const { data, error } = await db
         .from('repair_orders')
-        .select('id, ro_number, po, status, created_at, ' +
+        .select('id, ro_number, po, status, created_at, arrived_at, ' +
                 'customers(name, phone_primary, tax_exempt), ' +
                 'vehicles(year, make, model, vin, plate), ' +
                 'ro_line_items(quantity, unit_price, taxable)')
@@ -2972,6 +2974,82 @@
         (v.vin ? 'VIN ' + v.vin : (v.plate ? 'Plate ' + v.plate : '—'));
     }
 
+    // ══════════════════════════════════════════════════════════
+    // CHECK IN / ARRIVED (RO → Floor convergence, Slice 1)
+    // Drops the car onto the v1 shop floor by inserting a row into
+    // shopboard_parking — the SAME table + row shape as Kevin's manual
+    // "+ Add Car" — then stamps repair_orders.arrived_at. v1 picks the car
+    // up live through its existing shopboard_parking realtime + read.
+    //
+    // PHYSICAL event only: never touches the RO stage. Idempotent — a car
+    // checks in once per RO. Ordering is failure-safe: the parking insert
+    // happens first; only on its success do we stamp arrived_at, so a failed
+    // drop leaves a clean state and stays re-clickable.
+    async function checkInArrived(ro) {
+      if (ro.arrived_at) return { ok: true, arrived_at: ro.arrived_at };
+      const nowIso = new Date().toISOString();
+      // Guard against a duplicate drop: a parking row for this po may already
+      // exist (Kevin typed the car in by hand, or a prior half-completed
+      // check-in). Don't double-drop — just stamp history so the button
+      // settles to "Checked in ✓".
+      const { data: existing, error: exErr } = await db
+        .from('shopboard_parking').select('id').eq('po', String(ro.po)).limit(1);
+      if (exErr) return { ok: false, error: exErr };
+      if (!existing || !existing.length) {
+        // Mirror Kevin's manual "+ Add Car" EXACTLY: same columns, same
+        // just-arrived lot state (status:'empty' = "- Unassigned -"), plus
+        // the RO's po/customer/vehicle pre-filled. arrival_date is today's
+        // date (YYYY-MM-DD), matching the manual entry.
+        const c = ro.customers || {}, v = ro.vehicles || {};
+        const { error: insErr } = await db.from('shopboard_parking').insert({
+          po: String(ro.po), vehicle: vehDesc(v), customer: c.name || '',
+          work: '', status: 'empty', notes: '', arrival_date: nowIso.slice(0, 10)
+        });
+        if (insErr) return { ok: false, error: insErr };   // stay re-clickable, do NOT stamp
+      }
+      // Car is on the floor → stamp arrival history.
+      const { error: stampErr } = await db.from('repair_orders')
+        .update({ arrived_at: nowIso }).eq('id', ro.id);
+      if (stampErr) return { ok: false, error: stampErr };
+      ro.arrived_at = nowIso;   // keep the caller's cached row in sync
+      return { ok: true, arrived_at: nowIso };
+    }
+
+    // Paints an Arrived control into `btn` for the given `ro` and wires its
+    // click. arrived_at null → "Check in / Arrived" (active, green).
+    // arrived_at set → "Checked in ✓ · <time>" (disabled). This holds even
+    // after the car is later picked up/cleared on v1 — arrived_at is history,
+    // not a live on-floor flag. `onDone` fires after a successful check-in.
+    function paintArrivedBtn(btn, ro, onDone) {
+      if (!btn) return;
+      if (ro.arrived_at) {
+        const t = new Date(ro.arrived_at).toLocaleString('en-US',
+          { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        btn.textContent = 'Checked in ✓ · ' + t;
+        btn.disabled = true;
+        btn.className = 'btn btn-ghost';
+        btn.title = 'Car checked in ' + t;
+        btn.onclick = null;
+        return;
+      }
+      btn.textContent = 'Check in / Arrived';
+      btn.disabled = false;
+      btn.className = 'btn btn-green';
+      btn.title = 'Drop this car onto the shop floor';
+      btn.onclick = async () => {
+        btn.disabled = true;
+        btn.textContent = 'Checking in…';
+        const res = await checkInArrived(ro);
+        if (!res.ok) {
+          alert('Check-in failed: ' + ((res.error && res.error.message) || 'unknown error'));
+          paintArrivedBtn(btn, ro, onDone);   // revert to active, re-clickable
+          return;
+        }
+        paintArrivedBtn(btn, ro, onDone);      // settle to "Checked in ✓"
+        if (onDone) onDone();
+      };
+    }
+
     function renderList() {
       const term = $('cdRoSearch').value.trim().toLowerCase();
       const tb = $('cdRoListTbody');
@@ -2987,7 +3065,7 @@
         });
       }
       if (rows.length === 0) {
-        tb.innerHTML = `<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">${term ? 'No matching ROs.' : 'No repair orders yet — click + New RO.'}</td></tr>`;
+        tb.innerHTML = `<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">${term ? 'No matching ROs.' : 'No repair orders yet — click + New RO.'}</td></tr>`;
         return;
       }
       tb.innerHTML = rows.map(ro => {
@@ -3001,9 +3079,18 @@
           <td>${esc(vehDesc(v))}</td>
           <td>${esc(STATUS_LABEL[ro.status] || ro.status || '—')}</td>
           <td style="text-align:right;font-variant-numeric:tabular-nums">${money(roTotal(ro))}</td>
+          <td style="text-align:center"><button class="btn" style="font-size:0.72rem;padding:4px 10px;white-space:nowrap" data-arrived-btn></button></td>
         </tr>`;
       }).join('');
       tb.querySelectorAll('tr[data-id]').forEach(tr => {
+        const ro = rows.find(r => String(r.id) === tr.dataset.id);
+        const btn = tr.querySelector('[data-arrived-btn]');
+        // paint against the cached row (mutated in place on check-in, so the
+        // state survives a re-render and a Back-to-list round trip)
+        if (ro) paintArrivedBtn(btn, ro);
+        // the button lives inside a clickable row — keep its click from
+        // also opening the RO
+        if (btn) btn.addEventListener('click', e => e.stopPropagation());
         tr.addEventListener('click', () => openRo(tr.dataset.id));
       });
     }
@@ -3102,6 +3189,13 @@
         field('Odometer In', ro.odometer_in != null ? (ro.odometer_in + ' mi') : '—') +
         field('Status', STATUS_LABEL[ro.status] || ro.status) +
         field('Complaint', ro.complaint, true);
+      // Check in / Arrived — paints against currentRo (mutated in place on
+      // check-in). On success, mirror arrived_at onto the cached list row so
+      // Back-to-list reflects it without a refetch.
+      paintArrivedBtn($('cdRoArrivedBtn'), currentRo, () => {
+        const m = allRos.find(r => String(r.id) === String(currentRo.id));
+        if (m) m.arrived_at = currentRo.arrived_at;
+      });
     }
 
     async function loadLines() {
