@@ -624,12 +624,32 @@
         <div class="cd-ro-header" id="cdRoHeaderGrid"></div>
         <div class="cd-ro-edit">
           <div class="intake-field">
+            <label>Odometer In</label>
+            <input type="number" id="cdRoOdometerIn" placeholder="Odometer in" autocomplete="off">
+          </div>
+          <div class="intake-field">
             <label>Miles Out</label>
             <input type="number" id="cdRoMilesOut" placeholder="Odometer out" autocomplete="off">
           </div>
           <div class="intake-field">
+            <label>Plate</label>
+            <input type="text" id="cdRoPlate" placeholder="License plate" autocomplete="off">
+          </div>
+          <div class="intake-field">
+            <label>Plate State</label>
+            <input type="text" id="cdRoPlateState" placeholder="e.g. FL" autocomplete="off">
+          </div>
+          <div class="intake-field cd-hf-full">
+            <label>VIN</label>
+            <input type="text" id="cdRoVin" placeholder="Vehicle identification number" autocomplete="off">
+          </div>
+          <div class="intake-field">
             <label>Technician</label>
             <select id="cdRoTech"><option value="">— Unassigned —</option></select>
+          </div>
+          <div class="intake-field cd-hf-full">
+            <label>Complaint</label>
+            <textarea id="cdRoComplaint" placeholder="Customer concern(s) — one per line"></textarea>
           </div>
           <div class="intake-field cd-hf-full">
             <label>Advisory Notes</label>
@@ -3124,8 +3144,14 @@
 
     // ── editable per-RO fields (miles out, technician, advisory) ──
     async function populateRoEditFields() {
+      const v = currentRo.vehicles || {};
       $('cdRoMilesOut').value = currentRo.miles_out != null ? currentRo.miles_out : '';
+      $('cdRoOdometerIn').value = currentRo.odometer_in != null ? currentRo.odometer_in : '';
+      $('cdRoComplaint').value = currentRo.complaint || '';
       $('cdRoAdvisory').value = currentRo.advisory_notes || '';
+      $('cdRoVin').value = v.vin || '';
+      $('cdRoPlate').value = v.plate || '';
+      $('cdRoPlateState').value = v.plate_state || '';
       // tech dropdown from active techs, plus whatever's already stored
       const sel = $('cdRoTech');
       sel.innerHTML = '<option value="">— Unassigned —</option>';
@@ -3168,6 +3194,19 @@
       }
     }
 
+    // Same optimistic pattern as updateRoField, but the target column lives on
+    // the shared VEHICLE row (vin/plate/plate_state), not the RO. RIPPLE: the
+    // vehicle is shared across every RO for that car, so a correction here
+    // (e.g. VIN read off the car after drop-off) updates it everywhere — which
+    // is correct, VIN/plate are properties of the car, not this one visit.
+    async function updateVehicleField(field, value) {
+      if (!currentRo || !currentRo.vehicle_id) return;
+      if (!currentRo.vehicles) currentRo.vehicles = {};
+      currentRo.vehicles[field] = value;
+      const { error } = await db.from('vehicles').update({ [field]: value }).eq('id', currentRo.vehicle_id);
+      if (error) console.error('[CdRO] update vehicle field failed', field, error);
+    }
+
     function renderHeader() {
       const ro = currentRo, c = ro.customers || {}, v = ro.vehicles || {};
       $('cdRoDetailTitle').textContent = 'RO #' + (ro.po || ro.ro_number);
@@ -3178,17 +3217,15 @@
       // reflect the current stage in the selector (STAGES-guarded so an
       // unknown value doesn't blank it)
       $('cdRoStage').value = STAGES.includes(ro.status) ? ro.status : 'estimate';
-      const idPlate = [v.vin ? 'VIN ' + v.vin : null, v.plate ? 'Plate ' + v.plate : null].filter(Boolean).join(' · ') || '—';
       const field = (label, val, full) =>
         `<div class="${full ? 'cd-hf-full' : ''}"><div class="cd-hf-label">${label}</div><div class="cd-hf-val">${esc(val || '—')}</div></div>`;
+      // Complaint, Odometer In, and VIN/Plate moved to editable inputs in the
+      // cd-ro-edit block below — the read-only grid keeps the stable identity.
       $('cdRoHeaderGrid').innerHTML =
         field('Customer', c.name) +
         field('Phone', c.phone_primary) +
         field('Vehicle', vehDesc(v)) +
-        field('VIN / Plate', idPlate) +
-        field('Odometer In', ro.odometer_in != null ? (ro.odometer_in + ' mi') : '—') +
-        field('Status', STATUS_LABEL[ro.status] || ro.status) +
-        field('Complaint', ro.complaint, true);
+        field('Status', STATUS_LABEL[ro.status] || ro.status);
       // Check in / Arrived — paints against currentRo (mutated in place on
       // check-in). On success, mirror arrived_at onto the cached list row so
       // Back-to-list reflects it without a refetch.
@@ -3893,8 +3930,17 @@
       const v = parseInt($('cdRoMilesOut').value, 10);
       updateRoField('miles_out', Number.isFinite(v) ? v : null);
     });
+    $('cdRoOdometerIn').addEventListener('change', () => {
+      const v = parseInt($('cdRoOdometerIn').value, 10);
+      updateRoField('odometer_in', Number.isFinite(v) ? v : null);
+    });
     $('cdRoTech').addEventListener('change', () => updateRoField('technician', $('cdRoTech').value || null));
+    $('cdRoComplaint').addEventListener('change', () => updateRoField('complaint', $('cdRoComplaint').value.trim() || null));
     $('cdRoAdvisory').addEventListener('change', () => updateRoField('advisory_notes', $('cdRoAdvisory').value.trim() || null));
+    // VIN / plate live on the shared vehicle row, not the RO
+    $('cdRoVin').addEventListener('change', () => updateVehicleField('vin', $('cdRoVin').value.trim() || null));
+    $('cdRoPlate').addEventListener('change', () => updateVehicleField('plate', $('cdRoPlate').value.trim() || null));
+    $('cdRoPlateState').addEventListener('change', () => updateVehicleField('plate_state', $('cdRoPlateState').value.trim() || null));
 
     // expose for the New RO modal's "Open RO" button
     window.cdOpenRo = (roId) => { loadRecentList(); openRo(roId); };
