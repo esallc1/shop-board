@@ -267,15 +267,51 @@
   }
 
   /* ── RO Board (slice 2): find/open + line items + totals ── */
-  .cd-search-bar { margin-bottom: 12px; }
-  .cd-search-bar input {
-    width: 100%; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 8px; padding: 9px 12px; font-size: 0.85rem; color: var(--text);
-    outline: none; font-family: inherit;
+  /* ── RO Board pipeline kanban ───────────────────────────────── */
+  .cd-kanban { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .cd-kanban-col {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 10px;
+    display: flex; flex-direction: column; min-height: 200px;
+    transition: box-shadow .1s, border-color .1s;
   }
-  .cd-search-bar input:focus { border-color: var(--accent); }
-  #cdRoListTbody tr { cursor: pointer; }
-  #cdRoListTbody tr:hover td { background: var(--bg); }
+  .cd-kanban-col.drag-over { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(91,94,244,.18) inset; }
+  .cd-kanban-head {
+    font-size: 0.7rem; font-weight: 800; letter-spacing: .5px; text-transform: uppercase;
+    color: var(--muted); padding: 11px 12px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .cd-kanban-count { margin-left: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 1px 8px; color: var(--text); }
+  .cd-kanban-body { padding: 10px; display: flex; flex-direction: column; gap: 9px; overflow-y: auto; flex: 1; }
+  .cd-kanban-card {
+    background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--border);
+    border-radius: 8px; padding: 9px 11px; cursor: pointer; box-shadow: 0 1px 2px rgba(20,30,60,.05);
+    transition: transform .08s, box-shadow .08s;
+  }
+  .cd-kanban-card:hover { transform: translateY(-1px); box-shadow: 0 4px 10px rgba(20,30,60,.12); }
+  .cd-kanban-card.dragging { opacity: .45; }
+  .cd-kanban-col[data-stage="estimate"] .cd-kanban-card { border-left-color: #8b8ff5; }
+  .cd-kanban-col[data-stage="ro"] .cd-kanban-card       { border-left-color: var(--blue); }
+  .cd-kanban-col[data-stage="invoice"] .cd-kanban-card  { border-left-color: var(--green); }
+  .cd-kc-ro { font-weight: 800; font-size: 0.85rem; }
+  .cd-kc-cust { font-size: 0.8rem; margin-top: 2px; }
+  .cd-kc-veh { font-size: 0.74rem; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cd-kc-foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .cd-kc-badge { font-size: 0.58rem; font-weight: 800; text-transform: uppercase; letter-spacing: .3px; padding: 2px 7px; border-radius: 20px; }
+  .cd-kc-diag { background: #fef3c7; color: #92400e; }
+  .cd-kc-meta { font-size: 0.72rem; color: var(--text); font-variant-numeric: tabular-nums; }
+  .cd-offlot-btn { margin-left: auto; font-size: 0.66rem; font-weight: 700; padding: 3px 11px; background: var(--green); color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+  .cd-offlot-btn:hover { filter: brightness(.94); }
+  .cd-kanban-empty { font-size: 0.72rem; color: var(--muted); font-style: italic; text-align: center; padding: 16px 4px; }
+  .cd-recent { border-top: 1px solid var(--border); padding-top: 14px; }
+  .cd-recent-title { font-size: 0.66rem; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .cd-recent-row { display: flex; align-items: center; gap: 12px; padding: 7px 6px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }
+  .cd-recent-row:hover { background: var(--bg); }
+  .cd-rr-ro { font-weight: 800; min-width: 58px; }
+  .cd-rr-cust { min-width: 130px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cd-rr-veh { color: var(--muted); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cd-rr-when { color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
+  .cd-recent-empty { font-size: 0.75rem; color: var(--muted); font-style: italic; padding: 6px; }
+
   .cd-ro-header {
     display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 22px;
   }
@@ -578,25 +614,24 @@
           <span class="cd-nav-tag" style="margin-left:6px">beta</span>
           <button class="btn btn-primary" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdRoNewBtn">+ New RO</button>
         </div>
-        <div class="cd-search-bar">
-          <input type="text" id="cdRoSearch" placeholder="Search RO#, customer, phone, plate, or VIN…" autocomplete="off">
+        <div class="cd-kanban" id="cdKanban">
+          <div class="cd-kanban-col" data-stage="estimate">
+            <div class="cd-kanban-head">Estimate <span class="cd-kanban-count" id="cdCountEstimate">0</span></div>
+            <div class="cd-kanban-body" id="cdColEstimate"></div>
+          </div>
+          <div class="cd-kanban-col" data-stage="ro">
+            <div class="cd-kanban-head">Active RO <span class="cd-kanban-count" id="cdCountRo">0</span></div>
+            <div class="cd-kanban-body" id="cdColRo"></div>
+          </div>
+          <div class="cd-kanban-col" data-stage="invoice">
+            <div class="cd-kanban-head">Ready for pickup <span class="cd-kanban-count" id="cdCountInvoice">0</span></div>
+            <div class="cd-kanban-body" id="cdColInvoice"></div>
+          </div>
         </div>
-        <table>
-          <thead>
-            <tr>
-              <th>RO #</th>
-              <th>Date</th>
-              <th>Customer</th>
-              <th>Vehicle</th>
-              <th>Status</th>
-              <th style="text-align:right">Total</th>
-              <th style="text-align:center">Check-in</th>
-            </tr>
-          </thead>
-          <tbody id="cdRoListTbody">
-            <tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">Loading…</td></tr>
-          </tbody>
-        </table>
+        <div class="cd-recent">
+          <div class="cd-recent-title">Recently closed</div>
+          <div id="cdRecentStrip"><div class="cd-recent-empty">Loading…</div></div>
+        </div>
       </div>
     </div>
 
@@ -2960,23 +2995,24 @@
     let currentLines = [];    // ro_line_items for the open RO
     let currentPayments = [];  // ro_payments for the open RO (Phase 5)
 
-    // ── LIST: load + render ───────────────────────────────────
+    // ── PIPELINE KANBAN: load + render ────────────────────────
     async function loadRecentList() {
-      const tb = $('cdRoListTbody');
       const { data, error } = await db
         .from('repair_orders')
-        .select('id, ro_number, po, status, created_at, arrived_at, ' +
+        .select('id, ro_number, po, status, created_at, updated_at, arrived_at, technician, ' +
+                'diagnosis_submitted_at, diagnosis_reviewed_at, ' +
                 'customers(name, phone_primary, tax_exempt), ' +
                 'vehicles(year, make, model, vin, plate), ' +
-                'ro_line_items(quantity, unit_price, taxable)')
+                'ro_line_items(quantity, unit_price, taxable), ' +
+                'ro_payments(amount)')
         .order('created_at', { ascending: false });
       if (error) {
-        console.error('[CdRO] list load failed', error);
-        tb.innerHTML = `<tr><td colspan="6" style="color:var(--red);text-align:center;padding:24px">Failed to load: ${esc(error.message)}</td></tr>`;
+        console.error('[CdRO] kanban load failed', error);
+        $('cdColEstimate').innerHTML = `<div class="cd-kanban-empty" style="color:var(--red)">Failed to load: ${esc(error.message)}</div>`;
         return;
       }
       allRos = data || [];
-      renderList();
+      renderKanban();
     }
 
     function roTotal(ro) {
@@ -3070,49 +3106,202 @@
       };
     }
 
-    function renderList() {
-      const term = $('cdRoSearch').value.trim().toLowerCase();
-      const tb = $('cdRoListTbody');
-      let rows = allRos;
-      if (term) {
-        rows = allRos.filter(ro => {
-          const c = ro.customers || {}, v = ro.vehicles || {};
-          const hay = [
-            ro.po, String(ro.ro_number), c.name, c.phone_primary,
-            v.plate, v.vin,
-          ].filter(Boolean).join(' ').toLowerCase();
-          return hay.includes(term);
-        });
+    // RO balance = live total (subtotal+tax) minus payments recorded so far.
+    function roBalance(ro) {
+      const paid = (ro.ro_payments || []).reduce((s, p) => s + num(p.amount), 0);
+      return roTotal(ro) - paid;
+    }
+
+    // One draggable pipeline card. Stage-specific footer:
+    //  estimate → "Diagnosis Ready" label (the Approval-Queue signal);
+    //  ro       → assigned tech; invoice → balance + "Off lot" action.
+    function roCardHtml(ro) {
+      const c = ro.customers || {}, v = ro.vehicles || {};
+      let foot = '';
+      if (ro.status === 'estimate') {
+        if (ro.diagnosis_submitted_at && !ro.diagnosis_reviewed_at)
+          foot = `<span class="cd-kc-badge cd-kc-diag">Diagnosis Ready</span>`;
+      } else if (ro.status === 'ro') {
+        if (ro.technician) foot = `<span class="cd-kc-meta">🔧 ${esc(ro.technician)}</span>`;
+      } else if (ro.status === 'invoice') {
+        foot = `<span class="cd-kc-meta">Bal ${money(roBalance(ro))}</span>` +
+               `<button class="cd-offlot-btn" data-offlot="${esc(ro.id)}" title="Close the RO and remove the car from the floor">Off lot</button>`;
       }
-      if (rows.length === 0) {
-        tb.innerHTML = `<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:24px">${term ? 'No matching ROs.' : 'No repair orders yet — click + New RO.'}</td></tr>`;
+      return `
+        <div class="cd-kanban-card" draggable="true" data-id="${esc(ro.id)}">
+          <div class="cd-kc-ro">#${esc(ro.po || ro.ro_number)}</div>
+          <div class="cd-kc-cust">${esc(c.name || '—')}</div>
+          <div class="cd-kc-veh">${esc(vehDesc(v))}</div>
+          ${foot ? `<div class="cd-kc-foot">${foot}</div>` : ''}
+        </div>`;
+    }
+
+    function renderKanban() {
+      // partition: three active stages into columns, closed → recent strip
+      const cols = { estimate: [], ro: [], invoice: [] };
+      const closed = [];
+      allRos.forEach(ro => {
+        if (ro.status === 'closed') closed.push(ro);
+        else if (cols[ro.status]) cols[ro.status].push(ro);
+        // an unknown status just doesn't render — safe
+      });
+      const fill = (bodyId, list) => {
+        $(bodyId).innerHTML = list.length
+          ? list.map(roCardHtml).join('')
+          : '<div class="cd-kanban-empty">No jobs</div>';
+      };
+      fill('cdColEstimate', cols.estimate);
+      fill('cdColRo', cols.ro);
+      fill('cdColInvoice', cols.invoice);
+      $('cdCountEstimate').textContent = cols.estimate.length;
+      $('cdCountRo').textContent = cols.ro.length;
+      $('cdCountInvoice').textContent = cols.invoice.length;
+
+      // recent strip: last 10 closed, newest first by close time (updated_at)
+      closed.sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
+      const recent = closed.slice(0, 10);
+      $('cdRecentStrip').innerHTML = recent.length
+        ? recent.map(ro => {
+            const c = ro.customers || {}, v = ro.vehicles || {};
+            const when = ro.updated_at || ro.created_at
+              ? new Date(ro.updated_at || ro.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              : '';
+            return `<div class="cd-recent-row" data-id="${esc(ro.id)}">
+                <span class="cd-rr-ro">#${esc(ro.po || ro.ro_number)}</span>
+                <span class="cd-rr-cust">${esc(c.name || '—')}</span>
+                <span class="cd-rr-veh">${esc(vehDesc(v))}</span>
+                <span class="cd-rr-when">${esc(when)}</span>
+              </div>`;
+          }).join('')
+        : '<div class="cd-recent-empty">No closed jobs yet.</div>';
+
+      wireKanban();
+    }
+
+    // wire drag-to-advance, off-lot, and tap-to-open after each render
+    function wireKanban() {
+      // cards: draggable + tap-opens
+      document.querySelectorAll('#cdKanban .cd-kanban-card').forEach(card => {
+        card.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('text/plain', card.dataset.id);
+          e.dataTransfer.effectAllowed = 'move';
+          card.classList.add('dragging');
+        });
+        card.addEventListener('dragend', () => card.classList.remove('dragging'));
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('[data-offlot]')) return;   // off-lot handles its own click
+          openRo(card.dataset.id);
+        });
+      });
+      // off-lot buttons
+      document.querySelectorAll('#cdKanban [data-offlot]').forEach(btn => {
+        btn.addEventListener('click', (e) => { e.stopPropagation(); offLotCard(btn.dataset.offlot); });
+      });
+      // columns: accept drops → set stage to that column
+      document.querySelectorAll('#cdKanban .cd-kanban-col').forEach(col => {
+        col.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; col.classList.add('drag-over'); });
+        col.addEventListener('dragleave', (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
+        col.addEventListener('drop', (e) => {
+          e.preventDefault();
+          col.classList.remove('drag-over');
+          const roId = e.dataTransfer.getData('text/plain');
+          if (roId) setCardStage(roId, col.dataset.stage);
+        });
+      });
+      // recent strip: tap opens
+      document.querySelectorAll('#cdRecentStrip .cd-recent-row').forEach(row => {
+        row.addEventListener('click', () => openRo(row.dataset.id));
+      });
+    }
+
+    // Drag advances a card's stage. Same repair_orders.status write as the
+    // RO-detail stage control, with optimistic update + revert-on-failure.
+    // Never targets 'closed' (no Closed column) — closing is the Off-lot path.
+    async function setCardStage(roId, nextStage) {
+      const ro = allRos.find(r => String(r.id) === String(roId));
+      if (!ro || !STAGES.includes(nextStage) || nextStage === 'closed') return;
+      if (ro.status === nextStage) return;
+      const prev = ro.status;
+      ro.status = nextStage;                 // optimistic
+      renderKanban();
+      const { error } = await db.from('repair_orders').update({ status: nextStage }).eq('id', ro.id);
+      if (error) {
+        console.error('[CdRO] kanban stage change failed', error);
+        alert('Could not move RO #' + (ro.po || ro.ro_number) + ': ' + error.message);
+        ro.status = prev;                    // revert
+        renderKanban();
         return;
       }
-      tb.innerHTML = rows.map(ro => {
-        const c = ro.customers || {}, v = ro.vehicles || {};
-        const date = ro.created_at ? new Date(ro.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
-        return `
-        <tr data-id="${esc(ro.id)}">
-          <td><strong>#${esc(ro.po || ro.ro_number)}</strong></td>
-          <td>${date}</td>
-          <td>${esc(c.name || '—')}</td>
-          <td>${esc(vehDesc(v))}</td>
-          <td>${esc(STATUS_LABEL[ro.status] || ro.status || '—')}</td>
-          <td style="text-align:right;font-variant-numeric:tabular-nums">${money(roTotal(ro))}</td>
-          <td style="text-align:center"><button class="btn" style="font-size:0.72rem;padding:4px 10px;white-space:nowrap" data-arrived-btn></button></td>
-        </tr>`;
-      }).join('');
-      tb.querySelectorAll('tr[data-id]').forEach(tr => {
-        const ro = rows.find(r => String(r.id) === tr.dataset.id);
-        const btn = tr.querySelector('[data-arrived-btn]');
-        // paint against the cached row (mutated in place on check-in, so the
-        // state survives a re-render and a Back-to-list round trip)
-        if (ro) paintArrivedBtn(btn, ro);
-        // the button lives inside a clickable row — keep its click from
-        // also opening the RO
-        if (btn) btn.addEventListener('click', e => e.stopPropagation());
-        tr.addEventListener('click', () => openRo(tr.dataset.id));
-      });
+      // if this RO is also open in the detail view, keep it in sync
+      if (currentRo && String(currentRo.id) === String(ro.id)) { currentRo.status = nextStage; renderHeader(); }
+    }
+
+    // The empty-lift row shape v1 (shop-board.html) writes when clearing a
+    // bay — a lift is one of 6 FIXED rows, so we CLEAR it, never delete it.
+    const EMPTY_LIFT = {
+      po: '', vehicle: '', customer: '', work: '', status: 'empty', notes: '',
+      arrival_date: null, assigned_tech: '', tech_status: 'available',
+      tech_notes: '', job_category: '', warranty: false,
+    };
+
+    // Remove a car from the v1 floor wherever it sits — the exact inverse of
+    // check-in. parking + pickup rows are dynamic (uuid) → delete; a lift is a
+    // fixed bay → clear to EMPTY_LIFT. Idempotent: matches nothing → no-op.
+    async function removeCarFromFloor(po) {
+      const key = String(po);
+      const dp = await db.from('shopboard_parking').delete().eq('po', key);
+      if (dp.error) return { ok: false, error: dp.error };
+      const dk = await db.from('shopboard_pickup').delete().eq('po', key);
+      if (dk.error) return { ok: false, error: dk.error };
+      const { data: lifts, error: lErr } = await db.from('shopboard_lifts').select('id').eq('po', key);
+      if (lErr) return { ok: false, error: lErr };
+      for (const l of (lifts || [])) {
+        const { error } = await db.from('shopboard_lifts').update(EMPTY_LIFT).eq('id', l.id);
+        if (error) return { ok: false, error };
+      }
+      return { ok: true };
+    }
+
+    // Load a given RO into currentRo/currentLines WITHOUT switching to the
+    // detail panel — so the close archive (setStage→archiveToCompletedJobs,
+    // which reads currentRo + currentLines) has what it needs from a card.
+    async function loadRoContext(roId) {
+      const { data, error } = await db
+        .from('repair_orders')
+        .select('*, ' +
+                'customers(name, phone_primary, phone_secondary, email, tax_exempt), ' +
+                'vehicles(year, make, model, engine, vin, plate, plate_state, transmission_code, drive_type)')
+        .eq('id', roId).single();
+      if (error || !data) throw new Error((error && error.message) || 'RO not found');
+      currentRo = data;
+      await loadLines();
+    }
+
+    // OFF LOT — the bookend to check-in, on Ready-for-pickup cards only.
+    // Removes the car from the v1 floor AND closes the RO. Mirrors check-in's
+    // failure discipline: do the FLOOR mutation first; only stamp the RO state
+    // (close + archive) if it succeeded, so a partial failure leaves no orphan
+    // row on the floor and the card stays re-clickable.
+    async function offLotCard(roId) {
+      const ro = allRos.find(r => String(r.id) === String(roId));
+      if (!ro) return;
+      const po = ro.po || String(ro.ro_number);
+      if (!confirm(`Off-lot RO #${po}?\n\nThis closes the invoice and removes the car from the shop floor.`)) return;
+      // 1) floor first (inverse of check-in) — bail cleanly if it fails
+      const removed = await removeCarFromFloor(po);
+      if (!removed.ok) {
+        alert('Off-lot failed removing the car from the floor: ' + ((removed.error && removed.error.message) || 'unknown error'));
+        return;
+      }
+      // 2) close + archive, reusing the RO-detail close path exactly
+      try {
+        await loadRoContext(roId);
+        await setStage('closed');
+      } catch (e) {
+        console.error('[CdRO] off-lot close failed', e);
+        alert('Car removed from the floor, but closing the RO failed: ' + (e.message || e) + '\nRe-tap Off lot to finish closing.');
+      }
+      await loadRecentList();
     }
 
     // ── DETAIL: open an RO ────────────────────────────────────
@@ -3569,7 +3758,7 @@
     function backToList() {
       $('cdRoDetailPanel').style.display = 'none';
       $('cdRoListPanel').style.display = 'block';
-      renderList();  // reflect any total changes
+      renderKanban();  // reflect any stage/total changes
     }
 
     // ══════════════════════════════════════════════════════════
@@ -3899,7 +4088,7 @@
     }
 
     // ── wiring ────────────────────────────────────────────────
-    $('cdRoSearch').addEventListener('input', renderList);
+    // (no search box on this view — pipeline search gets its own tab later)
     $('cdRoBackBtn').addEventListener('click', backToList);
     $('cdAddLineBtn').addEventListener('click', addLine);
     $('cdAddCardFeeBtn').addEventListener('click', addCardFee);
@@ -3949,7 +4138,7 @@
     // called by BoardSettings' onShopSettingsChanged.
     window.cdRefreshShopSettings = () => {
       if (currentRo && $('cdRoDetailPanel').style.display !== 'none') recalcTotals();
-      if ($('cdRoListPanel') && $('cdRoListPanel').style.display !== 'none') renderList();
+      if ($('cdRoListPanel') && $('cdRoListPanel').style.display !== 'none') renderKanban();
     };
 
     // live refresh of the list when ROs change elsewhere
