@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CrisData · Tech Board</title>
+<!-- ============================================================
+     CrisData Tech Board (dispatcher) — Slice 1, READ-ONLY.
+     NEW view, parallel to v1 shop-board.html / tech-board.html and the
+     gm-board "Tech Status" tab (all left untouched — retirement is later).
+
+     Crew-wide "who's on what right now": one column per tech (from the
+     employees roster), each showing that tech's live jobs across
+     shopboard_lifts + shopboard_parking + shopboard_pickup where
+     assigned_tech = that tech, plus an Unassigned pool.
+
+     Every state chip is derived from the REAL live data My Numbers writes
+     (main `status` + the *_at timestamps), using the SAME derivation as
+     my-numbers.html (sbStatusToLocal) so the dispatcher and the tech's
+     own phone can never disagree. The dead `tech_status` column is never
+     read or written here.
+
+     v2 design language (same tokens as advisor-board / crisdata-floor).
+     ============================================================ -->
+<style>
+  :root {
+    --bg:#f5f6fa; --surface:#ffffff; --surface-2:#f0f1f5; --border:#e2e5ee;
+    --text:#1a1f36; --muted:#8c93a8; --radius:10px;
+    --accent:#5b5ef4; --green:#10b981; --amber:#f59e0b; --red:#ef4444; --blue:#3b82f6;
+    /* state chip palette — mirrors My Numbers' status semantics in v2 light */
+    --s-new-bg:#eceef2;      --s-new-ink:#5a6472;
+    --s-diagnosing-bg:#fdf3d9; --s-diagnosing-ink:#9a7112;
+    --s-waiting-bg:#e7f0fb;  --s-waiting-ink:#2f6098;
+    --s-approved-bg:#e6f8f0; --s-approved-ink:#0b7a52;
+    --s-inprogress-bg:#feeddb; --s-inprogress-ink:#b45309;
+    --s-done-bg:#eef1f5;     --s-done-ink:#8c93a8;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:'Segoe UI', system-ui, sans-serif; font-size:14px; }
+
+  .topbar {
+    display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+    padding:16px 24px; background:var(--surface); border-bottom:1px solid var(--border);
+    position:sticky; top:0; z-index:5;
+  }
+  .brand { display:flex; flex-direction:column; }
+  .brand .kicker { font-size:0.68rem; font-weight:800; letter-spacing:1.5px; text-transform:uppercase; color:var(--accent); }
+  .brand h1 { margin:2px 0 0; font-size:1.15rem; font-weight:800; letter-spacing:.2px; }
+  .brand .beta { font-size:0.62rem; font-weight:800; letter-spacing:.5px; text-transform:uppercase; color:var(--muted); background:var(--surface-2); border:1px solid var(--border); border-radius:20px; padding:2px 8px; margin-left:8px; }
+
+  .counts { display:flex; gap:10px; margin-left:auto; flex-wrap:wrap; align-items:center; }
+  .count-tile {
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    padding:8px 16px; min-width:88px; text-align:center;
+  }
+  .count-tile .n { font-size:1.35rem; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; }
+  .count-tile .l { font-size:0.64rem; font-weight:700; letter-spacing:.6px; text-transform:uppercase; color:var(--muted); margin-top:4px; }
+  .count-tile.accent .n { color:var(--accent); }
+  .count-tile.green .n  { color:var(--green); }
+  .count-tile.amber .n  { color:var(--amber); }
+
+  .refresh-btn {
+    background:transparent; border:1px solid var(--border); border-radius:8px; color:var(--muted);
+    width:38px; height:38px; display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .refresh-btn:hover { background:var(--surface-2); }
+  .refresh-btn svg { width:16px; height:16px; }
+  .refresh-btn.spin svg { animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .stage { padding:20px 24px 40px; }
+  .board-note { font-size:0.78rem; color:var(--muted); margin:0 0 14px; }
+  .board-note b { color:var(--text); }
+
+  /* horizontal column strip */
+  .columns {
+    display:flex; gap:14px; align-items:flex-start;
+    overflow-x:auto; padding-bottom:12px;
+  }
+  .tech-col {
+    flex:0 0 268px; width:268px; background:var(--surface);
+    border:1px solid var(--border); border-radius:var(--radius);
+    display:flex; flex-direction:column; max-height:calc(100vh - 190px);
+  }
+  .tech-col.unassigned { border-style:dashed; border-color:var(--amber); background:#fffdf7; }
+
+  .col-head {
+    display:flex; align-items:center; gap:9px; padding:12px 14px;
+    border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--surface); border-radius:var(--radius) var(--radius) 0 0;
+  }
+  .tech-col.unassigned .col-head { background:#fffdf7; }
+  .col-avatar {
+    width:30px; height:30px; border-radius:50%; flex:0 0 30px;
+    background:var(--surface-2); border:1px solid var(--border);
+    display:flex; align-items:center; justify-content:center;
+    font-size:0.74rem; font-weight:800; color:var(--muted); overflow:hidden;
+  }
+  .col-avatar img { width:100%; height:100%; object-fit:cover; }
+  .col-name { font-weight:800; font-size:0.9rem; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .col-roll { display:flex; align-items:center; gap:5px; font-size:0.6rem; font-weight:800; letter-spacing:.4px; text-transform:uppercase; color:var(--muted); }
+  .roll-dot { width:8px; height:8px; border-radius:50%; background:var(--border); }
+  .roll-dot.working { background:var(--amber); box-shadow:0 0 0 3px rgba(245,158,11,.18); }
+  .col-count { font-size:0.62rem; font-weight:800; color:var(--muted); background:var(--surface-2); border-radius:20px; padding:2px 8px; }
+
+  .col-body { padding:10px 12px; overflow-y:auto; }
+  .block-label { font-size:0.58rem; font-weight:800; letter-spacing:.7px; text-transform:uppercase; color:var(--muted); margin:6px 2px 6px; }
+  .block-label:first-child { margin-top:0; }
+
+  .job-card {
+    background:var(--surface); border:1px solid var(--border); border-left-width:4px;
+    border-radius:8px; padding:8px 10px; margin-bottom:8px; cursor:pointer;
+    box-shadow:0 1px 2px rgba(20,30,60,.05); transition:transform .08s, box-shadow .08s;
+  }
+  .job-card:hover { transform:translateY(-1px); box-shadow:0 4px 10px rgba(20,30,60,.12); }
+  .job-card.current { border-left-color:var(--amber); background:#fffdf7; }
+  .jc-top { display:flex; align-items:baseline; gap:6px; }
+  .jc-ro { font-weight:800; font-size:0.82rem; }
+  .jc-src { margin-left:auto; font-size:0.56rem; font-weight:800; letter-spacing:.3px; text-transform:uppercase; color:var(--muted); background:var(--surface-2); border-radius:5px; padding:1px 5px; }
+  .jc-veh { font-size:0.78rem; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .jc-cust { font-size:0.71rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .jc-chip-row { display:flex; align-items:center; gap:7px; margin-top:6px; }
+  .chip { font-size:0.6rem; font-weight:800; letter-spacing:.3px; text-transform:uppercase; padding:2px 8px; border-radius:20px; }
+  .chip.s-new{ background:var(--s-new-bg); color:var(--s-new-ink); }
+  .chip.s-diagnosing{ background:var(--s-diagnosing-bg); color:var(--s-diagnosing-ink); }
+  .chip.s-waiting{ background:var(--s-waiting-bg); color:var(--s-waiting-ink); }
+  .chip.s-approved{ background:var(--s-approved-bg); color:var(--s-approved-ink); }
+  .chip.s-in_progress{ background:var(--s-inprogress-bg); color:var(--s-inprogress-ink); }
+  .chip.s-done{ background:var(--s-done-bg); color:var(--s-done-ink); }
+  .jc-elapsed { font-size:0.66rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+  .col-empty { font-size:0.72rem; color:var(--muted); font-style:italic; text-align:center; padding:16px 6px; }
+
+  /* read-only detail modal */
+  .modal-overlay {
+    position:fixed; inset:0; background:rgba(20,30,60,.42); display:none;
+    align-items:center; justify-content:center; z-index:40; padding:18px;
+  }
+  .modal-overlay.open { display:flex; }
+  .modal {
+    background:var(--surface); border-radius:14px; width:100%; max-width:420px;
+    box-shadow:0 18px 50px rgba(20,30,60,.3); overflow:hidden;
+  }
+  .modal-head { padding:16px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
+  .modal-head .m-ro { font-weight:800; font-size:1rem; }
+  .modal-head .m-close { margin-left:auto; background:none; border:none; font-size:1.3rem; color:var(--muted); cursor:pointer; line-height:1; }
+  .modal-body { padding:16px 18px; }
+  .m-field { margin-bottom:12px; }
+  .m-field .m-lbl { font-size:0.6rem; font-weight:800; letter-spacing:.6px; text-transform:uppercase; color:var(--muted); margin-bottom:3px; }
+  .m-field .m-val { font-size:0.88rem; }
+  .m-ro-only { font-size:0.7rem; color:var(--muted); border-top:1px solid var(--border); padding-top:10px; margin-top:4px; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">
+      <span class="kicker">CrisData</span>
+      <h1>Tech Board <span class="beta">read-only · beta</span></h1>
+    </div>
+    <div class="counts">
+      <div class="count-tile amber"><div class="n" id="cWorking">0</div><div class="l">Working</div></div>
+      <div class="count-tile accent"><div class="n" id="cAssigned">0</div><div class="l">Assigned</div></div>
+      <div class="count-tile"><div class="n" id="cUnassigned">0</div><div class="l">Unassigned</div></div>
+      <button class="refresh-btn" id="refreshBtn" title="Refresh" aria-label="Refresh">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <p class="board-note">Crew-wide live view. Chips are derived from each job's real state (<b>status</b> + timestamps) — the same as the tech's My Numbers phone. Read-only this slice.</p>
+    <div class="columns" id="columns"><div class="col-empty">Loading…</div></div>
+  </div>
+
+  <div class="modal-overlay" id="jobModal">
+    <div class="modal">
+      <div class="modal-head">
+        <span class="m-ro" id="mRo">#—</span>
+        <span class="chip" id="mChip"></span>
+        <button class="m-close" id="mClose" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body" id="mBody"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+  (function () {
+    const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => (s == null ? '' : String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+    // ── state model — VERBATIM from my-numbers.html sbStatusToLocal(), so
+    //    this dispatcher and the tech's phone can never disagree. ──────────
+    function deriveLocalStatus(row, table) {
+      if (table === 'shopboard_pickup') return 'done';
+      const s = row.status || '';
+      if (s === 'waiting-tech') return row.diagnosing_at ? 'diagnosing' : 'new';
+      if (s === 'waiting-auth') return 'waiting';
+      if (s === 'approved')     return 'approved';
+      if (s === 'in-progress')  return 'in_progress';
+      if (s === 'waiting-pull') return 'done';
+      return 'new';
+    }
+    // labels mirror my-numbers.html statusNew…statusDone (English)
+    const STATUS_LABEL = {
+      new:'New Assignment', diagnosing:'Diagnosing', waiting:'Awaiting Approval',
+      approved:'Approved — Go Ahead', in_progress:'In Progress', done:'Complete',
+    };
+    // the *_at timestamp that defines "time in current state"
+    const STATE_TS = {
+      diagnosing:'diagnosing_at', waiting:'waiting_at', approved:'approved_at',
+      in_progress:'tech_started_at', done:'tech_finished_at', new:'created_at',
+    };
+    const ACTIVE = { in_progress:true, diagnosing:true };  // what counts as "being worked"
+
+    const SRC_LABEL = { shopboard_lifts:'Lift', shopboard_parking:'Lot', shopboard_pickup:'Pickup' };
+
+    function isUnassigned(v) {
+      return !v || !String(v).trim() || String(v).trim().toLowerCase() === 'unassigned';
+    }
+    function fmtElapsed(ts) {
+      if (!ts) return '';
+      const ms = Date.now() - new Date(ts).getTime();
+      if (ms < 0) return '';
+      const m = Math.floor(ms / 60000);
+      if (m < 1) return 'just now';
+      if (m < 60) return m + 'm';
+      const h = Math.floor(m / 60);
+      if (h < 24) return h + 'h ' + (m % 60) + 'm';
+      const d = Math.floor(h / 24);
+      return d + 'd ' + (h % 24) + 'h';
+    }
+
+    let techs = [];   // employees rows (role=tech)
+    let jobs = [];    // normalized job objects across all three tables
+
+    // Map a raw supabase row to a normalized job — mirrors sbRowToJob().
+    function toJob(row, table) {
+      const local = deriveLocalStatus(row, table);
+      return {
+        sbid: row.id,
+        table,
+        po: row.po || '',
+        vehicle: (row.vehicle || '').trim(),
+        customer: row.customer || '',
+        work: row.work || '',
+        notes: row.notes || '',
+        techNotes: row.tech_notes || '',
+        jobCategory: row.job_category || '',
+        warranty: !!row.warranty,
+        assignedTech: row.assigned_tech || '',
+        jobOrder: row.job_order != null ? Number(row.job_order) : null,
+        status: local,
+        active: !!ACTIVE[local],
+        stateTs: row[STATE_TS[local]] || row.created_at || null,
+        createdAt: row.created_at ? new Date(row.created_at).getTime() : 0,
+      };
+    }
+
+    async function loadAll() {
+      // same three tables + column set as my-numbers.html loadSupabaseData(),
+      // but WITHOUT the assigned_tech filter (dispatcher wants the whole crew).
+      // assigned_tech is selected so we can bucket client-side.
+      const BASE = 'id,po,vehicle,work,notes,tech_notes,job_category,customer,warranty,assigned_tech,' +
+                   'diagnosing_at,waiting_at,approved_at,tech_started_at,tech_finished_at,created_at';
+      const SEL_LP = BASE + ',status,job_order';       // lifts + parking
+      const SEL_PK = BASE;                              // pickup has no status/job_order
+      const [empRes, liftRes, parkRes, pickRes] = await Promise.all([
+        db.from('employees').select('id, name, photo_url').eq('role', 'tech').eq('active', true).order('name'),
+        db.from('shopboard_lifts').select(SEL_LP),
+        db.from('shopboard_parking').select(SEL_LP),
+        db.from('shopboard_pickup').select(SEL_PK),
+      ]);
+      if (empRes.error)  console.error('[TechBoard] employees load failed', empRes.error);
+      if (liftRes.error) console.error('[TechBoard] lifts load failed', liftRes.error);
+      if (parkRes.error) console.error('[TechBoard] parking load failed', parkRes.error);
+      if (pickRes.error) console.error('[TechBoard] pickup load failed', pickRes.error);
+
+      techs = empRes.data || [];
+      jobs = [
+        ...(liftRes.data || []).filter(r => r.vehicle && r.vehicle.trim()).map(r => toJob(r, 'shopboard_lifts')),
+        ...(parkRes.data || []).filter(r => r.vehicle && r.vehicle.trim()).map(r => toJob(r, 'shopboard_parking')),
+        ...(pickRes.data || []).filter(r => r.vehicle && r.vehicle.trim()).map(r => toJob(r, 'shopboard_pickup')),
+      ];
+      render();
+    }
+
+    // active jobs first, then by job_order (nulls last), then oldest first — stable.
+    function sortJobs(list) {
+      return list.slice().sort((a, b) => {
+        if (a.active !== b.active) return a.active ? -1 : 1;
+        const ao = a.jobOrder == null ? 9999 : a.jobOrder;
+        const bo = b.jobOrder == null ? 9999 : b.jobOrder;
+        if (ao !== bo) return ao - bo;
+        return a.createdAt - b.createdAt;
+      });
+    }
+
+    function jobCardHtml(j, isCurrent) {
+      const chip = `<span class="chip s-${j.status}">${esc(STATUS_LABEL[j.status] || j.status)}</span>`;
+      const el = fmtElapsed(j.stateTs);
+      return `
+        <div class="job-card${isCurrent ? ' current' : ''}" data-table="${esc(j.table)}" data-id="${esc(j.sbid)}">
+          <div class="jc-top">
+            <span class="jc-ro">#${esc(j.po || '—')}</span>
+            <span class="jc-src">${esc(SRC_LABEL[j.table] || '')}</span>
+          </div>
+          <div class="jc-veh">${esc(j.vehicle || '—')}</div>
+          ${j.customer ? `<div class="jc-cust">${esc(j.customer)}</div>` : ''}
+          <div class="jc-chip-row">${chip}${el ? `<span class="jc-elapsed">${esc(el)}</span>` : ''}</div>
+        </div>`;
+    }
+
+    function techColHtml(tech, myJobs) {
+      const sorted = sortJobs(myJobs);
+      const current = sorted.filter(j => j.active);
+      const upNext = sorted.filter(j => !j.active);
+      const working = current.length > 0;
+      const initials = (tech.name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+      const avatar = tech.photo_url
+        ? `<span class="col-avatar"><img src="${esc(tech.photo_url)}" alt=""></span>`
+        : `<span class="col-avatar">${esc(initials)}</span>`;
+      const currentBlock = current.length
+        ? `<div class="block-label">Working On</div>${current.map(j => jobCardHtml(j, true)).join('')}`
+        : `<div class="block-label">Working On</div><div class="col-empty">No active job</div>`;
+      const upNextBlock = upNext.length
+        ? `<div class="block-label">Up Next</div>${upNext.map(j => jobCardHtml(j, false)).join('')}`
+        : '';
+      return `
+        <div class="tech-col">
+          <div class="col-head">
+            ${avatar}
+            <span class="col-name">${esc(tech.name)}</span>
+            <span class="col-roll"><span class="roll-dot${working ? ' working' : ''}"></span>${working ? 'Working' : 'Available'}</span>
+            <span class="col-count">${myJobs.length}</span>
+          </div>
+          <div class="col-body">${currentBlock}${upNextBlock}</div>
+        </div>`;
+    }
+
+    function unassignedColHtml(list) {
+      const sorted = sortJobs(list);
+      const body = sorted.length
+        ? sorted.map(j => jobCardHtml(j, false)).join('')
+        : '<div class="col-empty">Nothing unassigned</div>';
+      return `
+        <div class="tech-col unassigned">
+          <div class="col-head">
+            <span class="col-avatar" style="color:var(--amber)">?</span>
+            <span class="col-name">Unassigned</span>
+            <span class="col-count">${list.length}</span>
+          </div>
+          <div class="col-body">${body}</div>
+        </div>`;
+    }
+
+    function render() {
+      const wrap = $('columns');
+      const unassigned = jobs.filter(j => isUnassigned(j.assignedTech));
+      const byTech = {};
+      techs.forEach(t => { byTech[t.name] = []; });
+      // bucket assigned jobs by exact assigned_tech name (case-insensitive match to roster)
+      const lower = {};
+      techs.forEach(t => { lower[(t.name || '').trim().toLowerCase()] = t.name; });
+      jobs.forEach(j => {
+        if (isUnassigned(j.assignedTech)) return;
+        const key = lower[j.assignedTech.trim().toLowerCase()];
+        if (key) byTech[key].push(j);
+        // jobs assigned to a name not in the tech roster fall through (e.g. a
+        // former tech) — intentionally not shown as a phantom column this slice.
+      });
+
+      let working = 0;
+      techs.forEach(t => { if ((byTech[t.name] || []).some(j => j.active)) working++; });
+      const assignedCount = jobs.filter(j => !isUnassigned(j.assignedTech)).length;
+      $('cWorking').textContent = working;
+      $('cAssigned').textContent = assignedCount;
+      $('cUnassigned').textContent = unassigned.length;
+
+      const cols = techs.map(t => techColHtml(t, byTech[t.name] || []));
+      cols.push(unassignedColHtml(unassigned));
+      wrap.innerHTML = cols.join('') || '<div class="col-empty">No techs found.</div>';
+
+      wrap.querySelectorAll('.job-card').forEach(card => {
+        card.addEventListener('click', () => openJob(card.dataset.table, card.dataset.id));
+      });
+    }
+
+    // ── read-only detail modal ──
+    function openJob(table, sbid) {
+      const j = jobs.find(x => x.table === table && String(x.sbid) === String(sbid));
+      if (!j) return;
+      $('mRo').textContent = '#' + (j.po || '—');
+      const chip = $('mChip');
+      chip.className = 'chip s-' + j.status;
+      chip.textContent = STATUS_LABEL[j.status] || j.status;
+      const rows = [
+        ['Vehicle', j.vehicle || '—'],
+        ['Customer', j.customer || '—'],
+        ['Assigned Tech', j.assignedTech || 'Unassigned'],
+        ['Location', SRC_LABEL[j.table] || '—'],
+        ['Work', j.work || '—'],
+        ['Category', j.jobCategory || '—'],
+        ['Time in state', fmtElapsed(j.stateTs) || '—'],
+      ];
+      if (j.techNotes) rows.push(['Tech Notes', j.techNotes]);
+      if (j.warranty) rows.push(['Warranty / Comeback', 'Yes']);
+      $('mBody').innerHTML = rows.map(([l, v]) =>
+        `<div class="m-field"><div class="m-lbl">${esc(l)}</div><div class="m-val">${esc(v)}</div></div>`
+      ).join('') + '<div class="m-ro-only">Read-only view. Techs update jobs from My Numbers.</div>';
+      $('jobModal').classList.add('open');
+    }
+    function closeModal() { $('jobModal').classList.remove('open'); }
+    $('mClose').addEventListener('click', closeModal);
+    $('jobModal').addEventListener('click', (e) => { if (e.target === $('jobModal')) closeModal(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+    // ── realtime: any change on the three floor tables reloads the crew view ──
+    function subscribe() {
+      db.channel('crisdata-techboard')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_lifts' }, loadAll)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_parking' }, loadAll)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_pickup' }, loadAll)
+        .subscribe((status) => { if (status === 'SUBSCRIBED') loadAll(); });
+    }
+
+    $('refreshBtn').addEventListener('click', async (e) => {
+      const b = e.currentTarget; b.classList.add('spin');
+      await loadAll();
+      setTimeout(() => b.classList.remove('spin'), 400);
+    });
+
+    // keep elapsed labels fresh without a full refetch
+    setInterval(() => { if (jobs.length) render(); }, 60000);
+
+    loadAll();
+    subscribe();
+  })();
+  </script>
+</body>
+</html>
