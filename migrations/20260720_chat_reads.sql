@@ -40,6 +40,11 @@ create index if not exists idx_chat_reads_reader on public.chat_reads (reader_na
 -- access control stays at the app layer, not the DB layer.
 alter table public.chat_reads enable row level security;
 
+-- Idempotent: Postgres has no "create policy if not exists", so drop first.
+-- This file is already applied; the guard only makes a re-run (or a batch
+-- re-run alongside 20260720_chat_conversations.sql) clean instead of 42710.
+drop policy if exists "Allow anon full access to chat_reads" on public.chat_reads;
+
 create policy "Allow anon full access to chat_reads"
   on public.chat_reads
   for all

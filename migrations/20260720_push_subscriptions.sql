@@ -39,6 +39,10 @@ create index if not exists idx_push_subscriptions_name on public.push_subscripti
 -- the app layer, not the DB layer.
 alter table public.push_subscriptions enable row level security;
 
+-- Idempotent: no "create policy if not exists" in Postgres, so drop first
+-- to keep a re-run (or batch re-run with the other 20260720 files) clean.
+drop policy if exists "Allow anon full access to push_subscriptions" on public.push_subscriptions;
+
 create policy "Allow anon full access to push_subscriptions"
   on public.push_subscriptions
   for all

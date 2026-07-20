@@ -1,61 +1,153 @@
 /* ============================================================
    team-chat.js — single shared Team Chat component.
 
-   Extracted (behaviour-for-behaviour) from the four board copies in
-   gm-board / advisor-board / owner-board / bookkeeping-board, which were
-   ~250 near-identical lines each. Parameterised via initTeamChat(config).
+   Slice 3b (this file) — CONVERSATION-DRIVEN rewrite. Chat is now an
+   inbox of conversations (the Slack/WhatsApp shape), not the old fixed
+   role-pair channel strings.
 
-   Markup contract (identical on every board that mounts it):
-     #chat-channels  #chat-messages  #chat-input  #chat-send
-     #emoji-btn      #emoji-popover
-   Config supplies the board-specific bits: channel list, live identity,
-   unread-badge element id, a visibility predicate (tab vs panel), and
-   optionally the channel key to relabel with the live owner's name.
+   Data model (migrations/20260720_chat_conversations.sql, APPLIED):
+     chat_conversations(id, type 'dm'|'group', title, dm_key, ...)
+     chat_members(conversation_id, member_name, member_role)   PK(conv,name)
+     chat_messages.conversation_id   — new rows set this, leave channel null
+     chat_reads   PK(conversation_id, reader_name) — last_read_at per person
 
-   Slice-1 additions (additive, no UX change):
-   • Durable read-state via a `chat_reads` table so unread survives reload
-     and syncs across devices. Degrades to today's in-memory-only counting
-     if that table isn't migrated yet (see migrations/20260720_chat_reads.sql).
+   UI shape:
+     • DEFAULT = INBOX: the conversations I'm a member of, newest-activity
+       first — display name, last-message preview, time, unread badge.
+       Group name = title; DM name = the OTHER member's name.
+     • TAP A ROW = THREAD: that conversation's messages oldest→newest,
+       input box, a back control to return to the inbox. Opening marks read.
+     • SEND writes conversation_id (channel null). Push is fire-and-forget
+       and fully guarded (3d rewires it to conversation_id).
+     • REALTIME: one chat_messages INSERT subscription, filtered client-side
+       by my membership. Open thread → append live; other conv → bump inbox
+       row + unread + toast. Refetch membership+inbox on every (re)connect.
 
-   initTeamChat(config) returns:
-     { refetch, resubscribe, getChannel, onSurfaceShown }
-   which each board wires to its own surface (sidebar tab vs floating panel).
+   Identity is read LIVE via config.getIdentity() → {role, name}; member
+   lookup keys on name (never hardcode role strings — the bookkeeper's role
+   is stored as 'bookkeeping'). Boards still pass their old per-board config
+   (mode / badgeId / isSurfaceVisible); the obsolete `channels` and
+   `ownerNameChannelKey` keys are accepted but IGNORED — conversations are
+   derived from chat_members now.
+
+   Markup contract (unchanged, identical on every board):
+     #chat-channels   — repurposed as the thread back-bar (hidden in inbox)
+     #chat-messages   — swaps between inbox list and thread messages
+     #chat-input #chat-send #emoji-btn #emoji-popover   — thread input row
+     #chat-panel      — the panel root (gets a chat-mode-* + chat-view-* class)
+
+   initTeamChat(config) returns { refetch, resubscribe, getChannel, onSurfaceShown }.
    ============================================================ */
 function initTeamChat(config) {
   const db = config.db;
-  // Read identity LIVE at every use. Each board resolves its session
-  // asynchronously and REASSIGNS its CHAT_IDENTITY to a NEW object once the
-  // name/role are known — so a reference captured here at init would stay
-  // pinned to the initial {name:null, role:null} object and the send guard
-  // would wrongly reject a sender the board already knows. config.getIdentity()
-  // always reflects the board's current value; config.identity remains a
-  // fallback for any caller that passes a live-mutated object instead.
+  // Read identity LIVE at every use — boards REASSIGN CHAT_IDENTITY to a new
+  // object once the session resolves, so a reference captured at init would
+  // stay pinned to the initial {name:null}. config.getIdentity() always
+  // reflects the board's current value.
   const getIdentity = () =>
     (typeof config.getIdentity === 'function' ? config.getIdentity() : config.identity) || {};
-  const CHAT_CHANNELS = config.channels || [];
   const badgeId = config.badgeId || 'teamchat-unread-badge';
   const isSurfaceVisible = config.isSurfaceVisible || (() => true);
-  const ownerNameChannelKey = config.ownerNameChannelKey || null;
 
-  let CURRENT_CHANNEL = (CHAT_CHANNELS[0] && CHAT_CHANNELS[0].key) || 'group';
-  let chatMessages = [];
+  // ── state ──
+  let currentConvId = null;         // null = inbox view; else the open thread
+  let myConversations = [];         // enriched, sorted newest-activity first
+  let convById = {};                // id -> enriched conversation
+  let unreadByConv = {};            // id -> unread count
+  let threadMessages = [];          // messages of the open thread
   let chatRealtimeChannel = null;
-  let chatUnreadCounts = {};
   let chatAudioCtx = null;
 
-  // ── durable read-state (chat_reads) — with in-memory fallback ──
-  let readAvailable = true;    // flips false the first time chat_reads looks unmigrated
-  let readSyncing = false;     // guards overlapping syncs
-  const lastReadAt = {};       // channel -> ISO string of that reader's last_read_at
+  // ── durable read-state (chat_reads) — with defensive in-memory fallback ──
+  let readAvailable = true;         // flips false if chat_reads ever looks unmigrated
+  const lastReadAt = {};            // conversation_id -> ISO last_read_at
 
   function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function truncate(s, n) { s = s || ''; return s.length > n ? s.slice(0, n - 1) + '…' : s; }
   function formatChatTime(iso) {
     return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   }
-
-  function isTeamChatVisible(channel) {
-    return isSurfaceVisible() && CURRENT_CHANNEL === channel;
+  // Inbox timestamp: time today, weekday within a week, else short date.
+  function formatInboxTime(iso) {
+    if (!iso) return '';
+    const d = new Date(iso), now = new Date();
+    if (d.toDateString() === now.toDateString())
+      return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    const diffDays = Math.floor((now - d) / 86400000);
+    if (diffDays < 7) return d.toLocaleDateString('en-US', { weekday: 'short' });
+    return d.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' });
   }
+  function isMissingTable(err) {
+    const code = (err && err.code) || '', msg = (err && err.message) || '';
+    return code === '42P01' || code === 'PGRST205' ||
+      /relation .* does not exist/i.test(msg) || /could not find the table/i.test(msg);
+  }
+
+  // ── one-time CSS injection (keeps 3b styling identical across all boards,
+  //    including owner-board which has its own inline chat CSS) ──
+  (function injectChatCss() {
+    if (document.getElementById('cd-teamchat-3b-css')) return;
+    const css = `
+.chat-panel.chat-view-inbox .chat-input-row { display:none; }
+.chat-panel.chat-view-inbox #chat-channels { display:none; }
+.chat-panel.chat-view-thread #chat-channels {
+  display:flex; align-items:center; gap:8px; padding:8px 10px;
+}
+.chat-back-btn {
+  border:none; background:transparent; cursor:pointer;
+  font-size:1.6rem; line-height:1; color:var(--accent);
+  width:30px; height:30px; border-radius:8px; flex:0 0 auto;
+  display:flex; align-items:center; justify-content:center;
+}
+.chat-back-btn:hover { background:#eef0f7; }
+.chat-thread-title {
+  font-weight:700; font-size:0.85rem; color:var(--text);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.chat-inbox { display:flex; flex-direction:column; margin:-12px; }
+.chat-inbox-empty { padding:24px 16px; text-align:center; color:var(--muted); font-size:0.83rem; }
+.chat-inbox-row {
+  display:flex; align-items:center; gap:10px;
+  width:100%; text-align:left; cursor:pointer; font-family:inherit;
+  padding:11px 14px; background:#fff; border:none; border-bottom:1px solid var(--border);
+}
+.chat-inbox-row:hover { background:#f4f6fb; }
+.chat-inbox-avatar {
+  flex:0 0 auto; width:38px; height:38px; border-radius:50%;
+  background:var(--accent); color:#fff; font-weight:700; font-size:0.95rem;
+  display:flex; align-items:center; justify-content:center;
+}
+.chat-inbox-avatar.is-group { background:#6b7280; }
+.chat-inbox-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.chat-inbox-top { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.chat-inbox-name {
+  font-weight:700; font-size:0.85rem; color:var(--text);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.chat-inbox-time { flex:0 0 auto; font-size:0.66rem; color:var(--muted); }
+.chat-inbox-preview {
+  font-size:0.78rem; color:var(--muted);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.chat-inbox-none { font-style:italic; }
+.chat-inbox-badge {
+  flex:0 0 auto; min-width:18px; height:18px; padding:0 5px; border-radius:20px;
+  background:#ef4444; color:#fff; font-size:0.66rem; font-weight:700;
+  display:flex; align-items:center; justify-content:center;
+}
+/* Desktop: the in-page tab boards' chat fills the content area instead of
+   floating as a short phone-width card. Scoped to .chat-mode-tab so the
+   owner-board floating FAB panel (.chat-mode-panel) keeps its compact size. */
+@media (min-width:768px) {
+  .chat-panel.chat-mode-tab {
+    height: calc(100vh - 160px); min-height: 520px; max-height: none;
+  }
+}`;
+    const el = document.createElement('style');
+    el.id = 'cd-teamchat-3b-css';
+    el.textContent = css;
+    document.head.appendChild(el);
+  })();
 
   // ── alert audio (synthesized beep; no external asset) ──
   function unlockChatAudio() {
@@ -64,13 +156,9 @@ function initTeamChat(config) {
     }
     if (chatAudioCtx.state === 'suspended') chatAudioCtx.resume().catch(() => {});
   }
-  // Unlock on the very first interaction anywhere on the page — any trusted
-  // gesture satisfies the browser's autoplay policy, so this doesn't depend on
-  // the user opening Team Chat before a message arrives.
   ['click', 'keydown', 'touchstart'].forEach(evt => {
     document.addEventListener(evt, unlockChatAudio, { once: true, passive: true });
   });
-
   function playChatAlertSound() {
     if (!chatAudioCtx) {
       try { chatAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
@@ -86,13 +174,8 @@ function initTeamChat(config) {
       osc.start();
       osc.stop(chatAudioCtx.currentTime + 0.3);
     };
-    // Resume is async — schedule the tone only after it resolves, else the
-    // oscillator can be scheduled against a still-suspended context and never sound.
-    if (chatAudioCtx.state === 'suspended') {
-      chatAudioCtx.resume().then(fire).catch(() => {});
-    } else {
-      fire();
-    }
+    if (chatAudioCtx.state === 'suspended') chatAudioCtx.resume().then(fire).catch(() => {});
+    else fire();
   }
 
   // ── toast ──
@@ -106,27 +189,30 @@ function initTeamChat(config) {
     }
     return box;
   }
-
   function showChatToast(rec) {
     const box = ensureChatToastContainer();
-    const channelLabel = (CHAT_CHANNELS.find(c => c.key === rec.channel) || {}).label || rec.channel;
+    const conv = convById[rec.conversation_id];
+    const label = conv ? conv.displayName : 'Team Chat';
     const el = document.createElement('div');
     el.className = 'chat-toast';
     el.innerHTML = `
-      <div class="chat-toast-channel">${esc(channelLabel)}</div>
+      <div class="chat-toast-channel">${esc(label)}</div>
       <div class="chat-toast-sender">${esc(rec.sender_name)}</div>
       <div class="chat-toast-msg">${esc(rec.message)}</div>
     `;
-    el.addEventListener('click', () => el.remove());
+    el.addEventListener('click', () => {
+      el.remove();
+      openThread(rec.conversation_id);   // jump straight to the conversation
+    });
     box.appendChild(el);
     setTimeout(() => el.remove(), 5000);
   }
 
-  // ── unread badge ──
+  // ── unread badge (sum across conversations) ──
   function updateChatUnreadBadge() {
     const badge = document.getElementById(badgeId);
     if (!badge) return;
-    const total = Object.values(chatUnreadCounts).reduce((a, b) => a + b, 0);
+    const total = Object.values(unreadByConv).reduce((a, b) => a + (b || 0), 0);
     if (total > 0) {
       badge.textContent = total > 9 ? '9+' : String(total);
       badge.style.display = 'flex';
@@ -135,87 +221,141 @@ function initTeamChat(config) {
     }
   }
 
-  function maybeAlertNewMessage(rec) {
-    if (!rec || !getIdentity().name || !getIdentity().role) return; // pre-login: identity not resolved yet
-    if (rec.sender_name === getIdentity().name) return;        // self-sent
-    playChatAlertSound();                                 // sound always plays, even for the open channel
-    if (isTeamChatVisible(rec.channel)) return;           // already looking at this exact channel — skip toast/badge
-    chatUnreadCounts[rec.channel] = (chatUnreadCounts[rec.channel] || 0) + 1;
-    updateChatUnreadBadge();
-    showChatToast(rec);
-  }
-
-  // ── channel tabs ──
-  function renderChannelTabs() {
-    const wrap = document.getElementById('chat-channels');
-    if (!wrap) return;
-    wrap.innerHTML = CHAT_CHANNELS.map(c =>
-      `<button class="chat-channel-btn${c.key === CURRENT_CHANNEL ? ' active' : ''}" data-channel="${c.key}">${esc(c.label)}</button>`
-    ).join('');
-    wrap.querySelectorAll('[data-channel]').forEach(btn => {
-      btn.addEventListener('click', () => switchChatChannel(btn.dataset.channel));
-    });
-  }
-
-  // Pull the real owner's name from `employees` (same dynamic-source pattern as
-  // the Tech dropdown) to label the board's owner channel. Falls back to the
-  // generic "Owner" label. Only runs when the board configures a key.
-  async function loadOwnerChannelLabel() {
-    if (!ownerNameChannelKey) return;
-    const { data, error } = await db
-      .from('employees').select('name')
-      .eq('role', 'owner').eq('active', true)
-      .order('name').limit(1);
-    if (error) { console.error('[Chat] load owner label failed', error); return; }
-    const entry = CHAT_CHANNELS.find(c => c.key === ownerNameChannelKey);
-    if (entry) entry.label = (data && data[0] && data[0].name) ? data[0].name : 'Owner';
-    renderChannelTabs();
-  }
-
-  // ── messages ──
-  async function loadChatMessages(channel) {
-    const { data, error } = await db.from('chat_messages').select('*').eq('channel', channel).order('created_at');
-    if (error) { console.error('[Chat] load failed', error); chatMessages = []; }
-    else chatMessages = data || [];
-    renderChat();
-  }
-
-  function handleIncomingChatMessage(rec) {
-    if (!rec) return;
-    if (rec.channel === CURRENT_CHANNEL) {
-      chatMessages.push(rec);
-      renderChat();
+  // ── view switching ──
+  function setView(mode, title) {
+    const panel = document.getElementById('chat-panel');
+    if (panel) {
+      panel.classList.toggle('chat-view-inbox', mode === 'inbox');
+      panel.classList.toggle('chat-view-thread', mode === 'thread');
     }
-    maybeAlertNewMessage(rec);
-  }
-
-  function subscribeChatChannel() {
-    if (chatRealtimeChannel) {
-      db.removeChannel(chatRealtimeChannel);
-      chatRealtimeChannel = null;
+    const nav = document.getElementById('chat-channels');
+    if (nav) {
+      if (mode === 'thread') {
+        nav.innerHTML =
+          `<button class="chat-back-btn" type="button" aria-label="Back">‹</button>` +
+          `<span class="chat-thread-title">${esc(title || '')}</span>`;
+        const back = nav.querySelector('.chat-back-btn');
+        if (back) back.addEventListener('click', backToInbox);
+      } else {
+        nav.innerHTML = '';
+      }
     }
-    let channel = db.channel('chat-live');
-    CHAT_CHANNELS.forEach(c => {
-      channel = channel.on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `channel=eq.${c.key}` },
-        ({ new: rec }) => handleIncomingChatMessage(rec)
-      );
-    });
-    chatRealtimeChannel = channel.subscribe();
   }
 
-  function switchChatChannel(channel) {
-    CURRENT_CHANNEL = channel;
-    renderChannelTabs();
-    loadChatMessages(channel);
-    markChannelRead(channel);
-  }
+  // ── inbox ──
+  function renderInboxIfVisible() { if (currentConvId === null) renderInbox(); }
 
-  function renderChat() {
+  function renderInbox() {
     const box = document.getElementById('chat-messages');
     if (!box) return;
-    box.innerHTML = chatMessages.map(m => `
-      <div class="chat-msg ${m.sender_name === getIdentity().name ? 'me' : 'them'}">
+    const me = getIdentity();
+    if (!myConversations.length) {
+      box.innerHTML = `<div class="chat-inbox-empty">${me.name ? 'No conversations yet.' : 'Loading…'}</div>`;
+      return;
+    }
+    box.innerHTML = `<div class="chat-inbox">` + myConversations.map(c => {
+      const preview = c.lastMsg
+        ? `${c.lastMsg.sender_name === me.name ? 'You' : esc(c.lastMsg.sender_name)}: ${esc(truncate(c.lastMsg.message, 42))}`
+        : `<span class="chat-inbox-none">No messages yet</span>`;
+      const time = c.lastMsg ? formatInboxTime(c.lastAt) : '';
+      const badge = c.unread > 0 ? `<span class="chat-inbox-badge">${c.unread > 99 ? '99+' : c.unread}</span>` : '';
+      const initial = (c.displayName || '?').trim().charAt(0).toUpperCase();
+      return `<button class="chat-inbox-row" data-conv="${c.id}">
+        <span class="chat-inbox-avatar ${c.type === 'group' ? 'is-group' : ''}">${c.type === 'group' ? '👥' : esc(initial)}</span>
+        <span class="chat-inbox-main">
+          <span class="chat-inbox-top">
+            <span class="chat-inbox-name">${esc(c.displayName)}</span>
+            <span class="chat-inbox-time">${time}</span>
+          </span>
+          <span class="chat-inbox-preview">${preview}</span>
+        </span>
+        ${badge}
+      </button>`;
+    }).join('') + `</div>`;
+    box.querySelectorAll('[data-conv]').forEach(btn =>
+      btn.addEventListener('click', () => openThread(btn.dataset.conv)));
+    box.scrollTop = 0;
+  }
+
+  async function loadReadState(ids) {
+    if (!readAvailable || !getIdentity().name || !ids.length) return;
+    const { data, error } = await db.from('chat_reads')
+      .select('conversation_id, last_read_at')
+      .eq('reader_name', getIdentity().name);
+    if (error) {
+      if (isMissingTable(error)) readAvailable = false;
+      else console.warn('[Chat] read load failed', error.message);
+      return;
+    }
+    (data || []).forEach(r => { if (r.conversation_id) lastReadAt[r.conversation_id] = r.last_read_at; });
+  }
+
+  // Load my conversations + previews + unread, then render the inbox.
+  // Only touches the inbox DOM when the inbox is the active view; always
+  // refreshes state + the unread badge (so a bumped badge is correct even
+  // while a thread is open).
+  async function loadInbox() {
+    const me = getIdentity();
+    if (!me.name) return;
+
+    const { data: mem, error: memErr } = await db.from('chat_members')
+      .select('conversation_id').eq('member_name', me.name);
+    if (memErr) { console.error('[Chat] membership load failed', memErr); return; }
+    const ids = (mem || []).map(m => m.conversation_id);
+    if (!ids.length) {
+      myConversations = []; convById = {}; unreadByConv = {};
+      renderInboxIfVisible(); updateChatUnreadBadge();
+      return;
+    }
+
+    const [{ data: convs, error: cErr }, { data: allMem }] = await Promise.all([
+      db.from('chat_conversations').select('*').in('id', ids),
+      db.from('chat_members').select('conversation_id, member_name').in('conversation_id', ids),
+    ]);
+    if (cErr) { console.error('[Chat] conversations load failed', cErr); return; }
+
+    const membersByConv = {};
+    (allMem || []).forEach(m => { (membersByConv[m.conversation_id] || (membersByConv[m.conversation_id] = [])).push(m.member_name); });
+
+    await loadReadState(ids);
+
+    const enriched = await Promise.all((convs || []).map(async c => {
+      const displayName = c.type === 'group'
+        ? (c.title || 'Group')
+        : ((membersByConv[c.id] || []).filter(n => n !== me.name)[0] || c.dm_key || 'Direct message');
+
+      const { data: last } = await db.from('chat_messages')
+        .select('message, sender_name, created_at')
+        .eq('conversation_id', c.id).order('created_at', { ascending: false }).limit(1);
+      const lastMsg = last && last[0] ? last[0] : null;
+
+      let unread = 0;
+      const lr = lastReadAt[c.id];
+      if (readAvailable && lr) {
+        const { count } = await db.from('chat_messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('conversation_id', c.id).gt('created_at', lr).neq('sender_name', me.name);
+        unread = count || 0;
+      }
+      return { ...c, displayName, lastMsg, lastAt: lastMsg ? lastMsg.created_at : c.created_at, unread };
+    }));
+
+    enriched.sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
+    myConversations = enriched;
+    convById = {}; unreadByConv = {};
+    enriched.forEach(c => { convById[c.id] = c; unreadByConv[c.id] = c.unread; });
+
+    renderInboxIfVisible();
+    updateChatUnreadBadge();
+  }
+
+  // ── thread ──
+  function renderThread() {
+    const box = document.getElementById('chat-messages');
+    if (!box) return;
+    const me = getIdentity();
+    box.innerHTML = threadMessages.map(m => `
+      <div class="chat-msg ${m.sender_name === me.name ? 'me' : 'them'}">
         <div class="chat-msg-sender">${esc(m.sender_name)}</div>
         <div class="chat-msg-bubble">${esc(m.message)}</div>
         <div class="chat-msg-time">${formatChatTime(m.created_at)}</div>
@@ -223,19 +363,70 @@ function initTeamChat(config) {
     box.scrollTop = box.scrollHeight;
   }
 
+  async function loadThread(convId) {
+    const { data, error } = await db.from('chat_messages')
+      .select('*').eq('conversation_id', convId).order('created_at');
+    if (error) { console.error('[Chat] thread load failed', error); threadMessages = []; }
+    else threadMessages = data || [];
+    renderThread();
+  }
+
+  async function openThread(convId) {
+    currentConvId = convId;
+    const conv = convById[convId];
+    setView('thread', conv ? conv.displayName : '');
+    await loadThread(convId);
+    markConversationRead(convId);
+    const input = document.getElementById('chat-input');
+    if (input) input.focus();
+  }
+
+  function backToInbox() {
+    currentConvId = null;
+    setView('inbox');
+    renderInbox();   // immediate paint from cached state
+    loadInbox();     // then refresh previews / unread
+  }
+
+  // ── read-state ──
+  async function markConversationRead(convId) {
+    if (!convId) return;
+    if (unreadByConv[convId]) {
+      unreadByConv[convId] = 0;
+      if (convById[convId]) convById[convId].unread = 0;
+      updateChatUnreadBadge();
+      renderInboxIfVisible();
+    }
+    const me = getIdentity();
+    if (!readAvailable || !me.name) return;
+    const nowIso = new Date().toISOString();
+    lastReadAt[convId] = nowIso;
+    const { error } = await db.from('chat_reads').upsert(
+      { conversation_id: convId, reader_role: me.role || null, reader_name: me.name, last_read_at: nowIso },
+      { onConflict: 'conversation_id,reader_name' }
+    );
+    if (error) {
+      if (isMissingTable(error)) readAvailable = false;
+      else console.warn('[Chat] read upsert failed', error.message);
+    }
+  }
+
+  // ── send ──
   async function sendChatMsg() {
     const input = document.getElementById('chat-input');
+    if (!input) return;
     const text = input.value.trim();
-    if (!text) return;
+    if (!text || !currentConvId) return;   // only send from an open thread
     const id = getIdentity();
     if (!id.name || !id.role) {
       alert('Could not identify you on this board yet — try reopening it from CrisData.');
       return;
     }
     input.value = '';
-    const channel = CURRENT_CHANNEL;
+    // New rows carry conversation_id and leave channel null (old rows keep
+    // their channel for audit — see 20260720_chat_conversations.sql).
     const { error } = await db.from('chat_messages').insert({
-      channel: channel,
+      conversation_id: currentConvId,
       sender_role: id.role,
       sender_name: id.name,
       message: text,
@@ -243,14 +434,14 @@ function initTeamChat(config) {
     if (error) {
       console.error('[Chat] send failed', error);
       alert('Message failed to send: ' + error.message);
+      input.value = text;   // don't lose the text
       return;
     }
-    // Best-effort closed-phone push to the other participants (sub-slice 2c).
-    // Fire-and-forget: the message already saved — a push failure must NEVER
-    // surface to the sender or block sending. Identity is read live (above).
-    // The x-cd-push-secret header gates /api/send-push (harden pass); this value
-    // ships in the static client by necessity and must match the Vercel env
-    // PUSH_SHARED_SECRET (see the endpoint's honest note — not fortress-grade).
+    // Best-effort closed-phone push. Fire-and-forget + fully guarded: the
+    // message already saved, so a missing/!ok/failed push must NEVER surface
+    // to the sender or block sending. 3d rewires the endpoint to resolve
+    // recipients from conversation_id (it still posts channel-shaped bodies
+    // today; passing conversationId now is harmless and forward-compatible).
     try {
       fetch('/api/send-push', {
         method: 'POST',
@@ -259,7 +450,7 @@ function initTeamChat(config) {
           'x-cd-push-secret': 'YQ87V5nheXAcwx7tMI6w50LjRxOSB9NuVLFqyrF5_sc',
         },
         body: JSON.stringify({
-          channel: channel,
+          conversationId: currentConvId,
           senderName: id.name,
           senderRole: id.role,
           messagePreview: text,
@@ -268,86 +459,68 @@ function initTeamChat(config) {
     } catch (e) { /* swallow — never affects the send */ }
   }
 
-  // ── read-state ops ──────────────────────────────────────────
-  function isMissingTable(err) {
-    const code = err && err.code || '', msg = err && err.message || '';
-    return code === '42P01' || code === 'PGRST205' ||
-      /relation .* does not exist/i.test(msg) || /could not find the table/i.test(msg);
+  // ── realtime ──
+  function bumpConversation(rec, incrementUnread) {
+    const c = convById[rec.conversation_id];
+    if (!c) return;
+    c.lastMsg = { message: rec.message, sender_name: rec.sender_name, created_at: rec.created_at };
+    c.lastAt = rec.created_at;
+    if (incrementUnread) { c.unread = (c.unread || 0) + 1; unreadByConv[c.id] = c.unread; }
+    myConversations.sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
+    renderInboxIfVisible();
+    updateChatUnreadBadge();
   }
 
-  // Mark a channel read: clear its in-memory count (today's behaviour) AND
-  // upsert last_read_at=now so it survives reload / syncs across devices.
-  // Best-effort — if chat_reads isn't migrated yet we just do the in-memory clear.
-  async function markChannelRead(channel) {
-    if (chatUnreadCounts[channel]) {
-      chatUnreadCounts[channel] = 0;
-      updateChatUnreadBadge();
-    }
-    if (!readAvailable || !getIdentity().name) return;
-    const nowIso = new Date().toISOString();
-    lastReadAt[channel] = nowIso;
-    const { error } = await db.from('chat_reads').upsert(
-      { channel, reader_role: getIdentity().role || null, reader_name: getIdentity().name, last_read_at: nowIso },
-      { onConflict: 'channel,reader_name' }
-    );
-    if (error) {
-      if (isMissingTable(error)) readAvailable = false;   // degrade silently to in-memory only
-      else console.warn('[Chat] read upsert failed', error.message);
-    }
+  function maybeAlert(rec) {
+    const me = getIdentity();
+    if (!me.name || !me.role) return;          // pre-login: identity not resolved
+    if (rec.sender_name === me.name) return;   // self-sent
+    playChatAlertSound();                       // sound always plays
+    const openVisible = isSurfaceVisible() && rec.conversation_id === currentConvId;
+    if (openVisible) return;                    // already looking right at it
+    showChatToast(rec);
   }
 
-  // Reconcile unread counts against chat_reads. authoritative=true (focus)
-  // trusts the DB (allows decreases from reads on another device);
-  // authoritative=false (initial load) uses max() so a live increment that
-  // raced the count query isn't lost. Channels never marked read stay at their
-  // in-memory value (0 on a fresh load — matches today).
-  async function syncReadState(authoritative) {
-    if (!readAvailable || !getIdentity().name || readSyncing) return;
-    readSyncing = true;
-    try {
-      const { data, error } = await db.from('chat_reads')
-        .select('channel,last_read_at').eq('reader_name', getIdentity().name);
-      if (error) {
-        if (isMissingTable(error)) readAvailable = false;
-        else console.warn('[Chat] read sync failed', error.message);
-        return;
-      }
-      (data || []).forEach(r => { lastReadAt[r.channel] = r.last_read_at; });
-      for (const c of CHAT_CHANNELS) {
-        const lr = lastReadAt[c.key];
-        if (!lr) continue;   // never read → leave as-is (0 on fresh load)
-        const { count, error: cErr } = await db.from('chat_messages')
-          .select('*', { count: 'exact', head: true })
-          .eq('channel', c.key).gt('created_at', lr).neq('sender_name', getIdentity().name);
-        if (cErr) { if (isMissingTable(cErr)) { readAvailable = false; return; } continue; }
-        const n = count || 0;
-        chatUnreadCounts[c.key] = authoritative ? n : Math.max(chatUnreadCounts[c.key] || 0, n);
-      }
-      updateChatUnreadBadge();
-    } finally {
-      readSyncing = false;
+  function handleIncoming(rec) {
+    if (!rec || !rec.conversation_id) return;
+    // Unknown conversation — could be one I was just added to. Refresh
+    // membership; if I'm a member it will appear (and future messages alert).
+    if (!convById[rec.conversation_id]) { loadInbox(); return; }
+
+    const me = getIdentity();
+    const isSelf = rec.sender_name === me.name;
+    const openVisible = isSurfaceVisible() && rec.conversation_id === currentConvId;
+
+    if (rec.conversation_id === currentConvId) {
+      threadMessages.push(rec);
+      renderThread();
+      if (openVisible) markConversationRead(currentConvId);
     }
+    bumpConversation(rec, !isSelf && !openVisible);
+    maybeAlert(rec);
   }
 
-  // Identity resolves asynchronously on the board (captureSessionAndGreet).
-  // Poll briefly, then hydrate persisted unread once it's known.
-  (function hydrateWhenIdentityReady() {
-    if (getIdentity().name) { syncReadState(false); return; }
-    let tries = 0;
-    const iv = setInterval(() => {
-      if (getIdentity().name) { clearInterval(iv); syncReadState(false); }
-      else if (++tries >= 25) clearInterval(iv);   // ~10s
-    }, 400);
-  })();
+  function subscribeRealtime() {
+    if (chatRealtimeChannel) { db.removeChannel(chatRealtimeChannel); chatRealtimeChannel = null; }
+    chatRealtimeChannel = db.channel('chat-live')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages' },
+        ({ new: rec }) => handleIncoming(rec))
+      // On every (re)connect, refetch membership + inbox (and reload the open
+      // thread) so a dropped socket never leaves stale state — the lesson from
+      // the earlier realtime work.
+      .subscribe((status) => { if (status === 'SUBSCRIBED') refreshAll(); });
+  }
 
-  // Reconcile on refocus — catches reads/messages from another device.
-  window.addEventListener('focus', () => syncReadState(true));
+  function refreshAll() {
+    loadInbox();
+    if (currentConvId) loadThread(currentConvId);
+  }
 
   // ── emoji picker (desktop convenience; phone keyboards have their own) ──
   const EMOJI_LIST = ['👍','👎','✅','❌','🔥','💯','👏','🙌','💪','🙏',
                        '😊','😂','😅','😉','😎','🤔','😬','😢','😡','🥳',
                        '🚗','🔧','⚙️','⚠️','🛠️','🔩','⏰','📞','📸','💰'];
-
   function renderEmojiPopover() {
     const pop = document.getElementById('emoji-popover');
     if (!pop) return;
@@ -361,7 +534,6 @@ function initTeamChat(config) {
       });
     });
   }
-
   const emojiBtn = document.getElementById('emoji-btn');
   if (emojiBtn) {
     emojiBtn.addEventListener('click', (e) => {
@@ -385,25 +557,43 @@ function initTeamChat(config) {
   if (inputEl) inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') sendChatMsg(); });
 
   // ── initial mount ──
-  renderChannelTabs();
-  loadChatMessages(CURRENT_CHANNEL);
-  subscribeChatChannel();
-  loadOwnerChannelLabel();
+  const panelEl = document.getElementById('chat-panel');
+  if (panelEl) panelEl.classList.add(config.mode === 'panel' ? 'chat-mode-panel' : 'chat-mode-tab');
+  setView('inbox');
+  renderInbox();          // paints "Loading…" until membership resolves
+  subscribeRealtime();    // SUBSCRIBED → refreshAll() loads the inbox
   renderEmojiPopover();
+
+  // Identity resolves asynchronously (captureSessionAndGreet). Poll briefly,
+  // then load the inbox once the name is known.
+  (function hydrateWhenIdentityReady() {
+    if (getIdentity().name) { loadInbox(); return; }
+    let tries = 0;
+    const iv = setInterval(() => {
+      if (getIdentity().name) { clearInterval(iv); loadInbox(); }
+      else if (++tries >= 25) clearInterval(iv);   // ~10s
+    }, 400);
+  })();
+
+  // Reconcile on refocus — catches reads/messages from another device.
+  window.addEventListener('focus', refreshAll);
 
   // Board wires these to its own surface (sidebar tab / floating panel).
   return {
-    refetch: () => loadChatMessages(CURRENT_CHANNEL),
-    resubscribe: () => subscribeChatChannel(),
+    refetch: refreshAll,
+    resubscribe: subscribeRealtime,
     getChannel: () => chatRealtimeChannel,
-    // Call when the chat surface becomes visible: unlock audio, mark the open
-    // channel read, and re-apply scroll-to-bottom (a no-op while hidden because
-    // a display:none element reports scrollHeight 0).
+    // Call when the chat surface becomes visible: unlock audio, refresh the
+    // inbox, and if a thread is open mark it read + reload + scroll.
     onSurfaceShown: () => {
       unlockChatAudio();
-      markChannelRead(CURRENT_CHANNEL);
-      const box = document.getElementById('chat-messages');
-      if (box) box.scrollTop = box.scrollHeight;
+      loadInbox();
+      if (currentConvId) {
+        markConversationRead(currentConvId);
+        loadThread(currentConvId);
+        const box = document.getElementById('chat-messages');
+        if (box) box.scrollTop = box.scrollHeight;
+      }
     },
   };
 }
