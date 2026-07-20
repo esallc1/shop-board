@@ -374,11 +374,18 @@
     function jobCardHtml(j, isCurrent) {
       const chip = `<span class="chip s-${j.status}">${esc(STATUS_LABEL[j.status] || j.status)}</span>`;
       const el = fmtElapsed(j.stateTs);
+      // Lift cards show their bay number. shopboard_lifts has 6 fixed rows and
+      // v1 (shop-board.html) numbers each bay by its `id` (LIFT ${i+1} over the
+      // id-ordered rows; every lift write keys on .eq('id', bay)). id is already
+      // in the select (→ j.sbid), so "Lift <id>" is the bay. Lot/Pickup unchanged.
+      const srcLabel = SRC_LABEL[j.table] || '';
+      const srcText = (j.table === 'shopboard_lifts' && j.sbid != null)
+        ? `${srcLabel} ${j.sbid}` : srcLabel;
       return `
         <div class="job-card${isCurrent ? ' current' : ''}" draggable="true" data-table="${esc(j.table)}" data-id="${esc(j.sbid)}" data-po="${esc(j.po)}">
           <div class="jc-top">
             <span class="jc-ro">#${esc(j.po || '—')}</span>
-            <span class="jc-src">${esc(SRC_LABEL[j.table] || '')}</span>
+            <span class="jc-src">${esc(srcText)}</span>
           </div>
           <div class="jc-veh">${esc(j.vehicle || '—')}</div>
           ${j.customer ? `<div class="jc-cust">${esc(j.customer)}</div>` : ''}
