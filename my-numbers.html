@@ -767,6 +767,26 @@ let STATE = {
   lang: 'en'
 };
 
+// "Operate-as" mode: true only when a manager board embeds this page with
+// ?as=<techPhone> in a same-origin iframe (see isSafeEmbeddedAs + boot). It
+// suppresses this page's own login/logout chrome — the parent board owns the
+// frame and the tech identity. Everything else (job load, realtime, write
+// paths) runs exactly as a normal login.
+let AS_MODE = false;
+
+// SAME-ORIGIN EMBED GATE for ?as=. Must pass ALL: (a) we're inside an iframe,
+// and (b) the top window is same-origin (so the user already authenticated on
+// a board). Reading window.top's origin throws when cross-origin → DENY. A raw
+// top-level visit to my-numbers.html?as=Alex fails (a) and gets the PIN screen.
+function isSafeEmbeddedAs(){
+  try {
+    if (window.self === window.top) return false;          // not embedded
+    return window.top.location.origin === window.location.origin;
+  } catch (e) {
+    return false;                                          // cross-origin access threw → deny
+  }
+}
+
 async function initData(){
   // Auth is verified LIVE against the employees table (same source as the
   // shared crisdata.html login) — no local seed list. Jobs load after login.
@@ -1064,7 +1084,7 @@ function renderList(){
         <button class="icon-btn" id="btnRefresh" type="button" aria-label="${t('refreshLabel')}" title="${t('refreshLabel')}">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
         </button>
-        <div class="avatar-btn" id="btnLogout">${tech.name[0]}</div>
+        ${AS_MODE ? '' : `<div class="avatar-btn" id="btnLogout">${tech.name[0]}</div>`}
       </div>
     </div>
     <div class="flag-hero">
@@ -1158,7 +1178,10 @@ function renderRoCards(){
 function bindList(){
   bindLangSwitch();
   bindClock();
-  document.getElementById('btnLogout').addEventListener('click', () => {
+  // Logout avatar is hidden in AS_MODE (the manager board owns the frame), so
+  // guard the binding — the element won't exist when operating as a tech.
+  const logoutBtn = document.getElementById('btnLogout');
+  if(logoutBtn) logoutBtn.addEventListener('click', () => {
     teardownRealtime();
     localStorage.removeItem(SESSION_KEY);
     STATE.view = 'login';
@@ -1692,11 +1715,33 @@ async function submitDiagnosis(){
 
   let authenticated = false;
 
-  // Pass-through login from CrisData: if arriving with ?u=phone&p=pin, auto-authenticate
   const params = new URLSearchParams(window.location.search);
+
+  // "Operate-as" entry (manager board): ?as=<techPhone> inside a same-origin
+  // iframe skips PIN and runs as that tech — same job load, realtime, and
+  // write paths, so any change attributes to that tech's real jobs. The gate
+  // (isSafeEmbeddedAs) must pass, else ?as= is ignored and the PIN screen
+  // shows. We do NOT persist a session here — the manager isn't logged in as
+  // the tech; closing/leaving the frame ends it.
+  const asTech = params.get('as');
+  if(asTech && isSafeEmbeddedAs()){
+    const tech = await findEmployeeByPhone(asTech);
+    if(tech){
+      AS_MODE = true;
+      STATE.currentTech = tech;
+      STATE.currentTechId = tech.id;
+      STATE.activeTab = 'up_next';
+      await loadSupabaseData(tech.name);
+      await loadGreeting(tech.phone);
+      STATE.view = 'list';
+      authenticated = true;
+    }
+  }
+
+  // Pass-through login from CrisData: if arriving with ?u=phone&p=pin, auto-authenticate
   const passPhone = params.get('u');
   const passPin = params.get('p');
-  if(passPhone && passPin){
+  if(!authenticated && passPhone && passPin){
     const tech = await findEmployee(passPhone, passPin);
     if(tech){
       STATE.currentTech = tech;
