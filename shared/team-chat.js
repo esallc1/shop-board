@@ -23,7 +23,15 @@
    ============================================================ */
 function initTeamChat(config) {
   const db = config.db;
-  const identity = config.identity;                     // live {name, role} — read at send/alert/render time
+  // Read identity LIVE at every use. Each board resolves its session
+  // asynchronously and REASSIGNS its CHAT_IDENTITY to a NEW object once the
+  // name/role are known — so a reference captured here at init would stay
+  // pinned to the initial {name:null, role:null} object and the send guard
+  // would wrongly reject a sender the board already knows. config.getIdentity()
+  // always reflects the board's current value; config.identity remains a
+  // fallback for any caller that passes a live-mutated object instead.
+  const getIdentity = () =>
+    (typeof config.getIdentity === 'function' ? config.getIdentity() : config.identity) || {};
   const CHAT_CHANNELS = config.channels || [];
   const badgeId = config.badgeId || 'teamchat-unread-badge';
   const isSurfaceVisible = config.isSurfaceVisible || (() => true);
@@ -128,8 +136,8 @@ function initTeamChat(config) {
   }
 
   function maybeAlertNewMessage(rec) {
-    if (!rec || !identity.name || !identity.role) return; // pre-login: identity not resolved yet
-    if (rec.sender_name === identity.name) return;        // self-sent
+    if (!rec || !getIdentity().name || !getIdentity().role) return; // pre-login: identity not resolved yet
+    if (rec.sender_name === getIdentity().name) return;        // self-sent
     playChatAlertSound();                                 // sound always plays, even for the open channel
     if (isTeamChatVisible(rec.channel)) return;           // already looking at this exact channel — skip toast/badge
     chatUnreadCounts[rec.channel] = (chatUnreadCounts[rec.channel] || 0) + 1;
@@ -207,7 +215,7 @@ function initTeamChat(config) {
     const box = document.getElementById('chat-messages');
     if (!box) return;
     box.innerHTML = chatMessages.map(m => `
-      <div class="chat-msg ${m.sender_name === identity.name ? 'me' : 'them'}">
+      <div class="chat-msg ${m.sender_name === getIdentity().name ? 'me' : 'them'}">
         <div class="chat-msg-sender">${esc(m.sender_name)}</div>
         <div class="chat-msg-bubble">${esc(m.message)}</div>
         <div class="chat-msg-time">${formatChatTime(m.created_at)}</div>
@@ -219,15 +227,15 @@ function initTeamChat(config) {
     const input = document.getElementById('chat-input');
     const text = input.value.trim();
     if (!text) return;
-    if (!identity.name || !identity.role) {
+    if (!getIdentity().name || !getIdentity().role) {
       alert('Could not identify you on this board yet — try reopening it from CrisData.');
       return;
     }
     input.value = '';
     const { error } = await db.from('chat_messages').insert({
       channel: CURRENT_CHANNEL,
-      sender_role: identity.role,
-      sender_name: identity.name,
+      sender_role: getIdentity().role,
+      sender_name: getIdentity().name,
       message: text,
     });
     if (error) {
@@ -251,11 +259,11 @@ function initTeamChat(config) {
       chatUnreadCounts[channel] = 0;
       updateChatUnreadBadge();
     }
-    if (!readAvailable || !identity.name) return;
+    if (!readAvailable || !getIdentity().name) return;
     const nowIso = new Date().toISOString();
     lastReadAt[channel] = nowIso;
     const { error } = await db.from('chat_reads').upsert(
-      { channel, reader_role: identity.role || null, reader_name: identity.name, last_read_at: nowIso },
+      { channel, reader_role: getIdentity().role || null, reader_name: getIdentity().name, last_read_at: nowIso },
       { onConflict: 'channel,reader_name' }
     );
     if (error) {
@@ -270,11 +278,11 @@ function initTeamChat(config) {
   // raced the count query isn't lost. Channels never marked read stay at their
   // in-memory value (0 on a fresh load — matches today).
   async function syncReadState(authoritative) {
-    if (!readAvailable || !identity.name || readSyncing) return;
+    if (!readAvailable || !getIdentity().name || readSyncing) return;
     readSyncing = true;
     try {
       const { data, error } = await db.from('chat_reads')
-        .select('channel,last_read_at').eq('reader_name', identity.name);
+        .select('channel,last_read_at').eq('reader_name', getIdentity().name);
       if (error) {
         if (isMissingTable(error)) readAvailable = false;
         else console.warn('[Chat] read sync failed', error.message);
@@ -286,7 +294,7 @@ function initTeamChat(config) {
         if (!lr) continue;   // never read → leave as-is (0 on fresh load)
         const { count, error: cErr } = await db.from('chat_messages')
           .select('*', { count: 'exact', head: true })
-          .eq('channel', c.key).gt('created_at', lr).neq('sender_name', identity.name);
+          .eq('channel', c.key).gt('created_at', lr).neq('sender_name', getIdentity().name);
         if (cErr) { if (isMissingTable(cErr)) { readAvailable = false; return; } continue; }
         const n = count || 0;
         chatUnreadCounts[c.key] = authoritative ? n : Math.max(chatUnreadCounts[c.key] || 0, n);
@@ -300,10 +308,10 @@ function initTeamChat(config) {
   // Identity resolves asynchronously on the board (captureSessionAndGreet).
   // Poll briefly, then hydrate persisted unread once it's known.
   (function hydrateWhenIdentityReady() {
-    if (identity.name) { syncReadState(false); return; }
+    if (getIdentity().name) { syncReadState(false); return; }
     let tries = 0;
     const iv = setInterval(() => {
-      if (identity.name) { clearInterval(iv); syncReadState(false); }
+      if (getIdentity().name) { clearInterval(iv); syncReadState(false); }
       else if (++tries >= 25) clearInterval(iv);   // ~10s
     }, 400);
   })();

@@ -2555,7 +2555,7 @@
   //    in-page "teamchat" sidebar tab.
   const teamChat = initTeamChat({
     db,
-    identity: CHAT_IDENTITY,
+    getIdentity: () => CHAT_IDENTITY,   // live getter — boards reassign CHAT_IDENTITY once the session resolves
     channels: CHAT_CHANNELS,
     mode: 'tab',
     badgeId: 'teamchat-unread-badge',
