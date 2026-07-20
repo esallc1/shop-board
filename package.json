@@ -1,0 +1,10 @@
+{
+  "name": "crisdata",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "CrisData static site + Vercel serverless functions (api/).",
+  "dependencies": {
+    "web-push": "^3.6.7"
+  }
+}

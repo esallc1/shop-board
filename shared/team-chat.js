@@ -227,21 +227,39 @@ function initTeamChat(config) {
     const input = document.getElementById('chat-input');
     const text = input.value.trim();
     if (!text) return;
-    if (!getIdentity().name || !getIdentity().role) {
+    const id = getIdentity();
+    if (!id.name || !id.role) {
       alert('Could not identify you on this board yet — try reopening it from CrisData.');
       return;
     }
     input.value = '';
+    const channel = CURRENT_CHANNEL;
     const { error } = await db.from('chat_messages').insert({
-      channel: CURRENT_CHANNEL,
-      sender_role: getIdentity().role,
-      sender_name: getIdentity().name,
+      channel: channel,
+      sender_role: id.role,
+      sender_name: id.name,
       message: text,
     });
     if (error) {
       console.error('[Chat] send failed', error);
       alert('Message failed to send: ' + error.message);
+      return;
     }
+    // Best-effort closed-phone push to the other participants (sub-slice 2c).
+    // Fire-and-forget: the message already saved — a push failure must NEVER
+    // surface to the sender or block sending. Identity is read live (above).
+    try {
+      fetch('/api/send-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channel: channel,
+          senderName: id.name,
+          senderRole: id.role,
+          messagePreview: text,
+        }),
+      }).catch(function (e) { console.warn('[Chat] push notify failed (ignored)', e); });
+    } catch (e) { /* swallow — never affects the send */ }
   }
 
   // ── read-state ops ──────────────────────────────────────────
