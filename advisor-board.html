@@ -308,6 +308,23 @@
   .cd-offlot-btn { margin-left: auto; font-size: 0.66rem; font-weight: 700; padding: 3px 11px; background: var(--green); color: #fff; border: none; border-radius: 6px; cursor: pointer; }
   .cd-offlot-btn:hover { filter: brightness(.94); }
   .cd-kanban-empty { font-size: 0.72rem; color: var(--muted); font-style: italic; text-align: center; padding: 16px 4px; }
+  /* ── Declined-estimate flag + callback list ── */
+  .cd-decline-btn { margin-left: auto; font-size: 0.66rem; font-weight: 700; padding: 3px 10px; background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+  .cd-decline-btn:hover { background: #fdecec; border-color: #f3c9c9; color: #b04242; }
+  .cd-declined-tag { display: inline-block; margin-left: 8px; font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; padding: 2px 8px; border-radius: 20px; background: #fdecec; color: #b04242; }
+  .cd-callback-hint { font-size: 0.75rem; color: var(--muted); margin: 2px 0 14px; }
+  .cd-callback-row { border: 1px solid var(--border); border-left: 3px solid var(--amber); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; transition: background .1s; }
+  .cd-callback-row:hover { background: var(--surface-2, #f5f6fa); }
+  .cd-cb-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .cd-cb-ro { font-weight: 800; font-size: 0.86rem; }
+  .cd-cb-cust { font-weight: 700; font-size: 0.84rem; }
+  .cd-cb-phone { margin-left: auto; font-size: 0.78rem; color: var(--accent); text-decoration: none; font-weight: 600; }
+  .cd-cb-phone:hover { text-decoration: underline; }
+  .cd-cb-veh { font-size: 0.78rem; color: var(--text); margin-top: 2px; }
+  .cd-cb-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+  .cd-cb-when { font-size: 0.72rem; color: var(--muted); font-weight: 600; }
+  .cd-cb-reason { font-size: 0.75rem; color: var(--text); font-style: italic; }
+  .cd-cb-restore { margin-left: auto; font-size: 0.68rem; padding: 4px 10px; }
   .cd-recent { border-top: 1px solid var(--border); padding-top: 14px; }
   .cd-recent-title { font-size: 0.66rem; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
   .cd-recent-row { display: flex; align-items: center; gap: 12px; padding: 7px 6px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }
@@ -615,10 +632,11 @@
   <div class="view" id="view-cdros">
     <!-- LIST panel: find-an-RO -->
     <div id="cdRoListPanel">
-      <div class="card">
+      <div class="card" id="cdBoardCard">
         <div class="card-title">
           <div class="dot" style="background:var(--accent)"></div>Repair Orders
-          <button class="btn btn-primary" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdRoNewBtn">+ New RO</button>
+          <button class="btn btn-ghost" style="margin-left:auto;font-size:0.75rem;padding:5px 12px;display:none" id="cdCallbackToggle">📞 Callbacks <span class="cd-kanban-count" id="cdCallbackCount">0</span></button>
+          <button class="btn btn-primary" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdRoNewBtn">+ New RO</button>
         </div>
         <div class="cd-kanban" id="cdKanban">
           <div class="cd-kanban-col" data-stage="estimate">
@@ -638,6 +656,18 @@
           <div class="cd-recent-title">Recently closed</div>
           <div id="cdRecentStrip"><div class="cd-recent-empty">Loading…</div></div>
         </div>
+      </div>
+
+      <!-- Declined estimates → callback list. Seed for a future Advisor
+           Command Center (follow-ups / customer updates / reviews). -->
+      <div class="card" id="cdCallbackPanel" style="display:none">
+        <div class="card-title">
+          <div class="dot" style="background:var(--amber)"></div>Declined estimates — callback list
+          <span class="cd-kanban-count" id="cdCallbackCount2">0</span>
+          <button class="btn btn-ghost" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdCallbackBackBtn">← Board</button>
+        </div>
+        <div class="cd-callback-hint">Customers who declined the estimate — call back when it's time. Restoring returns the RO to the live Estimate column. (Money is untouched — declining creates no invoice.)</div>
+        <div id="cdCallbackList"><div class="cd-kanban-empty">No declined estimates.</div></div>
       </div>
     </div>
 
@@ -660,6 +690,7 @@
             </select>
           </label>
           <button class="btn" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdRoArrivedBtn"></button>
+          <button class="btn" style="margin-left:8px;font-size:0.75rem;padding:5px 12px;display:none" id="cdRoDeclineBtn"></button>
           <button class="btn btn-primary" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdPrintBtn">🖨 Print / Save PDF</button>
         </div>
         <div class="cd-ro-header" id="cdRoHeaderGrid"></div>
@@ -2640,21 +2671,34 @@
     }
 
     let allRos = [];          // cached list rows (with embeds) for client-side search
+    let declinedColsAvailable = true;  // false until the declined_* migration is run (resilient load)
+    let cdCallbackView = false;        // whether the callback list (vs the board) is showing
     let currentRo = null;     // the open RO (with embedded customer/vehicle)
     let currentLines = [];    // ro_line_items for the open RO
     let currentPayments = [];  // ro_payments for the open RO (Phase 5)
 
     // ── PIPELINE KANBAN: load + render ────────────────────────
     async function loadRecentList() {
-      const { data, error } = await db
-        .from('repair_orders')
-        .select('id, ro_number, po, status, created_at, updated_at, arrived_at, technician, ' +
-                'diagnosis_submitted_at, diagnosis_reviewed_at, ' +
-                'customers(name, phone_primary, tax_exempt), ' +
-                'vehicles(year, make, model, vin, plate), ' +
-                'ro_line_items(quantity, unit_price, taxable), ' +
-                'ro_payments(amount)')
+      const BASE_SEL =
+        'id, ro_number, po, status, created_at, updated_at, arrived_at, technician, ' +
+        'diagnosis_submitted_at, diagnosis_reviewed_at, ' +
+        'customers(name, phone_primary, tax_exempt), ' +
+        'vehicles(year, make, model, vin, plate), ' +
+        'ro_line_items(quantity, unit_price, taxable), ' +
+        'ro_payments(amount)';
+      // Try with the declined_* columns; if the migration hasn't run yet the
+      // NAMED select 400s (42703), so fall back to the base select and keep the
+      // feature dormant — the board must never break (the returned_by lesson).
+      let resp = await db.from('repair_orders')
+        .select(BASE_SEL + ', declined_at, declined_reason')
         .order('created_at', { ascending: false });
+      if (resp.error && isMissingColumn(resp.error)) {
+        declinedColsAvailable = false;
+        resp = await db.from('repair_orders').select(BASE_SEL).order('created_at', { ascending: false });
+      } else if (!resp.error) {
+        declinedColsAvailable = true;
+      }
+      const { data, error } = resp;
       if (error) {
         console.error('[CdRO] kanban load failed', error);
         $('cdColEstimate').innerHTML = `<div class="cd-kanban-empty" style="color:var(--red)">Failed to load: ${esc(error.message)}</div>`;
@@ -2770,6 +2814,8 @@
       if (ro.status === 'estimate') {
         if (ro.diagnosis_submitted_at && !ro.diagnosis_reviewed_at)
           foot = `<span class="cd-kc-badge cd-kc-diag">Diagnosis Ready</span>`;
+        if (declinedColsAvailable)
+          foot += `<button class="cd-decline-btn" data-decline="${esc(ro.id)}" title="Customer declined the estimate — move to the callback list">Decline</button>`;
       } else if (ro.status === 'ro') {
         if (ro.technician) foot = `<span class="cd-kc-meta">🔧 ${esc(ro.technician)}</span>`;
       } else if (ro.status === 'invoice') {
@@ -2789,7 +2835,11 @@
       // partition: three active stages into columns, closed → recent strip
       const cols = { estimate: [], ro: [], invoice: [] };
       const closed = [];
+      const declined = [];
       allRos.forEach(ro => {
+        // A declined estimate is pulled OFF the pipeline entirely (into the
+        // callback list) while still status='estimate' — money untouched.
+        if (declinedColsAvailable && ro.declined_at) { declined.push(ro); return; }
         if (ro.status === 'closed') closed.push(ro);
         else if (cols[ro.status]) cols[ro.status].push(ro);
         // an unknown status just doesn't render — safe
@@ -2824,7 +2874,143 @@
           }).join('')
         : '<div class="cd-recent-empty">No closed jobs yet.</div>';
 
+      renderCallbacks(declined);
       wireKanban();
+    }
+
+    // ── Declined / callback list (seed for a future Advisor Command Center) ──
+    function renderCallbacks(declined) {
+      const toggle = $('cdCallbackToggle');
+      if (!declinedColsAvailable) {
+        if (toggle) toggle.style.display = 'none';
+        if (cdCallbackView) showCallbackView(false);   // never strand on a dead view
+        return;
+      }
+      if (toggle) toggle.style.display = '';
+      const n = declined.length;
+      $('cdCallbackCount').textContent = n;
+      $('cdCallbackCount2').textContent = n;
+      const sorted = declined.slice().sort(
+        (a, b) => new Date(b.declined_at) - new Date(a.declined_at));   // newest declined first
+      $('cdCallbackList').innerHTML = sorted.length
+        ? sorted.map(callbackRowHtml).join('')
+        : '<div class="cd-kanban-empty">No declined estimates. Declined estimates land here to call back.</div>';
+      wireCallbacks();
+    }
+
+    function callbackRowHtml(ro) {
+      const c = ro.customers || {}, v = ro.vehicles || {};
+      const when = ro.declined_at
+        ? new Date(ro.declined_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+        : '';
+      return `
+        <div class="cd-callback-row" data-id="${esc(ro.id)}">
+          <div class="cd-cb-top">
+            <span class="cd-cb-ro">#${esc(ro.po || ro.ro_number)}</span>
+            <span class="cd-cb-cust">${esc(c.name || '—')}</span>
+            ${c.phone_primary ? `<a class="cd-cb-phone" href="tel:${esc(c.phone_primary)}" data-noopen>📞 ${esc(c.phone_primary)}</a>` : ''}
+          </div>
+          <div class="cd-cb-veh">${esc(vehDesc(v))}</div>
+          <div class="cd-cb-meta">
+            <span class="cd-cb-when">Declined ${esc(when)}</span>
+            ${ro.declined_reason ? `<span class="cd-cb-reason">“${esc(ro.declined_reason)}”</span>` : ''}
+            <button class="btn btn-green cd-cb-restore" data-restore="${esc(ro.id)}">↩ Restore to Estimate</button>
+          </div>
+        </div>`;
+    }
+
+    function wireCallbacks() {
+      document.querySelectorAll('#cdCallbackList .cd-callback-row').forEach(row => {
+        row.addEventListener('click', (e) => {
+          if (e.target.closest('[data-restore]') || e.target.closest('[data-noopen]')) return;
+          openRo(row.dataset.id);
+        });
+      });
+      document.querySelectorAll('#cdCallbackList [data-restore]').forEach(btn => {
+        btn.addEventListener('click', (e) => { e.stopPropagation(); restoreDeclined(btn.dataset.restore); });
+      });
+    }
+
+    function showCallbackView(on) {
+      cdCallbackView = on;
+      const board = $('cdBoardCard'), panel = $('cdCallbackPanel');
+      if (board) board.style.display = on ? 'none' : '';
+      if (panel) panel.style.display = on ? '' : 'none';
+    }
+
+    // MARK DECLINED — flag an estimate as declined (declined_at = now + optional
+    // reason). Optimistic + revert-on-failure, same pattern as setCardStage.
+    // Money/totals untouched; status stays 'estimate'; the card leaves the board.
+    async function markDeclined(roId) {
+      const ro = allRos.find(r => String(r.id) === String(roId));
+      if (!ro) return;
+      if (!declinedColsAvailable) {
+        alert('The declined-estimate feature needs a quick DB migration — ask Cris to run it, then reload.');
+        return;
+      }
+      const reason = prompt('Mark this estimate as DECLINED.\n\nOptional note (e.g. "customer declined, may call back"):', '');
+      if (reason === null) return;   // cancelled → do nothing
+      const nowIso = new Date().toISOString();
+      const prevAt = ro.declined_at, prevReason = ro.declined_reason;
+      ro.declined_at = nowIso;                       // optimistic
+      ro.declined_reason = reason.trim() || null;
+      renderKanban();
+      const { error } = await db.from('repair_orders')
+        .update({ declined_at: nowIso, declined_reason: ro.declined_reason }).eq('id', ro.id);
+      if (error) {
+        console.error('[CdRO] mark declined failed', error);
+        if (isMissingColumn(error)) { declinedColsAvailable = false; alert('The declined-estimate feature needs a DB migration — ask Cris to run it, then reload.'); }
+        else alert('Could not mark declined: ' + error.message);
+        ro.declined_at = prevAt; ro.declined_reason = prevReason;   // revert
+        renderKanban();
+        return;
+      }
+      if (currentRo && String(currentRo.id) === String(ro.id)) {
+        currentRo.declined_at = nowIso; currentRo.declined_reason = ro.declined_reason;
+        renderHeader();
+      }
+    }
+
+    // UN-DECLINE — clear declined_at (customer called back). Returns the RO to
+    // the live Estimate column. Optimistic + revert-on-failure.
+    async function restoreDeclined(roId) {
+      const ro = allRos.find(r => String(r.id) === String(roId));
+      if (!ro) return;
+      const prevAt = ro.declined_at, prevReason = ro.declined_reason;
+      ro.declined_at = null; ro.declined_reason = null;   // optimistic
+      renderKanban();
+      const { error } = await db.from('repair_orders')
+        .update({ declined_at: null, declined_reason: null }).eq('id', ro.id);
+      if (error) {
+        console.error('[CdRO] restore declined failed', error);
+        alert('Could not restore: ' + error.message);
+        ro.declined_at = prevAt; ro.declined_reason = prevReason;   // revert
+        renderKanban();
+        return;
+      }
+      if (currentRo && String(currentRo.id) === String(ro.id)) {
+        currentRo.declined_at = null; currentRo.declined_reason = null;
+        renderHeader();
+      }
+    }
+
+    // Paints the detail-header decline/restore control against currentRo.
+    function paintDeclineControl() {
+      const btn = $('cdRoDeclineBtn');
+      if (!btn) return;
+      const ro = currentRo;
+      if (!declinedColsAvailable || !ro) { btn.style.display = 'none'; return; }
+      if (ro.declined_at) {
+        btn.style.display = ''; btn.textContent = '↩ Restore (un-decline)';
+        btn.className = 'btn btn-green'; btn.style.marginLeft = '8px';
+        btn.onclick = () => restoreDeclined(ro.id);
+      } else if (ro.status === 'estimate') {
+        btn.style.display = ''; btn.textContent = 'Mark declined';
+        btn.className = 'btn'; btn.style.marginLeft = '8px';
+        btn.onclick = () => markDeclined(ro.id);
+      } else {
+        btn.style.display = 'none';   // declining only applies to estimates
+      }
     }
 
     // wire drag-to-advance, off-lot, and tap-to-open after each render
@@ -2838,13 +3024,17 @@
         });
         card.addEventListener('dragend', () => card.classList.remove('dragging'));
         card.addEventListener('click', (e) => {
-          if (e.target.closest('[data-offlot]')) return;   // off-lot handles its own click
+          if (e.target.closest('[data-offlot]') || e.target.closest('[data-decline]')) return;   // buttons handle their own click
           openRo(card.dataset.id);
         });
       });
       // off-lot buttons
       document.querySelectorAll('#cdKanban [data-offlot]').forEach(btn => {
         btn.addEventListener('click', (e) => { e.stopPropagation(); offLotCard(btn.dataset.offlot); });
+      });
+      // decline buttons (estimate cards)
+      document.querySelectorAll('#cdKanban [data-decline]').forEach(btn => {
+        btn.addEventListener('click', (e) => { e.stopPropagation(); markDeclined(btn.dataset.decline); });
       });
       // columns: accept drops → set stage to that column
       document.querySelectorAll('#cdKanban .cd-kanban-col').forEach(col => {
@@ -3107,6 +3297,7 @@
       const exempt = c.tax_exempt;
       $('cdRoDetailStatus').innerHTML =
         `<span class="badge badge-diag">${esc(STATUS_LABEL[ro.status] || ro.status || '—')}</span>` +
+        (declinedColsAvailable && ro.declined_at ? '<span class="cd-declined-tag">Declined</span>' : '') +
         (exempt ? '<span class="cd-exempt-tag">tax exempt</span>' : '');
       // reflect the current stage in the selector (STAGES-guarded so an
       // unknown value doesn't blank it)
@@ -3127,6 +3318,7 @@
         const m = allRos.find(r => String(r.id) === String(currentRo.id));
         if (m) m.arrived_at = currentRo.arrived_at;
       });
+      paintDeclineControl();
     }
 
     async function loadLines() {
@@ -3795,6 +3987,9 @@
     // ── wiring ────────────────────────────────────────────────
     // (no search box on this view — pipeline search gets its own tab later)
     $('cdRoBackBtn').addEventListener('click', backToList);
+    // Callback-list toggle (Board ⇄ Declined callback list)
+    $('cdCallbackToggle').addEventListener('click', () => showCallbackView(true));
+    $('cdCallbackBackBtn').addEventListener('click', () => showCallbackView(false));
     $('cdAddLineBtn').addEventListener('click', addLine);
     $('cdAddCardFeeBtn').addEventListener('click', addCardFee);
     $('cdRoNewBtn').addEventListener('click', () => window.cdOpenNewRo());
