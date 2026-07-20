@@ -308,6 +308,7 @@
     let jobs = [];    // normalized job objects across all three tables
     let cardWasDragged = false;  // tap-vs-drag guard for the read-only modal
     let draggingJob = null;      // { table, sbid, po } of the card in flight
+    let openModal = null;        // { table, sbid } while the read-only modal is open
 
     // Map a raw supabase row to a normalized job — mirrors sbRowToJob().
     function toJob(row, table) {
@@ -544,9 +545,10 @@
       $('mBody').innerHTML = rows.map(([l, v]) =>
         `<div class="m-field"><div class="m-lbl">${esc(l)}</div><div class="m-val">${esc(v)}</div></div>`
       ).join('') + '<div class="m-ro-only">Read-only view. Techs update jobs from My Numbers.</div>';
+      openModal = { table, sbid };
       $('jobModal').classList.add('open');
     }
-    function closeModal() { $('jobModal').classList.remove('open'); }
+    function closeModal() { openModal = null; $('jobModal').classList.remove('open'); }
     $('mClose').addEventListener('click', closeModal);
     $('jobModal').addEventListener('click', (e) => { if (e.target === $('jobModal')) closeModal(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
@@ -566,8 +568,28 @@
       setTimeout(() => b.classList.remove('spin'), 400);
     });
 
-    // keep elapsed labels fresh without a full refetch
-    setInterval(() => { if (jobs.length) render(); }, 60000);
+    // Keep elapsed labels fresh without a refetch or a full re-render (which
+    // would rebuild cards mid-drag). Recompute fmtElapsed from the already-
+    // loaded in-memory stateTs and write each card's label in place; if the
+    // read-only modal is open, refresh its "Time in state" the same way. The
+    // realtime channel here lives for the page's lifetime, so this interval
+    // does too — nothing to tear down.
+    let elapsedTimer = setInterval(tickElapsed, 60000);
+    function tickElapsed() {
+      if (!jobs.length) return;
+      document.querySelectorAll('#columns .job-card').forEach(card => {
+        const j = jobs.find(x => x.table === card.dataset.table && String(x.sbid) === String(card.dataset.id));
+        if (!j) return;
+        const label = card.querySelector('.jc-elapsed');
+        if (label) {
+          const txt = fmtElapsed(j.stateTs);
+          if (txt) label.textContent = txt;
+        }
+      });
+      // modal is a read-only snapshot; rebuild its body in place to freshen the
+      // "Time in state" value (does not close it — the overlay stays open).
+      if (openModal) openJob(openModal.table, openModal.sbid);
+    }
 
     loadAll();
     subscribe();

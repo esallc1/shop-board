@@ -293,6 +293,19 @@
   .clock-punch-row{ display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--gauge); }
   .clock-punch-dot{ width:7px; height:7px; border-radius:50%; flex-shrink:0; }
   .clock-no-punches{ font-size:12px; color:var(--stroke); text-align:center; padding:4px 0 2px; }
+
+  /* ---------- Clock-out confirm dialog ---------- */
+  .confirm-overlay{ position:fixed; inset:0; background:rgba(0,0,0,0.62); display:flex;
+    align-items:center; justify-content:center; z-index:1000; padding:22px; }
+  .confirm-card{ background:var(--asphalt); border:1px solid var(--stroke); border-radius:14px;
+    padding:22px 20px; width:100%; max-width:340px; box-shadow:0 20px 54px rgba(0,0,0,0.55); }
+  .confirm-title{ font-size:18px; font-weight:800; color:var(--paper); }
+  .confirm-sub{ font-size:14px; color:var(--gauge); line-height:1.5; margin-top:8px; }
+  .confirm-actions{ display:flex; gap:10px; margin-top:20px; }
+  .confirm-btn{ flex:1; padding:14px 12px; border:none; border-radius:10px; font-size:15px;
+    font-weight:700; cursor:pointer; font-family:inherit; }
+  .confirm-cancel{ background:var(--stroke); color:var(--paper); }
+  .confirm-go{ background:var(--danger); color:#fff; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="shared/catch-moment.js"></script>
@@ -449,6 +462,7 @@ async function loadTodaysPunches(techName) {
   CLOCK_STATE.punches = punches.map(p => ({
     type: p.punch_type,
     time: new Date(p.punched_at).toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'}),
+    at: p.punched_at,   // raw timestamp (already fetched) — used for clock-out elapsed
   }));
   CLOCK_STATE.step = CLOCK_STATE.punches.length % 4;
 }
@@ -822,7 +836,7 @@ function showToast(msg){
 function render(){
   const app = document.getElementById('app');
   if(STATE.view === 'login'){ app.innerHTML = renderLogin(); bindLogin(); }
-  else if(STATE.view === 'list'){ app.innerHTML = renderList(); bindList(); ensureRealtime(); rtFlushPending(); }
+  else if(STATE.view === 'list'){ app.innerHTML = renderList(); bindList(); ensureRealtime(); rtFlushPending(); startElapsedTicker(); }
   else if(STATE.view === 'detail'){ app.innerHTML = renderDetail(); bindDetail(); }
   else if(STATE.view === 'roDiag'){ app.innerHTML = renderRoDiag(); bindRoDiag(); }
 }
@@ -1001,6 +1015,35 @@ function teardownRealtime(){
   if(rtChannel){ db.removeChannel(rtChannel); rtChannel = null; }
   rtPendingRefresh = false;
   rtWriteInFlight = false;
+  stopElapsedTicker();
+}
+
+/* ---------------- Elapsed-time ticker ----------------
+   The only now-dependent display here is the flag-hero "Flagged Hours — This
+   Week", which drops jobs as they age past the 7-day window — otherwise it
+   freezes until a manual refresh (realtime never fires because the underlying
+   timestamps don't change). Cheap in-place update (no refetch, no full
+   re-render that would reset scroll / rebuild the clock button), and ONLY
+   while the list is showing — so it never disrupts an open job, an in-flight
+   write, or unsaved diagnosis text (same intent as the rtShouldDefer guard).
+   Started from render()'s list branch (so normal PIN and embedded "as" mode
+   both get it); stopped on logout via teardownRealtime(). */
+let elapsedTimer = null;
+function startElapsedTicker(){
+  if(elapsedTimer) return;
+  elapsedTimer = setInterval(() => {
+    if(!STATE.currentTech || STATE.view !== 'list') return;
+    const valEl = document.querySelector('.flag-hero .value');
+    const subEl = document.querySelector('.flag-hero .sub');
+    if(valEl) valEl.innerHTML = `${flaggedHoursThisWeek().toFixed(1)}<span>hrs</span>`;
+    if(subEl){
+      const n = jobsFlaggedThisWeekCount();
+      subEl.innerHTML = `<b>${n}</b> ${n===1?t('flagHeroSubJob'):t('flagHeroSubJobs')} ${t('flagHeroSubSuffix')}`;
+    }
+  }, 60000);
+}
+function stopElapsedTicker(){
+  if(elapsedTimer){ clearInterval(elapsedTimer); elapsedTimer = null; }
 }
 
 const CLOCK_BTN_KEYS   = ['clockIn','clockOutLunch','clockBackLunch','clockOutEod'];
@@ -1033,35 +1076,95 @@ function renderClock(){
 function bindClock(){
   const btn = document.getElementById('clockBtn');
   if(!btn) return;
-  btn.addEventListener('click', async () => {
-    const tech = STATE.currentTech;
+  btn.addEventListener('click', () => {
     const type = PUNCH_TYPES[CLOCK_STATE.step];
-    const now  = new Date();
-    const timeStr = now.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
-
-    // Write punch to Supabase (table created, but may need RLS policy — see report)
-    const { error } = await db.from('punches').insert({
-      tech_name: tech.name,
-      punch_type: type,
-      punched_at: now.toISOString(),
-    });
-    if(error){
-      if(error.code === '42501'){
-        // RLS blocks anon inserts — punch still advances in-memory, user must add policy
-        console.warn('Punch not persisted — RLS policy needed on punches table:', error.message);
-        showToast('Punch recorded (sync pending — see setup)');
-      } else {
-        console.error('Punch write failed:', error);
-        showToast('Punch save failed');
-        return; // don't advance if it's a non-RLS error
-      }
+    // Guard ONLY the clock-OUT directions (lunch out / end-of-day) — a mis-tap
+    // there loses time or ends the day. Clocking IN stays one tap.
+    if(type === 'lunch_out' || type === 'clock_out'){
+      const tech = STATE.currentTech;
+      showClockOutConfirm(tech ? tech.name : '', elapsedSinceLastClockIn(), performPunch);
+      return;
     }
-
-    // Advance in-memory state (whether or not Supabase write succeeded)
-    CLOCK_STATE.punches.push({ type, time: timeStr });
-    CLOCK_STATE.step = (CLOCK_STATE.step + 1) % 4;
-    render();
+    performPunch();
   });
+}
+
+// Most recent clock-in (morning clock_in or back-from-lunch lunch_in),
+// formatted like "6h 20m". '' if the timestamp isn't available.
+function elapsedSinceLastClockIn(){
+  const ins = CLOCK_STATE.punches.filter(p => (p.type === 'clock_in' || p.type === 'lunch_in') && p.at);
+  const last = ins[ins.length - 1];
+  if(!last) return '';
+  return fmtClockElapsed(Date.now() - new Date(last.at).getTime());
+}
+function fmtClockElapsed(ms){
+  if(!(ms >= 0)) return '';
+  const m = Math.floor(ms / 60000);
+  if(m < 1) return 'less than a minute';
+  if(m < 60) return m + 'm';
+  return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+}
+
+// The existing punch write + in-memory advance, unchanged — extracted so the
+// one-tap clock-IN path and the confirmed clock-OUT path share it.
+async function performPunch(){
+  const tech = STATE.currentTech;
+  const type = PUNCH_TYPES[CLOCK_STATE.step];
+  const now  = new Date();
+  const timeStr = now.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
+
+  // Write punch to Supabase (table created, but may need RLS policy — see report)
+  const { error } = await db.from('punches').insert({
+    tech_name: tech.name,
+    punch_type: type,
+    punched_at: now.toISOString(),
+  });
+  if(error){
+    if(error.code === '42501'){
+      // RLS blocks anon inserts — punch still advances in-memory, user must add policy
+      console.warn('Punch not persisted — RLS policy needed on punches table:', error.message);
+      showToast('Punch recorded (sync pending — see setup)');
+    } else {
+      console.error('Punch write failed:', error);
+      showToast('Punch save failed');
+      return; // don't advance if it's a non-RLS error
+    }
+  }
+
+  // Advance in-memory state (whether or not Supabase write succeeded)
+  CLOCK_STATE.punches.push({ type, time: timeStr, at: now.toISOString() });
+  CLOCK_STATE.step = (CLOCK_STATE.step + 1) % 4;
+  render();
+}
+
+// Minimal inline confirm dialog — my-numbers has no shared modal component
+// (catch-moment.js's capture sheet is a different pattern), so this is a small
+// dark-theme scrim + card. Cancel is the default/low-friction choice so a
+// reflexive tap or Enter lands safe, never on clock-out. Works in embedded
+// "as" mode (it's just a DOM overlay).
+function showClockOutConfirm(techName, elapsedText, onConfirm){
+  const existing = document.getElementById('clockOutConfirm');
+  if(existing) existing.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'clockOutConfirm';
+  overlay.className = 'confirm-overlay';
+  const dur = elapsedText
+    ? `<div class="confirm-sub">You've been clocked in ${escGreeting(elapsedText)}.</div>` : '';
+  overlay.innerHTML = `
+    <div class="confirm-card" role="dialog" aria-modal="true" aria-label="Confirm clock out">
+      <div class="confirm-title">Clock out, ${escGreeting(techName || 'tech')}?</div>
+      ${dur}
+      <div class="confirm-actions">
+        <button type="button" class="confirm-btn confirm-cancel" id="clockOutCancel">Cancel</button>
+        <button type="button" class="confirm-btn confirm-go" id="clockOutYes">Yes, clock out</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if(e.target === overlay) close(); }); // scrim tap = cancel
+  document.getElementById('clockOutCancel').addEventListener('click', close);
+  document.getElementById('clockOutYes').addEventListener('click', () => { close(); onConfirm(); });
+  document.getElementById('clockOutCancel').focus();   // default focus on the safe choice
 }
 
 function renderList(){
