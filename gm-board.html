@@ -12,6 +12,7 @@
 <script src="shared/board-settings.js"></script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/help-tips.js"></script>
+<script src="shared/team-chat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
 <style>
@@ -2549,282 +2550,25 @@
     { key: 'manager_advisor',     label: 'Advisor' },
     { key: 'manager_bookkeeping', label: 'Bookkeeping' },
   ];
-  let CURRENT_CHANNEL = 'group';
-  let chatMessages = [];
-  let chatRealtimeChannel = null;
-
-  // ── Attention alerts — unread counts per channel, a toast, and a
-  // synthesized beep (no external audio asset). Scoped to this board's
-  // own CHAT_CHANNELS, so a manager_advisor DM never reaches
-  // owner-board.html and vice versa. Known limitation: this is
-  // role-based, not per-employee — two people sharing a role would
-  // both see/be alerted on all of that role's DMs.
-  let chatUnreadCounts = {};
-  let chatAudioCtx = null;
-
-  function chatEsc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-  function formatChatTime(iso) {
-    return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  }
-
-  function isTeamChatVisible(channel) {
-    return currentViewKey === 'teamchat' && CURRENT_CHANNEL === channel;
-  }
-
-  function unlockChatAudio() {
-    if (!chatAudioCtx) {
-      try { chatAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
-    }
-    if (chatAudioCtx.state === 'suspended') chatAudioCtx.resume().catch(() => {});
-  }
-
-  // Unlock on the very first interaction anywhere on this page (not just a
-  // click into Team Chat specifically) — any trusted gesture satisfies the
-  // browser's autoplay policy, and this no longer depends on the user
-  // happening to open Team Chat before a message arrives.
-  ['click', 'keydown', 'touchstart'].forEach(evt => {
-    document.addEventListener(evt, unlockChatAudio, { once: true, passive: true });
+  // ── Team Chat — shared component (shared/team-chat.js). This board keeps
+  //    its own CHAT_CHANNELS + CHAT_IDENTITY (declared above); renders in the
+  //    in-page "teamchat" sidebar tab.
+  const teamChat = initTeamChat({
+    db,
+    identity: CHAT_IDENTITY,
+    channels: CHAT_CHANNELS,
+    mode: 'tab',
+    badgeId: 'teamchat-unread-badge',
+    isSurfaceVisible: () => currentViewKey === 'teamchat',
+    ownerNameChannelKey: 'owner_manager',
   });
-
-  function playChatAlertSound() {
-    // Fallback: if nothing has unlocked audio yet, try creating the context
-    // now anyway — it may already be usable if a gesture happened elsewhere
-    // on the page that we didn't explicitly listen for.
-    if (!chatAudioCtx) {
-      try { chatAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; }
-    }
-    const fire = () => {
-      const osc = chatAudioCtx.createOscillator();
-      const gain = chatAudioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.16, chatAudioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, chatAudioCtx.currentTime + 0.3);
-      osc.connect(gain).connect(chatAudioCtx.destination);
-      osc.start();
-      osc.stop(chatAudioCtx.currentTime + 0.3);
-    };
-    // Resume is async — schedule the tone only after it actually resolves,
-    // otherwise the oscillator can be scheduled against a still-suspended
-    // context and never actually sound.
-    if (chatAudioCtx.state === 'suspended') {
-      chatAudioCtx.resume().then(fire).catch(() => {});
-    } else {
-      fire();
-    }
-  }
-
-  function ensureChatToastContainer() {
-    let box = document.getElementById('chat-toast-container');
-    if (!box) {
-      box = document.createElement('div');
-      box.id = 'chat-toast-container';
-      box.className = 'chat-toast-container';
-      document.body.appendChild(box);
-    }
-    return box;
-  }
-
-  function showChatToast(rec) {
-    const box = ensureChatToastContainer();
-    const channelLabel = (CHAT_CHANNELS.find(c => c.key === rec.channel) || {}).label || rec.channel;
-    const el = document.createElement('div');
-    el.className = 'chat-toast';
-    el.innerHTML = `
-      <div class="chat-toast-channel">${chatEsc(channelLabel)}</div>
-      <div class="chat-toast-sender">${chatEsc(rec.sender_name)}</div>
-      <div class="chat-toast-msg">${chatEsc(rec.message)}</div>
-    `;
-    el.addEventListener('click', () => el.remove());
-    box.appendChild(el);
-    setTimeout(() => el.remove(), 5000);
-  }
-
-  function updateChatUnreadBadge() {
-    const badge = document.getElementById('teamchat-unread-badge');
-    if (!badge) return;
-    const total = Object.values(chatUnreadCounts).reduce((a, b) => a + b, 0);
-    if (total > 0) {
-      badge.textContent = total > 9 ? '9+' : String(total);
-      badge.style.display = 'flex';
-    } else {
-      badge.style.display = 'none';
-    }
-  }
-
-  function clearChatUnread(channel) {
-    if (chatUnreadCounts[channel]) {
-      chatUnreadCounts[channel] = 0;
-      updateChatUnreadBadge();
-    }
-  }
-
-  function maybeAlertNewMessage(rec) {
-    if (!rec || !CHAT_IDENTITY.name || !CHAT_IDENTITY.role) return; // pre-login: identity not resolved yet
-    if (rec.sender_name === CHAT_IDENTITY.name) return; // self-sent
-    playChatAlertSound(); // sound always plays, even for the channel currently being viewed
-    if (isTeamChatVisible(rec.channel)) return; // already looking at this exact channel — skip toast/badge
-    chatUnreadCounts[rec.channel] = (chatUnreadCounts[rec.channel] || 0) + 1;
-    updateChatUnreadBadge();
-    showChatToast(rec);
-  }
-
-  function renderChannelTabs() {
-    const wrap = document.getElementById('chat-channels');
-    wrap.innerHTML = CHAT_CHANNELS.map(c =>
-      `<button class="chat-channel-btn${c.key === CURRENT_CHANNEL ? ' active' : ''}" data-channel="${c.key}">${chatEsc(c.label)}</button>`
-    ).join('');
-    wrap.querySelectorAll('[data-channel]').forEach(btn => {
-      btn.addEventListener('click', () => switchChatChannel(btn.dataset.channel));
-    });
-  }
-
-  // Same dynamic-source pattern as the Tech dropdown: pull the real owner's
-  // name from `employees` instead of hardcoding it. Falls back to the
-  // generic "Owner" label if no active owner record exists yet.
-  async function loadOwnerChannelLabel() {
-    const { data, error } = await db
-      .from('employees').select('name')
-      .eq('role', 'owner').eq('active', true)
-      .order('name').limit(1);
-    if (error) { console.error('[Chat] load owner label failed', error); return; }
-    const entry = CHAT_CHANNELS.find(c => c.key === 'owner_manager');
-    if (entry) entry.label = (data && data[0] && data[0].name) ? data[0].name : 'Owner';
-    renderChannelTabs();
-  }
-
-  async function loadChatMessages(channel) {
-    const { data, error } = await db.from('chat_messages').select('*').eq('channel', channel).order('created_at');
-    if (error) { console.error('[Chat] load failed', error); chatMessages = []; }
-    else chatMessages = data || [];
-    renderChat();
-  }
-
-  function handleIncomingChatMessage(rec) {
-    if (!rec) return;
-    if (rec.channel === CURRENT_CHANNEL) {
-      chatMessages.push(rec);
-      renderChat();
-    }
-    maybeAlertNewMessage(rec);
-  }
-
-  function subscribeChatChannel() {
-    if (chatRealtimeChannel) {
-      db.removeChannel(chatRealtimeChannel);
-      chatRealtimeChannel = null;
-    }
-    let channel = db.channel('chat-live');
-    CHAT_CHANNELS.forEach(c => {
-      channel = channel.on('postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `channel=eq.${c.key}` },
-        ({ new: rec }) => handleIncomingChatMessage(rec)
-      );
-    });
-    chatRealtimeChannel = channel.subscribe();
-  }
-
-  function switchChatChannel(channel) {
-    CURRENT_CHANNEL = channel;
-    renderChannelTabs();
-    loadChatMessages(channel);
-    clearChatUnread(channel);
-  }
-
-  function renderChat() {
-    const box = document.getElementById('chat-messages');
-    box.innerHTML = chatMessages.map(m => `
-      <div class="chat-msg ${m.sender_name === CHAT_IDENTITY.name ? 'me' : 'them'}">
-        <div class="chat-msg-sender">${chatEsc(m.sender_name)}</div>
-        <div class="chat-msg-bubble">${chatEsc(m.message)}</div>
-        <div class="chat-msg-time">${formatChatTime(m.created_at)}</div>
-      </div>`).join('');
-    box.scrollTop = box.scrollHeight;
-  }
-
-  async function sendChatMsg() {
-    const input = document.getElementById('chat-input');
-    const text = input.value.trim();
-    if (!text) return;
-    if (!CHAT_IDENTITY.name || !CHAT_IDENTITY.role) {
-      alert('Could not identify you on this board yet — try reopening it from CrisData.');
-      return;
-    }
-    input.value = '';
-    const { error } = await db.from('chat_messages').insert({
-      channel: CURRENT_CHANNEL,
-      sender_role: CHAT_IDENTITY.role,
-      sender_name: CHAT_IDENTITY.name,
-      message: text,
-    });
-    if (error) {
-      console.error('[Chat] send failed', error);
-      alert('Message failed to send: ' + error.message);
-    }
-  }
-
-  document.getElementById('chat-send').addEventListener('click', sendChatMsg);
-  document.getElementById('chat-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') sendChatMsg();
-  });
-
-  // First click into Team Chat both unlocks alert audio (satisfies the
-  // browser's user-gesture requirement for AudioContext) and marks the
-  // currently-active channel as read. Also re-applies the scroll-to-
-  // bottom that renderChat() already does on every load/new message —
-  // that call is a no-op while this view is hidden (scrollHeight reads
-  // 0 on a display:none element), so it has to run again here, now
-  // that the view is actually visible.
-  document.querySelector('.sidebar-item[data-view="teamchat"]').addEventListener('click', () => {
-    unlockChatAudio();
-    clearChatUnread(CURRENT_CHANNEL);
-    const box = document.getElementById('chat-messages');
-    if (box) box.scrollTop = box.scrollHeight;
-  });
-
-  renderChannelTabs();
-  loadChatMessages(CURRENT_CHANNEL);
-  subscribeChatChannel();
-  loadOwnerChannelLabel();
+  document.querySelector('.sidebar-item[data-view="teamchat"]')
+    .addEventListener('click', () => teamChat.onSurfaceShown());
   VIEW_REFRESH.teamchat = {
-    refetch: () => loadChatMessages(CURRENT_CHANNEL),
-    getChannel: () => chatRealtimeChannel,
-    resubscribe: () => subscribeChatChannel(),
+    refetch: teamChat.refetch,
+    getChannel: teamChat.getChannel,
+    resubscribe: teamChat.resubscribe,
   };
-
-  // ── Emoji picker (desktop convenience — phone keyboards already have one)
-  const EMOJI_LIST = ['👍','👎','✅','❌','🔥','💯','👏','🙌','💪','🙏',
-                       '😊','😂','😅','😉','😎','🤔','😬','😢','😡','🥳',
-                       '🚗','🔧','⚙️','⚠️','🛠️','🔩','⏰','📞','📸','💰'];
-
-  function renderEmojiPopover() {
-    const pop = document.getElementById('emoji-popover');
-    pop.innerHTML = EMOJI_LIST.map(e => `<button type="button" data-emoji="${e}">${e}</button>`).join('');
-    pop.querySelectorAll('[data-emoji]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const input = document.getElementById('chat-input');
-        input.value += btn.dataset.emoji;
-        pop.style.display = 'none';
-        input.focus();
-      });
-    });
-  }
-
-  document.getElementById('emoji-btn').addEventListener('click', (e) => {
-    e.stopPropagation();
-    const pop = document.getElementById('emoji-popover');
-    pop.style.display = pop.style.display === 'none' ? 'grid' : 'none';
-  });
-
-  document.addEventListener('click', (e) => {
-    const pop = document.getElementById('emoji-popover');
-    const btn = document.getElementById('emoji-btn');
-    if (pop.style.display !== 'none' && !pop.contains(e.target) && e.target !== btn) {
-      pop.style.display = 'none';
-    }
-  });
-
-  renderEmojiPopover();
 
   // ══════════════════════════════════════════════════════════════
   // SHOP FLOOR TAB — ported from shop-board.html (v1 tool), first pass.
