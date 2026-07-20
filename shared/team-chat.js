@@ -248,10 +248,16 @@ function initTeamChat(config) {
     // Best-effort closed-phone push to the other participants (sub-slice 2c).
     // Fire-and-forget: the message already saved — a push failure must NEVER
     // surface to the sender or block sending. Identity is read live (above).
+    // The x-cd-push-secret header gates /api/send-push (harden pass); this value
+    // ships in the static client by necessity and must match the Vercel env
+    // PUSH_SHARED_SECRET (see the endpoint's honest note — not fortress-grade).
     try {
       fetch('/api/send-push', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-cd-push-secret': 'YQ87V5nheXAcwx7tMI6w50LjRxOSB9NuVLFqyrF5_sc',
+        },
         body: JSON.stringify({
           channel: channel,
           senderName: id.name,

@@ -5,9 +5,14 @@
    chat message inserts. We look up everyone subscribed to that channel
    (minus the sender), send each a Web Push, and prune dead endpoints.
 
+   Auth (harden pass): two lightweight gates in front of the existing logic —
+   an origin allow-list (403) and a shared-secret header x-cd-push-secret
+   compared to PUSH_SHARED_SECRET (401). Order: 405 → 403 → 401 → 400 → send.
+
    Requires:
    • VAPID_PRIVATE_KEY in the Vercel env (set in 2b). If missing we fail
      loudly (500 + console.error) — never silently.
+   • PUSH_SHARED_SECRET in the Vercel env (harden pass). Missing → 401 + log.
    • push_subscriptions table migrated (2b).
 
    Never leaks the private key or subscription internals in the response.
@@ -16,9 +21,29 @@ import webpush from 'web-push';
 
 // Public VAPID key — same value embedded client-side in shared/push.js.
 const VAPID_PUBLIC = 'BByOPsrzKI55qegn0RENJRoA0ijuf4Axb3rVpt4UJ7SYBlqRSMJiITi1JZhAyayPwHHcBU3u9ygvwF2Kvf--AD8';
-// Contact for setVapidDetails — PLACEHOLDER. Cris: confirm/replace with a real
-// monitored address; push services use it to reach you about your pushes.
+// TODO(Cris): STILL A PLACEHOLDER — provide the real monitored address and
+// replace this. Push services use it to reach you about your pushes. web-push
+// requires a valid mailto:/https: subject, so it's left as a working
+// placeholder (not invented per se — carried from 2c) until you supply one.
 const VAPID_CONTACT = 'mailto:admin@leetransmissionshop.com';
+
+// GATE 1 allow-list — only these origins may call this endpoint. Small array
+// so domains are easy to add later.
+// NOTE(Cris): confirm the vercel.app entry matches your actual project domain
+// (guessed from the repo name) — adjust if your Vercel URL differs.
+const ALLOWED_ORIGINS = [
+  'https://board.leetransmissionshop.com',   // custom production domain
+  'https://shop-board.vercel.app',           // vercel.app production domain (VERIFY)
+];
+
+// Origin of the request — prefer the Origin header, fall back to Referer.
+function getRequestOrigin(req) {
+  const o = req.headers && req.headers.origin;
+  if (o) return o;
+  const ref = req.headers && req.headers.referer;
+  if (ref) { try { return new URL(ref).origin; } catch (e) { /* malformed */ } }
+  return null;
+}
 
 // Supabase REST (anon publishable key — same public key the boards ship;
 // push_subscriptions RLS is anon-full-access).
@@ -46,6 +71,27 @@ const sbHeaders = {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
+  // GATE 1 — origin allow-list. Reject unknown origins with a generic 403
+  // (don't echo the origin back).
+  const origin = getRequestOrigin(req);
+  if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
+    return res.status(403).json({ error: 'forbidden' });
+  }
+
+  // GATE 2 — shared secret. The client sends x-cd-push-secret; it must match
+  // PUSH_SHARED_SECRET in the env. Fail closed + log loudly if the env is unset.
+  // HONEST NOTE: the client is static, so this secret ships in the page source
+  // and a determined person could extract it. Combined with the origin check it
+  // stops casual/bot abuse of the URL — it is NOT fortress-grade.
+  const SHARED_SECRET = process.env.PUSH_SHARED_SECRET;
+  if (!SHARED_SECRET) {
+    console.error('[send-push] PUSH_SHARED_SECRET is not set in the environment — rejecting.');
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  if ((req.headers && req.headers['x-cd-push-secret']) !== SHARED_SECRET) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+
   // Fail loudly if the key isn't configured — do NOT silently no-op.
   const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
   if (!VAPID_PRIVATE) {
@@ -53,7 +99,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'push not configured' });
   }
 
-  // Validate payload shape + known channel (light abuse guard — see NOTE below).
+  // Validate payload shape + known channel.
   const { channel, senderName, senderRole, messagePreview } = req.body || {};
   if (typeof channel !== 'string' || !CHANNELS[channel]) {
     return res.status(400).json({ error: 'unknown channel' });
@@ -61,10 +107,6 @@ export default async function handler(req, res) {
   if (typeof senderName !== 'string' || typeof messagePreview !== 'string') {
     return res.status(400).json({ error: 'bad payload' });
   }
-  // NOTE (known limitation to harden later): this endpoint is callable by
-  // anyone who finds it — there's no auth token. It only fans a short text
-  // notification to a fixed set of subscribers, but a real deployment should
-  // add a shared secret / origin check. Not blocking shipping.
 
   webpush.setVapidDetails(VAPID_CONTACT, VAPID_PUBLIC, VAPID_PRIVATE);
 
