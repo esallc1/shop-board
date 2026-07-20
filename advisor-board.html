@@ -415,10 +415,8 @@
     <div class="sidebar-scroll">
       <div class="sidebar-group">
         <div class="sidebar-group-label">Main</div>
+        <div class="sidebar-item" data-view="cdros" data-label="RO Board"><span class="icon">📄</span>RO Board (CrisData)</div>
         <div class="sidebar-item active" data-view="approval" data-label="Approval Queue"><span class="icon">📋</span>Approval Queue</div>
-        <div class="sidebar-item" id="navNewVehicle"><span class="icon">🚗</span>New Vehicle Intake</div>
-        <div class="sidebar-item" id="navCdRo"><span class="icon">🆕</span>New RO (CrisData)<span class="cd-nav-tag">beta</span></div>
-        <div class="sidebar-item" data-view="cdros" data-label="RO Board"><span class="icon">📄</span>RO Board (CrisData)<span class="cd-nav-tag">beta</span></div>
         <div class="sidebar-item" data-view="parts" data-label="Parts"><span class="icon">🔩</span>Parts</div>
         <div class="sidebar-item" data-view="payments" data-label="Payments"><span class="icon">💳</span>Payments</div>
         <div class="sidebar-item" data-view="customer-log" data-label="Customer Log"><span class="icon">📇</span>Customer Log</div>
@@ -611,7 +609,6 @@
       <div class="card">
         <div class="card-title">
           <div class="dot" style="background:var(--accent)"></div>Repair Orders
-          <span class="cd-nav-tag" style="margin-left:6px">beta</span>
           <button class="btn btn-primary" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdRoNewBtn">+ New RO</button>
         </div>
         <div class="cd-kanban" id="cdKanban">
@@ -782,63 +779,6 @@
   </main>
 </div>
 
-<!-- New Vehicle Intake Modal — outside .content so it isn't hidden by an inactive .view -->
-<div class="modal-overlay" id="newVehicleModal" style="display:none">
-  <div class="modal-box">
-    <button class="modal-close" id="closeNewVehicleModal">&times;</button>
-    <h3>New Vehicle Intake</h3>
-    <div class="intake-field">
-      <label>PO / RO Number</label>
-      <input type="text" id="nvPoInput" placeholder="e.g. 5512">
-    </div>
-    <div class="intake-field">
-      <label>Customer</label>
-      <input type="text" id="nvCustomerInput" placeholder="Customer name">
-    </div>
-    <div class="intake-field">
-      <label>Vehicle</label>
-      <input type="text" id="nvVehicleInput" placeholder="Year / Make / Model">
-    </div>
-    <div class="intake-field">
-      <label>Work Description</label>
-      <textarea id="nvWorkInput" placeholder="What the customer reported / what's being done"></textarea>
-    </div>
-    <div class="intake-field">
-      <label>Job Category</label>
-      <select id="nvCategoryInput">
-        <option value="">- Category -</option>
-        <option value="Gen Auto">Gen Auto</option>
-        <option value="Rebuild">Rebuild</option>
-        <option value="Diag">Diag</option>
-      </select>
-    </div>
-    <div class="intake-field intake-field-row">
-      <label style="margin-bottom:0">Warranty / Comeback</label>
-      <label class="intake-toggle">
-        <input type="checkbox" id="nvWarrantyInput">
-        <span class="intake-toggle-slider"></span>
-      </label>
-    </div>
-    <div class="intake-field">
-      <label>Arrival Date</label>
-      <input type="date" id="nvArrivalInput">
-    </div>
-    <div class="intake-field">
-      <label>Notes</label>
-      <textarea id="nvNotesInput" placeholder="Notes..."></textarea>
-    </div>
-    <div class="intake-field">
-      <label>Assign Tech (optional)</label>
-      <select id="nvTechInput">
-        <option value="">Unassigned</option>
-      </select>
-    </div>
-    <div class="intake-form-error" id="nvFormError"></div>
-    <button class="modal-btn" id="nvSaveBtn">Add Vehicle</button>
-    <button class="modal-btn sec" id="nvCancelBtn">Cancel</button>
-  </div>
-</div>
-
 <div class="modal-overlay" id="orderPartModal" style="display:none">
   <div class="modal-box">
     <button class="modal-close" id="closeOrderPartModal">&times;</button>
@@ -875,9 +815,9 @@
 
 <!-- ══════════════════════════════════════════════════════════════
      New RO (CrisData) — Phase 2 slice 1: phone-first create path
-     through the RO mint. PARALLEL to the live New Vehicle Intake
-     modal above (which stays the shop's ALLDATA front door). Writes
-     to the Phase-1 tables: customers → vehicles → repair_orders.
+     through the RO mint. This is now the shop's front door (the old
+     New Vehicle Intake modal was retired after the legacy migration).
+     Writes to the Phase-1 tables: customers → vehicles → repair_orders.
      ══════════════════════════════════════════════════════════════ -->
 <div class="modal-overlay" id="cdRoModal" style="display:none">
   <div class="modal-box">
@@ -2294,116 +2234,6 @@
   })();
 
   // ══════════════════════════════════════════════════════════════
-  // NEW VEHICLE INTAKE — advisor-created jobs land in shopboard_parking
-  // (Parking Lot Waiting), never directly on a lift. Lift placement stays
-  // a GM Board action. Status is always 'waiting-tech' regardless of
-  // whether a tech was assigned at intake — it reflects "needs a tech,"
-  // not whether one's been picked yet.
-  // ══════════════════════════════════════════════════════════════
-  (function () {
-    async function loadTechOptions() {
-      const sel = document.getElementById('nvTechInput');
-      sel.innerHTML = '<option value="">Unassigned</option>';
-      const { data, error } = await db
-        .from('employees').select('name')
-        .eq('role', 'tech').eq('active', true)
-        .order('name');
-      if (error) { console.error('[Intake] Load techs failed', error); return; }
-      (data || []).forEach(t => {
-        const opt = document.createElement('option');
-        opt.value = t.name;
-        opt.textContent = t.name;
-        sel.appendChild(opt);
-      });
-    }
-
-    // Same duplicate-PO-guard behavior as gm-board.html's Shop Floor Add Car
-    // flow (ported from shop-board.html): case-insensitive, trimmed match
-    // across lifts + parking + pickup.
-    async function isDuplicatePO(po) {
-      if (!po || !po.trim()) return false;
-      const norm = po.trim().toLowerCase();
-      const [{ data: lifts }, { data: parking }, { data: pickup }] = await Promise.all([
-        db.from('shopboard_lifts').select('po'),
-        db.from('shopboard_parking').select('po'),
-        db.from('shopboard_pickup').select('po'),
-      ]);
-      const all = [...(lifts || []), ...(parking || []), ...(pickup || [])];
-      return all.some(r => (r.po || '').trim().toLowerCase() === norm);
-    }
-
-    async function openNewVehicleModal() {
-      document.getElementById('nvPoInput').value = '';
-      document.getElementById('nvCustomerInput').value = '';
-      document.getElementById('nvVehicleInput').value = '';
-      document.getElementById('nvWorkInput').value = '';
-      document.getElementById('nvCategoryInput').value = '';
-      document.getElementById('nvWarrantyInput').checked = false;
-      document.getElementById('nvArrivalInput').value = new Date().toISOString().slice(0, 10);
-      document.getElementById('nvNotesInput').value = '';
-      document.getElementById('nvFormError').textContent = '';
-      await loadTechOptions();
-      document.getElementById('nvTechInput').value = '';
-      document.getElementById('newVehicleModal').style.display = 'flex';
-    }
-
-    function closeNewVehicleModal() {
-      document.getElementById('newVehicleModal').style.display = 'none';
-    }
-
-    async function saveNewVehicle() {
-      const po = document.getElementById('nvPoInput').value.trim();
-      const vehicle = document.getElementById('nvVehicleInput').value.trim();
-      const customer = document.getElementById('nvCustomerInput').value.trim();
-      const work = document.getElementById('nvWorkInput').value.trim();
-      const job_category = document.getElementById('nvCategoryInput').value;
-      const warranty = document.getElementById('nvWarrantyInput').checked;
-      const arrival_date = document.getElementById('nvArrivalInput').value || null;
-      const notes = document.getElementById('nvNotesInput').value.trim();
-      const assigned_tech = document.getElementById('nvTechInput').value || null;
-      const errEl = document.getElementById('nvFormError');
-      errEl.textContent = '';
-
-      if (!po || !vehicle) {
-        errEl.textContent = 'PO/RO number and Vehicle are required.';
-        return;
-      }
-
-      const saveBtn = document.getElementById('nvSaveBtn');
-      saveBtn.disabled = true;
-      saveBtn.textContent = 'Saving…';
-
-      try {
-        if (await isDuplicatePO(po)) {
-          errEl.textContent = `PO # "${po}" already exists on the board. Use a different number.`;
-          return;
-        }
-
-        const { error } = await db.from('shopboard_parking').insert({
-          po, vehicle, customer, work, status: 'waiting-tech',
-          job_category, warranty, arrival_date, notes, assigned_tech,
-          comeback_flagged_at: warranty ? new Date().toISOString() : null,
-        });
-        if (error) throw error;
-
-        closeNewVehicleModal();
-        loadAndRenderQueue();
-      } catch (err) {
-        console.error('[Intake] Save failed', err);
-        errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
-      } finally {
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Add Vehicle';
-      }
-    }
-
-    document.getElementById('navNewVehicle').addEventListener('click', openNewVehicleModal);
-    document.getElementById('closeNewVehicleModal').addEventListener('click', closeNewVehicleModal);
-    document.getElementById('nvCancelBtn').addEventListener('click', closeNewVehicleModal);
-    document.getElementById('nvSaveBtn').addEventListener('click', saveNewVehicle);
-  })();
-
-  // ══════════════════════════════════════════════════════════════
   // NEW RO (CrisData) — Phase 2, slice 1: phone-first create path
   // through the RO mint. Fully additive / parallel to the live New
   // Vehicle Intake above — this writes to the Phase-1 CrisData tables
@@ -2887,7 +2717,9 @@
     }
 
     // ── wiring ────────────────────────────────────────────────
-    $('navCdRo').addEventListener('click', openModal);
+    // Shared open handle for the New RO wizard. The sidebar "New RO" tab was
+    // retired; the RO Board "+ New RO" button (cdRoNewBtn) calls this directly.
+    window.cdOpenNewRo = openModal;
     $('cdCloseBtn').addEventListener('click', closeModal);
     $('cdPhoneCancelBtn').addEventListener('click', closeModal);
     $('cdVehCancelBtn').addEventListener('click', closeModal);
@@ -4142,7 +3974,7 @@
     $('cdRoBackBtn').addEventListener('click', backToList);
     $('cdAddLineBtn').addEventListener('click', addLine);
     $('cdAddCardFeeBtn').addEventListener('click', addCardFee);
-    $('cdRoNewBtn').addEventListener('click', () => $('navCdRo').click());
+    $('cdRoNewBtn').addEventListener('click', () => window.cdOpenNewRo());
     $('cdPrintBtn').addEventListener('click', printRo);
     // Payments (Phase 5): seed the method dropdown (refreshed on each RO open
     // by loadPayments → populateMethodPicker) + wire Record.
