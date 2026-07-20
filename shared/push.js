@@ -1,17 +1,20 @@
 /* ============================================================
-   push.js — Web Push permission + subscription capture (sub-slice 2b).
+   push.js — Web Push permission + subscription capture (sub-slices 2b + 2d).
 
-   NO sending here (that's 2c). This module:
+   Sending lives in api/send-push.js (2c). This module:
    • detects push support / iOS-install state,
    • on a user gesture, requests Notification permission and subscribes via
      PushManager using the VAPID PUBLIC key below,
    • UPSERTs the subscription into push_subscriptions (endpoint PK),
-   • renders a persistent, light-theme "nudge until enabled" banner on the
-     office boards.
+   • renders a light-theme "nudge until enabled" banner on the office boards,
+   • 2d — SELF-HEALS on every open (silently re-upserts a granted subscription,
+     re-subscribing if iOS dropped it) and offers a quiet "Reconnect
+     notifications" backstop when notifications are on.
 
    Identity (subscriber_name/role) is read LIVE via the board's getIdentity
    getter — never a snapshot — same pattern as team-chat.js. Degrades
    gracefully if push_subscriptions isn't migrated yet (PGRST205 → off).
+   No in-app on/off toggle — on/off lives in iOS Settings.
 
    Mount once per board:  initPush({ db, getIdentity })
    ============================================================ */
@@ -154,6 +157,22 @@
     '.push-nudge.pn-denied{ background:#fdecec; border-color:#f3c9c9; color:#7a2a2a; }',
     '.push-nudge.pn-denied .pn-x{ color:#b06a6a; }',
     '.push-nudge.pn-denied .pn-x:hover{ background:#f6d6d6; color:#7a2a2a; }',
+    // quiet "Reconnect notifications" backstop (shown when state is 'on')
+    '.push-reconnect{',
+    '  display:flex; align-items:center; gap:8px; flex-wrap:wrap;',
+    '  margin:0 0 12px; padding:6px 11px; border-radius:8px;',
+    '  background:#f5f6fa; border:1px solid #e7e9f2; color:#8c93a8;',
+    '  font:600 0.72rem/1.4 "Segoe UI",system-ui,-apple-system,sans-serif;',
+    '}',
+    '.push-reconnect .pr-dot{ font-size:0.82rem; opacity:.75; flex:0 0 auto; }',
+    '.push-reconnect .pr-label{ color:#8c93a8; font-weight:600; }',
+    '.push-reconnect .pr-link{',
+    '  border:none; background:transparent; cursor:pointer; padding:2px 3px;',
+    '  color:#5b5ef4; font:700 0.72rem/1 inherit; text-decoration:underline;',
+    '}',
+    '.push-reconnect .pr-link:hover{ color:#4a4ddb; }',
+    '.push-reconnect .pr-link:disabled{ color:#8c93a8; cursor:default; text-decoration:none; }',
+    '.push-reconnect .pr-msg{ color:#0b7a52; font-weight:600; }',
   ].join('\n');
 
   function injectStyles() {
@@ -169,6 +188,10 @@
   }
   function removeBanner() {
     var b = document.getElementById('push-nudge');
+    if (b && b.parentNode) b.parentNode.removeChild(b);
+  }
+  function removeReconnect() {
+    var b = document.getElementById('push-reconnect');
     if (b && b.parentNode) b.parentNode.removeChild(b);
   }
 
@@ -192,14 +215,23 @@
     },
   };
 
-  async function renderBanner() {
-    if (_dismissed) { removeBanner(); return; }
+  // Single source of truth for the push UI. Re-checks the live state and shows
+  // exactly one of: the quiet Reconnect backstop ('on'), the nudge banner
+  // ('off'/'needs-install'/'denied'), or nothing ('unsupported'). Called after
+  // every enable/reconnect/self-heal so success auto-hides the banner.
+  async function renderPushUI() {
     var state = await getPushState();
     removeBanner();
-    if (state === 'on' || state === 'unsupported') return;   // nothing to nudge
+    removeReconnect();
+    if (state === 'unsupported') return;
+    if (state === 'on') { renderReconnect(); return; }   // notifications on → quiet backstop only
+    if (_dismissed) return;                               // banner dismissed this session
+    renderNudgeBanner(state);
+  }
+
+  function renderNudgeBanner(state) {
     var c = COPY[state];
     if (!c) return;
-
     injectStyles();
     var el = document.createElement('div');
     el.id = 'push-nudge';
@@ -220,7 +252,7 @@
         enableBtn.disabled = true;
         enableBtn.textContent = 'Enabling…';
         try { await enablePush(); } catch (e) { console.warn('[Push] enable failed', e); }
-        renderBanner();   // re-evaluate (on → hides; denied → shows denied; off → stays)
+        renderPushUI();   // success → state 'on' → banner auto-hides + Reconnect shows
       });
     }
     el.querySelector('#pn-dismiss').addEventListener('click', function () {
@@ -229,8 +261,79 @@
     });
   }
 
+  // CHANGE 2 (2d): the quiet, always-available "Reconnect notifications"
+  // backstop, shown whenever notifications are ON. It's the manual counterpart
+  // to the invisible self-heal — for the "iOS Settings show ON but no buzz"
+  // case, tapping it re-runs the full subscribe + upsert.
+  function renderReconnect() {
+    injectStyles();
+    var el = document.createElement('div');
+    el.id = 'push-reconnect';
+    el.className = 'push-reconnect';
+    el.innerHTML =
+      '<span class="pr-dot">🔔</span>' +
+      '<span class="pr-label">Notifications on</span>' +
+      '<button type="button" class="pr-link" id="pr-reconnect">Reconnect notifications</button>' +
+      '<span class="pr-msg" id="pr-msg"></span>';
+    var mp = mountPoint();
+    mp.insertBefore(el, mp.firstChild);
+    el.querySelector('#pr-reconnect').addEventListener('click', onReconnectClick);
+  }
+
+  async function onReconnectClick() {
+    var btn = document.getElementById('pr-reconnect');
+    var msg = document.getElementById('pr-msg');
+    if (btn) { btn.disabled = true; btn.textContent = 'Reconnecting…'; }
+    if (msg) msg.textContent = '';
+    var result = 'off';
+    try { result = await enablePush(); }   // permission already granted → re-subscribe + re-upsert
+    catch (e) { console.warn('[Push] reconnect failed', e); }
+
+    if (result === 'denied') {
+      // permission was turned off in iOS Settings since load → point there instead
+      removeReconnect();
+      _dismissed = false;
+      renderNudgeBanner('denied');
+      return;
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Reconnect notifications'; }
+    if (msg) {
+      msg.textContent = result === 'on'
+        ? "Reconnected — you're set to receive notifications."
+        : 'Could not reconnect — try again in a moment.';
+    }
+  }
+
   function escapeHtml(s) {
     return (s == null ? '' : String(s)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // CHANGE 1 (2d): silent self-heal on every board open. If permission is
+  // granted, make sure there's an active push subscription (re-subscribe if
+  // iOS silently dropped it) and ALWAYS re-upsert it to push_subscriptions
+  // (Cris's option 1 — no check-then-write). endpoint is the PK, so re-writing
+  // the same device just refreshes the row + last_seen_at with no duplicates,
+  // and restores a row that ever went missing (the silent-save failure we hit).
+  // Invisible, best-effort — wrapped so it can NEVER block board load or throw.
+  async function selfHeal() {
+    try {
+      if (!pushSupported()) return;
+      if (Notification.permission !== 'granted') return;   // not granted → the nudge banner covers it
+      var reg = await navigator.serviceWorker.getRegistration('/') || await navigator.serviceWorker.ready;
+      if (!reg) return;
+      var sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        // granted but no active subscription (iOS can drop it) → re-subscribe
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
+        });
+      }
+      await upsertSubscription(sub);   // ALWAYS re-upsert
+      renderPushUI();                  // reflect true state (e.g. off→on if we just re-subscribed)
+    } catch (e) {
+      console.warn('[Push] self-heal skipped', e && e.message);   // swallow — never blocks load
+    }
   }
 
   // ── entry point ──
@@ -238,7 +341,8 @@
     config = config || {};
     _db = config.db || null;
     if (typeof config.getIdentity === 'function') _getIdentity = config.getIdentity;
-    await renderBanner();
+    await renderPushUI();
+    selfHeal();   // fire-and-forget background heal — never awaited, never blocks load
   }
 
   global.CrisPush = {
@@ -248,5 +352,6 @@
     getPushState: getPushState,
     enablePush: enablePush,
     disablePush: disablePush,
+    selfHeal: selfHeal,
   };
 })(window);
