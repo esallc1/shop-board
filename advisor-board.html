@@ -416,7 +416,7 @@
       <div class="sidebar-group">
         <div class="sidebar-group-label">Main</div>
         <div class="sidebar-item" data-view="cdros" data-label="RO Board"><span class="icon">📄</span>RO Board (CrisData)</div>
-        <a class="sidebar-item" href="crisdata-techboard.html" data-label="Tech Board"><span class="icon">🔧</span>Tech Board</a>
+        <div class="sidebar-item" data-view="techboard" data-label="Tech Board"><span class="icon">🔧</span>Tech Board</div>
         <div class="sidebar-item active" data-view="approval" data-label="Approval Queue"><span class="icon">📋</span>Approval Queue</div>
         <div class="sidebar-item" data-view="parts" data-label="Parts"><span class="icon">🔩</span>Parts</div>
         <div class="sidebar-item" data-view="payments" data-label="Payments"><span class="icon">💳</span>Payments</div>
@@ -757,6 +757,17 @@
         <div id="cdPayError" style="color:var(--red);font-size:0.78rem;min-height:16px;margin-top:6px"></div>
       </div>
     </div>
+  </div>
+
+  <!-- ══ TAB: TECH BOARD — embedded CrisData dispatcher. iframe only; the
+       board itself lives in crisdata-techboard.html (no markup/JS copied in).
+       Negative margins cancel .content's 24/28 padding so the frame fills the
+       area edge-to-edge; calc(100vh - 63px) = viewport minus the .view-topbar.
+       Left mounted (only display:none toggles) so tab-switching never reloads
+       it or drops its Supabase realtime connection. ══ -->
+  <div class="view" id="view-techboard" style="margin:-24px -28px;height:calc(100vh - 63px);">
+    <iframe src="crisdata-techboard.html" title="CrisData Tech Board"
+            style="display:block;width:100%;height:100%;border:none;"></iframe>
   </div>
 
   <!-- ══ TEAM CHAT — re-homed from the old floating chat widget ══ -->
