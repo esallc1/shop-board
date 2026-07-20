@@ -14,6 +14,7 @@
 <script src="shared/board-settings.js"></script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
+<script src="shared/push.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
 <style>
   /* ── CONTENT ── */
@@ -804,6 +805,9 @@
     badgeId: 'chat-unread',
     isSurfaceVisible: () => document.getElementById('chat-panel').classList.contains('open'),
   });
+
+  // Notifications nudge (sub-slice 2b) — permission + subscription capture.
+  CrisPush.initPush({ db, getIdentity: () => CHAT_IDENTITY });
 
   // Floating-panel chrome (owner-board only): the bubble toggles the panel and,
   // on open, marks the current channel read + unlocks audio + scrolls to bottom.

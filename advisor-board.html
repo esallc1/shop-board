@@ -387,6 +387,7 @@
 <script src="shared/board-settings.js"></script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
+<script src="shared/push.js"></script>
 </head>
 <body>
 
@@ -1851,6 +1852,9 @@
     isSurfaceVisible: () => currentViewKey === 'teamchat',
     ownerNameChannelKey: 'owner_advisor',
   });
+
+  // Notifications nudge (sub-slice 2b) — permission + subscription capture.
+  CrisPush.initPush({ db, getIdentity: () => CHAT_IDENTITY });
   document.querySelector('.sidebar-item[data-view="teamchat"]')
     .addEventListener('click', () => teamChat.onSurfaceShown());
   VIEW_REFRESH.teamchat = {
