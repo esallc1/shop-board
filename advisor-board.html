@@ -3255,6 +3255,62 @@
         /column .* does not exist/i.test(msg) || /could not find the .* column/i.test(msg);
     }
 
+    // Pre-work floor statuses — a fresh/blank row a car sits in before a tech
+    // picks it up. ONLY these get nudged to 'waiting-tech' on assign, so an
+    // in-progress or awaiting-auth job is never regressed by (re)assignment.
+    function isPreWorkStatus(s) {
+      const v = (s || '').trim().toLowerCase();
+      return v === '' || v === 'empty';
+    }
+
+    // ── SHARED ASSIGN ACTION ──────────────────────────────────────────────
+    // Single source of truth for assigning (or clearing) a car's tech. Writes
+    // BOTH repair_orders.technician AND the car's live floor row so this RO
+    // dropdown and the CrisData Tech Board dispatcher always agree. This
+    // function is mirrored VERBATIM in crisdata-techboard.html — keep the two
+    // copies behaviourally identical.
+    //   opts.roId  – repair_orders.id (preferred RO-write key; may be null)
+    //   opts.po    – floor key (ro.po || ro_number); RO fallback key
+    //   opts.tech  – tech name, or null to UNASSIGN
+    //   opts.customer / opts.vehicle – used ONLY for the auto-check-in insert
+    async function assignTechCore(opts) {
+      const { roId, po, tech } = opts;
+      const key = String(po);
+      // a) RO stamp — degrade quietly if technician column isn't migrated yet
+      let roQ = db.from('repair_orders').update({ technician: tech });
+      roQ = roId != null ? roQ.eq('id', roId) : roQ.eq('po', key);
+      const roRes = await roQ;
+      if (roRes.error && !isMissingColumn(roRes.error)) return { ok: false, error: roRes.error };
+      if (roRes.error) console.warn('[assignTech] technician column missing — floor still updated.');
+      // b) locate the car's live floor row across the three tables
+      const FLOOR = ['shopboard_parking', 'shopboard_lifts', 'shopboard_pickup'];
+      let found = null;
+      for (const t of FLOOR) {
+        const { data, error } = await db.from(t).select('id,status').eq('po', key).limit(1);
+        if (error) return { ok: false, error };
+        if (data && data.length) { found = { table: t, id: data[0].id, status: data[0].status }; break; }
+      }
+      if (found) {
+        // on the floor → set assigned_tech; nudge a pre-work row to waiting-tech.
+        // Unassigning clears the tech but LEAVES the car on the floor (status kept).
+        const patch = { assigned_tech: tech };
+        if (tech && isPreWorkStatus(found.status)) patch.status = 'waiting-tech';
+        const { error } = await db.from(found.table).update(patch).eq('id', found.id);
+        if (error) return { ok: false, error };
+      } else if (tech) {
+        // not on the floor + assigning → auto-check-in, mirroring
+        // checkInArrived's shopboard_parking insert, pre-stamped with this tech.
+        const { error } = await db.from('shopboard_parking').insert({
+          po: key, vehicle: opts.vehicle || '', customer: opts.customer || '',
+          work: '', status: 'waiting-tech', notes: '', assigned_tech: tech,
+          arrival_date: new Date().toISOString().slice(0, 10),
+        });
+        if (error) return { ok: false, error };
+      }
+      // not found + unassigning → nothing on the floor to touch
+      return { ok: true };
+    }
+
     async function updateRoField(field, value) {
       if (!currentRo) return;
       currentRo[field] = value;
@@ -4005,7 +4061,31 @@
       const v = parseInt($('cdRoOdometerIn').value, 10);
       updateRoField('odometer_in', Number.isFinite(v) ? v : null);
     });
-    $('cdRoTech').addEventListener('change', () => updateRoField('technician', $('cdRoTech').value || null));
+    // Technician assign goes through the SHARED assign action, so picking a
+    // tech here ALSO drops/stamps the car on the shop floor (and auto-checks
+    // in a not-yet-arrived car), keeping the Tech Board dispatcher in sync.
+    $('cdRoTech').addEventListener('change', () => onTechAssignChange());
+    async function onTechAssignChange() {
+      if (!currentRo) return;
+      const sel = $('cdRoTech');
+      const newTech = sel.value || null;
+      const prevTech = currentRo.technician || null;
+      if (newTech === prevTech) return;
+      currentRo.technician = newTech;   // optimistic (RO cache + this open detail)
+      const res = await assignTechCore({
+        roId: currentRo.id,
+        po: currentRo.po || String(currentRo.ro_number),
+        tech: newTech,
+        customer: (currentRo.customers && currentRo.customers.name) || '',
+        vehicle: vehDesc(currentRo.vehicles),
+      });
+      if (!res.ok) {
+        console.error('[CdRO] assign tech failed', res.error);
+        alert('Could not assign tech: ' + ((res.error && res.error.message) || 'unknown error'));
+        currentRo.technician = prevTech;      // revert cache
+        sel.value = prevTech || '';           // revert dropdown
+      }
+    }
     $('cdRoComplaint').addEventListener('change', () => updateRoField('complaint', $('cdRoComplaint').value.trim() || null));
     $('cdRoAdvisory').addEventListener('change', () => updateRoField('advisory_notes', $('cdRoAdvisory').value.trim() || null));
     // VIN / plate live on the shared vehicle row, not the RO

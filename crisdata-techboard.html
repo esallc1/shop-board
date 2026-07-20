@@ -113,6 +113,11 @@
   }
   .job-card:hover { transform:translateY(-1px); box-shadow:0 4px 10px rgba(20,30,60,.12); }
   .job-card.current { border-left-color:var(--amber); background:#fffdf7; }
+  .job-card[draggable="true"] { cursor:grab; }
+  .job-card.dragging { opacity:.5; cursor:grabbing; }
+  /* a column lit up as a valid drop target while dragging */
+  .tech-col.drop-target { border-color:var(--accent); box-shadow:0 0 0 3px rgba(91,94,244,.16); }
+  .tech-col.unassigned.drop-target { border-color:var(--accent); }
   .jc-top { display:flex; align-items:baseline; gap:6px; }
   .jc-ro { font-weight:800; font-size:0.82rem; }
   .jc-src { margin-left:auto; font-size:0.56rem; font-weight:800; letter-spacing:.3px; text-transform:uppercase; color:var(--muted); background:var(--surface-2); border-radius:5px; padding:1px 5px; }
@@ -153,7 +158,7 @@
   <div class="topbar">
     <div class="brand">
       <span class="kicker">CrisData</span>
-      <h1>Tech Board <span class="beta">read-only · beta</span></h1>
+      <h1>Tech Board <span class="beta">dispatcher · beta</span></h1>
     </div>
     <div class="counts">
       <div class="count-tile amber"><div class="n" id="cWorking">0</div><div class="l">Working</div></div>
@@ -166,7 +171,7 @@
   </div>
 
   <div class="stage">
-    <p class="board-note">Crew-wide live view. Chips are derived from each job's real state (<b>status</b> + timestamps) — the same as the tech's My Numbers phone. Read-only this slice.</p>
+    <p class="board-note"><b>Drag a card onto a tech</b> to assign it, or onto <b>Unassigned</b> to clear it. Chips are derived from each job's real state (<b>status</b> + timestamps) — the same as the tech's My Numbers phone. Tap a card for read-only detail.</p>
     <div class="columns" id="columns"><div class="col-empty">Loading…</div></div>
   </div>
 
@@ -233,8 +238,76 @@
       return d + 'd ' + (h % 24) + 'h';
     }
 
+    // true when the DB rejects a write because the column isn't migrated yet
+    // (mirrors advisor-board.html isMissingColumn) — lets the technician stamp
+    // degrade quietly in the pre-migration window while the floor still updates.
+    function isMissingColumn(error) {
+      if (!error) return false;
+      const code = error.code || '', msg = error.message || '';
+      return code === '42703' || code === 'PGRST204' ||
+        /column .* does not exist/i.test(msg) || /could not find the .* column/i.test(msg);
+    }
+
+    // Pre-work floor statuses — a fresh/blank row a car sits in before a tech
+    // picks it up. ONLY these get nudged to 'waiting-tech' on assign, so an
+    // in-progress or awaiting-auth job is never regressed by (re)assignment.
+    function isPreWorkStatus(s) {
+      const v = (s || '').trim().toLowerCase();
+      return v === '' || v === 'empty';
+    }
+
+    // ── SHARED ASSIGN ACTION ──────────────────────────────────────────────
+    // Single source of truth for assigning (or clearing) a car's tech. Writes
+    // BOTH repair_orders.technician AND the car's live floor row so the RO
+    // dropdown (advisor-board.html) and this dispatcher board always agree.
+    // This function is mirrored VERBATIM in advisor-board.html — keep the two
+    // copies behaviourally identical.
+    //   opts.roId  – repair_orders.id (preferred RO-write key; may be null)
+    //   opts.po    – floor key (ro.po || ro_number); RO fallback key
+    //   opts.tech  – tech name, or null to UNASSIGN
+    //   opts.customer / opts.vehicle – used ONLY for the auto-check-in insert
+    async function assignTechCore(opts) {
+      const { roId, po, tech } = opts;
+      const key = String(po);
+      // a) RO stamp — degrade quietly if technician column isn't migrated yet
+      let roQ = db.from('repair_orders').update({ technician: tech });
+      roQ = roId != null ? roQ.eq('id', roId) : roQ.eq('po', key);
+      const roRes = await roQ;
+      if (roRes.error && !isMissingColumn(roRes.error)) return { ok: false, error: roRes.error };
+      if (roRes.error) console.warn('[assignTech] technician column missing — floor still updated.');
+      // b) locate the car's live floor row across the three tables
+      const FLOOR = ['shopboard_parking', 'shopboard_lifts', 'shopboard_pickup'];
+      let found = null;
+      for (const t of FLOOR) {
+        const { data, error } = await db.from(t).select('id,status').eq('po', key).limit(1);
+        if (error) return { ok: false, error };
+        if (data && data.length) { found = { table: t, id: data[0].id, status: data[0].status }; break; }
+      }
+      if (found) {
+        // on the floor → set assigned_tech; nudge a pre-work row to waiting-tech.
+        // Unassigning clears the tech but LEAVES the car on the floor (status kept).
+        const patch = { assigned_tech: tech };
+        if (tech && isPreWorkStatus(found.status)) patch.status = 'waiting-tech';
+        const { error } = await db.from(found.table).update(patch).eq('id', found.id);
+        if (error) return { ok: false, error };
+      } else if (tech) {
+        // not on the floor + assigning → auto-check-in, mirroring
+        // checkInArrived's shopboard_parking insert, pre-stamped with this tech.
+        const { error } = await db.from('shopboard_parking').insert({
+          po: key, vehicle: opts.vehicle || '', customer: opts.customer || '',
+          work: '', status: 'waiting-tech', notes: '', assigned_tech: tech,
+          arrival_date: new Date().toISOString().slice(0, 10),
+        });
+        if (error) return { ok: false, error };
+      }
+      // not found + unassigning → nothing on the floor to touch
+      return { ok: true };
+    }
+
     let techs = [];   // employees rows (role=tech)
     let jobs = [];    // normalized job objects across all three tables
+    let cardWasDragged = false;  // tap-vs-drag guard for the read-only modal
+    let draggingJob = null;      // { table, sbid, po } of the card in flight
 
     // Map a raw supabase row to a normalized job — mirrors sbRowToJob().
     function toJob(row, table) {
@@ -302,7 +375,7 @@
       const chip = `<span class="chip s-${j.status}">${esc(STATUS_LABEL[j.status] || j.status)}</span>`;
       const el = fmtElapsed(j.stateTs);
       return `
-        <div class="job-card${isCurrent ? ' current' : ''}" data-table="${esc(j.table)}" data-id="${esc(j.sbid)}">
+        <div class="job-card${isCurrent ? ' current' : ''}" draggable="true" data-table="${esc(j.table)}" data-id="${esc(j.sbid)}" data-po="${esc(j.po)}">
           <div class="jc-top">
             <span class="jc-ro">#${esc(j.po || '—')}</span>
             <span class="jc-src">${esc(SRC_LABEL[j.table] || '')}</span>
@@ -329,7 +402,7 @@
         ? `<div class="block-label">Up Next</div>${upNext.map(j => jobCardHtml(j, false)).join('')}`
         : '';
       return `
-        <div class="tech-col">
+        <div class="tech-col" data-tech="${esc(tech.name)}">
           <div class="col-head">
             ${avatar}
             <span class="col-name">${esc(tech.name)}</span>
@@ -346,7 +419,7 @@
         ? sorted.map(j => jobCardHtml(j, false)).join('')
         : '<div class="col-empty">Nothing unassigned</div>';
       return `
-        <div class="tech-col unassigned">
+        <div class="tech-col unassigned" data-tech="">
           <div class="col-head">
             <span class="col-avatar" style="color:var(--amber)">?</span>
             <span class="col-name">Unassigned</span>
@@ -384,8 +457,62 @@
       wrap.innerHTML = cols.join('') || '<div class="col-empty">No techs found.</div>';
 
       wrap.querySelectorAll('.job-card').forEach(card => {
-        card.addEventListener('click', () => openJob(card.dataset.table, card.dataset.id));
+        // tap → read-only modal (guarded so a drag never counts as a tap)
+        card.addEventListener('mousedown', () => { cardWasDragged = false; });
+        card.addEventListener('click', () => {
+          if (cardWasDragged) return;
+          openJob(card.dataset.table, card.dataset.id);
+        });
+        // drag → assign
+        card.addEventListener('dragstart', (e) => {
+          cardWasDragged = true;
+          draggingJob = { table: card.dataset.table, sbid: card.dataset.id, po: card.dataset.po };
+          card.classList.add('dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          try { e.dataTransfer.setData('text/plain', card.dataset.po || ''); } catch (_) {}
+        });
+        card.addEventListener('dragend', () => { card.classList.remove('dragging'); draggingJob = null; });
       });
+
+      // each tech column AND the Unassigned pool is a valid drop target
+      wrap.querySelectorAll('.tech-col').forEach(col => {
+        col.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; col.classList.add('drop-target'); });
+        col.addEventListener('dragleave', (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove('drop-target'); });
+        col.addEventListener('drop', (e) => {
+          e.preventDefault();
+          col.classList.remove('drop-target');
+          const drag = draggingJob;
+          if (!drag) return;
+          // data-tech="" on the Unassigned column → assign null (unassign)
+          const targetTech = col.dataset.tech ? col.dataset.tech : null;
+          assignFromBoard(drag.table, drag.sbid, targetTech);
+        });
+      });
+    }
+
+    // Drag-to-assign handler. Optimistically re-buckets the card into the
+    // target column, then persists via the shared assignTechCore. On failure,
+    // reverts and re-renders. On success, the shopboard_* realtime reload
+    // repaints with the authoritative row (chip + column).
+    async function assignFromBoard(table, sbid, targetTech) {
+      const j = jobs.find(x => x.table === table && String(x.sbid) === String(sbid));
+      if (!j) return;
+      const prev = j.assignedTech || '';
+      const next = targetTech || '';
+      // dropped back onto its own column → no-op
+      if (prev.trim().toLowerCase() === next.trim().toLowerCase()) return;
+      j.assignedTech = next;   // optimistic move
+      render();
+      const res = await assignTechCore({
+        roId: null, po: j.po, tech: targetTech || null,
+        customer: j.customer, vehicle: j.vehicle,
+      });
+      if (!res.ok) {
+        console.error('[TechBoard] assign failed', res.error);
+        alert('Could not reassign RO #' + (j.po || '—') + ': ' + ((res.error && res.error.message) || 'unknown error'));
+        j.assignedTech = prev;   // revert
+        render();
+      }
     }
 
     // ── read-only detail modal ──
