@@ -64,6 +64,7 @@ window.BoardSettings = (function () {
   const SHOP_DEFAULTS = {
     tax_rate: 0.07, default_labor_rate: null, show_tech_on_ro: false,
     card_fee_pct: 0.03, shop_supplies_default: 0, hazmat_default: 0,
+    default_diag_fee: null,
   };
   let shopSettingsRow = null;   // raw row, or null if table/row missing
   let canEditShopMoney = false;
@@ -90,6 +91,9 @@ window.BoardSettings = (function () {
       card_fee_pct: n(shopSettingsRow.card_fee_pct, SHOP_DEFAULTS.card_fee_pct),
       shop_supplies_default: n(shopSettingsRow.shop_supplies_default, SHOP_DEFAULTS.shop_supplies_default),
       hazmat_default: n(shopSettingsRow.hazmat_default, SHOP_DEFAULTS.hazmat_default),
+      // Quick diag-fee receipt default. Nullable + present only post-migration;
+      // stays null (no prefill) until the column exists and is set.
+      default_diag_fee: shopSettingsRow.default_diag_fee != null ? Number(shopSettingsRow.default_diag_fee) : null,
       // shop profile (Phase 3) — nulls until the migration seeds them
       shop_name: shopSettingsRow.shop_name || null,
       address_line: shopSettingsRow.address_line || null,
@@ -104,6 +108,7 @@ window.BoardSettings = (function () {
       // pre-migration the row simply won't carry these keys.
       _hasProfile: ('shop_name' in shopSettingsRow),
       _hasLegal: ('legal_terms' in shopSettingsRow),
+      _hasDiagFee: ('default_diag_fee' in shopSettingsRow),
       _exists: true,
       _id: shopSettingsRow.id,
     };
@@ -495,6 +500,7 @@ window.BoardSettings = (function () {
     }
     const pct = s.tax_rate != null ? (s.tax_rate * 100) : '';
     const labor = s.default_labor_rate != null ? s.default_labor_rate : '';
+    const diagFee = s.default_diag_fee != null ? s.default_diag_fee : '';
     const cardPct = s.card_fee_pct != null ? (s.card_fee_pct * 100) : '';
     const supplies = s.shop_supplies_default != null ? s.shop_supplies_default : '';
     const hazmat = s.hazmat_default != null ? s.hazmat_default : '';
@@ -521,6 +527,11 @@ window.BoardSettings = (function () {
           <label>Default Labor Rate ($/hr)</label>
           <input type="number" id="stgfeatLaborRate" min="0" step="0.01" value="${labor}" placeholder="not set">
         </div>
+        ${s._hasDiagFee ? `
+        <div class="stgfeat-field">
+          <label>Default Diagnostic Fee ($)</label>
+          <input type="number" id="stgfeatDiagFee" min="0" step="0.01" value="${diagFee}" placeholder="not set">
+        </div>` : ''}
         <div class="stgfeat-field">
           <label>Card Processing Fee (%)</label>
           <input type="number" id="stgfeatCardFee" min="0" step="0.01" value="${cardPct}">
@@ -809,6 +820,12 @@ window.BoardSettings = (function () {
         update.tax_rate = pct / 100;                       // store as fraction
         const labor = parseFloat(modalEl.querySelector('#stgfeatLaborRate').value);
         update.default_labor_rate = Number.isFinite(labor) ? labor : null;
+
+        const diagEl = s._hasDiagFee ? modalEl.querySelector('#stgfeatDiagFee') : null;
+        if (diagEl) {   // only write the column when the migration has added it
+          const diag = parseFloat(diagEl.value);
+          update.default_diag_fee = (Number.isFinite(diag) && diag >= 0) ? diag : null;
+        }
 
         const cardPct = parseFloat(modalEl.querySelector('#stgfeatCardFee').value);
         if (!Number.isFinite(cardPct) || cardPct < 0) { errEl.textContent = 'Enter a valid card fee (%).'; return; }

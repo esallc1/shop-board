@@ -324,7 +324,8 @@
   .cd-cb-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
   .cd-cb-when { font-size: 0.72rem; color: var(--muted); font-weight: 600; }
   .cd-cb-reason { font-size: 0.75rem; color: var(--text); font-style: italic; }
-  .cd-cb-restore { margin-left: auto; font-size: 0.68rem; padding: 4px 10px; }
+  .cd-cb-receipt { margin-left: auto; font-size: 0.68rem; padding: 4px 10px; }
+  .cd-cb-restore { margin-left: 8px; font-size: 0.68rem; padding: 4px 10px; }
   .cd-recent { border-top: 1px solid var(--border); padding-top: 14px; }
   .cd-recent-title { font-size: 0.66rem; font-weight: 800; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
   .cd-recent-row { display: flex; align-items: center; gap: 12px; padding: 7px 6px; border-radius: 6px; cursor: pointer; font-size: 0.8rem; }
@@ -691,6 +692,7 @@
           </label>
           <button class="btn" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdRoArrivedBtn"></button>
           <button class="btn" style="margin-left:8px;font-size:0.75rem;padding:5px 12px;display:none" id="cdRoDeclineBtn"></button>
+          <button class="btn" style="margin-left:8px;font-size:0.75rem;padding:5px 12px;display:none" id="cdRoReceiptBtn">🧾 Quick receipt</button>
           <button class="btn btn-primary" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdPrintBtn">🖨 Print / Save PDF</button>
         </div>
         <div class="cd-ro-header" id="cdRoHeaderGrid"></div>
@@ -861,6 +863,34 @@
     <div class="intake-form-error" id="opFormError"></div>
     <button class="modal-btn" id="opSaveBtn">Order Part</button>
     <button class="modal-btn sec" id="opCancelBtn">Cancel</button>
+  </div>
+</div>
+
+<!-- Quick diag-fee receipt — a separate paid record for a declined estimate -->
+<div class="modal-overlay" id="quickReceiptModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="qrCloseBtn">&times;</button>
+    <h3>Quick receipt</h3>
+    <div style="font-size:0.8rem;color:var(--muted);margin:-4px 0 10px" id="qrRoLabel"></div>
+    <div class="intake-field">
+      <label>Description</label>
+      <input type="text" id="qrDescription" placeholder="Diagnostic fee">
+    </div>
+    <div class="intake-field">
+      <label>Amount ($)</label>
+      <input type="number" id="qrAmount" min="0" step="0.01" placeholder="0.00">
+    </div>
+    <div class="intake-field">
+      <label>Paid with</label>
+      <select id="qrMethod">
+        <option value="cash">Cash</option>
+        <option value="card">Card</option>
+      </select>
+    </div>
+    <div class="intake-form-error" id="qrError"></div>
+    <button class="modal-btn" id="qrTakePrintBtn">Take payment &amp; print</button>
+    <button class="modal-btn sec" id="qrSaveBtn">Save, print later</button>
+    <button class="modal-btn sec" id="qrCancelBtn">Cancel</button>
   </div>
 </div>
 
@@ -2637,7 +2667,7 @@
     // Stage drives the printed document's IDENTITY — same layout/engine,
     // same one ro_number, only the header label changes. This is what
     // gives the estimate-vs-invoice paper distinction off ONE number.
-    const DOC_LABEL = { estimate: 'ESTIMATE', ro: 'REPAIR ORDER', invoice: 'INVOICE', closed: 'INVOICE' };
+    const DOC_LABEL = { estimate: 'ESTIMATE', ro: 'REPAIR ORDER', invoice: 'INVOICE', closed: 'INVOICE', receipt: 'RECEIPT' };
 
     // ── PAYMENT METHODS (Phase 5) — the active list now comes from the
     // editable payment_methods table via BoardSettings (Slice 2); this
@@ -2914,6 +2944,7 @@
           <div class="cd-cb-meta">
             <span class="cd-cb-when">Declined ${esc(when)}</span>
             ${ro.declined_reason ? `<span class="cd-cb-reason">“${esc(ro.declined_reason)}”</span>` : ''}
+            <button class="btn cd-cb-receipt" data-receipt="${esc(ro.id)}">🧾 Quick receipt</button>
             <button class="btn btn-green cd-cb-restore" data-restore="${esc(ro.id)}">↩ Restore to Estimate</button>
           </div>
         </div>`;
@@ -2922,12 +2953,15 @@
     function wireCallbacks() {
       document.querySelectorAll('#cdCallbackList .cd-callback-row').forEach(row => {
         row.addEventListener('click', (e) => {
-          if (e.target.closest('[data-restore]') || e.target.closest('[data-noopen]')) return;
+          if (e.target.closest('[data-restore]') || e.target.closest('[data-receipt]') || e.target.closest('[data-noopen]')) return;
           openRo(row.dataset.id);
         });
       });
       document.querySelectorAll('#cdCallbackList [data-restore]').forEach(btn => {
         btn.addEventListener('click', (e) => { e.stopPropagation(); restoreDeclined(btn.dataset.restore); });
+      });
+      document.querySelectorAll('#cdCallbackList [data-receipt]').forEach(btn => {
+        btn.addEventListener('click', (e) => { e.stopPropagation(); openQuickReceipt(btn.dataset.receipt); });
       });
     }
 
@@ -2997,19 +3031,29 @@
     // Paints the detail-header decline/restore control against currentRo.
     function paintDeclineControl() {
       const btn = $('cdRoDeclineBtn');
-      if (!btn) return;
+      const rbtn = $('cdRoReceiptBtn');
       const ro = currentRo;
-      if (!declinedColsAvailable || !ro) { btn.style.display = 'none'; return; }
-      if (ro.declined_at) {
-        btn.style.display = ''; btn.textContent = '↩ Restore (un-decline)';
-        btn.className = 'btn btn-green'; btn.style.marginLeft = '8px';
-        btn.onclick = () => restoreDeclined(ro.id);
-      } else if (ro.status === 'estimate') {
-        btn.style.display = ''; btn.textContent = 'Mark declined';
-        btn.className = 'btn'; btn.style.marginLeft = '8px';
-        btn.onclick = () => markDeclined(ro.id);
-      } else {
-        btn.style.display = 'none';   // declining only applies to estimates
+      if (btn) {
+        if (!declinedColsAvailable || !ro) { btn.style.display = 'none'; }
+        else if (ro.declined_at) {
+          btn.style.display = ''; btn.textContent = '↩ Restore (un-decline)';
+          btn.className = 'btn btn-green'; btn.style.marginLeft = '8px';
+          btn.onclick = () => restoreDeclined(ro.id);
+        } else if (ro.status === 'estimate') {
+          btn.style.display = ''; btn.textContent = 'Mark declined';
+          btn.className = 'btn'; btn.style.marginLeft = '8px';
+          btn.onclick = () => markDeclined(ro.id);
+        } else {
+          btn.style.display = 'none';   // declining only applies to estimates
+        }
+      }
+      // Quick receipt — shown on a DECLINED estimate (the diag-fee-at-pickup case).
+      if (rbtn) {
+        if (declinedColsAvailable && ro && ro.declined_at) {
+          rbtn.style.display = ''; rbtn.onclick = () => openQuickReceipt(ro.id);
+        } else {
+          rbtn.style.display = 'none';
+        }
       }
     }
 
@@ -3801,6 +3845,98 @@
       }
     }
 
+    // ── QUICK DIAG-FEE RECEIPT ────────────────────────────────
+    // A declined estimate stays $0/'estimate' in the callback list. When the
+    // customer pays the diagnostic fee at pickup, this saves a SEPARATE paid
+    // record into completed_jobs with source_table='diag_receipt' — distinct
+    // from the estimate's own 'repair_orders' archive row on the SAME po, so
+    // both coexist and neither clobbers the other. Real $ in the billing cols.
+    let quickReceiptRo = null;   // the RO the open quick-receipt form targets
+
+    async function recordDiagReceipt(ro, fields) {
+      const c = ro.customers || {}, v = ro.vehicles || {};
+      const amount = Math.round((Number(fields.amount) || 0) * 100) / 100;
+      const po = ro.po || String(ro.ro_number);
+      const method = fields.method === 'card' ? 'card' : 'cash';
+      const desc = (fields.description || 'Diagnostic fee').trim() || 'Diagnostic fee';
+      const payload = {
+        source_table: 'diag_receipt',                 // DISTINCT key → never collides with the estimate
+        source_id: String(ro.id),
+        po,
+        vehicle: vehDesc(v),
+        customer: c.name || null,
+        customer_phone: c.phone_primary || null,
+        work: desc + ' — Re: estimate #' + ro.ro_number,
+        notes: 'Paid ' + method + ' · quick diag-fee receipt (estimate declined, no repair authorized)',
+        assigned_tech: ro.technician || null,
+        arrival_date: ro.created_at ? ro.created_at.slice(0, 10) : null,
+        status: 'closed',
+        labor_subtotal: amount,     // diagnostic labor
+        parts_subtotal: 0,
+        tax: 0,                     // one flat line, no tax on the quick receipt (see report)
+        total_amount: amount,
+        amount_paid: amount,
+        balance_due: 0,
+        payment_status: 'paid',
+      };
+      // upsert by (po, source_table='diag_receipt') so re-saving updates this
+      // receipt's own row — never the estimate's 'repair_orders' archive row.
+      const { data: existing, error: selErr } = await db.from('completed_jobs')
+        .select('id').eq('po', po).eq('source_table', 'diag_receipt').limit(1);
+      if (selErr) return { ok: false, error: selErr };
+      let wErr;
+      if (existing && existing.length) ({ error: wErr } = await db.from('completed_jobs').update(payload).eq('id', existing[0].id));
+      else ({ error: wErr } = await db.from('completed_jobs').insert(payload));
+      if (wErr) return { ok: false, error: wErr };
+      return { ok: true };
+    }
+
+    async function openQuickReceipt(roId) {
+      // fetch the RO fresh (full customer/vehicle) so the receipt + archive are complete
+      const { data, error } = await db.from('repair_orders')
+        .select('*, customers(name, phone_primary, email, tax_exempt), ' +
+                'vehicles(year, make, model, engine, vin, plate, plate_state, transmission_code)')
+        .eq('id', roId).single();
+      if (error || !data) { alert('Could not open the receipt: ' + ((error && error.message) || 'RO not found')); return; }
+      quickReceiptRo = data;
+      const cfg = (window.BoardSettings && window.BoardSettings.getShopSettings) ? window.BoardSettings.getShopSettings() : {};
+      const fee = cfg.default_diag_fee;
+      $('qrAmount').value = (fee != null && Number.isFinite(Number(fee))) ? Number(fee).toFixed(2) : '';
+      $('qrDescription').value = 'Diagnostic fee';
+      $('qrMethod').value = 'cash';
+      $('qrError').textContent = '';
+      const c = data.customers || {};
+      $('qrRoLabel').textContent = 'Estimate #' + (data.po || data.ro_number) + (c.name ? ' · ' + c.name : '');
+      $('quickReceiptModal').style.display = 'flex';
+    }
+
+    function closeQuickReceipt() { $('quickReceiptModal').style.display = 'none'; quickReceiptRo = null; }
+
+    async function submitQuickReceipt(doPrint) {
+      const ro = quickReceiptRo;
+      if (!ro) return;
+      const amount = parseFloat($('qrAmount').value);
+      if (!Number.isFinite(amount) || amount <= 0) { $('qrError').textContent = 'Enter a valid amount.'; return; }
+      const fields = { amount, description: $('qrDescription').value, method: $('qrMethod').value };
+      const btnP = $('qrTakePrintBtn'), btnS = $('qrSaveBtn');
+      btnP.disabled = btnS.disabled = true;
+      const res = await recordDiagReceipt(ro, fields);
+      btnP.disabled = btnS.disabled = false;
+      if (!res.ok) {
+        console.error('[CdRO] diag receipt save failed', res.error);
+        $('qrError').textContent = 'Could not save the receipt: ' + (res.error.message || 'unknown error');
+        return;
+      }
+      if (doPrint) {
+        printRo({
+          ro, amount: fields.amount, description: (fields.description || 'Diagnostic fee').trim() || 'Diagnostic fee',
+          method: fields.method, receiptNumber: 'R-' + ro.ro_number, estimateNumber: ro.ro_number,
+        });
+      }
+      closeQuickReceipt();
+      loadRecentList();   // the estimate is unchanged; this just refreshes the board/archive view
+    }
+
     // ══════════════════════════════════════════════════════════
     // PRINTABLE ONE-PAGE ESTIMATE / RO / INVOICE (Phase 3)
     // Read-only: opens a print-optimized standalone document and
@@ -3813,9 +3949,15 @@
     // "(set in Settings)" / placeholder. Unset → the line is omitted.
     // ══════════════════════════════════════════════════════════
 
-    function printRo() {
-      if (!currentRo) return;
-      const ro = currentRo, c = ro.customers || {}, v = ro.vehicles || {};
+    // printRo()          → normal ESTIMATE/RO/INVOICE from currentRo+currentLines.
+    // printRo(receipt)    → RECEIPT MODE (quick diag-fee receipt): same engine +
+    //   one-page letter layout, but stripped to a single line. receipt =
+    //   { ro, amount, description, method:'cash'|'card', receiptNumber, estimateNumber }.
+    function printRo(receipt) {
+      const isReceipt = !!(receipt && receipt.amount != null);
+      const ro = (receipt && receipt.ro) || currentRo;
+      if (!ro) return;
+      const c = ro.customers || {}, v = ro.vehicles || {};
       const cfg = (window.BoardSettings && window.BoardSettings.getShopSettings)
         ? window.BoardSettings.getShopSettings() : {};
       const showTech = !!cfg.show_tech_on_ro;
@@ -3825,8 +3967,13 @@
       // Stage drives the document's identity — ESTIMATE (the quote the
       // customer approves) vs REPAIR ORDER vs INVOICE (final doc). Same
       // layout, same one ro_number; only this label changes.
-      const docLabel = DOC_LABEL[ro.status] || 'INVOICE';
-      const docTitle = docLabel.charAt(0) + docLabel.slice(1).toLowerCase();  // "Invoice" / "Estimate" / "Repair order"
+      const docLabel = isReceipt ? DOC_LABEL.receipt : (DOC_LABEL[ro.status] || 'INVOICE');
+      const docTitle = docLabel.charAt(0) + docLabel.slice(1).toLowerCase();  // "Invoice" / "Estimate" / "Receipt"
+      const numShown = isReceipt ? (receipt.receiptNumber || ('R-' + ro.ro_number)) : ('#' + ro.ro_number);
+      const rAmt = isReceipt ? (Number(receipt.amount) || 0) : 0;
+      const rDesc = isReceipt ? (receipt.description || 'Diagnostic fee') : '';
+      const rMethod = isReceipt ? (receipt.method === 'card' ? 'Card' : 'Cash') : '';
+      const rEstNum = isReceipt ? (receipt.estimateNumber != null ? receipt.estimateNumber : ro.ro_number) : '';
 
       // category totals
       const catSum = (t) => currentLines.filter(l => l.line_type === t)
@@ -3860,7 +4007,65 @@
       const idLine = [v.vin ? 'VIN ' + v.vin : '', (v.plate ? 'Plate ' + v.plate + (v.plate_state ? ' ' + v.plate_state : '') : '')].filter(Boolean).join('  ·  ');
       const logo = cfg.logo_url ? `<img class="logo" src="${P(cfg.logo_url)}" alt="">` : '';
 
-      const doc = `<!doctype html><html><head><meta charset="utf-8"><title>${P(docTitle)} ${P(ro.ro_number)} — ${P(cfg.shop_name || 'Lee Transmission')}</title>
+      // Body differs by mode. RECEIPT = one line + paid totals (no work sections,
+      // no auth/signature). INVOICE/etc = the full labor/parts/totals/auth block.
+      const invoiceBody = `
+  <h2>Customer Issues &amp; Advisories</h2>
+  <div class="kv"><b>Symptoms / DTC</b> ${P(ro.complaint) || '—'}</div>
+  <div class="kv"><b>Advisory notes</b> ${P(ro.advisory_notes) || '—'}</div>
+
+  <h2>Work Performed — Labor</h2>
+  <table class="lt"><thead><tr><th>Description</th><th class="tc">Tech</th><th class="tr">Hrs</th><th class="tr">Price</th><th class="tr">Total</th></tr></thead><tbody>${laborRows}</tbody></table>
+
+  <h2>Work Performed — Parts</h2>
+  <table class="lt"><thead><tr><th>Description</th><th>Part No</th><th class="tr">Qty</th><th class="tr">Price</th><th class="tr">Total</th></tr></thead><tbody>${partsRows}</tbody></table>
+
+  <div class="totals">
+    <table>
+      ${totalRow('Labor', laborTotal)}
+      ${totalRow('Parts', partsTotal)}
+      ${totalRow('Hazmat', hazmatTotal, true)}
+      ${totalRow('Shop Supplies', suppliesTotal, true)}
+      ${feesTotal > 0 ? totalRow('Fees', feesTotal) : ''}
+      ${totalRow(exempt ? 'Taxes (exempt)' : 'Taxes (' + (rate * 100).toFixed(2) + '%)', taxTotal)}
+      <tr><td>Invoice Total</td><td class="tr">${M(invoiceTotal)}</td></tr>
+    </table>
+    <div class="foot-note">* Shop supplies &amp; hazmat are flat shop charges, not per-part.</div>
+  </div>
+
+  <div class="auth">
+    <div class="row"><div><b>Authorization</b></div><div>Original estimate total: <b>${M(invoiceTotal)}</b></div></div>
+    <div class="row" style="margin-top:5px">
+      <span>Method:</span>
+      <span><span class="box"></span>Email</span>
+      <span><span class="box"></span>Text</span>
+      <span><span class="box"></span>Phone</span>
+      <span><span class="box"></span>Fax</span>
+      <span><span class="box"></span>In person</span>
+    </div>
+    <div class="row" style="margin-top:5px">
+      <span>Date: ______________</span>
+      <span>Contact: ______________________</span>
+      <span>Authorized by: ______________________</span>
+    </div>
+    <div class="sig">X — Customer signature</div>
+  </div>`;
+
+      const receiptBody = `
+  <table class="lt"><thead><tr><th>Description</th><th class="tr">Amount</th></tr></thead>
+    <tbody><tr><td>${P(rDesc)}</td><td class="tr">${M(rAmt)}</td></tr></tbody></table>
+  <div class="totals">
+    <table>
+      <tr><td>Subtotal</td><td class="tr">${M(rAmt)}</td></tr>
+      <tr><td>Balance Due</td><td class="tr">${M(0)}</td></tr>
+      <tr><td>Paid — ${P(rMethod)}</td><td class="tr">${M(rAmt)}</td></tr>
+    </table>
+  </div>
+  <div class="foot-note" style="margin-top:6px">Diagnostic fee for the declined estimate above. The estimate itself remains unbilled — no repair was authorized.</div>`;
+
+      const bodyHtml = isReceipt ? receiptBody : invoiceBody;
+
+      const doc = `<!doctype html><html><head><meta charset="utf-8"><title>${P(docTitle)} ${P(numShown)} — ${P(cfg.shop_name || 'Lee Transmission')}</title>
 <style>
   @page { size: letter; margin: 0.5in; }
   * { box-sizing: border-box; }
@@ -3908,8 +4113,9 @@
       </div>
     </div>
     <div class="doc-meta">
-      <div class="num">${P(docLabel)} #${P(ro.ro_number)}</div>
+      <div class="num">${P(docLabel)} ${isReceipt ? P(numShown) : '#' + P(ro.ro_number)}</div>
       <div>Date: ${P(dateStr)}</div>
+      ${isReceipt ? `<div><b>Re: Estimate #${P(rEstNum)}</b></div>` : ''}
       <div>Service Advisor: ${P(advisor) || '—'}</div>
       ${showTech && ro.technician ? `<div>Technician: ${P(ro.technician)}</div>` : ''}
     </div>
@@ -3933,46 +4139,7 @@
     </div>
   </div>
 
-  <h2>Customer Issues &amp; Advisories</h2>
-  <div class="kv"><b>Symptoms / DTC</b> ${P(ro.complaint) || '—'}</div>
-  <div class="kv"><b>Advisory notes</b> ${P(ro.advisory_notes) || '—'}</div>
-
-  <h2>Work Performed — Labor</h2>
-  <table class="lt"><thead><tr><th>Description</th><th class="tc">Tech</th><th class="tr">Hrs</th><th class="tr">Price</th><th class="tr">Total</th></tr></thead><tbody>${laborRows}</tbody></table>
-
-  <h2>Work Performed — Parts</h2>
-  <table class="lt"><thead><tr><th>Description</th><th>Part No</th><th class="tr">Qty</th><th class="tr">Price</th><th class="tr">Total</th></tr></thead><tbody>${partsRows}</tbody></table>
-
-  <div class="totals">
-    <table>
-      ${totalRow('Labor', laborTotal)}
-      ${totalRow('Parts', partsTotal)}
-      ${totalRow('Hazmat', hazmatTotal, true)}
-      ${totalRow('Shop Supplies', suppliesTotal, true)}
-      ${feesTotal > 0 ? totalRow('Fees', feesTotal) : ''}
-      ${totalRow(exempt ? 'Taxes (exempt)' : 'Taxes (' + (rate * 100).toFixed(2) + '%)', taxTotal)}
-      <tr><td>Invoice Total</td><td class="tr">${M(invoiceTotal)}</td></tr>
-    </table>
-    <div class="foot-note">* Shop supplies &amp; hazmat are flat shop charges, not per-part.</div>
-  </div>
-
-  <div class="auth">
-    <div class="row"><div><b>Authorization</b></div><div>Original estimate total: <b>${M(invoiceTotal)}</b></div></div>
-    <div class="row" style="margin-top:5px">
-      <span>Method:</span>
-      <span><span class="box"></span>Email</span>
-      <span><span class="box"></span>Text</span>
-      <span><span class="box"></span>Phone</span>
-      <span><span class="box"></span>Fax</span>
-      <span><span class="box"></span>In person</span>
-    </div>
-    <div class="row" style="margin-top:5px">
-      <span>Date: ______________</span>
-      <span>Contact: ______________________</span>
-      <span>Authorized by: ______________________</span>
-    </div>
-    <div class="sig">X — Customer signature</div>
-  </div>
+  ${bodyHtml}
 
   ${cfg.legal_terms ? `<div class="legal">${P(cfg.legal_terms)}</div>` : ''}
   ${cfg.mv_number ? `<div class="mv">MV# ${P(cfg.mv_number)}</div>` : ''}
@@ -3990,6 +4157,11 @@
     // Callback-list toggle (Board ⇄ Declined callback list)
     $('cdCallbackToggle').addEventListener('click', () => showCallbackView(true));
     $('cdCallbackBackBtn').addEventListener('click', () => showCallbackView(false));
+    // Quick diag-fee receipt modal
+    $('qrCloseBtn').addEventListener('click', closeQuickReceipt);
+    $('qrCancelBtn').addEventListener('click', closeQuickReceipt);
+    $('qrTakePrintBtn').addEventListener('click', () => submitQuickReceipt(true));
+    $('qrSaveBtn').addEventListener('click', () => submitQuickReceipt(false));
     $('cdAddLineBtn').addEventListener('click', addLine);
     $('cdAddCardFeeBtn').addEventListener('click', addCardFee);
     $('cdRoNewBtn').addEventListener('click', () => window.cdOpenNewRo());
