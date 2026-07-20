@@ -346,7 +346,15 @@ async function writeJobStatus(job, newLocalStatus, extraFields) {
     return false;
   }
   const update = Object.assign({ status: localStatusToSb(newLocalStatus) }, extraFields || {});
-  const { error } = await db.from(job._table).update(update).eq('id', job._sbid);
+  // Pause realtime refetch around our own write so an incoming event can't
+  // yank the job's state out from under the tech mid-action (see rtShouldDefer).
+  rtWriteInFlight = true;
+  let error;
+  try {
+    ({ error } = await db.from(job._table).update(update).eq('id', job._sbid));
+  } finally {
+    rtWriteInFlight = false;
+  }
   if (error) {
     console.error('Status write failed:', error);
     showToast('Save failed — check connection');
@@ -794,7 +802,7 @@ function showToast(msg){
 function render(){
   const app = document.getElementById('app');
   if(STATE.view === 'login'){ app.innerHTML = renderLogin(); bindLogin(); }
-  else if(STATE.view === 'list'){ app.innerHTML = renderList(); bindList(); }
+  else if(STATE.view === 'list'){ app.innerHTML = renderList(); bindList(); ensureRealtime(); rtFlushPending(); }
   else if(STATE.view === 'detail'){ app.innerHTML = renderDetail(); bindDetail(); }
   else if(STATE.view === 'roDiag'){ app.innerHTML = renderRoDiag(); bindRoDiag(); }
 }
@@ -912,6 +920,67 @@ async function refreshData(){
     if(draft.beforePhotos && draft.beforePhotos.length) j.beforePhotos = draft.beforePhotos;
     if(draft.partPhotos && draft.partPhotos.length) j.partPhotos = draft.partPhotos;
   });
+}
+
+/* ---------------- Realtime: live job list ----------------
+   Reuses the two existing patterns, not a new one:
+   • crisdata-techboard.html subscribe() — refetch-on-change across the three
+     shopboard_* tables; let the assigned_tech filter (in loadSupabaseData)
+     decide what shows, no per-row patching.
+   • advisor-board.html Approval Queue — refetch on every SUBSCRIBED, so a
+     socket reconnect (phone sleeps/backgrounds) catches up on missed events.
+
+   GUARD: a remote refetch must never interrupt the tech's own action. While a
+   job is open (detail / roDiag) or a status write is in flight, we DEFER the
+   refresh and flush it once the tech is back on the list — so mid-typing
+   tech_notes and in-flight writes are never clobbered. refreshData() already
+   preserves not-yet-submitted diagnosis text / local photos on reload. */
+let rtChannel = null;
+let rtWriteInFlight = false;
+let rtPendingRefresh = false;
+
+// Don't yank state out from under the tech mid-action.
+function rtShouldDefer(){
+  return rtWriteInFlight || STATE.view === 'detail' || STATE.view === 'roDiag';
+}
+
+async function realtimeRefresh(){
+  if(!STATE.currentTech) return;                 // logged out / not ready yet
+  if(rtShouldDefer()){ rtPendingRefresh = true; return; }
+  await refreshData();                           // draft-preserving reload
+  render();
+}
+
+// Run a deferred refresh once the tech is back on the list and idle.
+function rtFlushPending(){
+  if(rtPendingRefresh && !rtShouldDefer() && STATE.currentTech){
+    rtPendingRefresh = false;
+    refreshData().then(render);
+  }
+}
+
+// Idempotent (re)subscribe for the current tech. Called from render()'s list
+// branch, so all login paths (submit / pass-through / session-restore) wire it
+// without duplication. Subscribes to ALL changes on the three tables; the
+// per-tech filter lives in loadSupabaseData.
+function ensureRealtime(){
+  if(rtChannel || !STATE.currentTech) return;
+  rtChannel = db.channel('my-numbers-live')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_lifts' },   realtimeRefresh)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_parking' }, realtimeRefresh)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'shopboard_pickup' },  realtimeRefresh)
+    .subscribe((status) => {
+      // Refetch on every (re)connect so anything missed while the socket was
+      // down — phone asleep/backgrounded — is caught the moment it's back up.
+      if(status === 'SUBSCRIBED') realtimeRefresh();
+    });
+}
+
+// Tear down on logout so the channel never leaks across sessions.
+function teardownRealtime(){
+  if(rtChannel){ db.removeChannel(rtChannel); rtChannel = null; }
+  rtPendingRefresh = false;
+  rtWriteInFlight = false;
 }
 
 const CLOCK_BTN_KEYS   = ['clockIn','clockOutLunch','clockBackLunch','clockOutEod'];
@@ -1090,6 +1159,7 @@ function bindList(){
   bindLangSwitch();
   bindClock();
   document.getElementById('btnLogout').addEventListener('click', () => {
+    teardownRealtime();
     localStorage.removeItem(SESSION_KEY);
     STATE.view = 'login';
     STATE.currentTechId = null;
