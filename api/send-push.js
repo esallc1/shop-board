@@ -21,19 +21,15 @@ import webpush from 'web-push';
 
 // Public VAPID key — same value embedded client-side in shared/push.js.
 const VAPID_PUBLIC = 'BByOPsrzKI55qegn0RENJRoA0ijuf4Axb3rVpt4UJ7SYBlqRSMJiITi1JZhAyayPwHHcBU3u9ygvwF2Kvf--AD8';
-// TODO(Cris): STILL A PLACEHOLDER — provide the real monitored address and
-// replace this. Push services use it to reach you about your pushes. web-push
-// requires a valid mailto:/https: subject, so it's left as a working
-// placeholder (not invented per se — carried from 2c) until you supply one.
-const VAPID_CONTACT = 'mailto:admin@leetransmissionshop.com';
+// Contact push services use to reach the shop about delivery problems.
+const VAPID_CONTACT = 'mailto:esallc1@yahoo.com';
 
 // GATE 1 allow-list — only these origins may call this endpoint. Small array
-// so domains are easy to add later.
-// NOTE(Cris): confirm the vercel.app entry matches your actual project domain
-// (guessed from the repo name) — adjust if your Vercel URL differs.
+// so domains are easy to add later. Both are stable hostnames (the vercel.app
+// entry is the project's stable production alias, NOT a per-deploy hash URL).
 const ALLOWED_ORIGINS = [
-  'https://board.leetransmissionshop.com',   // custom production domain
-  'https://shop-board.vercel.app',           // vercel.app production domain (VERIFY)
+  'https://board.leetransmissionshop.com',              // custom production domain (what the team uses)
+  'https://shop-board-leetransmission-kiki.vercel.app', // stable Vercel production alias
 ];
 
 // Origin of the request — prefer the Origin header, fall back to Referer.
