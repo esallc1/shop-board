@@ -57,6 +57,13 @@ function initTeamChat(config) {
   let threadMessages = [];          // messages of the open thread
   let chatRealtimeChannel = null;
   let chatAudioCtx = null;
+  let compose = null;               // compose-flow state (Slice 3c): {step, groupName, roster}
+
+  // The office roster the compose pickers draw from. These are role STRINGS as
+  // stored in employees.role (note the bookkeeper's role is 'bookkeeping', not
+  // 'bookkeeper'); person NAMES are always resolved live from employees, never
+  // hardcoded. Techs are never in this set, so they never appear in a picker.
+  const OFFICE_ROLES = ['owner', 'manager', 'advisor', 'bookkeeping'];
 
   // ── durable read-state (chat_reads) — with defensive in-memory fallback ──
   let readAvailable = true;         // flips false if chat_reads ever looks unmigrated
@@ -88,11 +95,22 @@ function initTeamChat(config) {
   (function injectChatCss() {
     if (document.getElementById('cd-teamchat-3b-css')) return;
     const css = `
-.chat-panel.chat-view-inbox .chat-input-row { display:none; }
-.chat-panel.chat-view-inbox #chat-channels { display:none; }
-.chat-panel.chat-view-thread #chat-channels {
+.chat-panel.chat-view-inbox .chat-input-row,
+.chat-panel.chat-view-compose .chat-input-row { display:none; }
+.chat-panel.chat-view-inbox #chat-channels {
+  display:flex; align-items:center; justify-content:flex-end; padding:6px 10px;
+}
+.chat-panel.chat-view-thread #chat-channels,
+.chat-panel.chat-view-compose #chat-channels {
   display:flex; align-items:center; gap:8px; padding:8px 10px;
 }
+.chat-compose-btn {
+  border:none; background:transparent; cursor:pointer;
+  font-size:1.15rem; line-height:1; color:var(--accent);
+  width:32px; height:32px; border-radius:8px; flex:0 0 auto;
+  display:flex; align-items:center; justify-content:center;
+}
+.chat-compose-btn:hover { background:#eef0f7; }
 .chat-back-btn {
   border:none; background:transparent; cursor:pointer;
   font-size:1.6rem; line-height:1; color:var(--accent);
@@ -104,6 +122,41 @@ function initTeamChat(config) {
   font-weight:700; font-size:0.85rem; color:var(--text);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
+/* compose (Slice 3c) */
+.chat-compose { display:flex; flex-direction:column; gap:8px; }
+.chat-compose-hint { font-size:0.78rem; color:var(--muted); font-weight:600; padding:2px 2px 0; }
+.chat-compose-err { color:#dc2626; font-size:0.76rem; min-height:14px; padding:0 2px; }
+.chat-compose-choice {
+  display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+  padding:12px 14px; background:#fff; border:1px solid var(--border);
+  border-radius:10px; cursor:pointer; font-family:inherit;
+}
+.chat-compose-choice:hover { background:#f4f6fb; }
+.chat-compose-ic { font-size:1.5rem; flex:0 0 auto; }
+.chat-compose-choice b { font-size:0.88rem; color:var(--text); }
+.chat-compose-choice small { display:block; color:var(--muted); font-size:0.72rem; margin-top:1px; }
+.chat-roster { display:flex; flex-direction:column; gap:6px; }
+.chat-roster-row {
+  display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+  padding:9px 12px; background:#fff; border:1px solid var(--border);
+  border-radius:10px; cursor:pointer; font-family:inherit;
+}
+.chat-roster-row:hover { background:#f4f6fb; }
+.chat-roster-l { display:flex; align-items:center; gap:10px; flex:1; min-width:0; }
+.chat-roster-main { display:flex; flex-direction:column; min-width:0; }
+.chat-roster-name { font-weight:700; font-size:0.84rem; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-roster-role { font-size:0.72rem; color:var(--muted); text-transform:capitalize; }
+.chat-roster-row input[type=checkbox] { margin-left:auto; width:18px; height:18px; flex:0 0 auto; }
+.chat-group-name {
+  padding:9px 11px; border-radius:8px; border:1px solid var(--border);
+  font-family:inherit; font-size:0.85rem; background:#fff; color:var(--text); outline:none;
+}
+.chat-group-name:focus { border-color:var(--accent); }
+.chat-compose-next, .chat-compose-create {
+  background:var(--accent); color:#fff; border:none; border-radius:8px;
+  padding:11px; font-weight:700; cursor:pointer; font-family:inherit; font-size:0.82rem; margin-top:2px;
+}
+.chat-compose-next:hover, .chat-compose-create:hover { opacity:0.9; }
 .chat-inbox { display:flex; flex-direction:column; margin:-12px; }
 .chat-inbox-empty { padding:24px 16px; text-align:center; color:var(--muted); font-size:0.83rem; }
 .chat-inbox-row {
@@ -222,28 +275,36 @@ function initTeamChat(config) {
   }
 
   // ── view switching ──
-  function setView(mode, title) {
+  // mode: 'inbox' (compose entry point) | 'thread' | 'compose'.
+  // backFn overrides the back-control target (compose steps chain back through
+  // themselves; thread/compose default to the inbox).
+  function setChrome(mode, title, backFn) {
     const panel = document.getElementById('chat-panel');
     if (panel) {
       panel.classList.toggle('chat-view-inbox', mode === 'inbox');
       panel.classList.toggle('chat-view-thread', mode === 'thread');
+      panel.classList.toggle('chat-view-compose', mode === 'compose');
     }
     const nav = document.getElementById('chat-channels');
-    if (nav) {
-      if (mode === 'thread') {
-        nav.innerHTML =
-          `<button class="chat-back-btn" type="button" aria-label="Back">‹</button>` +
-          `<span class="chat-thread-title">${esc(title || '')}</span>`;
-        const back = nav.querySelector('.chat-back-btn');
-        if (back) back.addEventListener('click', backToInbox);
-      } else {
-        nav.innerHTML = '';
-      }
+    if (!nav) return;
+    if (mode === 'inbox') {
+      // WhatsApp-style compose entry: a new-message pencil in the inbox header.
+      nav.innerHTML = `<button class="chat-compose-btn" type="button" aria-label="New message" title="New message">✎</button>`;
+      const c = nav.querySelector('.chat-compose-btn');
+      if (c) c.addEventListener('click', openCompose);
+    } else {
+      nav.innerHTML =
+        `<button class="chat-back-btn" type="button" aria-label="Back">‹</button>` +
+        `<span class="chat-thread-title">${esc(title || '')}</span>`;
+      const back = nav.querySelector('.chat-back-btn');
+      if (back) back.addEventListener('click', backFn || backToInbox);
     }
   }
 
   // ── inbox ──
-  function renderInboxIfVisible() { if (currentConvId === null) renderInbox(); }
+  // Repaint the inbox only when it's actually the visible screen — not while a
+  // thread is open (currentConvId set) or the compose flow owns #chat-messages.
+  function renderInboxIfVisible() { if (currentConvId === null && !compose) renderInbox(); }
 
   function renderInbox() {
     const box = document.getElementById('chat-messages');
@@ -371,10 +432,13 @@ function initTeamChat(config) {
     renderThread();
   }
 
-  async function openThread(convId) {
+  // fallbackTitle labels the back-bar when the conversation isn't in convById
+  // yet (e.g. a DM/group just created in the compose flow, before loadInbox).
+  async function openThread(convId, fallbackTitle) {
     currentConvId = convId;
+    compose = null;
     const conv = convById[convId];
-    setView('thread', conv ? conv.displayName : '');
+    setChrome('thread', conv ? conv.displayName : (fallbackTitle || ''), backToInbox);
     await loadThread(convId);
     markConversationRead(convId);
     const input = document.getElementById('chat-input');
@@ -383,9 +447,181 @@ function initTeamChat(config) {
 
   function backToInbox() {
     currentConvId = null;
-    setView('inbox');
+    compose = null;
+    setChrome('inbox');
     renderInbox();   // immediate paint from cached state
     loadInbox();     // then refresh previews / unread
+  }
+
+  // ── compose: new DM / new group (Slice 3c) ──────────────────
+  async function loadRoster() {
+    const me = getIdentity();
+    const { data, error } = await db.from('employees')
+      .select('name, role').eq('active', true).in('role', OFFICE_ROLES).order('name');
+    if (error) { console.error('[Chat] roster load failed', error); compose.roster = []; return; }
+    // Exclude the current user from every picker.
+    compose.roster = (data || []).filter(p => p.name && p.name !== me.name);
+  }
+
+  async function openCompose() {
+    const me = getIdentity();
+    if (!me.name || !me.role) {
+      alert('Could not identify you on this board yet — try reopening it from CrisData.');
+      return;
+    }
+    compose = { step: 'chooser', groupName: '', roster: [] };
+    await loadRoster();
+    if (!compose) return;             // guard: backed out while roster loaded
+    goComposeStep('chooser');
+  }
+
+  function goComposeStep(step) { if (compose) { compose.step = step; renderCompose(); } }
+
+  function rosterRowsHtml(multi) {
+    return compose.roster.map((p, i) => {
+      const initial = (p.name || '?').trim().charAt(0).toUpperCase();
+      const inner =
+        `<span class="chat-roster-l">` +
+          `<span class="chat-inbox-avatar">${esc(initial)}</span>` +
+          `<span class="chat-roster-main">` +
+            `<span class="chat-roster-name">${esc(p.name)}</span>` +
+            `<span class="chat-roster-role">${esc(p.role)}</span>` +
+          `</span>` +
+        `</span>`;
+      return multi
+        ? `<label class="chat-roster-row">${inner}<input type="checkbox" data-idx="${i}"></label>`
+        : `<button class="chat-roster-row" type="button" data-idx="${i}">${inner}</button>`;
+    }).join('');
+  }
+
+  function renderCompose() {
+    const box = document.getElementById('chat-messages');
+    if (!box || !compose) return;
+    const step = compose.step;
+    const titles = { chooser: 'New message', dm: 'New chat', 'group-name': 'New group', 'group-members': 'New group' };
+    const backs = {
+      chooser: backToInbox,
+      dm: () => goComposeStep('chooser'),
+      'group-name': () => goComposeStep('chooser'),
+      'group-members': () => goComposeStep('group-name'),
+    };
+    setChrome('compose', titles[step], backs[step]);
+
+    if (step === 'chooser') {
+      box.innerHTML =
+        `<div class="chat-compose">` +
+          `<button class="chat-compose-choice" type="button" data-path="dm">` +
+            `<span class="chat-compose-ic">💬</span><span><b>New chat</b><small>Message one person</small></span>` +
+          `</button>` +
+          `<button class="chat-compose-choice" type="button" data-path="group">` +
+            `<span class="chat-compose-ic">👥</span><span><b>New group</b><small>3–4 people</small></span>` +
+          `</button>` +
+        `</div>`;
+      box.querySelectorAll('.chat-compose-choice').forEach(b =>
+        b.addEventListener('click', () => goComposeStep(b.dataset.path === 'dm' ? 'dm' : 'group-name')));
+
+    } else if (step === 'dm') {
+      if (!compose.roster.length) { box.innerHTML = `<div class="chat-inbox-empty">No one else in the office to message.</div>`; return; }
+      box.innerHTML =
+        `<div class="chat-compose"><div class="chat-compose-hint">Choose someone to message</div>` +
+        `<div class="chat-roster">${rosterRowsHtml(false)}</div></div>`;
+      box.querySelectorAll('.chat-roster-row[data-idx]').forEach(b =>
+        b.addEventListener('click', () => openOrCreateDm(compose.roster[+b.dataset.idx])));
+
+    } else if (step === 'group-name') {
+      box.innerHTML =
+        `<div class="chat-compose">` +
+          `<div class="chat-compose-hint">Group name</div>` +
+          `<input class="chat-group-name" maxlength="40" placeholder="e.g. Front Office" value="${esc(compose.groupName)}">` +
+          `<div class="chat-compose-err"></div>` +
+          `<button class="chat-compose-next" type="button">Next</button>` +
+        `</div>`;
+      const input = box.querySelector('.chat-group-name');
+      const err = box.querySelector('.chat-compose-err');
+      const go = () => {
+        const v = (input.value || '').trim();
+        if (!v) { err.textContent = 'Enter a group name.'; return; }
+        compose.groupName = v;
+        goComposeStep('group-members');
+      };
+      box.querySelector('.chat-compose-next').addEventListener('click', go);
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+      input.focus();
+
+    } else if (step === 'group-members') {
+      if (compose.roster.length < 2) { box.innerHTML = `<div class="chat-inbox-empty">Not enough people in the office for a group.</div>`; return; }
+      box.innerHTML =
+        `<div class="chat-compose">` +
+          `<div class="chat-compose-hint">Add members — pick at least 2 (a group is 3–4 people)</div>` +
+          `<div class="chat-roster">${rosterRowsHtml(true)}</div>` +
+          `<div class="chat-compose-err" id="chat-grp-err"></div>` +
+          `<button class="chat-compose-create" type="button">Create group</button>` +
+        `</div>`;
+      const err = box.querySelector('#chat-grp-err');
+      box.querySelector('.chat-compose-create').addEventListener('click', () => {
+        const picked = [...box.querySelectorAll('input[type=checkbox]:checked')].map(c => compose.roster[+c.dataset.idx]);
+        // A group needs at least 3 TOTAL (creator + 2). 1 other = a DM.
+        if (picked.length < 2) { err.textContent = 'Pick at least 2 people — for one person use New chat.'; return; }
+        if (picked.length + 1 > 4) { err.textContent = 'A group can have at most 4 people.'; return; }
+        if (!compose.groupName) { err.textContent = 'Group name missing — go back a step.'; return; }
+        createGroup(compose.groupName, picked);
+      });
+    }
+    box.scrollTop = 0;
+  }
+
+  // DM: find-or-create by dm_key (two member names, lowercased, sorted, '|' —
+  // the EXACT recipe the 3a migration used), so this never duplicates a DM.
+  async function openOrCreateDm(person) {
+    if (!person) return;
+    const me = getIdentity();
+    if (!me.name || !me.role) { alert('Could not identify you on this board yet — try reopening it from CrisData.'); return; }
+    const key = [me.name.toLowerCase(), person.name.toLowerCase()].sort().join('|');
+
+    const { data: found } = await db.from('chat_conversations')
+      .select('id').eq('type', 'dm').eq('dm_key', key).limit(1);
+    if (found && found[0]) { openThread(found[0].id, person.name); loadInbox(); return; }
+
+    const { data: conv, error } = await db.from('chat_conversations')
+      .insert({ type: 'dm', dm_key: key, created_by_name: me.name, created_by_role: me.role })
+      .select('id').single();
+    if (error) {
+      // Race: another client created the same DM (unique dm_key) — re-find it.
+      const { data: again } = await db.from('chat_conversations')
+        .select('id').eq('type', 'dm').eq('dm_key', key).limit(1);
+      if (again && again[0]) { openThread(again[0].id, person.name); loadInbox(); return; }
+      console.error('[Chat] create DM failed', error);
+      alert('Could not start chat: ' + error.message);
+      return;
+    }
+    const { error: mErr } = await db.from('chat_members').insert([
+      { conversation_id: conv.id, member_name: me.name, member_role: me.role },
+      { conversation_id: conv.id, member_name: person.name, member_role: person.role },
+    ]);
+    if (mErr) console.warn('[Chat] add DM members failed', mErr.message);
+    openThread(conv.id, person.name);
+    loadInbox();
+  }
+
+  // Groups are NOT deduped (unlike DMs): two groups may share a name/members.
+  async function createGroup(name, members) {
+    const me = getIdentity();
+    if (!me.name || !me.role) { alert('Could not identify you on this board yet — try reopening it from CrisData.'); return; }
+    const { data: conv, error } = await db.from('chat_conversations')
+      .insert({ type: 'group', title: name, dm_key: null, created_by_name: me.name, created_by_role: me.role })
+      .select('id').single();
+    if (error) {
+      console.error('[Chat] create group failed', error);
+      const el = document.getElementById('chat-grp-err');
+      if (el) el.textContent = 'Could not create group: ' + error.message;
+      return;
+    }
+    const rows = [{ conversation_id: conv.id, member_name: me.name, member_role: me.role }]
+      .concat(members.map(p => ({ conversation_id: conv.id, member_name: p.name, member_role: p.role })));
+    const { error: mErr } = await db.from('chat_members').insert(rows);
+    if (mErr) console.warn('[Chat] add group members failed', mErr.message);
+    openThread(conv.id, name);
+    loadInbox();
   }
 
   // ── read-state ──
@@ -559,7 +795,7 @@ function initTeamChat(config) {
   // ── initial mount ──
   const panelEl = document.getElementById('chat-panel');
   if (panelEl) panelEl.classList.add(config.mode === 'panel' ? 'chat-mode-panel' : 'chat-mode-tab');
-  setView('inbox');
+  setChrome('inbox');
   renderInbox();          // paints "Loading…" until membership resolves
   subscribeRealtime();    // SUBSCRIBED → refreshAll() loads the inbox
   renderEmojiPopover();
