@@ -1724,14 +1724,21 @@
   const todoAssignSel = new Set();                         // selected employee ids (multi-assign)
   let todoFile = null;                                     // chosen attachment (uploaded once on Add)
 
-  // Multi-select roster: the whole active team minus self (same set the single
-  // "Assign to…" used). Selecting N fans out into N to-do rows on Add.
+  // Multi-select roster: the whole active team, with the current user first as
+  // a "(me)" option (personal to-dos), then everyone else. Selecting N fans out
+  // into N to-do rows on Add.
   async function loadTodoAssignees() {
     const menu = document.getElementById('todoAssignMenu');
     if (!menu) return;
     const { data, error } = await db.from('employees').select('id, name').eq('active', true).order('name');
     if (error) { console.error('[Todo] load employees failed', error); return; }
-    todoAssignRoster = (data || []).filter(e => e.id !== CURRENT_EMPLOYEE_ID);
+    // Include the current user as a "(me)" option at the top so a person can
+    // make a personal to-do for themselves; label = menu text, name = stored.
+    const all = data || [];
+    const meRow = CURRENT_EMPLOYEE_ID ? all.find(e => e.id === CURRENT_EMPLOYEE_ID) : null;
+    todoAssignRoster = [];
+    if (meRow) todoAssignRoster.push({ id: meRow.id, name: meRow.name, label: (meRow.name || 'Me') + ' (me)' });
+    all.filter(e => e.id !== CURRENT_EMPLOYEE_ID).forEach(e => todoAssignRoster.push({ id: e.id, name: e.name, label: e.name }));
     // drop any selection no longer in the roster
     [...todoAssignSel].forEach(id => { if (!todoAssignRoster.some(e => e.id === id)) todoAssignSel.delete(id); });
     renderTodoAssignMenu();
@@ -1742,7 +1749,7 @@
     if (!menu) return;
     if (!todoAssignRoster.length) { menu.innerHTML = '<div class="todo-assign-empty">No one to assign.</div>'; return; }
     menu.innerHTML = todoAssignRoster.map(e =>
-      `<label><input type="checkbox" value="${esc(e.id)}"${todoAssignSel.has(e.id) ? ' checked' : ''}> ${esc(e.name)}</label>`
+      `<label><input type="checkbox" value="${esc(e.id)}"${todoAssignSel.has(e.id) ? ' checked' : ''}> ${esc(e.label)}</label>`
     ).join('');
     menu.querySelectorAll('input[type="checkbox"]').forEach(cb => {
       cb.addEventListener('change', () => {
@@ -1756,7 +1763,7 @@
     if (!btn) return;
     const n = todoAssignSel.size;
     if (n === 0) btn.textContent = 'Assign to… (optional)';
-    else if (n === 1) btn.textContent = (todoRosterName([...todoAssignSel][0]) || '1 person');
+    else if (n === 1) { const e = todoAssignRoster.find(x => x.id === [...todoAssignSel][0]); btn.textContent = e ? e.label : '1 person'; }
     else btn.textContent = n + ' people';
     btn.classList.toggle('todo-assign-active', n > 0);
   }
