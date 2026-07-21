@@ -20,127 +20,6 @@
   /* ── CONTENT ── */
   .content { padding: 24px 28px; }
 
-  /* ── TEAM CHAT WIDGET ── */
-  .chat-bubble {
-    position: fixed; bottom: 28px; right: 28px; z-index: 9000;
-    width: 48px; height: 48px; border-radius: 50%;
-    background: var(--accent); color: #fff;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1.3rem; cursor: pointer;
-    box-shadow: 0 4px 16px rgba(91,94,244,0.35);
-    transition: transform 0.15s, box-shadow 0.15s;
-    user-select: none;
-  }
-  .chat-bubble:hover { transform: scale(1.07); box-shadow: 0 6px 20px rgba(91,94,244,0.45); }
-  .chat-unread {
-    position: absolute; top: -3px; right: -3px;
-    width: 17px; height: 17px; border-radius: 50%;
-    background: #ef4444; color: #fff;
-    font-size: 0.6rem; font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
-    border: 2px solid #fff;
-  }
-  .chat-panel {
-    position: fixed; bottom: 88px; right: 28px; z-index: 8999;
-    width: 320px; max-height: 420px;
-    background: #fff; border: 1px solid var(--border);
-    border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.13);
-    display: none; flex-direction: column; overflow: hidden;
-  }
-  .chat-panel.open { display: flex; }
-  .chat-header {
-    padding: 12px 16px; background: var(--accent); color: #fff;
-    font-size: 0.82rem; font-weight: 700; letter-spacing: 0.5px;
-    display: flex; align-items: center; justify-content: space-between;
-    cursor: move; user-select: none;
-  }
-  .chat-close { cursor: pointer; opacity: 0.8; font-size: 1rem; }
-  .chat-close:hover { opacity: 1; }
-  .chat-channels {
-    display: flex; gap: 6px; padding: 8px 12px;
-    border-bottom: 1px solid var(--border); background: #fff;
-  }
-  .chat-channel-btn {
-    flex: 1; font-size: 0.66rem; font-weight: 700; padding: 6px 4px;
-    border-radius: 6px; border: 1px solid var(--border); background: var(--bg);
-    color: var(--muted); cursor: pointer; text-align: center; transition: all 0.15s;
-  }
-  .chat-channel-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .chat-channel-btn:hover:not(.active) { background: var(--surface-2); }
-  .chat-messages {
-    flex: 1; overflow-y: auto; padding: 12px;
-    display: flex; flex-direction: column; gap: 8px;
-    background: #f8f9fc;
-  }
-  .chat-msg { max-width: 82%; display: flex; flex-direction: column; }
-  .chat-msg.me { align-self: flex-end; align-items: flex-end; }
-  .chat-msg.them { align-self: flex-start; align-items: flex-start; }
-  .chat-msg-sender { font-size: 0.65rem; font-weight: 700; color: #8c93a8; margin-bottom: 2px; padding: 0 4px; }
-  .chat-msg-bubble { padding: 8px 12px; border-radius: 14px; font-size: 0.83rem; line-height: 1.45; }
-  .chat-msg.me .chat-msg-bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
-  .chat-msg.them .chat-msg-bubble { background: #fff; color: var(--text); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
-  .chat-msg-time { font-size: 0.62rem; color: #8c93a8; margin-top: 3px; padding: 0 4px; }
-  .chat-input-row {
-    display: flex; gap: 8px; padding: 10px 12px;
-    border-top: 1px solid var(--border); background: #fff;
-  }
-  .chat-input-row input {
-    flex: 1; font-size: 0.82rem; padding: 7px 10px;
-    border-radius: 20px; background: #f0f1f7;
-    border: 1px solid var(--border); outline: none;
-    font-family: inherit;
-  }
-  .chat-input-row input:focus { border-color: var(--accent); }
-  .emoji-picker-wrap { position: relative; flex-shrink: 0; }
-  .emoji-btn {
-    width: 34px; height: 34px; border-radius: 50%;
-    background: #f0f1f7; border: 1px solid var(--border);
-    cursor: pointer; font-size: 1rem;
-    display: flex; align-items: center; justify-content: center;
-    transition: background 0.15s;
-  }
-  .emoji-btn:hover { background: var(--surface-2); }
-  .emoji-popover {
-    position: absolute; bottom: 42px; left: 0;
-    width: 216px; max-height: 176px; overflow-y: auto;
-    background: #fff; border: 1px solid var(--border); border-radius: 10px;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
-    padding: 8px; z-index: 10;
-    display: grid; grid-template-columns: repeat(6, 1fr); gap: 2px;
-  }
-  .emoji-popover button {
-    background: none; border: none; font-size: 1.15rem; cursor: pointer;
-    padding: 4px; border-radius: 6px; line-height: 1.3;
-  }
-  .emoji-popover button:hover { background: var(--surface-2); }
-  .chat-send-btn {
-    width: 34px; height: 34px; border-radius: 50%;
-    background: var(--accent); color: #fff;
-    border: none; cursor: pointer; font-size: 0.9rem;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0; transition: opacity 0.15s;
-  }
-  .chat-send-btn:hover { opacity: 0.85; }
-
-  .chat-toast-container {
-    position: fixed; top: 16px; right: 16px; z-index: 9999;
-    display: flex; flex-direction: column; gap: 8px;
-    pointer-events: none;
-  }
-  .chat-toast {
-    pointer-events: auto;
-    background: #1a1f36; color: #fff;
-    border-radius: 10px; padding: 10px 14px;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
-    min-width: 220px; max-width: 320px;
-    font-size: 0.8rem; cursor: pointer;
-    animation: chatToastIn 0.2s ease-out;
-  }
-  .chat-toast-channel { font-size: 0.62rem; color: #8c93a8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 700; }
-  .chat-toast-sender { font-weight: 700; margin-bottom: 2px; }
-  .chat-toast-msg { color: #e2e5ee; line-height: 1.4; overflow-wrap: anywhere; }
-  @keyframes chatToastIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
-
   /* ── Marketing Content tab ── */
   .mkt-tools { display: flex; flex-direction: column; gap: 14px; }
   .mkt-tool { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -217,6 +96,7 @@
         <div class="sidebar-group-label">Main</div>
         <div class="sidebar-item active" data-view="todo" data-label="To-Do"><span class="icon">✅</span>To-Do</div>
         <div class="sidebar-item" data-view="marketing" data-label="Marketing Content"><span class="icon">📸</span>Marketing Content</div>
+        <div class="sidebar-item" data-view="teamchat" data-label="Team Chat"><span class="icon">💬</span>Team Chat<span class="chat-nav-badge" id="teamchat-unread-badge" style="display:none">0</span></div>
       </div>
     </div>
   </nav>
@@ -279,30 +159,25 @@
     </div>
   </div>
 
+  <!-- ══ TEAM CHAT ══ (in-page tab — identical to gm/advisor/bookkeeping) -->
+  <div class="view" id="view-teamchat">
+    <div class="chat-panel open" id="chat-panel">
+      <div class="chat-header"><span>Team Chat</span></div>
+      <div class="chat-channels" id="chat-channels"></div>
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-row">
+        <div class="emoji-picker-wrap">
+          <button class="emoji-btn" id="emoji-btn" type="button" title="Emoji">😊</button>
+          <div class="emoji-popover" id="emoji-popover" style="display:none"></div>
+        </div>
+        <input type="text" id="chat-input" placeholder="Message…" />
+        <button class="chat-send-btn" id="chat-send">➤</button>
+      </div>
+    </div>
+  </div>
+
     </div>
   </main>
-</div>
-
-<!-- Team Chat Widget -->
-<div class="chat-bubble" id="chat-bubble">
-  💬
-  <div class="chat-unread" id="chat-unread" style="display:none"></div>
-</div>
-<div class="chat-panel" id="chat-panel">
-  <div class="chat-header">
-    <span>Team Chat</span>
-    <span class="chat-close" id="chat-close">✕</span>
-  </div>
-  <div class="chat-channels" id="chat-channels"></div>
-  <div class="chat-messages" id="chat-messages"></div>
-  <div class="chat-input-row">
-    <div class="emoji-picker-wrap">
-      <button class="emoji-btn" id="emoji-btn" type="button" title="Emoji">😊</button>
-      <div class="emoji-popover" id="emoji-popover" style="display:none"></div>
-    </div>
-    <input type="text" id="chat-input" placeholder="Message…" />
-    <button class="chat-send-btn" id="chat-send">➤</button>
-  </div>
 </div>
 
 <!-- Marketing viewer — full photo / video player -->
@@ -794,52 +669,26 @@
     { key: 'owner_advisor',     label: 'Advisor' },
     { key: 'owner_bookkeeping', label: 'Bookkeeping' },
   ];
-  // ── Team Chat — shared component (shared/team-chat.js). Owner-board keeps
-  //    its own CHAT_CHANNELS + CHAT_IDENTITY (declared above) and its floating
-  //    panel chrome below; the shared module renders inside the panel.
+  // ── Team Chat — shared component (shared/team-chat.js). Renders in the in-page
+  //    "teamchat" sidebar tab, identical to gm/advisor/bookkeeping (no FAB).
   const teamChat = initTeamChat({
     db,
     getIdentity: () => CHAT_IDENTITY,   // live getter — boards reassign CHAT_IDENTITY once the session resolves
     channels: CHAT_CHANNELS,
-    mode: 'panel',
-    badgeId: 'chat-unread',
-    isSurfaceVisible: () => document.getElementById('chat-panel').classList.contains('open'),
+    mode: 'tab',
+    badgeId: 'teamchat-unread-badge',
+    isSurfaceVisible: () => currentViewKey === 'teamchat',
   });
 
   // Notifications nudge (sub-slice 2b) — permission + subscription capture.
   CrisPush.initPush({ db, getIdentity: () => CHAT_IDENTITY });
-
-  // Floating-panel chrome (owner-board only): the bubble toggles the panel and,
-  // on open, marks the current channel read + unlocks audio + scrolls to bottom.
-  document.getElementById('chat-bubble').addEventListener('click', () => {
-    const panel = document.getElementById('chat-panel');
-    panel.classList.toggle('open');
-    if (panel.classList.contains('open')) teamChat.onSurfaceShown();
-  });
-  document.getElementById('chat-close').addEventListener('click', e => {
-    e.stopPropagation();
-    document.getElementById('chat-panel').classList.remove('open');
-  });
-
-  // ── Draggable chat panel
-  (function() {
-    const panel = document.getElementById('chat-panel');
-    const handle = panel.querySelector('.chat-header');
-    let dragging = false, ox = 0, oy = 0;
-    handle.addEventListener('mousedown', e => {
-      dragging = true;
-      const r = panel.getBoundingClientRect();
-      ox = e.clientX - r.left; oy = e.clientY - r.top;
-      panel.style.right = 'auto';
-      panel.style.bottom = 'auto';
-    });
-    document.addEventListener('mousemove', e => {
-      if (!dragging) return;
-      panel.style.left = (e.clientX - ox) + 'px';
-      panel.style.top  = (e.clientY - oy) + 'px';
-    });
-    document.addEventListener('mouseup', () => { dragging = false; });
-  })();
+  document.querySelector('.sidebar-item[data-view="teamchat"]')
+    .addEventListener('click', () => teamChat.onSurfaceShown());
+  VIEW_REFRESH.teamchat = {
+    refetch: teamChat.refetch,
+    getChannel: teamChat.getChannel,
+    resubscribe: teamChat.resubscribe,
+  };
 
   // ══════════════════════════════════════════════════════════════
   // SESSION CAPTURE + GREETING — same passive pattern as
