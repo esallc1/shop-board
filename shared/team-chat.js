@@ -63,6 +63,8 @@ function initTeamChat(config) {
   const ATTACH_BUCKET = 'crisdata-attachments';       // private; read via createSignedUrl
   const ATTACH_MAX_PHOTO_BYTES = 10 * 1024 * 1024;    // ~10MB per photo
   const ATTACH_MAX_FILE_BYTES = 25 * 1024 * 1024;     // ~25MB per file (any type)
+  const VOICE_MAX_SECONDS = 120;                      // 2-min per-clip cap (auto-stops)
+  let voice = null;                                   // voice-recorder state (Slice 4c)
 
   // The office roster the compose pickers draw from. These are role STRINGS as
   // stored in employees.role (note the bookkeeper's role is 'bookkeeping', not
@@ -94,6 +96,24 @@ function initTeamChat(config) {
     if (msg.attachment_kind) return attachmentLabel(msg.attachment_kind, msg.attachment_name);
     return msg.message || '';
   }
+
+  // Voice-recorder mime helpers (Slice 4c) — lifted from the tech Diagnosis
+  // recorder (my-numbers.html) so iOS + Android capture behaves identically.
+  function pickAudioMime() {
+    const cands = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac', 'audio/mpeg'];
+    if (!window.MediaRecorder) return '';
+    for (const m of cands) { try { if (MediaRecorder.isTypeSupported(m)) return m; } catch (e) { /* ignore */ } }
+    return '';
+  }
+  function audioExt(mime) {
+    mime = mime || '';
+    if (mime.indexOf('webm') >= 0) return 'webm';
+    if (mime.indexOf('mp4') >= 0) return 'm4a';
+    if (mime.indexOf('aac') >= 0) return 'aac';
+    if (mime.indexOf('mpeg') >= 0) return 'mp3';
+    return 'webm';
+  }
+  function mmss(s) { return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
   function formatChatTime(iso) {
     return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   }
@@ -253,6 +273,22 @@ function initTeamChat(config) {
 .chat-att-file-ic { font-size:1.2rem; flex:0 0 auto; }
 .chat-att-file-name { flex:1; min-width:0; font-size:0.82rem; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .chat-att-file-dl { flex:0 0 auto; color:var(--muted); font-size:0.9rem; }
+/* voice record panel + player (Slice 4c) */
+.chat-voice-panel { display:none; align-items:center; flex-wrap:wrap; gap:8px; padding:10px 12px; border-top:1px solid var(--border); background:#fff; }
+.chat-panel.chat-voicing .chat-voice-panel { display:flex; }
+.chat-panel.chat-voicing .chat-input-row { display:none; }
+.chat-voice-rec, .chat-voice-stop, .chat-voice-send, .chat-voice-redo, .chat-voice-x {
+  border:1px solid var(--border); background:#f0f1f7; cursor:pointer; font-family:inherit;
+  border-radius:20px; padding:8px 14px; font-size:0.82rem; font-weight:600; color:var(--text);
+}
+.chat-voice-rec { background:var(--accent); color:#fff; border-color:var(--accent); flex:1; }
+.chat-voice-stop { background:#ef4444; color:#fff; border-color:#ef4444; flex:1; }
+.chat-voice-send { background:var(--accent); color:#fff; border-color:var(--accent); }
+.chat-voice-timer { flex:1; font-weight:700; color:#ef4444; font-size:0.85rem; }
+.chat-voice-audio { flex:1; min-width:120px; height:36px; }
+.chat-voice-err { flex:1 1 100%; color:#dc2626; font-size:0.8rem; }
+.chat-att-voice-audio { width:240px; max-width:100%; height:40px; }
+.chat-att-voice-loading { color:var(--muted); font-size:0.78rem; padding:6px 0; }
 /* Desktop: the in-page tab boards' chat fills the content area instead of
    floating as a short phone-width card. Scoped to .chat-mode-tab so the
    owner-board floating FAB panel (.chat-mode-panel) keeps its compact size. */
@@ -499,8 +535,14 @@ function initTeamChat(config) {
         : `<div class="chat-att-file-chip is-loading"><span class="chat-att-file-ic">📄</span><span class="chat-att-file-name">${nameEsc}</span></div>`;
       return chip + caption;
     }
-    if (m.attachment_kind === 'voice') {  // 4c seam — becomes an audio player
-      return `<div class="chat-msg-bubble chat-att-voice">🎤 Voice message</div>` + caption;
+    if (m.attachment_kind === 'voice') {  // 4c — inline audio player
+      const url = signedUrlCache[m.attachment_path];
+      // preload="none" — the "--:-- / spinner before first play" is normal iOS
+      // behavior, not a bug (same as the Diagnosis recorder).
+      const player = url
+        ? `<audio class="chat-att-voice-audio" controls preload="none" src="${esc(url)}"></audio>`
+        : `<div class="chat-att-voice-loading">🎤 Loading…</div>`;
+      return player + caption;
     }
     return `<div class="chat-msg-bubble">${esc(m.message)}</div>`;
   }
@@ -545,6 +587,7 @@ function initTeamChat(config) {
   // fallbackTitle labels the back-bar when the conversation isn't in convById
   // yet (e.g. a DM/group just created in the compose flow, before loadInbox).
   async function openThread(convId, fallbackTitle) {
+    if (voice) closeVoicePanel();   // cancel any in-progress recording on nav
     currentConvId = convId;
     compose = null;
     const conv = convById[convId];
@@ -556,6 +599,7 @@ function initTeamChat(config) {
   }
 
   function backToInbox() {
+    if (voice) closeVoicePanel();   // cancel any in-progress recording on nav
     currentConvId = null;
     compose = null;
     setChrome('inbox');
@@ -818,7 +862,7 @@ function initTeamChat(config) {
   // Upload FIRST, insert the message row ONLY on a successful upload, so a
   // failed upload never leaves a broken/pointer-less message row. kind is
   // 'photo' (image/* only, inline render) or 'file' (any type, download chip).
-  async function uploadAndSendAttachment(file, kind) {
+  async function uploadAndSendAttachment(file, kind, explicitCaption) {
     if (!file || !currentConvId) return;
     const id = getIdentity();
     if (!id.name || !id.role) {
@@ -829,12 +873,15 @@ function initTeamChat(config) {
     if (isPhoto) {
       if (!file.type || file.type.indexOf('image/') !== 0) { alert('Please pick an image.'); return; }
       if (file.size > ATTACH_MAX_PHOTO_BYTES) { alert('That image is too large (max 10MB).'); return; }
-    } else {
-      if (file.size > ATTACH_MAX_FILE_BYTES) { alert('That file is too large (max 25MB).'); return; }
+    } else if (file.size > ATTACH_MAX_FILE_BYTES) {   // file / voice
+      alert('That file is too large (max 25MB).'); return;
     }
 
+    // Voice passes an explicit '' caption (its own panel, no text input);
+    // photo/file read the composer's caption field.
     const input = document.getElementById('chat-input');
-    const caption = input ? input.value.trim() : '';
+    const readFromInput = explicitCaption === undefined;
+    const caption = readFromInput ? (input ? input.value.trim() : '') : explicitCaption;
 
     setAttachBusy(true);
     try {
@@ -857,7 +904,7 @@ function initTeamChat(config) {
       });
       if (insErr) throw insErr;
 
-      if (input) input.value = '';         // caption consumed
+      if (readFromInput && input) input.value = '';   // caption consumed
       firePush(id, caption, { kind, name: file.name || null });
     } catch (err) {
       console.error('[Chat] attachment send failed', err);
@@ -871,6 +918,131 @@ function initTeamChat(config) {
   function setAttachBusy(busy) {
     const btn = document.getElementById('chat-attach');
     if (btn) { btn.disabled = busy; btn.textContent = busy ? '⏳' : '📎'; }
+  }
+
+  // ── voice notes (Slice 4c) — MediaRecorder capture lifted from the tech
+  //    Diagnosis recorder, adapted to a single clip per message. ──
+  function openVoicePanel() {
+    if (!currentConvId) return;
+    voice = { state: 'idle', chunks: [], seconds: 0 };
+    const panel = document.getElementById('chat-panel');
+    if (panel) panel.classList.add('chat-voicing');
+    renderVoicePanel();
+  }
+
+  function closeVoicePanel() {
+    if (voice) {
+      try { if (voice.recorder && voice.state === 'recording') voice.recorder.stop(); } catch (e) { /* ignore */ }
+      if (voice.stream) voice.stream.getTracks().forEach(t => t.stop());
+      if (voice.timer) clearInterval(voice.timer);
+      if (voice.url) { try { URL.revokeObjectURL(voice.url); } catch (e) { /* ignore */ } }
+    }
+    voice = null;
+    const panel = document.getElementById('chat-panel');
+    if (panel) panel.classList.remove('chat-voicing');
+    const vp = document.getElementById('chat-voice-panel');
+    if (vp) vp.innerHTML = '';
+  }
+
+  async function startVoiceRecording() {
+    if (!voice || voice.state === 'recording') return;
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      voice.error = 'Recording isn’t supported on this device.'; renderVoicePanel(); return;
+    }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch (e) {
+      console.warn('[Chat] mic denied', e);
+      if (!voice) return;   // panel closed while the prompt was up
+      voice.error = 'Microphone access was blocked. Enable it for this app in Settings to record.';
+      renderVoicePanel(); return;
+    }
+    if (!voice) { stream.getTracks().forEach(t => t.stop()); return; }   // closed during await
+    voice.error = null;
+    voice.stream = stream;
+    const mime = pickAudioMime();
+    let rec;
+    try { rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream); }
+    catch (e) { rec = new MediaRecorder(stream); }
+    voice.recorder = rec; voice.chunks = []; voice.seconds = 0; voice.state = 'recording'; voice.mime = mime;
+    rec.ondataavailable = e => { if (e.data && e.data.size) voice.chunks.push(e.data); };
+    rec.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      if (!voice) return;
+      if (voice.timer) { clearInterval(voice.timer); voice.timer = null; }
+      const type = rec.mimeType || mime || 'audio/webm';
+      voice.mime = type;
+      voice.blob = new Blob(voice.chunks, { type });
+      voice.url = voice.blob.size ? URL.createObjectURL(voice.blob) : null;
+      voice.state = voice.blob.size ? 'preview' : 'idle';
+      renderVoicePanel();
+    };
+    rec.start();
+    voice.timer = setInterval(() => {
+      if (!voice) return;
+      voice.seconds++;
+      const t = document.getElementById('chat-voice-timer');
+      if (t) t.textContent = '● ' + mmss(voice.seconds) + ' / ' + mmss(VOICE_MAX_SECONDS);
+      if (voice.seconds >= VOICE_MAX_SECONDS) stopVoiceRecording();
+    }, 1000);
+    renderVoicePanel();
+  }
+
+  function stopVoiceRecording() {
+    if (voice && voice.recorder && voice.state === 'recording') {
+      try { voice.recorder.stop(); } catch (e) { /* ignore */ }
+    }
+  }
+
+  function discardVoiceClip() {
+    if (!voice) return;
+    if (voice.url) { try { URL.revokeObjectURL(voice.url); } catch (e) { /* ignore */ } }
+    voice.blob = null; voice.url = null; voice.chunks = []; voice.seconds = 0; voice.state = 'idle';
+    renderVoicePanel();
+  }
+
+  async function sendVoiceClip() {
+    if (!voice || !voice.blob) return;
+    const mime = voice.mime || 'audio/webm';
+    // Wrap the recorded Blob in a File so it flows through uploadAndSendAttachment
+    // unchanged (name → storage ext; kind='voice' → audio-player render).
+    const file = new File([voice.blob], `Voice message.${audioExt(mime)}`, { type: mime });
+    closeVoicePanel();                       // release mic/URL; File keeps the data
+    await uploadAndSendAttachment(file, 'voice', '');
+  }
+
+  function renderVoicePanel() {
+    const panel = document.getElementById('chat-voice-panel');
+    if (!panel || !voice) return;
+    if (voice.error) {
+      panel.innerHTML = `<span class="chat-voice-err">${esc(voice.error)}</span>` +
+        `<button type="button" class="chat-voice-x">Close</button>`;
+      panel.querySelector('.chat-voice-x').addEventListener('click', closeVoicePanel);
+      return;
+    }
+    if (voice.state === 'idle') {
+      panel.innerHTML =
+        `<button type="button" class="chat-voice-rec">🎤 Record</button>` +
+        `<button type="button" class="chat-voice-x" title="Cancel">✕</button>`;
+      panel.querySelector('.chat-voice-rec').addEventListener('click', startVoiceRecording);
+      panel.querySelector('.chat-voice-x').addEventListener('click', closeVoicePanel);
+    } else if (voice.state === 'recording') {
+      panel.innerHTML =
+        `<span class="chat-voice-timer" id="chat-voice-timer">● ${mmss(voice.seconds)} / ${mmss(VOICE_MAX_SECONDS)}</span>` +
+        `<button type="button" class="chat-voice-stop">⏹ Stop</button>` +
+        `<button type="button" class="chat-voice-x" title="Cancel">✕</button>`;
+      panel.querySelector('.chat-voice-stop').addEventListener('click', stopVoiceRecording);
+      panel.querySelector('.chat-voice-x').addEventListener('click', closeVoicePanel);
+    } else if (voice.state === 'preview') {
+      panel.innerHTML =
+        `<audio class="chat-voice-audio" controls src="${voice.url}"></audio>` +
+        `<button type="button" class="chat-voice-redo" title="Re-record">↺</button>` +
+        `<button type="button" class="chat-voice-send">Send ➤</button>` +
+        `<button type="button" class="chat-voice-x" title="Discard">🗑</button>`;
+      panel.querySelector('.chat-voice-redo').addEventListener('click', discardVoiceClip);
+      panel.querySelector('.chat-voice-send').addEventListener('click', sendVoiceClip);
+      panel.querySelector('.chat-voice-x').addEventListener('click', closeVoicePanel);
+    }
   }
 
   // ── realtime ──
@@ -1001,7 +1173,8 @@ function initTeamChat(config) {
     menu.style.display = 'none';
     menu.innerHTML =
       `<button type="button" data-attach="photo">📷 Photo</button>` +
-      `<button type="button" data-attach="file">📎 File</button>`;
+      `<button type="button" data-attach="file">📎 File</button>` +
+      `<button type="button" data-attach="voice">🎤 Voice</button>`;
 
     const photoInput = document.createElement('input');
     photoInput.type = 'file'; photoInput.accept = 'image/*'; photoInput.style.display = 'none';
@@ -1016,6 +1189,7 @@ function initTeamChat(config) {
     });
     menu.querySelector('[data-attach="photo"]').addEventListener('click', () => { closeMenu(); photoInput.click(); });
     menu.querySelector('[data-attach="file"]').addEventListener('click', () => { closeMenu(); fileInput.click(); });
+    menu.querySelector('[data-attach="voice"]').addEventListener('click', () => { closeMenu(); openVoicePanel(); });
     document.addEventListener('click', (e) => { if (menu.style.display !== 'none' && !wrap.contains(e.target)) closeMenu(); });
 
     photoInput.addEventListener('change', () => {
@@ -1034,6 +1208,15 @@ function initTeamChat(config) {
     row.insertBefore(wrap, row.firstChild);  // leftmost in the composer
     row.appendChild(photoInput);
     row.appendChild(fileInput);
+
+    // Voice record panel — sibling of the input row inside .chat-panel, shown
+    // (input row hidden) only while .chat-voicing is set.
+    if (!document.getElementById('chat-voice-panel') && row.parentElement) {
+      const vp = document.createElement('div');
+      vp.className = 'chat-voice-panel';
+      vp.id = 'chat-voice-panel';
+      row.parentElement.insertBefore(vp, row);
+    }
   })();
 
   // ── initial mount ──
