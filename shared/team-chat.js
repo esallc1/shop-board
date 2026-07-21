@@ -246,6 +246,16 @@ function initTeamChat(config) {
 #chat-input,
 .chat-compose input,
 .chat-compose textarea { font-size:16px; }
+/* Keep the send button always visible in the narrow composer (phone / owner FAB
+   panel). After the 16px bump the input's default min-width:auto made it refuse
+   to shrink, overflowing the one-line row and pushing #chat-send off the right
+   edge. Let the input flex AND shrink (flex-basis 0 + min-width:0) so the three
+   fixed controls (attach / emoji / send) always keep their space; row never wraps. */
+#chat-input { flex:1 1 0%; min-width:0; }
+.chat-input-row { flex-wrap:nowrap; }
+.chat-input-row .chat-send-btn,
+.chat-input-row .emoji-btn,
+.chat-input-row .chat-attach-wrap { flex-shrink:0; }
 .chat-compose-next, .chat-compose-create {
   background:var(--accent); color:#fff; border:none; border-radius:8px;
   padding:11px; font-weight:700; cursor:pointer; font-family:inherit; font-size:0.82rem; margin-top:2px;
