@@ -58,6 +58,8 @@ function initTeamChat(config) {
   let currentConvMembers = [];      // [{member_name, member_role}] of the open thread (info sub-slice 1)
   let currentConvIsGroup = false;   // is the open thread a group (drives header member line + info)
   let currentConvTitle = '';        // display title of the open thread (bold header line)
+  let currentConvPhotoPath = null;  // open group's photo_path (avatars sub-slice 2); null = 👥 glyph
+  let groupPhotoInput = null;       // lazily-created hidden <input type=file> for the group photo picker
   let infoOpen = false;             // conversation-info screen is showing over #chat-messages
   let chatRealtimeChannel = null;
   let chatAudioCtx = null;
@@ -304,17 +306,28 @@ function initTeamChat(config) {
 .chat-voice-err { flex:1 1 100%; color:#dc2626; font-size:0.8rem; }
 .chat-att-voice-audio { width:240px; max-width:100%; height:40px; }
 .chat-att-voice-loading { color:var(--muted); font-size:0.78rem; padding:6px 0; }
-/* group thread header member line + conversation-info screen (Avatars/Settings sub-slice 1) */
+/* group thread header member line + conversation-info screen (Avatars/Settings sub-slice 1);
+   group photo avatars (sub-slice 2) */
 .chat-thread-head {
-  flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;
+  flex:1; min-width:0; display:flex; flex-direction:row; align-items:center; gap:8px;
   border:none; background:transparent; cursor:pointer; font-family:inherit;
   text-align:left; padding:0; overflow:hidden;
 }
+.chat-thread-head-text { flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; overflow:hidden; }
 .chat-thread-head:hover .chat-thread-title { text-decoration:underline; }
 .chat-thread-head .chat-thread-title { width:100%; }
 .chat-thread-members {
   font-size:0.68rem; color:var(--muted); font-weight:500; line-height:1.2;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%;
+}
+.chat-thread-avatar {
+  flex:0 0 auto; width:30px; height:30px; border-radius:50%; background:#6b7280; color:#fff;
+  display:flex; align-items:center; justify-content:center; font-size:0.9rem;
+}
+/* group photo (circle, cover, no crop UI) — reused across inbox / header / info */
+.chat-avatar-img { width:100%; height:100%; object-fit:cover; display:block; }
+.chat-inbox-avatar.has-photo, .chat-thread-avatar.has-photo, .chat-info-avatar.has-photo {
+  overflow:hidden; padding:0; background:#e5e7eb;
 }
 .chat-panel.chat-view-info .chat-input-row { display:none; }
 .chat-info { display:flex; flex-direction:column; margin:-12px; }
@@ -326,6 +339,23 @@ function initTeamChat(config) {
   width:64px; height:64px; border-radius:50%; background:#6b7280; color:#fff;
   display:flex; align-items:center; justify-content:center; font-size:1.8rem; flex:0 0 auto;
 }
+/* tappable group avatar on the info screen (any member can change the photo) */
+.chat-info-avatar-btn {
+  position:relative; border:none; background:transparent; padding:0; cursor:pointer;
+  width:64px; height:64px; border-radius:50%; flex:0 0 auto;
+}
+.chat-info-avatar-btn.is-busy { opacity:0.55; cursor:default; }
+.chat-info-avatar-edit {
+  position:absolute; right:-2px; bottom:-2px; width:24px; height:24px; border-radius:50%;
+  background:var(--accent); color:#fff; font-size:0.78rem; border:2px solid #fff;
+  display:flex; align-items:center; justify-content:center;
+}
+.chat-info-remove-photo {
+  border:none; background:transparent; color:#dc2626; font-family:inherit;
+  font-size:0.78rem; font-weight:600; cursor:pointer; padding:2px 6px; margin-top:2px;
+}
+.chat-info-remove-photo:hover { text-decoration:underline; }
+.chat-info-remove-photo:disabled { opacity:0.5; cursor:default; text-decoration:none; }
 .chat-info-name { font-weight:700; font-size:1rem; color:var(--text); text-align:center; word-break:break-word; }
 .chat-info-sub { font-size:0.74rem; color:var(--muted); }
 .chat-info-section-label {
@@ -452,8 +482,11 @@ function initTeamChat(config) {
       nav.innerHTML =
         `<button class="chat-back-btn" type="button" aria-label="Back">‹</button>` +
         `<button class="chat-thread-head" type="button" aria-label="Group info" title="Group info">` +
-          `<span class="chat-thread-title">${esc(title || '')}</span>` +
-          `<span class="chat-thread-members">${esc(opts.memberLine)}</span>` +
+          (opts.avatarHtml || '') +
+          `<span class="chat-thread-head-text">` +
+            `<span class="chat-thread-title">${esc(title || '')}</span>` +
+            `<span class="chat-thread-members">${esc(opts.memberLine)}</span>` +
+          `</span>` +
         `</button>`;
       const back = nav.querySelector('.chat-back-btn');
       if (back) back.addEventListener('click', backFn || backToInbox);
@@ -489,8 +522,11 @@ function initTeamChat(config) {
       const time = c.lastMsg ? formatInboxTime(c.lastAt) : '';
       const badge = c.unread > 0 ? `<span class="chat-inbox-badge">${c.unread > 99 ? '99+' : c.unread}</span>` : '';
       const initial = (c.displayName || '?').trim().charAt(0).toUpperCase();
+      const avatar = c.type === 'group'
+        ? groupAvatarHtml(c.photo_path, 'inbox')
+        : `<span class="chat-inbox-avatar">${esc(initial)}</span>`;
       return `<button class="chat-inbox-row" data-conv="${c.id}">
-        <span class="chat-inbox-avatar ${c.type === 'group' ? 'is-group' : ''}">${c.type === 'group' ? '👥' : esc(initial)}</span>
+        ${avatar}
         <span class="chat-inbox-main">
           <span class="chat-inbox-top">
             <span class="chat-inbox-name">${esc(c.displayName)}</span>
@@ -576,6 +612,13 @@ function initTeamChat(config) {
     convById = {}; unreadByConv = {};
     enriched.forEach(c => { convById[c.id] = c; unreadByConv[c.id] = c.unread; });
 
+    // Sign group avatars up front so the first inbox paint shows the photo (not
+    // the glyph then a flash to the photo). photo_path is simply undefined until
+    // the 20260721_chat_group_photo migration runs → nothing to sign, no error.
+    await ensureSignedForPaths(enriched.filter(c => c.type === 'group' && c.photo_path).map(c => c.photo_path));
+    // Keep the open group's cached photo pointer in sync with a background reload.
+    if (currentConvId && convById[currentConvId]) currentConvPhotoPath = convById[currentConvId].photo_path || null;
+
     renderInboxIfVisible();
     updateChatUnreadBadge();
   }
@@ -628,19 +671,33 @@ function initTeamChat(config) {
     box.scrollTop = box.scrollHeight;
   }
 
-  // Sign any not-yet-cached attachment paths (private bucket → signed URL at
-  // render time, never stored). Best-effort; a failed sign leaves a placeholder.
-  async function ensureSignedUrls(messages) {
-    const paths = [...new Set((messages || [])
-      .filter(m => m.attachment_path && !signedUrlCache[m.attachment_path])
-      .map(m => m.attachment_path))];
-    if (!paths.length) return;
-    await Promise.all(paths.map(async (p) => {
+  // Sign any not-yet-cached storage paths (private bucket → signed URL at render
+  // time, never stored). Best-effort; a failed sign leaves the glyph/placeholder.
+  // Shared by message attachments (4a) and group avatars (Avatars sub-slice 2).
+  async function ensureSignedForPaths(paths) {
+    const need = [...new Set((paths || []).filter(p => p && !signedUrlCache[p]))];
+    if (!need.length) return;
+    await Promise.all(need.map(async (p) => {
       try {
         const { data } = await db.storage.from(ATTACH_BUCKET).createSignedUrl(p, 3600);
         if (data && data.signedUrl) signedUrlCache[p] = data.signedUrl;
       } catch (e) { console.warn('[Chat] sign url failed', e); }
     }));
+  }
+  function ensureSignedUrls(messages) {
+    return ensureSignedForPaths((messages || []).filter(m => m.attachment_path).map(m => m.attachment_path));
+  }
+
+  // Group avatar HTML: a photo (signed URL, circle, object-fit cover) when
+  // photo_path is set and signed, else the generic 👥 glyph. variant sizes it
+  // for the inbox row / thread header / info screen.
+  function groupAvatarHtml(photoPath, variant) {
+    const base = variant === 'info' ? 'chat-info-avatar'
+      : variant === 'header' ? 'chat-thread-avatar'
+      : 'chat-inbox-avatar is-group';
+    const url = photoPath ? signedUrlCache[photoPath] : null;
+    if (url) return `<span class="${base} has-photo"><img class="chat-avatar-img" src="${esc(url)}" alt=""></span>`;
+    return `<span class="${base}">👥</span>`;
   }
 
   async function loadThread(convId) {
@@ -670,7 +727,10 @@ function initTeamChat(config) {
   function applyThreadChrome() {
     if (currentConvIsGroup) {
       const memberLine = currentConvMembers.map(m => m.member_name).filter(Boolean).join(', ');
-      setChrome('thread', currentConvTitle, backToInbox, { memberLine, onTitleClick: openInfo });
+      setChrome('thread', currentConvTitle, backToInbox, {
+        memberLine, onTitleClick: openInfo,
+        avatarHtml: groupAvatarHtml(currentConvPhotoPath, 'header'),
+      });
     } else {
       setChrome('thread', currentConvTitle, backToInbox);
     }
@@ -689,7 +749,15 @@ function initTeamChat(config) {
     // yet in convById, a DM has exactly 2 members and a group has 3–4.
     currentConvIsGroup = conv ? conv.type === 'group' : currentConvMembers.length > 2;
     currentConvTitle = conv ? conv.displayName : (fallbackTitle || '');
+    currentConvPhotoPath = conv ? (conv.photo_path || null) : null;
     applyThreadChrome();
+    // If the group photo isn't signed yet (e.g. a just-added path), sign it then
+    // repaint the header/info so the avatar resolves in place.
+    if (currentConvPhotoPath && !signedUrlCache[currentConvPhotoPath]) {
+      ensureSignedForPaths([currentConvPhotoPath]).then(() => {
+        if (infoOpen) renderInfo(); else if (currentConvIsGroup) applyThreadChrome();
+      });
+    }
     await loadThread(convId);
     markConversationRead(convId);
     const input = document.getElementById('chat-input');
@@ -732,17 +800,119 @@ function initTeamChat(config) {
         `</span>` +
       `</div>`;
     }).join('');
+    // The group avatar is tappable for ANY member → change the photo; a
+    // "Remove photo" action shows only when a photo is set.
     box.innerHTML =
       `<div class="chat-info">` +
         `<div class="chat-info-head">` +
-          `<span class="chat-info-avatar">👥</span>` +
+          `<button class="chat-info-avatar-btn" type="button" aria-label="Change group photo" title="Change group photo">` +
+            groupAvatarHtml(currentConvPhotoPath, 'info') +
+            `<span class="chat-info-avatar-edit" aria-hidden="true">✎</span>` +
+          `</button>` +
           `<div class="chat-info-name">${esc(title)}</div>` +
           `<div class="chat-info-sub">${currentConvMembers.length} member${currentConvMembers.length === 1 ? '' : 's'}</div>` +
+          (currentConvPhotoPath ? `<button class="chat-info-remove-photo" type="button">Remove photo</button>` : '') +
         `</div>` +
         `<div class="chat-info-section-label">Members</div>` +
         `<div class="chat-info-members">${rows}</div>` +
       `</div>`;
+    const avBtn = box.querySelector('.chat-info-avatar-btn');
+    if (avBtn) avBtn.addEventListener('click', pickGroupPhoto);
+    const rmBtn = box.querySelector('.chat-info-remove-photo');
+    if (rmBtn) rmBtn.addEventListener('click', removeGroupPhoto);
     box.scrollTop = 0;
+  }
+
+  // ── group photo (Avatars sub-slice 2) — ANY member may set/change/remove.
+  //    Reuses the crisdata-attachments bucket + the 4a picker constraints. ──
+  function pickGroupPhoto() {
+    if (!currentConvId || !currentConvIsGroup) return;
+    if (!groupPhotoInput) {
+      groupPhotoInput = document.createElement('input');
+      groupPhotoInput.type = 'file';
+      groupPhotoInput.accept = 'image/*';
+      groupPhotoInput.style.display = 'none';
+      groupPhotoInput.addEventListener('change', () => {
+        const file = groupPhotoInput.files && groupPhotoInput.files[0];
+        groupPhotoInput.value = '';                 // allow re-picking the same file
+        if (file) uploadGroupPhoto(file);
+      });
+      document.body.appendChild(groupPhotoInput);
+    }
+    groupPhotoInput.click();
+  }
+
+  function setGroupPhotoBusy(busy) {
+    const btn = document.querySelector('.chat-info-avatar-btn');
+    if (btn) { btn.disabled = busy; btn.classList.toggle('is-busy', busy); }
+    const rm = document.querySelector('.chat-info-remove-photo');
+    if (rm) rm.disabled = busy;
+  }
+
+  // UPLOAD-FIRST-THEN-UPDATE: upload the image, and only on success point
+  // chat_conversations.photo_path at it — a failed upload never leaves a
+  // dangling pointer. Optimistic: the setter sees the new photo immediately.
+  async function uploadGroupPhoto(file) {
+    const convId = currentConvId;
+    if (!convId || !currentConvIsGroup) return;
+    const me = getIdentity();
+    if (!me.name) { alert('Could not identify you on this board yet — try reopening it from CrisData.'); return; }
+    if (!file.type || file.type.indexOf('image/') !== 0) { alert('Please pick an image.'); return; }
+    if (file.size > ATTACH_MAX_PHOTO_BYTES) { alert('That image is too large (max 10MB).'); return; }
+
+    setGroupPhotoBusy(true);
+    try {
+      // avatars/group/<conversationId>/<uuid> — namespaced apart from message
+      // attachments (chat/<conversationId>/…). A new uuid each time avoids any
+      // signed-URL cache collision when the photo is replaced.
+      const path = `avatars/group/${convId}/${crypto.randomUUID()}`;
+      const { error: upErr } = await db.storage.from(ATTACH_BUCKET)
+        .upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false });
+      if (upErr) throw upErr;                        // upload failed → do NOT touch the row
+
+      const { error: updErr } = await db.from('chat_conversations')
+        .update({ photo_path: path }).eq('id', convId);
+      if (updErr) throw updErr;
+
+      await ensureSignedForPaths([path]);            // sign then reflect immediately
+      applyGroupPhoto(convId, path);
+    } catch (err) {
+      console.error('[Chat] group photo failed', err);
+      const hint = /bucket|not found|does not exist|column|photo_path/i.test(err && err.message || '')
+        ? ' (has the migration/bucket been set up?)' : '';
+      alert('Group photo failed: ' + ((err && err.message) || 'unknown error') + hint);
+    } finally {
+      setGroupPhotoBusy(false);
+    }
+  }
+
+  async function removeGroupPhoto() {
+    const convId = currentConvId;
+    if (!convId || !currentConvPhotoPath) return;
+    setGroupPhotoBusy(true);
+    try {
+      const { error } = await db.from('chat_conversations')
+        .update({ photo_path: null }).eq('id', convId);
+      if (error) throw error;
+      // Leave the storage object (low-stakes, reversible feature); just clear
+      // the pointer so it reverts to the 👥 glyph.
+      applyGroupPhoto(convId, null);
+    } catch (err) {
+      console.error('[Chat] remove group photo failed', err);
+      alert('Could not remove photo: ' + ((err && err.message) || 'unknown error'));
+    } finally {
+      setGroupPhotoBusy(false);
+    }
+  }
+
+  // Reflect a photo change everywhere: update the inbox cache + the open-thread
+  // pointer, then repaint whatever's on screen (info if open, else the header).
+  function applyGroupPhoto(convId, path) {
+    if (convById[convId]) convById[convId].photo_path = path;
+    if (convId === currentConvId) currentConvPhotoPath = path;
+    if (infoOpen) renderInfo();
+    else if (currentConvId === convId && currentConvIsGroup) applyThreadChrome();
+    else renderInboxIfVisible();
   }
 
   function backToThreadFromInfo() {
