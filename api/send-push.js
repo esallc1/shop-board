@@ -25,7 +25,7 @@
    Never leaks the private key or subscription internals in the response.
    ============================================================ */
 import webpush from 'web-push';
-import { recipientNamesFromMembers, buildSubscriberInList, formatPushNotification } from './_push-recipients.js';
+import { recipientNamesFromMembers, buildSubscriberInList, formatPushNotification, effectivePreview } from './_push-recipients.js';
 
 // Public VAPID key — same value embedded client-side in shared/push.js.
 const VAPID_PUBLIC = 'BByOPsrzKI55qegn0RENJRoA0ijuf4Axb3rVpt4UJ7SYBlqRSMJiITi1JZhAyayPwHHcBU3u9ygvwF2Kvf--AD8';
@@ -91,7 +91,9 @@ export default async function handler(req, res) {
   }
 
   // Validate payload shape — conversationId is now required (replaces channel).
-  const { conversationId, senderName, senderRole, messagePreview } = req.body || {};
+  // attachmentKind/attachmentName are optional (Slice 4a): when a message is an
+  // attachment with no caption, they give the body a label instead of blank.
+  const { conversationId, senderName, senderRole, messagePreview, attachmentKind, attachmentName } = req.body || {};
   if (typeof conversationId !== 'string' || !conversationId) {
     return res.status(400).json({ error: 'missing conversationId' });
   }
@@ -157,9 +159,11 @@ export default async function handler(req, res) {
 
   subs = (subs || []).filter((s) => s && s.endpoint);
 
-  // Format per conversation type: group → "Office" / "Josh: test";
-  // dm → "Josh" / "test". conversationId stays on the payload for deep-link.
-  const { title, body } = formatPushNotification(conversation, senderName, messagePreview);
+  // An attachment-only message has no caption — fall back to a label ("📷 Photo"
+  // etc.) so the push body is never blank. Then format per conversation type:
+  // group → "Office" / "Josh: 📷 Photo"; dm → "Josh" / "📷 Photo".
+  const preview = effectivePreview(messagePreview, attachmentKind, attachmentName);
+  const { title, body } = formatPushNotification(conversation, senderName, preview);
   const payload = JSON.stringify({ title, body, conversationId });
 
   let sent = 0, failed = 0, pruned = 0;

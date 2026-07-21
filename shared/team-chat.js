@@ -58,6 +58,10 @@ function initTeamChat(config) {
   let chatRealtimeChannel = null;
   let chatAudioCtx = null;
   let compose = null;               // compose-flow state (Slice 3c): {step, groupName, roster}
+  const signedUrlCache = {};        // attachment_path -> signed URL (Slice 4a)
+
+  const ATTACH_BUCKET = 'crisdata-attachments';   // private; read via createSignedUrl
+  const ATTACH_MAX_BYTES = 10 * 1024 * 1024;      // ~10MB per attachment
 
   // The office roster the compose pickers draw from. These are role STRINGS as
   // stored in employees.role (note the bookkeeper's role is 'bookkeeping', not
@@ -71,6 +75,24 @@ function initTeamChat(config) {
 
   function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function truncate(s, n) { s = s || ''; return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
+  // Attachment label (Slice 4a) — keep in sync with attachmentLabel in
+  // api/_push-recipients.js so the lock-screen push and the inbox line match.
+  function attachmentLabel(kind, name) {
+    if (kind === 'photo') return '📷 Photo';
+    if (kind === 'voice') return '🎤 Voice message';
+    if (kind === 'file') { const n = name && name.trim(); return '📎 ' + (n || 'File'); }
+    return '';
+  }
+  // What an inbox/preview line shows for a message: caption if present, else the
+  // attachment label (so an attachment-only message never renders blank).
+  function previewTextFor(msg) {
+    if (!msg) return '';
+    const caption = (msg.message || '').trim();
+    if (caption) return caption;
+    if (msg.attachment_kind) return attachmentLabel(msg.attachment_kind, msg.attachment_name);
+    return msg.message || '';
+  }
   function formatChatTime(iso) {
     return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   }
@@ -188,6 +210,26 @@ function initTeamChat(config) {
   background:#ef4444; color:#fff; font-size:0.66rem; font-weight:700;
   display:flex; align-items:center; justify-content:center;
 }
+/* attachments (Slice 4a) */
+.chat-attach-btn {
+  width:34px; height:34px; border-radius:50%; flex:0 0 auto;
+  background:#f0f1f7; border:1px solid var(--border); cursor:pointer;
+  font-size:1rem; display:flex; align-items:center; justify-content:center; transition:background .15s;
+}
+.chat-attach-btn:hover { background:#eef0f7; }
+.chat-attach-btn:disabled { opacity:.55; cursor:default; }
+.chat-att-photo-wrap { display:block; }
+.chat-att-photo {
+  display:block; max-width:200px; max-height:240px; width:auto; height:auto;
+  border-radius:12px; border:1px solid var(--border); object-fit:cover; background:#fff;
+}
+.chat-msg.me .chat-att-photo { border-color:rgba(255,255,255,0.45); }
+.chat-att-photo-loading {
+  width:160px; height:110px; border-radius:12px; border:1px dashed var(--border);
+  display:flex; align-items:center; justify-content:center;
+  color:var(--muted); font-size:0.74rem; background:#fff;
+}
+.chat-att-file { font-weight:600; }
 /* Desktop: the in-page tab boards' chat fills the content area instead of
    floating as a short phone-width card. Scoped to .chat-mode-tab so the
    owner-board floating FAB panel (.chat-mode-panel) keeps its compact size. */
@@ -251,7 +293,7 @@ function initTeamChat(config) {
     el.innerHTML = `
       <div class="chat-toast-channel">${esc(label)}</div>
       <div class="chat-toast-sender">${esc(rec.sender_name)}</div>
-      <div class="chat-toast-msg">${esc(rec.message)}</div>
+      <div class="chat-toast-msg">${esc(previewTextFor(rec))}</div>
     `;
     el.addEventListener('click', () => {
       el.remove();
@@ -316,7 +358,7 @@ function initTeamChat(config) {
     }
     box.innerHTML = `<div class="chat-inbox">` + myConversations.map(c => {
       const preview = c.lastMsg
-        ? `${c.lastMsg.sender_name === me.name ? 'You' : esc(c.lastMsg.sender_name)}: ${esc(truncate(c.lastMsg.message, 42))}`
+        ? `${c.lastMsg.sender_name === me.name ? 'You' : esc(c.lastMsg.sender_name)}: ${esc(truncate(previewTextFor(c.lastMsg), 42))}`
         : `<span class="chat-inbox-none">No messages yet</span>`;
       const time = c.lastMsg ? formatInboxTime(c.lastAt) : '';
       const badge = c.unread > 0 ? `<span class="chat-inbox-badge">${c.unread > 99 ? '99+' : c.unread}</span>` : '';
@@ -385,8 +427,10 @@ function initTeamChat(config) {
         ? (c.title || 'Group')
         : ((membersByConv[c.id] || []).filter(n => n !== me.name)[0] || c.dm_key || 'Direct message');
 
+      // select('*') so this degrades gracefully before the 4a migration runs —
+      // attachment_* are simply absent until then (no "column does not exist").
       const { data: last } = await db.from('chat_messages')
-        .select('message, sender_name, created_at')
+        .select('*')
         .eq('conversation_id', c.id).order('created_at', { ascending: false }).limit(1);
       const lastMsg = last && last[0] ? last[0] : null;
 
@@ -411,6 +455,27 @@ function initTeamChat(config) {
   }
 
   // ── thread ──
+  // Inner content of a message bubble — branches on attachment_kind so 4b (file)
+  // and 4c (voice) are thin additions to this one function.
+  function bubbleInner(m) {
+    const caption = (m.message && m.message.trim())
+      ? `<div class="chat-msg-bubble">${esc(m.message)}</div>` : '';
+    if (m.attachment_kind === 'photo') {
+      const url = signedUrlCache[m.attachment_path];
+      const img = url
+        ? `<a class="chat-att-photo-wrap" href="${esc(url)}" target="_blank" rel="noopener"><img class="chat-att-photo" src="${esc(url)}" alt="photo"></a>`
+        : `<div class="chat-att-photo-loading">Loading photo…</div>`;
+      return img + caption;
+    }
+    if (m.attachment_kind === 'file') {   // 4b seam — becomes a download chip
+      return `<div class="chat-msg-bubble chat-att-file">📎 ${esc(m.attachment_name || 'File')}</div>` + caption;
+    }
+    if (m.attachment_kind === 'voice') {  // 4c seam — becomes an audio player
+      return `<div class="chat-msg-bubble chat-att-voice">🎤 Voice message</div>` + caption;
+    }
+    return `<div class="chat-msg-bubble">${esc(m.message)}</div>`;
+  }
+
   function renderThread() {
     const box = document.getElementById('chat-messages');
     if (!box) return;
@@ -418,10 +483,25 @@ function initTeamChat(config) {
     box.innerHTML = threadMessages.map(m => `
       <div class="chat-msg ${m.sender_name === me.name ? 'me' : 'them'}">
         <div class="chat-msg-sender">${esc(m.sender_name)}</div>
-        <div class="chat-msg-bubble">${esc(m.message)}</div>
+        ${bubbleInner(m)}
         <div class="chat-msg-time">${formatChatTime(m.created_at)}</div>
       </div>`).join('');
     box.scrollTop = box.scrollHeight;
+  }
+
+  // Sign any not-yet-cached attachment paths (private bucket → signed URL at
+  // render time, never stored). Best-effort; a failed sign leaves a placeholder.
+  async function ensureSignedUrls(messages) {
+    const paths = [...new Set((messages || [])
+      .filter(m => m.attachment_path && !signedUrlCache[m.attachment_path])
+      .map(m => m.attachment_path))];
+    if (!paths.length) return;
+    await Promise.all(paths.map(async (p) => {
+      try {
+        const { data } = await db.storage.from(ATTACH_BUCKET).createSignedUrl(p, 3600);
+        if (data && data.signedUrl) signedUrlCache[p] = data.signedUrl;
+      } catch (e) { console.warn('[Chat] sign url failed', e); }
+    }));
   }
 
   async function loadThread(convId) {
@@ -429,6 +509,7 @@ function initTeamChat(config) {
       .select('*').eq('conversation_id', convId).order('created_at');
     if (error) { console.error('[Chat] thread load failed', error); threadMessages = []; }
     else threadMessages = data || [];
+    await ensureSignedUrls(threadMessages);
     renderThread();
   }
 
@@ -673,10 +754,25 @@ function initTeamChat(config) {
       input.value = text;   // don't lose the text
       return;
     }
-    // Best-effort closed-phone push. Fire-and-forget + fully guarded: the
-    // message already saved, so a missing/!ok/failed push must NEVER surface
-    // to the sender or block sending. The endpoint (api/send-push.js, 3d)
-    // resolves recipients from conversationId via chat_members.
+    firePush(id, text, null);
+  }
+
+  // Best-effort closed-phone push. Fire-and-forget + fully guarded: the message
+  // already saved, so a missing/!ok/failed push must NEVER surface to the sender
+  // or block sending. The endpoint (api/send-push.js) resolves recipients from
+  // conversationId via chat_members; attachment info lets it label an
+  // attachment-only push ("📷 Photo") instead of an empty body.
+  function firePush(id, previewText, attachment) {
+    const body = {
+      conversationId: currentConvId,
+      senderName: id.name,
+      senderRole: id.role,
+      messagePreview: previewText || '',
+    };
+    if (attachment) {
+      body.attachmentKind = attachment.kind;
+      body.attachmentName = attachment.name || null;
+    }
     try {
       fetch('/api/send-push', {
         method: 'POST',
@@ -684,21 +780,71 @@ function initTeamChat(config) {
           'Content-Type': 'application/json',
           'x-cd-push-secret': 'YQ87V5nheXAcwx7tMI6w50LjRxOSB9NuVLFqyrF5_sc',
         },
-        body: JSON.stringify({
-          conversationId: currentConvId,
-          senderName: id.name,
-          senderRole: id.role,
-          messagePreview: text,
-        }),
+        body: JSON.stringify(body),
       }).catch(function (e) { console.warn('[Chat] push notify failed (ignored)', e); });
     } catch (e) { /* swallow — never affects the send */ }
+  }
+
+  // ── attachments (Slice 4a: photo; 4b file / 4c voice reuse this path) ──
+  // Upload FIRST, insert the message row ONLY on a successful upload, so a
+  // failed upload never leaves a broken/pointer-less message row.
+  async function uploadAndSendPhoto(file) {
+    if (!file || !currentConvId) return;
+    const id = getIdentity();
+    if (!id.name || !id.role) {
+      alert('Could not identify you on this board yet — try reopening it from CrisData.');
+      return;
+    }
+    if (!file.type || file.type.indexOf('image/') !== 0) { alert('Please pick an image.'); return; }
+    if (file.size > ATTACH_MAX_BYTES) { alert('That image is too large (max 10MB).'); return; }
+
+    const input = document.getElementById('chat-input');
+    const caption = input ? input.value.trim() : '';
+
+    setAttachBusy(true);
+    try {
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const path = `chat/${currentConvId}/${crypto.randomUUID()}.${ext}`;
+      const { error: upErr } = await db.storage.from(ATTACH_BUCKET)
+        .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
+      if (upErr) throw upErr;
+
+      const { error: insErr } = await db.from('chat_messages').insert({
+        conversation_id: currentConvId,
+        sender_role: id.role,
+        sender_name: id.name,
+        message: caption || null,          // optional caption, or a standalone photo
+        attachment_path: path,
+        attachment_kind: 'photo',
+        attachment_name: file.name || null,
+        attachment_mime: file.type || null,
+      });
+      if (insErr) throw insErr;
+
+      if (input) input.value = '';         // caption consumed
+      firePush(id, caption, { kind: 'photo', name: file.name || null });
+    } catch (err) {
+      console.error('[Chat] photo send failed', err);
+      const hint = /bucket|not found|does not exist/i.test(err && err.message || '') ? ' (has the migration/bucket been set up?)' : '';
+      alert('Photo failed to send: ' + ((err && err.message) || 'unknown error') + hint);
+    } finally {
+      setAttachBusy(false);
+    }
+  }
+
+  function setAttachBusy(busy) {
+    const btn = document.getElementById('chat-attach');
+    if (btn) { btn.disabled = busy; btn.textContent = busy ? '⏳' : '📎'; }
   }
 
   // ── realtime ──
   function bumpConversation(rec, incrementUnread) {
     const c = convById[rec.conversation_id];
     if (!c) return;
-    c.lastMsg = { message: rec.message, sender_name: rec.sender_name, created_at: rec.created_at };
+    c.lastMsg = {
+      message: rec.message, sender_name: rec.sender_name, created_at: rec.created_at,
+      attachment_kind: rec.attachment_kind, attachment_name: rec.attachment_name,
+    };
     c.lastAt = rec.created_at;
     if (incrementUnread) { c.unread = (c.unread || 0) + 1; unreadByConv[c.id] = c.unread; }
     myConversations.sort((a, b) => new Date(b.lastAt) - new Date(a.lastAt));
@@ -728,7 +874,12 @@ function initTeamChat(config) {
 
     if (rec.conversation_id === currentConvId) {
       threadMessages.push(rec);
-      renderThread();
+      renderThread();   // paints immediately (a photo shows "Loading…" first)
+      // Attachment rows arrive with attachment_* on the same row (no 2nd fetch);
+      // sign the URL, then repaint so the image resolves.
+      if (rec.attachment_path && !signedUrlCache[rec.attachment_path]) {
+        ensureSignedUrls([rec]).then(renderThread);
+      }
       if (openVisible) markConversationRead(currentConvId);
     }
     bumpConversation(rec, !isSelf && !openVisible);
@@ -790,6 +941,33 @@ function initTeamChat(config) {
   if (sendBtn) sendBtn.addEventListener('click', sendChatMsg);
   const inputEl = document.getElementById('chat-input');
   if (inputEl) inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') sendChatMsg(); });
+
+  // Attach control (Slice 4a) — injected into the composer so no board markup
+  // changes. 4a wires the PHOTO picker directly; 4b/4c will turn this into a
+  // small menu (photo / file / voice) reusing uploadAndSendPhoto's pattern.
+  (function mountAttachControl() {
+    const row = inputEl ? inputEl.closest('.chat-input-row') : document.querySelector('.chat-input-row');
+    if (!row || document.getElementById('chat-attach')) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'chat-attach';
+    btn.className = 'chat-attach-btn';
+    btn.title = 'Attach photo';
+    btn.textContent = '📎';
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.id = 'chat-file-input';
+    fileInput.accept = 'image/*';
+    fileInput.style.display = 'none';
+    btn.addEventListener('click', () => { if (!btn.disabled) fileInput.click(); });
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files && fileInput.files[0];
+      fileInput.value = '';                 // allow re-picking the same file
+      if (file) uploadAndSendPhoto(file);
+    });
+    row.insertBefore(btn, row.firstChild);   // leftmost in the composer
+    row.appendChild(fileInput);
+  })();
 
   // ── initial mount ──
   const panelEl = document.getElementById('chat-panel');

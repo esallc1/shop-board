@@ -8,7 +8,7 @@
    ============================================================ */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { recipientNamesFromMembers, buildSubscriberInList, formatPushNotification } from './_push-recipients.js';
+import { recipientNamesFromMembers, buildSubscriberInList, formatPushNotification, attachmentLabel, effectivePreview } from './_push-recipients.js';
 
 test('group push targets all other members, excludes the sender', () => {
   const office = [
@@ -92,4 +92,35 @@ test('body is capped at 120 chars INCLUDING the "Sender: " prefix on groups', ()
   assert.ok(g.body.startsWith('Josh: xxx'));
   const d = formatPushNotification({ type: 'dm', title: null }, 'Josh', long);
   assert.equal(d.body.length, 120);
+});
+
+// ── attachment labels + preview fallback (Slice 4a) ──
+
+test('attachmentLabel covers all three kinds', () => {
+  assert.equal(attachmentLabel('photo'), '📷 Photo');
+  assert.equal(attachmentLabel('voice'), '🎤 Voice message');
+  assert.equal(attachmentLabel('file', 'brakes.pdf'), '📎 brakes.pdf');
+  assert.equal(attachmentLabel('file', null), '📎 File');   // filename fallback
+  assert.equal(attachmentLabel('file', '   '), '📎 File');
+  assert.equal(attachmentLabel(null), '');                  // plain text message
+});
+
+test('effectivePreview: caption wins, else attachment label', () => {
+  assert.equal(effectivePreview('nice one', 'photo', null), 'nice one');
+  assert.equal(effectivePreview('', 'photo', null), '📷 Photo');
+  assert.equal(effectivePreview('   ', 'file', 'inv.pdf'), '📎 inv.pdf');
+  assert.equal(effectivePreview('', 'voice', null), '🎤 Voice message');
+  assert.equal(effectivePreview('hello', null, null), 'hello');  // plain text
+});
+
+test('attachment-only photo pushes "Sender: 📷 Photo" in a group, "📷 Photo" in a DM', () => {
+  const preview = effectivePreview('', 'photo', null);
+  assert.deepEqual(
+    formatPushNotification({ type: 'group', title: 'Office' }, 'Josh', preview),
+    { title: 'Office', body: 'Josh: 📷 Photo' }
+  );
+  assert.deepEqual(
+    formatPushNotification({ type: 'dm', title: null }, 'Josh', preview),
+    { title: 'Josh', body: '📷 Photo' }
+  );
 });

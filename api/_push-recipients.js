@@ -30,6 +30,27 @@ export function buildSubscriberInList(names) {
   return names.map((n) => `"${String(n).replace(/"/g, '""')}"`).join(',');
 }
 
+// Label for an attachment-only message (Slice 4a), so the inbox line and the
+// push body never render blank when there is no caption. Shared shape with the
+// client's attachmentLabel in shared/team-chat.js — keep them in sync.
+export function attachmentLabel(kind, name) {
+  if (kind === 'photo') return '📷 Photo';
+  if (kind === 'voice') return '🎤 Voice message';
+  if (kind === 'file') {
+    const n = name && String(name).trim();
+    return '📎 ' + (n || 'File');
+  }
+  return '';
+}
+
+// The text a push/inbox line should show: the caption if there is one, else the
+// attachment label. A plain text message just returns its (trimmed) text.
+export function effectivePreview(messagePreview, attachmentKind, attachmentName) {
+  const caption = typeof messagePreview === 'string' ? messagePreview.trim() : '';
+  if (caption) return caption;
+  return attachmentLabel(attachmentKind, attachmentName);
+}
+
 // Notification title/body by conversation type (Slice 3e), so a group message
 // and a DM read differently on the lock screen:
 //   • group → title = the group's title (fallback "Group" so a titleless group
