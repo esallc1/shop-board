@@ -8,7 +8,7 @@
    ============================================================ */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { recipientNamesFromMembers, buildSubscriberInList } from './_push-recipients.js';
+import { recipientNamesFromMembers, buildSubscriberInList, formatPushNotification } from './_push-recipients.js';
 
 test('group push targets all other members, excludes the sender', () => {
   const office = [
@@ -55,4 +55,41 @@ test('buildSubscriberInList quotes each name (incl. spaces) for the PostgREST in
   // an embedded double-quote is doubled per PostgREST escaping
   assert.equal(buildSubscriberInList(['A"B']), '"A""B"');
   assert.equal(buildSubscriberInList([]), '');
+});
+
+// ── notification formatting (Slice 3e) ──
+
+test('group push reads as title=groupTitle, body="Sender: msg"', () => {
+  assert.deepEqual(
+    formatPushNotification({ type: 'group', title: 'Office' }, 'Josh', 'test'),
+    { title: 'Office', body: 'Josh: test' }
+  );
+});
+
+test('DM push reads as title=Sender, body=msg (unchanged behavior)', () => {
+  assert.deepEqual(
+    formatPushNotification({ type: 'dm', title: null }, 'Cristian', 'hey test'),
+    { title: 'Cristian', body: 'hey test' }
+  );
+});
+
+test('titleless / null-title group falls back to "Group" (never an empty title)', () => {
+  assert.equal(formatPushNotification({ type: 'group', title: null }, 'Josh', 'hi').title, 'Group');
+  assert.equal(formatPushNotification({ type: 'group', title: '   ' }, 'Josh', 'hi').title, 'Group');
+});
+
+test('missing/unknown conversation falls back to DM-style formatting', () => {
+  assert.deepEqual(
+    formatPushNotification(null, 'Kevin', 'yo'),
+    { title: 'Kevin', body: 'yo' }
+  );
+});
+
+test('body is capped at 120 chars INCLUDING the "Sender: " prefix on groups', () => {
+  const long = 'x'.repeat(200);
+  const g = formatPushNotification({ type: 'group', title: 'Office' }, 'Josh', long);
+  assert.equal(g.body.length, 120);
+  assert.ok(g.body.startsWith('Josh: xxx'));
+  const d = formatPushNotification({ type: 'dm', title: null }, 'Josh', long);
+  assert.equal(d.body.length, 120);
 });

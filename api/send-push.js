@@ -25,7 +25,7 @@
    Never leaks the private key or subscription internals in the response.
    ============================================================ */
 import webpush from 'web-push';
-import { recipientNamesFromMembers, buildSubscriberInList } from './_push-recipients.js';
+import { recipientNamesFromMembers, buildSubscriberInList, formatPushNotification } from './_push-recipients.js';
 
 // Public VAPID key — same value embedded client-side in shared/push.js.
 const VAPID_PUBLIC = 'BByOPsrzKI55qegn0RENJRoA0ijuf4Axb3rVpt4UJ7SYBlqRSMJiITi1JZhAyayPwHHcBU3u9ygvwF2Kvf--AD8';
@@ -101,19 +101,32 @@ export default async function handler(req, res) {
 
   webpush.setVapidDetails(VAPID_CONTACT, VAPID_PUBLIC, VAPID_PRIVATE);
 
-  // 1. Resolve who is in this conversation (chat_members keyed on member_name).
+  // 1. Resolve this conversation's members (chat_members keyed on member_name)
+  //    and its row (type/title for the notification text) in one round-trip.
   let members = [];
+  let conversation = null;
   try {
-    const url = `${SUPABASE_URL}/rest/v1/chat_members` +
-      `?conversation_id=eq.${encodeURIComponent(conversationId)}&select=member_name`;
-    const r = await fetch(url, { headers: sbHeaders });
-    if (!r.ok) {
-      console.error('[send-push] member lookup failed', r.status, await r.text());
+    const cid = encodeURIComponent(conversationId);
+    const [mRes, cRes] = await Promise.all([
+      fetch(`${SUPABASE_URL}/rest/v1/chat_members?conversation_id=eq.${cid}&select=member_name`, { headers: sbHeaders }),
+      fetch(`${SUPABASE_URL}/rest/v1/chat_conversations?id=eq.${cid}&select=type,title`, { headers: sbHeaders }),
+    ]);
+    // Member lookup is authoritative for WHO gets the push — fail hard if it errors.
+    if (!mRes.ok) {
+      console.error('[send-push] member lookup failed', mRes.status, await mRes.text());
       return res.status(502).json({ error: 'lookup failed' });
     }
-    members = await r.json();
+    members = await mRes.json();
+    // Conversation lookup only affects HOW the push reads — non-fatal, falls
+    // back to DM-style formatting (title=sender, body=preview) if it fails.
+    if (cRes.ok) {
+      const rows = await cRes.json();
+      conversation = (rows && rows[0]) || null;
+    } else {
+      console.warn('[send-push] conversation lookup failed', cRes.status);
+    }
   } catch (e) {
-    console.error('[send-push] member lookup threw', e);
+    console.error('[send-push] lookup threw', e);
     return res.status(502).json({ error: 'lookup failed' });
   }
 
@@ -144,11 +157,10 @@ export default async function handler(req, res) {
 
   subs = (subs || []).filter((s) => s && s.endpoint);
 
-  const payload = JSON.stringify({
-    title: senderName || 'CrisData',
-    body: String(messagePreview).slice(0, 120),
-    conversationId,
-  });
+  // Format per conversation type: group → "Office" / "Josh: test";
+  // dm → "Josh" / "test". conversationId stays on the payload for deep-link.
+  const { title, body } = formatPushNotification(conversation, senderName, messagePreview);
+  const payload = JSON.stringify({ title, body, conversationId });
 
   let sent = 0, failed = 0, pruned = 0;
 
