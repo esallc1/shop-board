@@ -60,6 +60,9 @@ function initTeamChat(config) {
   let currentConvTitle = '';        // display title of the open thread (bold header line)
   let currentConvPhotoPath = null;  // open group's photo_path (avatars sub-slice 2); null = 👥 glyph
   let groupPhotoInput = null;       // lazily-created hidden <input type=file> for the group photo picker
+  let personAvatarByName = {};      // name -> employees.avatar_path (avatars sub-slice 3); shared across chat rendering
+  let myAvatarPath = null;          // current user's own avatar_path (the "me" entry point)
+  let personPhotoInput = null;      // lazily-created hidden <input type=file> for the self photo picker
   let infoOpen = false;             // conversation-info screen is showing over #chat-messages
   let chatRealtimeChannel = null;
   let chatAudioCtx = null;
@@ -138,6 +141,12 @@ function initTeamChat(config) {
     return code === '42P01' || code === 'PGRST205' ||
       /relation .* does not exist/i.test(msg) || /could not find the table/i.test(msg);
   }
+  // A column that doesn't exist yet — lets avatar features degrade to initials
+  // before the sub-slice-3 migration runs (same spirit as isMissingTable).
+  function isMissingColumn(err) {
+    const code = (err && err.code) || '', msg = (err && err.message) || '';
+    return code === '42703' || /column .* does not exist/i.test(msg);
+  }
 
   // ── one-time CSS injection (keeps 3b styling identical across all boards,
   //    including owner-board which has its own inline chat CSS) ──
@@ -147,7 +156,7 @@ function initTeamChat(config) {
 .chat-panel.chat-view-inbox .chat-input-row,
 .chat-panel.chat-view-compose .chat-input-row { display:none; }
 .chat-panel.chat-view-inbox #chat-channels {
-  display:flex; align-items:center; justify-content:flex-end; padding:6px 10px;
+  display:flex; align-items:center; justify-content:space-between; padding:6px 10px;
 }
 .chat-panel.chat-view-thread #chat-channels,
 .chat-panel.chat-view-compose #chat-channels {
@@ -324,11 +333,42 @@ function initTeamChat(config) {
   flex:0 0 auto; width:30px; height:30px; border-radius:50%; background:#6b7280; color:#fff;
   display:flex; align-items:center; justify-content:center; font-size:0.9rem;
 }
-/* group photo (circle, cover, no crop UI) — reused across inbox / header / info */
+/* group + person photo (circle, cover, no crop UI) — reused across inbox / header / info / me */
 .chat-avatar-img { width:100%; height:100%; object-fit:cover; display:block; }
-.chat-inbox-avatar.has-photo, .chat-thread-avatar.has-photo, .chat-info-avatar.has-photo {
+.chat-inbox-avatar.has-photo, .chat-thread-avatar.has-photo, .chat-info-avatar.has-photo,
+.chat-me-avatar.has-photo, .chat-sender-avatar.has-photo {
   overflow:hidden; padding:0; background:#e5e7eb;
 }
+/* person avatars (sub-slice 3): initial circles default to the accent color,
+   matching the existing .chat-inbox-avatar initial circles (groups are gray). */
+.chat-thread-avatar.is-person, .chat-info-avatar.is-person { background:var(--accent); }
+/* "me" entry point — the current user's own photo in the inbox header */
+.chat-me-wrap { position:relative; display:flex; flex:0 0 auto; }
+.chat-me-avatar-btn {
+  position:relative; border:none; background:transparent; padding:0; cursor:pointer;
+  width:30px; height:30px; border-radius:50%; flex:0 0 auto;
+}
+.chat-me-avatar-btn.is-busy { opacity:0.55; cursor:default; }
+.chat-me-avatar {
+  width:30px; height:30px; border-radius:50%; background:var(--accent); color:#fff;
+  display:flex; align-items:center; justify-content:center; font-weight:700; font-size:0.8rem; flex:0 0 auto;
+}
+.chat-me-add {
+  position:absolute; right:-3px; bottom:-3px; width:15px; height:15px; border-radius:50%;
+  background:#16a34a; color:#fff; font-size:0.7rem; line-height:1; border:2px solid #fff;
+  display:flex; align-items:center; justify-content:center;
+}
+.chat-me-menu {
+  position:absolute; top:calc(100% + 4px); left:0; z-index:20; min-width:150px;
+  background:#fff; border:1px solid var(--border); border-radius:10px;
+  box-shadow:0 6px 20px rgba(0,0,0,0.15); padding:6px; flex-direction:column; gap:2px;
+}
+.chat-me-menu button {
+  background:none; border:none; text-align:left; font-family:inherit; font-size:0.82rem;
+  padding:8px 10px; border-radius:8px; cursor:pointer; color:var(--text);
+}
+.chat-me-menu button:hover { background:#f4f6fb; }
+.chat-me-menu button[data-me="remove"] { color:#dc2626; }
 .chat-panel.chat-view-info .chat-input-row { display:none; }
 .chat-info { display:flex; flex-direction:column; margin:-12px; }
 .chat-info-head {
@@ -472,10 +512,25 @@ function initTeamChat(config) {
     const nav = document.getElementById('chat-channels');
     if (!nav) return;
     if (mode === 'inbox') {
-      // WhatsApp-style compose entry: a new-message pencil in the inbox header.
-      nav.innerHTML = `<button class="chat-compose-btn" type="button" aria-label="New message" title="New message">✎</button>`;
+      // Left: the "me" avatar (self-photo entry point). Right: the new-message
+      // pencil. If I have no photo yet, my initial circle carries a "+" badge so
+      // it reads as "add your photo".
+      const meName = getIdentity().name;
+      nav.innerHTML =
+        `<div class="chat-me-wrap">` +
+          `<button class="chat-me-avatar-btn" type="button" aria-label="Your photo" title="Your photo">` +
+            personAvatarHtml(meName, 'me') +
+            (myAvatarPath ? '' : `<span class="chat-me-add" aria-hidden="true">+</span>`) +
+          `</button>` +
+          `<div class="chat-me-menu" style="display:none">` +
+            `<button type="button" data-me="change">Change photo</button>` +
+            `<button type="button" data-me="remove">Remove photo</button>` +
+          `</div>` +
+        `</div>` +
+        `<button class="chat-compose-btn" type="button" aria-label="New message" title="New message">✎</button>`;
       const c = nav.querySelector('.chat-compose-btn');
       if (c) c.addEventListener('click', openCompose);
+      wireMeAvatar(nav);
     } else if (opts.memberLine !== undefined) {
       // GROUP thread header: bold group name + a muted member line under it; the
       // whole header (not the back arrow) is a tap target that opens group info.
@@ -492,8 +547,23 @@ function initTeamChat(config) {
       if (back) back.addEventListener('click', backFn || backToInbox);
       const head = nav.querySelector('.chat-thread-head');
       if (head && opts.onTitleClick) head.addEventListener('click', opts.onTitleClick);
+    } else if (opts.personName !== undefined) {
+      // DM thread header: the other person's small avatar + name; the whole
+      // header is a tap target that opens the (read-only) DM info screen.
+      nav.innerHTML =
+        `<button class="chat-back-btn" type="button" aria-label="Back">‹</button>` +
+        `<button class="chat-thread-head" type="button" aria-label="Contact info" title="Contact info">` +
+          (opts.avatarHtml || '') +
+          `<span class="chat-thread-head-text">` +
+            `<span class="chat-thread-title">${esc(title || '')}</span>` +
+          `</span>` +
+        `</button>`;
+      const back = nav.querySelector('.chat-back-btn');
+      if (back) back.addEventListener('click', backFn || backToInbox);
+      const head = nav.querySelector('.chat-thread-head');
+      if (head && opts.onTitleClick) head.addEventListener('click', opts.onTitleClick);
     } else {
-      // DM thread (name only, not tappable) / compose / info — single title line.
+      // Compose steps / info back-bar — single title line.
       nav.innerHTML =
         `<button class="chat-back-btn" type="button" aria-label="Back">‹</button>` +
         `<span class="chat-thread-title">${esc(title || '')}</span>`;
@@ -502,10 +572,34 @@ function initTeamChat(config) {
     }
   }
 
+  // Wire the "me" avatar in the inbox header: no photo → tap opens the picker;
+  // photo set → tap toggles a Change/Remove menu. Self-service only.
+  function wireMeAvatar(nav) {
+    const btn = nav.querySelector('.chat-me-avatar-btn');
+    const menu = nav.querySelector('.chat-me-menu');
+    if (!btn) return;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (btn.disabled) return;
+      if (!myAvatarPath) { pickPersonPhoto(); return; }
+      menu.style.display = menu.style.display === 'none' ? 'flex' : 'none';
+    });
+    if (menu) {
+      menu.querySelector('[data-me="change"]').addEventListener('click', () => { menu.style.display = 'none'; pickPersonPhoto(); });
+      menu.querySelector('[data-me="remove"]').addEventListener('click', () => { menu.style.display = 'none'; removePersonPhoto(); });
+      document.addEventListener('click', (e) => {
+        if (menu.style.display !== 'none' && !nav.querySelector('.chat-me-wrap').contains(e.target)) menu.style.display = 'none';
+      });
+    }
+  }
+
   // ── inbox ──
   // Repaint the inbox only when it's actually the visible screen — not while a
   // thread is open (currentConvId set) or the compose flow owns #chat-messages.
   function renderInboxIfVisible() { if (currentConvId === null && !compose) renderInbox(); }
+  // Repaint just the inbox header bar (the "me" avatar + compose pencil) when the
+  // inbox is the visible screen — used after person avatars load / a self-photo change.
+  function refreshInboxHeaderIfVisible() { if (currentConvId === null && !compose && !infoOpen) setChrome('inbox'); }
 
   function renderInbox() {
     const box = document.getElementById('chat-messages');
@@ -521,10 +615,9 @@ function initTeamChat(config) {
         : `<span class="chat-inbox-none">No messages yet</span>`;
       const time = c.lastMsg ? formatInboxTime(c.lastAt) : '';
       const badge = c.unread > 0 ? `<span class="chat-inbox-badge">${c.unread > 99 ? '99+' : c.unread}</span>` : '';
-      const initial = (c.displayName || '?').trim().charAt(0).toUpperCase();
       const avatar = c.type === 'group'
         ? groupAvatarHtml(c.photo_path, 'inbox')
-        : `<span class="chat-inbox-avatar">${esc(initial)}</span>`;
+        : personAvatarHtml(c.displayName, 'inbox');   // DM row → other person's photo/initial
       return `<button class="chat-inbox-row" data-conv="${c.id}">
         ${avatar}
         <span class="chat-inbox-main">
@@ -562,6 +655,11 @@ function initTeamChat(config) {
   async function loadInbox() {
     const me = getIdentity();
     if (!me.name) return;
+
+    // Person avatars (name -> avatar_path) power the "me" entry point + every DM
+    // row / header / info avatar. Load them up front so the first paint has photos.
+    await loadPersonAvatars();
+    refreshInboxHeaderIfVisible();   // reflect the loaded "me" photo on the pencil bar
 
     const { data: mem, error: memErr } = await db.from('chat_members')
       .select('conversation_id').eq('member_name', me.name);
@@ -700,6 +798,43 @@ function initTeamChat(config) {
     return `<span class="${base}">👥</span>`;
   }
 
+  // Person avatar HTML (sub-slice 3): the person's photo (signed URL, circle,
+  // cover) when their employees.avatar_path is set + signed, else their existing
+  // initial circle. variant sizes/colors it for each spot chat renders a person.
+  function personAvatarHtml(name, variant) {
+    const base = {
+      inbox: 'chat-inbox-avatar',        // DM inbox row (other person)
+      member: 'chat-inbox-avatar',       // group info member row
+      header: 'chat-thread-avatar is-person',   // DM thread header
+      info: 'chat-info-avatar is-person',       // DM info big avatar
+      me: 'chat-me-avatar',              // "me" entry point in the inbox header
+      sender: 'chat-sender-avatar',      // (reserved) group message sender avatar
+    }[variant] || 'chat-inbox-avatar';
+    const path = name ? personAvatarByName[name] : null;
+    const url = path ? signedUrlCache[path] : null;
+    const initial = (name || '?').trim().charAt(0).toUpperCase();
+    if (url) return `<span class="${base} has-photo"><img class="chat-avatar-img" src="${esc(url)}" alt=""></span>`;
+    return `<span class="${base}">${esc(initial)}</span>`;
+  }
+
+  // Load the office roster's avatar_path map (name -> avatar_path) used across
+  // chat rendering, and sign the photos. Techs are irrelevant to chat. Degrades
+  // to plain initials before the 20260721_employee_avatar migration runs.
+  async function loadPersonAvatars() {
+    let { data, error } = await db.from('employees')
+      .select('name, role, avatar_path').eq('active', true).in('role', OFFICE_ROLES);
+    if (error) {
+      if (isMissingColumn(error)) return;   // pre-migration: no avatars, keep initials
+      console.warn('[Chat] person avatars load failed', error.message); return;
+    }
+    const map = {};
+    (data || []).forEach(r => { if (r.name) map[r.name] = r.avatar_path || null; });
+    personAvatarByName = map;
+    const me = getIdentity();
+    myAvatarPath = me.name ? (map[me.name] || null) : null;
+    await ensureSignedForPaths(Object.values(map).filter(Boolean));
+  }
+
   async function loadThread(convId) {
     const { data, error } = await db.from('chat_messages')
       .select('*').eq('conversation_id', convId).order('created_at');
@@ -732,7 +867,11 @@ function initTeamChat(config) {
         avatarHtml: groupAvatarHtml(currentConvPhotoPath, 'header'),
       });
     } else {
-      setChrome('thread', currentConvTitle, backToInbox);
+      // DM: the other person's avatar + name, tappable → read-only DM info.
+      setChrome('thread', currentConvTitle, backToInbox, {
+        personName: currentConvTitle, onTitleClick: openInfo,
+        avatarHtml: personAvatarHtml(currentConvTitle, 'header'),
+      });
     }
   }
 
@@ -751,11 +890,14 @@ function initTeamChat(config) {
     currentConvTitle = conv ? conv.displayName : (fallbackTitle || '');
     currentConvPhotoPath = conv ? (conv.photo_path || null) : null;
     applyThreadChrome();
-    // If the group photo isn't signed yet (e.g. a just-added path), sign it then
-    // repaint the header/info so the avatar resolves in place.
-    if (currentConvPhotoPath && !signedUrlCache[currentConvPhotoPath]) {
-      ensureSignedForPaths([currentConvPhotoPath]).then(() => {
-        if (infoOpen) renderInfo(); else if (currentConvIsGroup) applyThreadChrome();
+    // Sign any not-yet-signed avatars in view (group photo + this conversation's
+    // people), then repaint the header/info so they resolve in place.
+    const pending = [currentConvPhotoPath]
+      .concat(currentConvMembers.map(m => personAvatarByName[m.member_name]))
+      .filter(p => p && !signedUrlCache[p]);
+    if (pending.length) {
+      ensureSignedForPaths(pending).then(() => {
+        if (infoOpen) renderInfo(); else applyThreadChrome();
       });
     }
     await loadThread(convId);
@@ -774,12 +916,13 @@ function initTeamChat(config) {
     loadInbox();     // then refresh previews / unread
   }
 
-  // ── conversation info (read-only, GROUPS ONLY this sub-slice) ──────────────
+  // ── conversation info (read-only members; group photo editable) ────────────
   // Rendered over #chat-messages like compose; background loadInbox()/realtime
   // never repaint it (currentConvId stays set → inbox guard; infoOpen → thread
-  // guard). Back returns to the THREAD, not the inbox.
+  // guard). Back returns to the THREAD, not the inbox. Groups (sub-slice 1/2)
+  // AND DMs (sub-slice 3, other person's read-only profile) both open here.
   function openInfo() {
-    if (!currentConvId || !currentConvIsGroup) return;   // DMs: no info this sub-slice
+    if (!currentConvId) return;
     infoOpen = true;
     renderInfo();
   }
@@ -787,19 +930,23 @@ function initTeamChat(config) {
   function renderInfo() {
     const box = document.getElementById('chat-messages');
     if (!box) return;
+    if (currentConvIsGroup) renderGroupInfo(box);
+    else renderDmInfo(box);
+    box.scrollTop = 0;
+  }
+
+  function renderGroupInfo(box) {
     const conv = convById[currentConvId];
     const title = (conv ? conv.displayName : currentConvTitle) || 'Group';
     setChrome('info', title, backToThreadFromInfo);
-    const rows = currentConvMembers.map(m => {
-      const initial = (m.member_name || '?').trim().charAt(0).toUpperCase();
-      return `<div class="chat-info-member">` +
-        `<span class="chat-inbox-avatar">${esc(initial)}</span>` +
+    const rows = currentConvMembers.map(m =>
+      `<div class="chat-info-member">` +
+        personAvatarHtml(m.member_name, 'member') +   // sub-slice 3: each member's photo/initial
         `<span class="chat-info-member-main">` +
           `<span class="chat-info-member-name">${esc(m.member_name)}</span>` +
           `<span class="chat-info-member-role">${esc(m.member_role || '')}</span>` +
         `</span>` +
-      `</div>`;
-    }).join('');
+      `</div>`).join('');
     // The group avatar is tappable for ANY member → change the photo; a
     // "Remove photo" action shows only when a photo is set.
     box.innerHTML =
@@ -820,7 +967,25 @@ function initTeamChat(config) {
     if (avBtn) avBtn.addEventListener('click', pickGroupPhoto);
     const rmBtn = box.querySelector('.chat-info-remove-photo');
     if (rmBtn) rmBtn.addEventListener('click', removeGroupPhoto);
-    box.scrollTop = 0;
+  }
+
+  // DM info: the OTHER person's read-only profile (big avatar + name + role).
+  // Self-service means you never edit their photo from here — no edit control.
+  function renderDmInfo(box) {
+    const me = getIdentity();
+    const other = currentConvMembers.find(m => m.member_name !== me.name)
+      || currentConvMembers[0] || null;
+    const oname = (other ? other.member_name : currentConvTitle) || 'Direct message';
+    const orole = other ? (other.member_role || '') : '';
+    setChrome('info', oname, backToThreadFromInfo);
+    box.innerHTML =
+      `<div class="chat-info">` +
+        `<div class="chat-info-head">` +
+          personAvatarHtml(oname, 'info') +
+          `<div class="chat-info-name">${esc(oname)}</div>` +
+          (orole ? `<div class="chat-info-sub" style="text-transform:capitalize">${esc(orole)}</div>` : '') +
+        `</div>` +
+      `</div>`;
   }
 
   // ── group photo (Avatars sub-slice 2) — ANY member may set/change/remove.
@@ -915,6 +1080,94 @@ function initTeamChat(config) {
     else renderInboxIfVisible();
   }
 
+  // ── person photo (Avatars sub-slice 3) — SELF-SERVICE: you only ever set /
+  //    change / remove your OWN photo (the "me" entry point in the inbox header). ──
+  function pickPersonPhoto() {
+    const me = getIdentity();
+    if (!me.name || !me.role) { alert('Could not identify you on this board yet — try reopening it from CrisData.'); return; }
+    if (!personPhotoInput) {
+      personPhotoInput = document.createElement('input');
+      personPhotoInput.type = 'file';
+      personPhotoInput.accept = 'image/*';
+      personPhotoInput.style.display = 'none';
+      personPhotoInput.addEventListener('change', () => {
+        const file = personPhotoInput.files && personPhotoInput.files[0];
+        personPhotoInput.value = '';                 // allow re-picking the same file
+        if (file) uploadPersonPhoto(file);
+      });
+      document.body.appendChild(personPhotoInput);
+    }
+    personPhotoInput.click();
+  }
+
+  function setMeBusy(busy) {
+    const btn = document.querySelector('.chat-me-avatar-btn');
+    if (btn) { btn.disabled = busy; btn.classList.toggle('is-busy', busy); }
+  }
+
+  // UPLOAD-FIRST-THEN-UPDATE on the CURRENT USER'S own employees row (matched by
+  // live getIdentity name + role — self-service, never anyone else's). A failed
+  // upload never touches the row → no dangling pointer.
+  async function uploadPersonPhoto(file) {
+    const me = getIdentity();
+    if (!me.name || !me.role) { alert('Could not identify you on this board yet — try reopening it from CrisData.'); return; }
+    if (!file.type || file.type.indexOf('image/') !== 0) { alert('Please pick an image.'); return; }
+    if (file.size > ATTACH_MAX_PHOTO_BYTES) { alert('That image is too large (max 10MB).'); return; }
+
+    setMeBusy(true);
+    try {
+      const slug = (me.name || 'me').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'me';
+      // avatars/person/<name-slug>/<uuid> — namespaced apart from avatars/group/
+      // and message chat/. New uuid each time avoids signed-URL cache collisions.
+      const path = `avatars/person/${slug}/${crypto.randomUUID()}`;
+      const { error: upErr } = await db.storage.from(ATTACH_BUCKET)
+        .upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false });
+      if (upErr) throw upErr;                        // upload failed → do NOT touch the row
+
+      const { error: updErr } = await db.from('employees')
+        .update({ avatar_path: path }).eq('name', me.name).eq('role', me.role);
+      if (updErr) throw updErr;
+
+      await ensureSignedForPaths([path]);            // sign then reflect immediately
+      applyPersonPhoto(me.name, path);
+    } catch (err) {
+      console.error('[Chat] person photo failed', err);
+      const hint = /bucket|not found|does not exist|column|avatar_path/i.test(err && err.message || '')
+        ? ' (has the migration/bucket been set up?)' : '';
+      alert('Photo failed: ' + ((err && err.message) || 'unknown error') + hint);
+    } finally {
+      setMeBusy(false);
+    }
+  }
+
+  async function removePersonPhoto() {
+    const me = getIdentity();
+    if (!me.name || !me.role) return;
+    setMeBusy(true);
+    try {
+      const { error } = await db.from('employees')
+        .update({ avatar_path: null }).eq('name', me.name).eq('role', me.role);
+      if (error) throw error;
+      applyPersonPhoto(me.name, null);   // leave the storage object; just clear the pointer
+    } catch (err) {
+      console.error('[Chat] remove person photo failed', err);
+      alert('Could not remove photo: ' + ((err && err.message) || 'unknown error'));
+    } finally {
+      setMeBusy(false);
+    }
+  }
+
+  // Reflect a person photo change everywhere: update the shared lookup (+ my own
+  // pointer if it's me), then repaint whatever's on screen.
+  function applyPersonPhoto(name, path) {
+    personAvatarByName[name] = path;
+    if (name === getIdentity().name) myAvatarPath = path;
+    if (infoOpen) renderInfo();
+    else if (currentConvId) applyThreadChrome();     // DM/group header person avatars
+    refreshInboxHeaderIfVisible();                   // the "me" avatar on the pencil bar
+    renderInboxIfVisible();                          // DM rows (other people)
+  }
+
   function backToThreadFromInfo() {
     infoOpen = false;
     applyThreadChrome();
@@ -926,11 +1179,21 @@ function initTeamChat(config) {
   // ── compose: new DM / new group (Slice 3c) ──────────────────
   async function loadRoster() {
     const me = getIdentity();
-    const { data, error } = await db.from('employees')
-      .select('name, role').eq('active', true).in('role', OFFICE_ROLES).order('name');
+    // Pull avatar_path too (sub-slice 3) to feed the shared name→avatar lookup;
+    // fall back to name/role only if the column isn't there yet (pre-migration),
+    // so compose never breaks.
+    let { data, error } = await db.from('employees')
+      .select('name, role, avatar_path').eq('active', true).in('role', OFFICE_ROLES).order('name');
+    if (error && isMissingColumn(error)) {
+      ({ data, error } = await db.from('employees')
+        .select('name, role').eq('active', true).in('role', OFFICE_ROLES).order('name'));
+    }
     if (error) { console.error('[Chat] roster load failed', error); compose.roster = []; return; }
     // Exclude the current user from every picker.
     compose.roster = (data || []).filter(p => p.name && p.name !== me.name);
+    // Merge avatars into the shared lookup + sign them (best-effort).
+    (data || []).forEach(r => { if (r.name && 'avatar_path' in r) personAvatarByName[r.name] = r.avatar_path || null; });
+    await ensureSignedForPaths((data || []).map(r => r && r.avatar_path).filter(Boolean));
   }
 
   async function openCompose() {
