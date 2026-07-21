@@ -359,7 +359,10 @@ function initTeamChat(config) {
   display:flex; align-items:center; justify-content:center;
 }
 .chat-me-menu {
-  position:absolute; top:calc(100% + 4px); left:0; z-index:20; min-width:150px;
+  /* position:fixed + JS-set top/left (from the avatar's rect) so the dropdown
+     floats ABOVE the inbox list and is never clipped by the header's or list's
+     overflow (no transformed ancestor traps a fixed element). */
+  position:fixed; z-index:9500; min-width:150px;
   background:#fff; border:1px solid var(--border); border-radius:10px;
   box-shadow:0 6px 20px rgba(0,0,0,0.15); padding:6px; flex-direction:column; gap:2px;
 }
@@ -582,7 +585,8 @@ function initTeamChat(config) {
       e.stopPropagation();
       if (btn.disabled) return;
       if (!myAvatarPath) { pickPersonPhoto(); return; }
-      menu.style.display = menu.style.display === 'none' ? 'flex' : 'none';
+      if (menu.style.display === 'none') openMeMenu(btn, menu);
+      else menu.style.display = 'none';
     });
     if (menu) {
       menu.querySelector('[data-me="change"]').addEventListener('click', () => { menu.style.display = 'none'; pickPersonPhoto(); });
@@ -591,6 +595,21 @@ function initTeamChat(config) {
         if (menu.style.display !== 'none' && !nav.querySelector('.chat-me-wrap').contains(e.target)) menu.style.display = 'none';
       });
     }
+  }
+
+  // Open the "me" menu as a fixed overlay anchored under the avatar. Fixed coords
+  // (from the button's viewport rect) let it float over the inbox list and stay
+  // clear of the panel's right edge in the narrow owner FAB.
+  function openMeMenu(btn, menu) {
+    menu.style.display = 'flex';                 // display first so offsetWidth is measurable
+    const r = btn.getBoundingClientRect();
+    const mw = menu.offsetWidth || 150;
+    const vw = window.innerWidth;
+    let left = r.left;
+    if (left + mw > vw - 8) left = vw - 8 - mw;  // keep off the right edge
+    if (left < 8) left = 8;
+    menu.style.left = left + 'px';
+    menu.style.top = (r.bottom + 4) + 'px';
   }
 
   // ── inbox ──
