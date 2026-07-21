@@ -675,9 +675,8 @@ function initTeamChat(config) {
     }
     // Best-effort closed-phone push. Fire-and-forget + fully guarded: the
     // message already saved, so a missing/!ok/failed push must NEVER surface
-    // to the sender or block sending. 3d rewires the endpoint to resolve
-    // recipients from conversation_id (it still posts channel-shaped bodies
-    // today; passing conversationId now is harmless and forward-compatible).
+    // to the sender or block sending. The endpoint (api/send-push.js, 3d)
+    // resolves recipients from conversationId via chat_members.
     try {
       fetch('/api/send-push', {
         method: 'POST',

@@ -1,23 +1,31 @@
 /* ============================================================
-   api/send-push.js — Web Push SENDER (Team Chat push, sub-slice 2c).
+   api/send-push.js — Web Push SENDER (Team Chat push, Slice 3d).
 
    Client-triggered (Option 1): the sender's board POSTs here right after a
-   chat message inserts. We look up everyone subscribed to that channel
-   (minus the sender), send each a Web Push, and prune dead endpoints.
+   chat message inserts. We resolve the conversation's members (minus the
+   sender) from chat_members, look up their push subscriptions, send each a
+   Web Push, and prune dead endpoints.
 
-   Auth (harden pass): two lightweight gates in front of the existing logic —
-   an origin allow-list (403) and a shared-secret header x-cd-push-secret
+   Slice 3d change: recipients are now DYNAMIC — resolved from the
+   conversation membership (chat_members keyed on member_name, the durable
+   join since 3a) rather than a hardcoded channel→roles map. This restores
+   closed-phone push for every conversation, including brand-new DMs/groups
+   created via the 3c compose UI.
+
+   Auth (harden pass): two lightweight gates in front of the logic — an
+   origin allow-list (403) and a shared-secret header x-cd-push-secret
    compared to PUSH_SHARED_SECRET (401). Order: 405 → 403 → 401 → 400 → send.
 
    Requires:
    • VAPID_PRIVATE_KEY in the Vercel env (set in 2b). If missing we fail
      loudly (500 + console.error) — never silently.
    • PUSH_SHARED_SECRET in the Vercel env (harden pass). Missing → 401 + log.
-   • push_subscriptions table migrated (2b).
+   • chat_members (3a) + push_subscriptions (2b) tables migrated.
 
    Never leaks the private key or subscription internals in the response.
    ============================================================ */
 import webpush from 'web-push';
+import { recipientNamesFromMembers, buildSubscriberInList } from './_push-recipients.js';
 
 // Public VAPID key — same value embedded client-side in shared/push.js.
 const VAPID_PUBLIC = 'BByOPsrzKI55qegn0RENJRoA0ijuf4Axb3rVpt4UJ7SYBlqRSMJiITi1JZhAyayPwHHcBU3u9ygvwF2Kvf--AD8';
@@ -45,19 +53,6 @@ function getRequestOrigin(req) {
 // push_subscriptions RLS is anon-full-access).
 const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
 const SUPABASE_ANON = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
-
-// Channel → participant office roles. Mirrors the hardcoded role-pair channel
-// keys used across the boards (group = all office roles; each DM key is
-// "<roleA>_<roleB>"). This is also the allow-list of known channels.
-const CHANNELS = {
-  group: ['owner', 'manager', 'advisor', 'bookkeeping'],
-  owner_manager: ['owner', 'manager'],
-  owner_advisor: ['owner', 'advisor'],
-  owner_bookkeeping: ['owner', 'bookkeeping'],
-  manager_advisor: ['manager', 'advisor'],
-  manager_bookkeeping: ['manager', 'bookkeeping'],
-  advisor_bookkeeping: ['advisor', 'bookkeeping'],
-};
 
 const sbHeaders = {
   apikey: SUPABASE_ANON,
@@ -95,10 +90,10 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'push not configured' });
   }
 
-  // Validate payload shape + known channel.
-  const { channel, senderName, senderRole, messagePreview } = req.body || {};
-  if (typeof channel !== 'string' || !CHANNELS[channel]) {
-    return res.status(400).json({ error: 'unknown channel' });
+  // Validate payload shape — conversationId is now required (replaces channel).
+  const { conversationId, senderName, senderRole, messagePreview } = req.body || {};
+  if (typeof conversationId !== 'string' || !conversationId) {
+    return res.status(400).json({ error: 'missing conversationId' });
   }
   if (typeof senderName !== 'string' || typeof messagePreview !== 'string') {
     return res.status(400).json({ error: 'bad payload' });
@@ -106,33 +101,53 @@ export default async function handler(req, res) {
 
   webpush.setVapidDetails(VAPID_CONTACT, VAPID_PUBLIC, VAPID_PRIVATE);
 
-  const participants = CHANNELS[channel];
+  // 1. Resolve who is in this conversation (chat_members keyed on member_name).
+  let members = [];
+  try {
+    const url = `${SUPABASE_URL}/rest/v1/chat_members` +
+      `?conversation_id=eq.${encodeURIComponent(conversationId)}&select=member_name`;
+    const r = await fetch(url, { headers: sbHeaders });
+    if (!r.ok) {
+      console.error('[send-push] member lookup failed', r.status, await r.text());
+      return res.status(502).json({ error: 'lookup failed' });
+    }
+    members = await r.json();
+  } catch (e) {
+    console.error('[send-push] member lookup threw', e);
+    return res.status(502).json({ error: 'lookup failed' });
+  }
 
-  // Recipients: everyone subscribed whose role participates in this channel.
+  // Recipients = members minus the sender (group → all others; DM → the one
+  // other person). No recipients (e.g. only the sender is a member) → no-op.
+  const recipientNames = recipientNamesFromMembers(members, senderName);
+  if (recipientNames.length === 0) {
+    return res.status(200).json({ sent: 0, failed: 0, pruned: 0 });
+  }
+
+  // 2. Their push subscriptions (a person may have several across devices).
   let subs = [];
   try {
+    const inList = buildSubscriberInList(recipientNames);
     const url = `${SUPABASE_URL}/rest/v1/push_subscriptions` +
-      `?subscriber_role=in.(${participants.join(',')})` +
+      `?subscriber_name=in.(${encodeURIComponent(inList)})` +
       `&select=endpoint,p256dh,auth,subscriber_name`;
     const r = await fetch(url, { headers: sbHeaders });
     if (!r.ok) {
-      console.error('[send-push] recipient lookup failed', r.status, await r.text());
+      console.error('[send-push] subscription lookup failed', r.status, await r.text());
       return res.status(502).json({ error: 'lookup failed' });
     }
     subs = await r.json();
   } catch (e) {
-    console.error('[send-push] recipient lookup threw', e);
+    console.error('[send-push] subscription lookup threw', e);
     return res.status(502).json({ error: 'lookup failed' });
   }
 
-  // Exclude the sender's own devices (by name — the per-person key). Rows with
-  // a null name are kept (can't confirm they're the sender).
-  subs = (subs || []).filter((s) => s && s.endpoint && s.subscriber_name !== senderName);
+  subs = (subs || []).filter((s) => s && s.endpoint);
 
   const payload = JSON.stringify({
     title: senderName || 'CrisData',
     body: String(messagePreview).slice(0, 120),
-    channel,
+    conversationId,
   });
 
   let sent = 0, failed = 0, pruned = 0;

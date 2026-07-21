@@ -29,22 +29,22 @@ self.addEventListener('fetch', () => {
   // no event.respondWith(...) → default network handling
 });
 
-/* ── Web Push (sub-slice 2c) ────────────────────────────────────────────────
+/* ── Web Push (sub-slice 2c; conversation-keyed in 3d) ───────────────────────
    Show a notification when a push arrives (works with the app closed). The
-   payload is { title, body, channel } sent by api/send-push.js. This is the
-   ONLY addition on top of the pass-through worker — still no caching. */
+   payload is { title, body, conversationId } sent by api/send-push.js. This is
+   the ONLY addition on top of the pass-through worker — still no caching. */
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) { data = {}; }
   const title = data.title || 'CrisData';
-  const channel = data.channel || 'group';
+  const conversationId = data.conversationId || 'chat';
   event.waitUntil(
     self.registration.showNotification(title, {
       body: data.body || 'New message',
-      tag: channel,                     // same channel → coalesces in the shade
+      tag: conversationId,              // same conversation → coalesces in the shade
       icon: '/icons/icon-192.png',
       badge: '/icons/badge-96.png',     // monochrome, OS-tinted
-      data: { channel },
+      data: { conversationId },
     })
   );
 });
