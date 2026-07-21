@@ -60,8 +60,9 @@ function initTeamChat(config) {
   let compose = null;               // compose-flow state (Slice 3c): {step, groupName, roster}
   const signedUrlCache = {};        // attachment_path -> signed URL (Slice 4a)
 
-  const ATTACH_BUCKET = 'crisdata-attachments';   // private; read via createSignedUrl
-  const ATTACH_MAX_BYTES = 10 * 1024 * 1024;      // ~10MB per attachment
+  const ATTACH_BUCKET = 'crisdata-attachments';       // private; read via createSignedUrl
+  const ATTACH_MAX_PHOTO_BYTES = 10 * 1024 * 1024;    // ~10MB per photo
+  const ATTACH_MAX_FILE_BYTES = 25 * 1024 * 1024;     // ~25MB per file (any type)
 
   // The office roster the compose pickers draw from. These are role STRINGS as
   // stored in employees.role (note the bookkeeper's role is 'bookkeeping', not
@@ -230,6 +231,28 @@ function initTeamChat(config) {
   color:var(--muted); font-size:0.74rem; background:#fff;
 }
 .chat-att-file { font-weight:600; }
+/* attach chooser menu (Slice 4b) */
+.chat-attach-wrap { position:relative; flex:0 0 auto; display:flex; }
+.chat-attach-menu {
+  position:absolute; bottom:44px; left:0; z-index:12; min-width:150px;
+  background:#fff; border:1px solid var(--border); border-radius:10px;
+  box-shadow:0 6px 20px rgba(0,0,0,0.15); padding:6px; flex-direction:column; gap:2px;
+}
+.chat-attach-menu button {
+  background:none; border:none; text-align:left; font-family:inherit; font-size:0.82rem;
+  padding:8px 10px; border-radius:8px; cursor:pointer; color:var(--text);
+}
+.chat-attach-menu button:hover { background:#f4f6fb; }
+/* file download chip (Slice 4b) */
+.chat-att-file-chip {
+  display:flex; align-items:center; gap:8px; max-width:240px; text-decoration:none;
+  padding:9px 11px; background:#fff; border:1px solid var(--border); border-radius:12px; color:var(--text);
+}
+.chat-att-file-chip:hover { background:#f4f6fb; }
+.chat-att-file-chip.is-loading { opacity:.7; }
+.chat-att-file-ic { font-size:1.2rem; flex:0 0 auto; }
+.chat-att-file-name { flex:1; min-width:0; font-size:0.82rem; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-att-file-dl { flex:0 0 auto; color:var(--muted); font-size:0.9rem; }
 /* Desktop: the in-page tab boards' chat fills the content area instead of
    floating as a short phone-width card. Scoped to .chat-mode-tab so the
    owner-board floating FAB panel (.chat-mode-panel) keeps its compact size. */
@@ -467,8 +490,14 @@ function initTeamChat(config) {
         : `<div class="chat-att-photo-loading">Loading photo…</div>`;
       return img + caption;
     }
-    if (m.attachment_kind === 'file') {   // 4b seam — becomes a download chip
-      return `<div class="chat-msg-bubble chat-att-file">📎 ${esc(m.attachment_name || 'File')}</div>` + caption;
+    if (m.attachment_kind === 'file') {   // 4b — download chip (not an inline preview)
+      const url = signedUrlCache[m.attachment_path];
+      const nameEsc = esc(m.attachment_name || 'File');
+      const chip = url
+        ? `<a class="chat-att-file-chip" href="${esc(url)}" target="_blank" rel="noopener" download="${nameEsc}">` +
+            `<span class="chat-att-file-ic">📄</span><span class="chat-att-file-name">${nameEsc}</span><span class="chat-att-file-dl">⬇</span></a>`
+        : `<div class="chat-att-file-chip is-loading"><span class="chat-att-file-ic">📄</span><span class="chat-att-file-name">${nameEsc}</span></div>`;
+      return chip + caption;
     }
     if (m.attachment_kind === 'voice') {  // 4c seam — becomes an audio player
       return `<div class="chat-msg-bubble chat-att-voice">🎤 Voice message</div>` + caption;
@@ -785,25 +814,32 @@ function initTeamChat(config) {
     } catch (e) { /* swallow — never affects the send */ }
   }
 
-  // ── attachments (Slice 4a: photo; 4b file / 4c voice reuse this path) ──
+  // ── attachments (Slice 4a photo, 4b file; 4c voice reuses this path) ──
   // Upload FIRST, insert the message row ONLY on a successful upload, so a
-  // failed upload never leaves a broken/pointer-less message row.
-  async function uploadAndSendPhoto(file) {
+  // failed upload never leaves a broken/pointer-less message row. kind is
+  // 'photo' (image/* only, inline render) or 'file' (any type, download chip).
+  async function uploadAndSendAttachment(file, kind) {
     if (!file || !currentConvId) return;
     const id = getIdentity();
     if (!id.name || !id.role) {
       alert('Could not identify you on this board yet — try reopening it from CrisData.');
       return;
     }
-    if (!file.type || file.type.indexOf('image/') !== 0) { alert('Please pick an image.'); return; }
-    if (file.size > ATTACH_MAX_BYTES) { alert('That image is too large (max 10MB).'); return; }
+    const isPhoto = kind === 'photo';
+    if (isPhoto) {
+      if (!file.type || file.type.indexOf('image/') !== 0) { alert('Please pick an image.'); return; }
+      if (file.size > ATTACH_MAX_PHOTO_BYTES) { alert('That image is too large (max 10MB).'); return; }
+    } else {
+      if (file.size > ATTACH_MAX_FILE_BYTES) { alert('That file is too large (max 25MB).'); return; }
+    }
 
     const input = document.getElementById('chat-input');
     const caption = input ? input.value.trim() : '';
 
     setAttachBusy(true);
     try {
-      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+      const fallbackExt = isPhoto ? 'jpg' : 'bin';
+      const ext = (file.name.split('.').pop() || fallbackExt).toLowerCase().replace(/[^a-z0-9]/g, '') || fallbackExt;
       const path = `chat/${currentConvId}/${crypto.randomUUID()}.${ext}`;
       const { error: upErr } = await db.storage.from(ATTACH_BUCKET)
         .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
@@ -813,20 +849,20 @@ function initTeamChat(config) {
         conversation_id: currentConvId,
         sender_role: id.role,
         sender_name: id.name,
-        message: caption || null,          // optional caption, or a standalone photo
+        message: caption || null,          // optional caption, or a standalone attachment
         attachment_path: path,
-        attachment_kind: 'photo',
+        attachment_kind: kind,
         attachment_name: file.name || null,
         attachment_mime: file.type || null,
       });
       if (insErr) throw insErr;
 
       if (input) input.value = '';         // caption consumed
-      firePush(id, caption, { kind: 'photo', name: file.name || null });
+      firePush(id, caption, { kind, name: file.name || null });
     } catch (err) {
-      console.error('[Chat] photo send failed', err);
+      console.error('[Chat] attachment send failed', err);
       const hint = /bucket|not found|does not exist/i.test(err && err.message || '') ? ' (has the migration/bucket been set up?)' : '';
-      alert('Photo failed to send: ' + ((err && err.message) || 'unknown error') + hint);
+      alert((isPhoto ? 'Photo' : 'File') + ' failed to send: ' + ((err && err.message) || 'unknown error') + hint);
     } finally {
       setAttachBusy(false);
     }
@@ -942,30 +978,61 @@ function initTeamChat(config) {
   const inputEl = document.getElementById('chat-input');
   if (inputEl) inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') sendChatMsg(); });
 
-  // Attach control (Slice 4a) — injected into the composer so no board markup
-  // changes. 4a wires the PHOTO picker directly; 4b/4c will turn this into a
-  // small menu (photo / file / voice) reusing uploadAndSendPhoto's pattern.
+  // Attach control (Slice 4a photo, 4b file) — injected into the composer so no
+  // board markup changes. Tapping 📎 opens a Photo/File chooser: Photo keeps the
+  // 4a image flow (inline render), File takes any type (download chip). 4c will
+  // add a Voice entry to the same menu.
   (function mountAttachControl() {
     const row = inputEl ? inputEl.closest('.chat-input-row') : document.querySelector('.chat-input-row');
     if (!row || document.getElementById('chat-attach')) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'chat-attach-wrap';
+
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.id = 'chat-attach';
     btn.className = 'chat-attach-btn';
-    btn.title = 'Attach photo';
+    btn.title = 'Attach';
     btn.textContent = '📎';
+
+    const menu = document.createElement('div');
+    menu.className = 'chat-attach-menu';
+    menu.style.display = 'none';
+    menu.innerHTML =
+      `<button type="button" data-attach="photo">📷 Photo</button>` +
+      `<button type="button" data-attach="file">📎 File</button>`;
+
+    const photoInput = document.createElement('input');
+    photoInput.type = 'file'; photoInput.accept = 'image/*'; photoInput.style.display = 'none';
     const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.id = 'chat-file-input';
-    fileInput.accept = 'image/*';
-    fileInput.style.display = 'none';
-    btn.addEventListener('click', () => { if (!btn.disabled) fileInput.click(); });
+    fileInput.type = 'file'; fileInput.style.display = 'none';   // no accept → any type
+
+    const closeMenu = () => { menu.style.display = 'none'; };
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (btn.disabled) return;
+      menu.style.display = menu.style.display === 'none' ? 'flex' : 'none';
+    });
+    menu.querySelector('[data-attach="photo"]').addEventListener('click', () => { closeMenu(); photoInput.click(); });
+    menu.querySelector('[data-attach="file"]').addEventListener('click', () => { closeMenu(); fileInput.click(); });
+    document.addEventListener('click', (e) => { if (menu.style.display !== 'none' && !wrap.contains(e.target)) closeMenu(); });
+
+    photoInput.addEventListener('change', () => {
+      const file = photoInput.files && photoInput.files[0];
+      photoInput.value = '';                 // allow re-picking the same file
+      if (file) uploadAndSendAttachment(file, 'photo');
+    });
     fileInput.addEventListener('change', () => {
       const file = fileInput.files && fileInput.files[0];
-      fileInput.value = '';                 // allow re-picking the same file
-      if (file) uploadAndSendPhoto(file);
+      fileInput.value = '';
+      if (file) uploadAndSendAttachment(file, 'file');
     });
-    row.insertBefore(btn, row.firstChild);   // leftmost in the composer
+
+    wrap.appendChild(btn);
+    wrap.appendChild(menu);
+    row.insertBefore(wrap, row.firstChild);  // leftmost in the composer
+    row.appendChild(photoInput);
     row.appendChild(fileInput);
   })();
 
