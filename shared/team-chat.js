@@ -199,6 +199,17 @@ function initTeamChat(config) {
   font-family:inherit; font-size:0.85rem; background:#fff; color:var(--text); outline:none;
 }
 .chat-group-name:focus { border-color:var(--accent); }
+/* iOS focus-zoom fix: Safari auto-zooms the page when a text field with
+   computed font-size < 16px gets focus, and doesn't zoom back out afterward.
+   Force every focusable text field in the chat UI to >=16px. #chat-input beats
+   the board's .chat-input-row input rule (0.82rem, board-shell.css + owner
+   inline) by ID specificity; the .chat-compose input/textarea rule covers the
+   New-group name and any future search/roster-filter field. Padding keeps the
+   visual footprint compact — do NOT use maximum-scale/user-scalable (an a11y
+   regression on iOS). Font-size is the fix. */
+#chat-input,
+.chat-compose input,
+.chat-compose textarea { font-size:16px; }
 .chat-compose-next, .chat-compose-create {
   background:var(--accent); color:#fff; border:none; border-radius:8px;
   padding:11px; font-weight:700; cursor:pointer; font-family:inherit; font-size:0.82rem; margin-top:2px;
