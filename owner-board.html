@@ -117,9 +117,13 @@
       <div class="card-title"><div class="dot"></div>To-Do</div>
       <div class="todo-add-bar">
         <input type="text" id="todoTextInput" placeholder="Add a to-do…">
-        <select id="todoAssignInput">
-          <option value="">Assign to… (optional)</option>
-        </select>
+        <div class="todo-assign-wrap">
+          <button type="button" class="btn todo-assign-btn" id="todoAssignBtn">Assign to… (optional)</button>
+          <div class="todo-assign-menu" id="todoAssignMenu" style="display:none"></div>
+        </div>
+        <button type="button" class="btn todo-attach-btn" id="todoAttachBtn" title="Attach a file">📎</button>
+        <input type="file" id="todoFileInput" style="display:none">
+        <span class="todo-attach-name" id="todoAttachName"></span>
         <button class="btn btn-primary" id="todoAddBtn">+ Add</button>
       </div>
       <div class="todo-form-error" id="todoFormError"></div>
@@ -256,21 +260,61 @@
   let todoRows = [];
   let todoChannel = null;
 
+  // ── To-Do attachments (one file per to-do) + multi-assign fan-out ──
+  const TODO_ATTACH_BUCKET = 'crisdata-attachments';       // reuse chat's private bucket
+  const TODO_ATTACH_MAX_BYTES = 25 * 1024 * 1024;          // ~25MB, any type
+  let todoAssignRoster = [];                               // [{id,name}] — same roster as before (self excluded)
+  const todoAssignSel = new Set();                         // selected employee ids (multi-assign)
+  let todoFile = null;                                     // chosen attachment (uploaded once on Add)
+
+  // Multi-select roster: the whole active team minus self (same set the single
+  // "Assign to…" used). Selecting N fans out into N to-do rows on Add.
   async function loadTodoAssignees() {
-    const sel = document.getElementById('todoAssignInput');
-    if (!sel) return;
-    const current = sel.value;
-    sel.innerHTML = '<option value="">Assign to… (optional)</option>';
+    const menu = document.getElementById('todoAssignMenu');
+    if (!menu) return;
     const { data, error } = await db.from('employees').select('id, name').eq('active', true).order('name');
     if (error) { console.error('[Todo] load employees failed', error); return; }
-    (data || []).forEach(e => {
-      if (e.id === CURRENT_EMPLOYEE_ID) return; // assigning to yourself is just a personal to-do — leave it unset instead
-      const opt = document.createElement('option');
-      opt.value = e.id;
-      opt.textContent = e.name;
-      sel.appendChild(opt);
+    todoAssignRoster = (data || []).filter(e => e.id !== CURRENT_EMPLOYEE_ID);
+    // drop any selection no longer in the roster
+    [...todoAssignSel].forEach(id => { if (!todoAssignRoster.some(e => e.id === id)) todoAssignSel.delete(id); });
+    renderTodoAssignMenu();
+    updateTodoAssignBtn();
+  }
+  function renderTodoAssignMenu() {
+    const menu = document.getElementById('todoAssignMenu');
+    if (!menu) return;
+    if (!todoAssignRoster.length) { menu.innerHTML = '<div class="todo-assign-empty">No one to assign.</div>'; return; }
+    menu.innerHTML = todoAssignRoster.map(e =>
+      `<label><input type="checkbox" value="${esc(e.id)}"${todoAssignSel.has(e.id) ? ' checked' : ''}> ${esc(e.name)}</label>`
+    ).join('');
+    menu.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) todoAssignSel.add(cb.value); else todoAssignSel.delete(cb.value);
+        updateTodoAssignBtn();
+      });
     });
-    sel.value = current;
+  }
+  function updateTodoAssignBtn() {
+    const btn = document.getElementById('todoAssignBtn');
+    if (!btn) return;
+    const n = todoAssignSel.size;
+    if (n === 0) btn.textContent = 'Assign to… (optional)';
+    else if (n === 1) btn.textContent = (todoRosterName([...todoAssignSel][0]) || '1 person');
+    else btn.textContent = n + ' people';
+    btn.classList.toggle('todo-assign-active', n > 0);
+  }
+  function todoRosterName(id) { const e = todoAssignRoster.find(x => x.id === id); return e ? e.name : null; }
+  function renderTodoAttachName() {
+    const nameEl = document.getElementById('todoAttachName');
+    if (!nameEl) return;
+    nameEl.innerHTML = todoFile
+      ? `<span>📄 ${esc(todoFile.name)}</span><span class="todo-attach-clear" title="Remove">✕</span>` : '';
+    const clr = nameEl.querySelector('.todo-attach-clear');
+    if (clr) clr.addEventListener('click', () => {
+      todoFile = null;
+      const fi = document.getElementById('todoFileInput'); if (fi) fi.value = '';
+      renderTodoAttachName();
+    });
   }
 
   function formatTodoCompletedWhen(iso) {
@@ -321,6 +365,7 @@
           <div class="todo-body">
             <div class="todo-text">${esc(t.text)}</div>
             <div class="todo-meta">${tag}${completedNote}</div>
+            ${t.attachment_path ? `<a class="todo-attach-chip" href="#" data-att-path="${esc(t.attachment_path)}"><span>📄</span><span class="todo-attach-chip-name">${esc(t.attachment_name || 'file')}</span><span>⬇</span></a>` : ''}
           </div>
           ${canManage ? `
           <div class="todo-actions">
@@ -338,6 +383,18 @@
     });
     box.querySelectorAll('.todo-delete-btn').forEach(btn => {
       btn.addEventListener('click', () => deleteTodo(btn.closest('.todo-item').dataset.id));
+    });
+    // attachment chip → open via a short-lived signed URL (private bucket)
+    box.querySelectorAll('.todo-attach-chip').forEach(a => {
+      a.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const path = a.getAttribute('data-att-path');
+        try {
+          const { data, error } = await db.storage.from(TODO_ATTACH_BUCKET).createSignedUrl(path, 3600);
+          if (error || !data || !data.signedUrl) throw (error || new Error('no url'));
+          window.open(data.signedUrl, '_blank', 'noopener');
+        } catch (err) { console.error('[Todo] sign url failed', err); alert('Could not open the file: ' + ((err && err.message) || 'unknown error')); }
+      });
     });
   }
 
@@ -387,37 +444,78 @@
 
   async function addTodo() {
     const textInput = document.getElementById('todoTextInput');
-    const assignSel = document.getElementById('todoAssignInput');
     const errEl = document.getElementById('todoFormError');
     errEl.textContent = '';
     const text = textInput.value.trim();
     if (!text) { errEl.textContent = 'Enter a to-do.'; return; }
     if (!CURRENT_EMPLOYEE_ID) { errEl.textContent = 'Could not identify you on this board yet.'; return; }
-
-    const assignedId = assignSel.value || null;
-    const assignedName = assignedId ? assignSel.options[assignSel.selectedIndex].textContent : null;
+    if (todoFile && todoFile.size > TODO_ATTACH_MAX_BYTES) { errEl.textContent = 'That file is too large (max 25MB).'; return; }
 
     const addBtn = document.getElementById('todoAddBtn');
     addBtn.disabled = true;
+    try {
+      // UPLOAD-FIRST-THEN-INSERT: upload the one file (if any) ONCE, before any
+      // row insert, so a failed upload never leaves a dangling pointer. The same
+      // path is shared across all fanned-out rows (no per-person re-upload).
+      let attach = null;
+      if (todoFile) {
+        const safe = (todoFile.name || 'file').replace(/[^a-zA-Z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'file';
+        const path = `todos/${crypto.randomUUID()}/${safe}`;
+        const { error: upErr } = await db.storage.from(TODO_ATTACH_BUCKET)
+          .upload(path, todoFile, { contentType: todoFile.type || 'application/octet-stream', upsert: false });
+        if (upErr) { console.error('[Todo] upload failed', upErr); errEl.textContent = 'File upload failed: ' + (upErr.message || 'unknown error'); return; }
+        attach = { attachment_path: path, attachment_name: todoFile.name || safe, attachment_mime: todoFile.type || null };
+      }
 
-    const { error } = await db.from('todos').insert({
-      text,
-      created_by: CURRENT_EMPLOYEE_ID,
-      created_by_name: CHAT_IDENTITY.name || null,
-      assigned_to: assignedId,
-      assigned_to_name: assignedName,
-    });
+      // FAN-OUT: one row per selected assignee (each independently
+      // completable/removable), else one unassigned row (unchanged behavior).
+      // attachment_* keys are only added when there's a file, so plain to-dos
+      // still add/list fine before the migration runs.
+      const base = { text, created_by: CURRENT_EMPLOYEE_ID, created_by_name: CHAT_IDENTITY.name || null };
+      if (attach) Object.assign(base, attach);
+      const selected = [...todoAssignSel];
+      const rows = selected.length
+        ? selected.map(id => Object.assign({}, base, { assigned_to: id, assigned_to_name: todoRosterName(id) }))
+        : [Object.assign({}, base, { assigned_to: null, assigned_to_name: null })];
 
-    addBtn.disabled = false;
-    if (error) { console.error('[Todo] add failed', error); errEl.textContent = 'Save failed: ' + error.message; return; }
+      const { error } = await db.from('todos').insert(rows);
+      if (error) { console.error('[Todo] add failed', error); errEl.textContent = 'Save failed: ' + error.message; return; }
 
-    textInput.value = '';
-    assignSel.value = '';
-    loadAndRenderTodos();
+      // reset the composer
+      textInput.value = '';
+      todoAssignSel.clear(); updateTodoAssignBtn(); renderTodoAssignMenu();
+      todoFile = null; const fi = document.getElementById('todoFileInput'); if (fi) fi.value = ''; renderTodoAttachName();
+      loadAndRenderTodos();
+    } finally {
+      addBtn.disabled = false;
+    }
   }
 
   document.getElementById('todoAddBtn').addEventListener('click', addTodo);
   document.getElementById('todoTextInput').addEventListener('keydown', e => { if (e.key === 'Enter') addTodo(); });
+  // multi-assign dropdown toggle + attach picker
+  (function wireTodoAddControls() {
+    const assignBtn = document.getElementById('todoAssignBtn');
+    const assignMenu = document.getElementById('todoAssignMenu');
+    if (assignBtn && assignMenu) {
+      assignBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        assignMenu.style.display = assignMenu.style.display === 'none' ? 'block' : 'none';
+      });
+      document.addEventListener('click', (e) => {
+        if (assignMenu.style.display !== 'none' && !assignMenu.contains(e.target) && e.target !== assignBtn) assignMenu.style.display = 'none';
+      });
+    }
+    const attachBtn = document.getElementById('todoAttachBtn');
+    const fileInput = document.getElementById('todoFileInput');
+    if (attachBtn && fileInput) {
+      attachBtn.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', () => {
+        todoFile = (fileInput.files && fileInput.files[0]) ? fileInput.files[0] : null;
+        renderTodoAttachName();
+      });
+    }
+  })();
 
   function todoSubscribeRealtime() {
     if (todoChannel) db.removeChannel(todoChannel);
