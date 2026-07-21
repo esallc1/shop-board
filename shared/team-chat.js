@@ -156,10 +156,14 @@ function initTeamChat(config) {
 .chat-panel.chat-view-inbox .chat-input-row,
 .chat-panel.chat-view-compose .chat-input-row { display:none; }
 .chat-panel.chat-view-inbox #chat-channels {
-  /* align-items:center keeps the "me" avatar (left) vertically centered and in
-     line with the ✎ pencil (right); 8px vertical padding matches the thread/
-     compose headers so the avatar isn't crammed against the conversation list. */
-  display:flex; align-items:center; justify-content:space-between; padding:8px 10px;
+  /* The "me" avatar is centered in the full header width (WhatsApp profile
+     style); the ✎ pencil is pinned absolutely to the right so it never pushes
+     the avatar off-center. 8px vertical padding matches the other headers. */
+  position:relative;
+  display:flex; align-items:center; justify-content:center; padding:8px 10px;
+}
+.chat-panel.chat-view-inbox #chat-channels .chat-compose-btn {
+  position:absolute; right:10px; top:50%; transform:translateY(-50%);
 }
 .chat-panel.chat-view-thread #chat-channels,
 .chat-panel.chat-view-compose #chat-channels {
