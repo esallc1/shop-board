@@ -70,6 +70,7 @@ function initTeamChat(config) {
   const signedUrlCache = {};        // attachment_path -> signed URL (Slice 4a)
 
   const ATTACH_BUCKET = 'crisdata-attachments';       // private; read via createSignedUrl
+  const MSG_DELETED_TEXT = 'This message was deleted';   // tombstone label (delete slice)
   const ATTACH_MAX_PHOTO_BYTES = 10 * 1024 * 1024;    // ~10MB per photo
   const ATTACH_MAX_FILE_BYTES = 25 * 1024 * 1024;     // ~25MB per file (any type)
   const VOICE_MAX_SECONDS = 120;                      // 2-min per-clip cap (auto-stops)
@@ -103,6 +104,7 @@ function initTeamChat(config) {
   // attachment label (so an attachment-only message never renders blank).
   function previewTextFor(msg) {
     if (!msg) return '';
+    if (msg.deleted_at) return MSG_DELETED_TEXT;   // tombstone
     const caption = (msg.message || '').trim();
     if (caption) return caption;
     if (msg.attachment_kind) return attachmentLabel(msg.attachment_kind, msg.attachment_name);
@@ -316,6 +318,30 @@ function initTeamChat(config) {
    seen = indigo ✓✓. Always on; no "delivered" state. */
 .chat-receipt { margin-left:4px; font-weight:700; letter-spacing:-2px; color:var(--muted); }
 .chat-receipt.is-seen { color:var(--accent); }
+/* message delete (tombstone + own-message ⋯/long-press affordance + menu) */
+.chat-msg { position:relative; }   /* anchor for the ⋯ affordance */
+.chat-msg .chat-msg-bubble.chat-msg-deleted,
+.chat-msg.me .chat-msg-bubble.chat-msg-deleted {
+  background:#f0f1f5; color:var(--muted); border:1px solid var(--border);
+  font-style:italic; font-size:0.8rem;
+}
+.chat-msg-menu-btn {
+  position:absolute; top:-6px; right:-2px; width:22px; height:22px; border-radius:50%; padding:0;
+  border:1px solid var(--border); background:#fff; color:var(--muted); cursor:pointer;
+  font-size:0.9rem; line-height:1; box-shadow:0 1px 4px rgba(0,0,0,0.12);
+  display:none; align-items:center; justify-content:center; z-index:2;
+}
+@media (hover:hover) { .chat-msg[data-own]:hover .chat-msg-menu-btn { display:flex; } }
+.chat-msg-menu {
+  position:fixed; z-index:9600; min-width:120px;
+  background:#fff; border:1px solid var(--border); border-radius:10px;
+  box-shadow:0 6px 20px rgba(0,0,0,0.18); padding:6px; display:flex; flex-direction:column; gap:2px;
+}
+.chat-msg-menu button {
+  background:none; border:none; text-align:left; font-family:inherit; font-size:0.85rem; font-weight:600;
+  padding:8px 12px; border-radius:8px; cursor:pointer; color:#dc2626;
+}
+.chat-msg-menu button:hover { background:#fdeaea; }
 .chat-att-photo-loading {
   width:160px; height:110px; border-radius:12px; border:1px dashed var(--border);
   display:flex; align-items:center; justify-content:center;
@@ -675,7 +701,9 @@ function initTeamChat(config) {
     }
     box.innerHTML = `<div class="chat-inbox">` + myConversations.map(c => {
       const preview = c.lastMsg
-        ? `${c.lastMsg.sender_name === me.name ? 'You' : esc(c.lastMsg.sender_name)}: ${esc(truncate(previewTextFor(c.lastMsg), 42))}`
+        ? (c.lastMsg.deleted_at
+            ? `<span class="chat-inbox-none">${esc(MSG_DELETED_TEXT)}</span>`
+            : `${c.lastMsg.sender_name === me.name ? 'You' : esc(c.lastMsg.sender_name)}: ${esc(truncate(previewTextFor(c.lastMsg), 42))}`)
         : `<span class="chat-inbox-none">No messages yet</span>`;
       const time = c.lastMsg ? formatInboxTime(c.lastAt) : '';
       const badge = c.unread > 0 ? `<span class="chat-inbox-badge">${c.unread > 99 ? '99+' : c.unread}</span>` : '';
@@ -789,6 +817,9 @@ function initTeamChat(config) {
   // Inner content of a message bubble — branches on attachment_kind so 4b (file)
   // and 4c (voice) are thin additions to this one function.
   function bubbleInner(m) {
+    if (m.deleted_at) {   // tombstone — no attachment / caption / receipt, ordering kept
+      return `<div class="chat-msg-bubble chat-msg-deleted">🚫 ${esc(MSG_DELETED_TEXT)}</div>`;
+    }
     const caption = (m.message && m.message.trim())
       ? `<div class="chat-msg-bubble">${esc(m.message)}</div>` : '';
     if (m.attachment_kind === 'photo') {
@@ -827,6 +858,7 @@ function initTeamChat(config) {
   function receiptFor(m) {
     const me = getIdentity();
     if (!me.name || !m || m.sender_name !== me.name) return null;   // mine only
+    if (m.deleted_at) return null;                                  // no checkmark on a tombstone
     const others = currentConvMembers
       .map(x => x.member_name)
       .filter(n => n && n !== me.name);
@@ -879,8 +911,13 @@ function initTeamChat(config) {
         prevDayKey = dk;
         sep = `<div class="chat-day-sep"><span>${esc(daySeparatorLabel(m.created_at))}</span></div>`;
       }
+      const isOwn = m.sender_name === me.name;
+      const canDelete = isOwn && !m.deleted_at;   // own-messages-only, not already tombstoned
+      // data-mid on every row → targeted live tombstone; data-own gates the
+      // long-press/⋯ delete affordance to my own live messages.
       return sep + `
-      <div class="chat-msg ${m.sender_name === me.name ? 'me' : 'them'}">
+      <div class="chat-msg ${isOwn ? 'me' : 'them'}"${canDelete ? ' data-own="1"' : ''} data-mid="${esc(String(m.id))}">
+        ${canDelete ? `<button type="button" class="chat-msg-menu-btn" aria-label="Message actions" title="Delete message">⋯</button>` : ''}
         <div class="chat-msg-sender">${esc(m.sender_name)}</div>
         ${bubbleInner(m)}
         <div class="chat-msg-time">${formatChatTime(m.created_at)}${receiptHtml(m)}</div>
@@ -1766,8 +1803,9 @@ function initTeamChat(config) {
     const c = convById[rec.conversation_id];
     if (!c) return;
     c.lastMsg = {
-      message: rec.message, sender_name: rec.sender_name, created_at: rec.created_at,
+      id: rec.id, message: rec.message, sender_name: rec.sender_name, created_at: rec.created_at,
       attachment_kind: rec.attachment_kind, attachment_name: rec.attachment_name,
+      deleted_at: rec.deleted_at || null,
     };
     c.lastAt = rec.created_at;
     if (incrementUnread) { c.unread = (c.unread || 0) + 1; unreadByConv[c.id] = c.unread; }
@@ -1827,12 +1865,151 @@ function initTeamChat(config) {
     updateReceipts();
   }
 
+  // ── message delete (tombstone, OWN messages only, delete-for-everyone) ──────
+  // Long-press (touch) / hover-⋯ (desktop) on my own live bubble → confirm →
+  // remove the attachment file (best-effort) + null text + null attachment
+  // pointer + set deleted_at/deleted_by, all in one atomic UPDATE so the row is
+  // always left in a consistent tombstoned state. Realtime UPDATE propagates it
+  // to everyone (targeted swap, not a full renderThread).
+  async function performDelete(mid) {
+    const me = getIdentity();
+    const m = threadMessages.find(x => String(x.id) === String(mid));
+    if (!m) return;
+    if (!me.name || m.sender_name !== me.name || m.deleted_at) return;   // own-only, not already gone
+    // 1. best-effort remove the stored file (never blocks the tombstone)
+    if (m.attachment_path) {
+      try { await db.storage.from(ATTACH_BUCKET).remove([m.attachment_path]); }
+      catch (e) { console.warn('[Chat] attachment remove failed (ignored)', e); }
+    }
+    // 2+3. atomic tombstone UPDATE (text + attachment pointer nulled together)
+    const nowIso = new Date().toISOString();
+    const patch = {
+      message: null,
+      attachment_path: null, attachment_kind: null, attachment_name: null, attachment_mime: null,
+      deleted_at: nowIso, deleted_by: me.name,
+    };
+    const { error } = await db.from('chat_messages').update(patch).eq('id', m.id);
+    if (error) {
+      console.error('[Chat] delete failed', error);
+      const hint = /column|deleted_at|deleted_by/i.test(error.message || '') ? ' (has the migration been run?)' : '';
+      alert('Could not delete: ' + ((error.message) || 'unknown error') + hint);
+      return;
+    }
+    // optimistic — realtime will also deliver the same UPDATE (idempotent)
+    const rec = { id: m.id, conversation_id: m.conversation_id, sender_name: m.sender_name, created_at: m.created_at, deleted_at: nowIso, deleted_by: me.name };
+    tombstoneOpenThreadBubble(rec);
+    bumpInboxPreviewIfLatest(rec);
+  }
+
+  // Swap ONE bubble in the open thread to its tombstone in place (no full
+  // renderThread → scroll position + day dividers untouched). Idempotent.
+  function tombstoneOpenThreadBubble(rec) {
+    if (!rec || rec.conversation_id !== currentConvId) return;
+    const idx = threadMessages.findIndex(x => String(x.id) === String(rec.id));
+    if (idx < 0) return;
+    threadMessages[idx] = Object.assign({}, threadMessages[idx], {
+      message: null, attachment_path: null, attachment_kind: null, attachment_name: null, attachment_mime: null,
+      deleted_at: rec.deleted_at, deleted_by: rec.deleted_by,
+    });
+    const m = threadMessages[idx];
+    const box = document.getElementById('chat-messages');
+    if (!box) return;
+    const el = [...box.querySelectorAll('.chat-msg[data-mid]')].find(n => n.getAttribute('data-mid') === String(rec.id));
+    if (!el) return;
+    const me = getIdentity();
+    el.className = `chat-msg ${m.sender_name === me.name ? 'me' : 'them'}`;   // drops the delete affordance
+    el.removeAttribute('data-own');
+    el.innerHTML =
+      `<div class="chat-msg-sender">${esc(m.sender_name)}</div>` +
+      bubbleInner(m) +
+      `<div class="chat-msg-time">${formatChatTime(m.created_at)}</div>`;   // no receipt on a tombstone
+  }
+
+  // If the deleted message is a conversation's cached latest, update its inbox
+  // preview to the tombstone label. Not the latest → preview unaffected.
+  function bumpInboxPreviewIfLatest(rec) {
+    const c = convById[rec.conversation_id];
+    if (!c || !c.lastMsg || String(c.lastMsg.id) !== String(rec.id)) return;
+    c.lastMsg = Object.assign({}, c.lastMsg, {
+      message: null, attachment_kind: null, attachment_name: null, deleted_at: rec.deleted_at,
+    });
+    renderInboxIfVisible();
+  }
+
+  // Realtime chat_messages UPDATE — this slice only acts on newly-set deleted_at.
+  function handleMessageUpdate(rec) {
+    if (!rec || !rec.conversation_id || !rec.deleted_at) return;
+    if (!convById[rec.conversation_id]) return;   // not a conversation I'm in / loaded
+    tombstoneOpenThreadBubble(rec);               // live swap if it's the open thread
+    bumpInboxPreviewIfLatest(rec);                // inbox preview if it was the latest
+  }
+
+  // ── delete affordance: a small floating menu with "Delete" ──
+  let msgMenuEl = null;
+  function closeMsgMenu() {
+    if (msgMenuEl) { msgMenuEl.remove(); msgMenuEl = null; }
+    document.removeEventListener('click', onMsgMenuOutside, true);
+  }
+  function onMsgMenuOutside(e) { if (msgMenuEl && !msgMenuEl.contains(e.target)) closeMsgMenu(); }
+  function openMsgMenu(mid, anchor) {
+    closeMsgMenu();
+    const menu = document.createElement('div');
+    menu.className = 'chat-msg-menu';
+    menu.innerHTML = `<button type="button" data-act="delete">Delete</button>`;
+    document.body.appendChild(menu);   // body-level + position:fixed → never clipped
+    msgMenuEl = menu;
+    const mw = menu.offsetWidth || 120, mh = menu.offsetHeight || 40;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let left = anchor.left, top = (anchor.bottom != null ? anchor.bottom : anchor.top) + 4;
+    if (left + mw > vw - 8) left = vw - 8 - mw;
+    if (left < 8) left = 8;
+    if (top + mh > vh - 8) top = (anchor.top != null ? anchor.top : anchor.bottom) - mh - 4;
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+    menu.querySelector('[data-act="delete"]').addEventListener('click', () => {
+      closeMsgMenu();
+      if (window.confirm('Delete this message?')) performDelete(mid);
+    });
+    setTimeout(() => document.addEventListener('click', onMsgMenuOutside, true), 0);
+  }
+
+  // Delegated on the stable #chat-messages container (survives innerHTML repaints).
+  // Desktop: click the hover ⋯. Touch: long-press my own bubble.
+  function wireMessageActions() {
+    const box = document.getElementById('chat-messages');
+    if (!box || box.__msgActionsWired) return;
+    box.__msgActionsWired = true;
+    box.addEventListener('click', (e) => {
+      const btn = e.target.closest && e.target.closest('.chat-msg-menu-btn');
+      if (!btn) return;
+      e.stopPropagation();
+      const row = btn.closest('.chat-msg[data-mid]');
+      if (row) openMsgMenu(row.getAttribute('data-mid'), btn.getBoundingClientRect());
+    });
+    let lpTimer = null, lpMoved = false;
+    const clearLp = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+    box.addEventListener('touchstart', (e) => {
+      const row = e.target.closest && e.target.closest('.chat-msg[data-own][data-mid]');
+      if (!row) return;
+      lpMoved = false;
+      const t = e.touches[0], x = t.clientX, y = t.clientY;
+      lpTimer = setTimeout(() => { if (!lpMoved) openMsgMenu(row.getAttribute('data-mid'), { left: x, top: y, bottom: y }); }, 500);
+    }, { passive: true });
+    box.addEventListener('touchmove', () => { lpMoved = true; clearLp(); }, { passive: true });
+    box.addEventListener('touchend', clearLp, { passive: true });
+    box.addEventListener('touchcancel', clearLp, { passive: true });
+  }
+
   function subscribeRealtime() {
     if (chatRealtimeChannel) { db.removeChannel(chatRealtimeChannel); chatRealtimeChannel = null; }
     chatRealtimeChannel = db.channel('chat-live')
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'chat_messages' },
         ({ new: rec }) => handleIncoming(rec))
+      // Message delete (tombstone): UPDATE on chat_messages with deleted_at set.
+      .on('postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'chat_messages' },
+        ({ new: rec }) => handleMessageUpdate(rec))
       // Read receipts: INSERT + UPDATE on chat_reads (event '*'; DELETE carries
       // no `new` and is guarded away in the handler).
       .on('postgres_changes',
@@ -1887,6 +2064,7 @@ function initTeamChat(config) {
   if (sendBtn) sendBtn.addEventListener('click', sendChatMsg);
   const inputEl = document.getElementById('chat-input');
   if (inputEl) inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') sendChatMsg(); });
+  wireMessageActions();   // own-message delete: long-press (touch) / hover-⋯ (desktop)
 
   // Attach control (Slice 4a photo, 4b file) — injected into the composer so no
   // board markup changes. Tapping 📎 opens a Photo/File chooser: Photo keeps the
