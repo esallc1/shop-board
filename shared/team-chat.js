@@ -83,7 +83,10 @@ function initTeamChat(config) {
 
   // ── durable read-state (chat_reads) — with defensive in-memory fallback ──
   let readAvailable = true;         // flips false if chat_reads ever looks unmigrated
-  const lastReadAt = {};            // conversation_id -> ISO last_read_at
+  const lastReadAt = {};            // conversation_id -> ISO last_read_at (MY reads; unread counts)
+  // Read receipts (seen): OTHER members' last_read_at for the OPEN thread only.
+  // name -> ISO last_read_at. Rebuilt per thread open; advanced by realtime.
+  let readsByMember = {};
 
   function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function truncate(s, n) { s = s || ''; return s.length > n ? s.slice(0, n - 1) + '…' : s; }
@@ -299,6 +302,10 @@ function initTeamChat(config) {
   font-size:0.68rem; font-weight:600; color:var(--muted); letter-spacing:0.02em;
   background:#eef0f5; border:1px solid var(--border); padding:3px 10px; border-radius:12px;
 }
+/* read receipt on my OWN sent bubbles (next to the timestamp): sent = grey ✓,
+   seen = indigo ✓✓. Always on; no "delivered" state. */
+.chat-receipt { margin-left:4px; font-weight:700; letter-spacing:-2px; color:var(--muted); }
+.chat-receipt.is-seen { color:var(--accent); }
 .chat-att-photo-loading {
   width:160px; height:110px; border-radius:12px; border:1px dashed var(--border);
   display:flex; align-items:center; justify-content:center;
@@ -802,6 +809,49 @@ function initTeamChat(config) {
     return `<div class="chat-msg-bubble">${esc(m.message)}</div>`;
   }
 
+  // ── read receipts ("seen") — derived entirely from chat_reads; my own
+  //    outgoing messages only. States: 'sent' | 'seen' (no "delivered"). ──
+  // A message is SEEN when EVERY other member's last_read_at >= its created_at
+  // (DM = the one other member; group = all others, binary/all-seen). Returns
+  // null for anything that shouldn't carry a receipt (incoming, unknown sender).
+  function receiptFor(m) {
+    const me = getIdentity();
+    if (!me.name || !m || m.sender_name !== me.name) return null;   // mine only
+    const others = currentConvMembers
+      .map(x => x.member_name)
+      .filter(n => n && n !== me.name);
+    if (!others.length) return 'sent';   // unknown/solo membership → don't claim "seen"
+    const msgT = new Date(m.created_at).getTime();
+    const allSeen = others.every(n => {
+      const lr = readsByMember[n];
+      return lr && new Date(lr).getTime() >= msgT;
+    });
+    return allSeen ? 'seen' : 'sent';
+  }
+  function receiptHtml(m) {
+    const st = receiptFor(m);
+    if (!st) return '';
+    return ` <span class="chat-receipt${st === 'seen' ? ' is-seen' : ''}" data-receipt="${esc(String(m.id))}">${st === 'seen' ? '✓✓' : '✓'}</span>`;
+  }
+  // TARGETED receipt refresh — flips existing icons in place (no renderThread,
+  // so no scroll jump / flicker and the day dividers are untouched).
+  function updateReceipts() {
+    const me = getIdentity();
+    if (!me.name) return;
+    const box = document.getElementById('chat-messages');
+    if (!box) return;
+    const stateById = {};
+    threadMessages.forEach(m => {
+      if (m.sender_name === me.name) { const st = receiptFor(m); if (st) stateById[String(m.id)] = st; }
+    });
+    box.querySelectorAll('.chat-receipt').forEach(el => {
+      const st = stateById[el.getAttribute('data-receipt')];
+      if (!st) return;
+      el.textContent = st === 'seen' ? '✓✓' : '✓';
+      el.classList.toggle('is-seen', st === 'seen');
+    });
+  }
+
   function renderThread() {
     if (infoOpen) return;   // info screen owns #chat-messages — don't repaint over it
     const box = document.getElementById('chat-messages');
@@ -823,7 +873,7 @@ function initTeamChat(config) {
       <div class="chat-msg ${m.sender_name === me.name ? 'me' : 'them'}">
         <div class="chat-msg-sender">${esc(m.sender_name)}</div>
         ${bubbleInner(m)}
-        <div class="chat-msg-time">${formatChatTime(m.created_at)}</div>
+        <div class="chat-msg-time">${formatChatTime(m.created_at)}${receiptHtml(m)}</div>
       </div>`;
     }).join('');
     box.scrollTop = box.scrollHeight;
@@ -900,8 +950,25 @@ function initTeamChat(config) {
       .select('*').eq('conversation_id', convId).order('created_at');
     if (error) { console.error('[Chat] thread load failed', error); threadMessages = []; }
     else threadMessages = data || [];
+    await loadReadsForConversation(convId);   // receipts: correct state BEFORE the first paint
     await ensureSignedUrls(threadMessages);
     renderThread();
+  }
+
+  // Load every member's last_read_at for the open conversation → readsByMember,
+  // for the "seen" computation. Reset each load so state never leaks across
+  // threads. Reuses the same anon-readable chat_reads table as unread counts.
+  async function loadReadsForConversation(convId) {
+    readsByMember = {};
+    if (!readAvailable) return;
+    const { data, error } = await db.from('chat_reads')
+      .select('reader_name, last_read_at').eq('conversation_id', convId);
+    if (error) {
+      if (isMissingTable(error)) readAvailable = false;
+      else console.warn('[Chat] reads load failed', error.message);
+      return;
+    }
+    (data || []).forEach(r => { if (r.reader_name) readsByMember[r.reader_name] = r.last_read_at; });
   }
 
   // Load the open conversation's members (name + role) for the group header
@@ -1733,12 +1800,34 @@ function initTeamChat(config) {
     maybeAlert(rec);
   }
 
+  // Read-receipt live flip: another member's chat_reads row (INSERT on first
+  // read, UPDATE thereafter) for the OPEN thread advances readsByMember and
+  // re-flips my sent-message icons. My own reads never affect my receipts, and
+  // events for other conversations are ignored (client-side filter, mirroring
+  // the message sub's single persistent channel). Needs chat_reads in the
+  // realtime publication (migrations/20260721_chat_reads_realtime.sql) — until
+  // then this is simply silent (receipts still correct on open, no live flip).
+  function handleReadEvent(rec) {
+    if (!rec || !rec.conversation_id || !rec.reader_name || !rec.last_read_at) return;
+    if (rec.conversation_id !== currentConvId) return;   // only the open thread
+    if (rec.reader_name === getIdentity().name) return;   // my own reads are irrelevant to my receipts
+    const prev = readsByMember[rec.reader_name];
+    if (prev && new Date(rec.last_read_at).getTime() <= new Date(prev).getTime()) return;  // monotonic
+    readsByMember[rec.reader_name] = rec.last_read_at;
+    updateReceipts();
+  }
+
   function subscribeRealtime() {
     if (chatRealtimeChannel) { db.removeChannel(chatRealtimeChannel); chatRealtimeChannel = null; }
     chatRealtimeChannel = db.channel('chat-live')
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'chat_messages' },
         ({ new: rec }) => handleIncoming(rec))
+      // Read receipts: INSERT + UPDATE on chat_reads (event '*'; DELETE carries
+      // no `new` and is guarded away in the handler).
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'chat_reads' },
+        ({ new: rec }) => handleReadEvent(rec))
       // On every (re)connect, refetch membership + inbox (and reload the open
       // thread) so a dropped socket never leaves stale state — the lesson from
       // the earlier realtime work.
