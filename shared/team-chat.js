@@ -141,6 +141,21 @@ function initTeamChat(config) {
     return code === '42P01' || code === 'PGRST205' ||
       /relation .* does not exist/i.test(msg) || /could not find the table/i.test(msg);
   }
+  // Local-midnight of a Date (device timezone) — the day boundary for thread
+  // day-dividers. created_at is stored UTC; new Date() renders it in local time,
+  // so getFullYear/Month/Date here reflect the user's calendar day.
+  function localMidnight(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+  function localDayKey(iso) { const d = new Date(iso); return isNaN(d) ? '' : d.toDateString(); }
+  // Day-divider label: Today / Yesterday / weekday (<7d) / full date (older).
+  function daySeparatorLabel(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    const diffDays = Math.round((localMidnight(new Date()) - localMidnight(d)) / 86400000);
+    if (diffDays <= 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return d.toLocaleDateString('en-US', { weekday: 'long' });
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  }
   // A column that doesn't exist yet — lets avatar features degrade to initials
   // before the sub-slice-3 migration runs (same spirit as isMissingTable).
   function isMissingColumn(err) {
@@ -278,6 +293,12 @@ function initTeamChat(config) {
   border-radius:12px; border:1px solid var(--border); object-fit:cover; background:#fff;
 }
 .chat-msg.me .chat-att-photo { border-color:rgba(255,255,255,0.45); }
+/* thread day-divider (display-only, WhatsApp-style centered muted pill) */
+.chat-day-sep { display:flex; justify-content:center; margin:2px 0; }
+.chat-day-sep span {
+  font-size:0.68rem; font-weight:600; color:var(--muted); letter-spacing:0.02em;
+  background:#eef0f5; border:1px solid var(--border); padding:3px 10px; border-radius:12px;
+}
 .chat-att-photo-loading {
   width:160px; height:110px; border-radius:12px; border:1px dashed var(--border);
   display:flex; align-items:center; justify-content:center;
@@ -786,12 +807,25 @@ function initTeamChat(config) {
     const box = document.getElementById('chat-messages');
     if (!box) return;
     const me = getIdentity();
-    box.innerHTML = threadMessages.map(m => `
+    // Walk oldest→newest; emit a centered day-divider (display-only, NOT a
+    // message) whenever the local calendar day changes. This runs on every
+    // renderThread, so the realtime append path (which pushes then re-renders)
+    // gets a fresh divider above the first message of a new day automatically.
+    let prevDayKey = null;
+    box.innerHTML = threadMessages.map(m => {
+      let sep = '';
+      const dk = localDayKey(m.created_at);
+      if (dk && dk !== prevDayKey) {
+        prevDayKey = dk;
+        sep = `<div class="chat-day-sep"><span>${esc(daySeparatorLabel(m.created_at))}</span></div>`;
+      }
+      return sep + `
       <div class="chat-msg ${m.sender_name === me.name ? 'me' : 'them'}">
         <div class="chat-msg-sender">${esc(m.sender_name)}</div>
         ${bubbleInner(m)}
         <div class="chat-msg-time">${formatChatTime(m.created_at)}</div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     box.scrollTop = box.scrollHeight;
   }
 
