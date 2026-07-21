@@ -55,6 +55,10 @@ function initTeamChat(config) {
   let convById = {};                // id -> enriched conversation
   let unreadByConv = {};            // id -> unread count
   let threadMessages = [];          // messages of the open thread
+  let currentConvMembers = [];      // [{member_name, member_role}] of the open thread (info sub-slice 1)
+  let currentConvIsGroup = false;   // is the open thread a group (drives header member line + info)
+  let currentConvTitle = '';        // display title of the open thread (bold header line)
+  let infoOpen = false;             // conversation-info screen is showing over #chat-messages
   let chatRealtimeChannel = null;
   let chatAudioCtx = null;
   let compose = null;               // compose-flow state (Slice 3c): {step, groupName, roster}
@@ -289,6 +293,42 @@ function initTeamChat(config) {
 .chat-voice-err { flex:1 1 100%; color:#dc2626; font-size:0.8rem; }
 .chat-att-voice-audio { width:240px; max-width:100%; height:40px; }
 .chat-att-voice-loading { color:var(--muted); font-size:0.78rem; padding:6px 0; }
+/* group thread header member line + conversation-info screen (Avatars/Settings sub-slice 1) */
+.chat-thread-head {
+  flex:1; min-width:0; display:flex; flex-direction:column; gap:1px;
+  border:none; background:transparent; cursor:pointer; font-family:inherit;
+  text-align:left; padding:0; overflow:hidden;
+}
+.chat-thread-head:hover .chat-thread-title { text-decoration:underline; }
+.chat-thread-head .chat-thread-title { width:100%; }
+.chat-thread-members {
+  font-size:0.68rem; color:var(--muted); font-weight:500; line-height:1.2;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%;
+}
+.chat-panel.chat-view-info .chat-input-row { display:none; }
+.chat-info { display:flex; flex-direction:column; margin:-12px; }
+.chat-info-head {
+  display:flex; flex-direction:column; align-items:center; gap:6px;
+  padding:22px 16px 18px; border-bottom:1px solid var(--border); background:#fff;
+}
+.chat-info-avatar {
+  width:64px; height:64px; border-radius:50%; background:#6b7280; color:#fff;
+  display:flex; align-items:center; justify-content:center; font-size:1.8rem; flex:0 0 auto;
+}
+.chat-info-name { font-weight:700; font-size:1rem; color:var(--text); text-align:center; word-break:break-word; }
+.chat-info-sub { font-size:0.74rem; color:var(--muted); }
+.chat-info-section-label {
+  font-size:0.7rem; font-weight:700; color:var(--muted); text-transform:uppercase;
+  letter-spacing:0.04em; padding:12px 14px 6px;
+}
+.chat-info-members { display:flex; flex-direction:column; }
+.chat-info-member {
+  display:flex; align-items:center; gap:10px;
+  padding:9px 14px; background:#fff; border-bottom:1px solid var(--border);
+}
+.chat-info-member-main { display:flex; flex-direction:column; min-width:0; }
+.chat-info-member-name { font-weight:600; font-size:0.85rem; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.chat-info-member-role { font-size:0.72rem; color:var(--muted); text-transform:capitalize; }
 /* Desktop: the in-page tab boards' chat fills the content area instead of
    floating as a short phone-width card. Scoped to .chat-mode-tab so the
    owner-board floating FAB panel (.chat-mode-panel) keeps its compact size. */
@@ -379,12 +419,14 @@ function initTeamChat(config) {
   // mode: 'inbox' (compose entry point) | 'thread' | 'compose'.
   // backFn overrides the back-control target (compose steps chain back through
   // themselves; thread/compose default to the inbox).
-  function setChrome(mode, title, backFn) {
+  function setChrome(mode, title, backFn, opts) {
+    opts = opts || {};
     const panel = document.getElementById('chat-panel');
     if (panel) {
       panel.classList.toggle('chat-view-inbox', mode === 'inbox');
       panel.classList.toggle('chat-view-thread', mode === 'thread');
       panel.classList.toggle('chat-view-compose', mode === 'compose');
+      panel.classList.toggle('chat-view-info', mode === 'info');
     }
     const nav = document.getElementById('chat-channels');
     if (!nav) return;
@@ -393,7 +435,21 @@ function initTeamChat(config) {
       nav.innerHTML = `<button class="chat-compose-btn" type="button" aria-label="New message" title="New message">✎</button>`;
       const c = nav.querySelector('.chat-compose-btn');
       if (c) c.addEventListener('click', openCompose);
+    } else if (opts.memberLine !== undefined) {
+      // GROUP thread header: bold group name + a muted member line under it; the
+      // whole header (not the back arrow) is a tap target that opens group info.
+      nav.innerHTML =
+        `<button class="chat-back-btn" type="button" aria-label="Back">‹</button>` +
+        `<button class="chat-thread-head" type="button" aria-label="Group info" title="Group info">` +
+          `<span class="chat-thread-title">${esc(title || '')}</span>` +
+          `<span class="chat-thread-members">${esc(opts.memberLine)}</span>` +
+        `</button>`;
+      const back = nav.querySelector('.chat-back-btn');
+      if (back) back.addEventListener('click', backFn || backToInbox);
+      const head = nav.querySelector('.chat-thread-head');
+      if (head && opts.onTitleClick) head.addEventListener('click', opts.onTitleClick);
     } else {
+      // DM thread (name only, not tappable) / compose / info — single title line.
       nav.innerHTML =
         `<button class="chat-back-btn" type="button" aria-label="Back">‹</button>` +
         `<span class="chat-thread-title">${esc(title || '')}</span>`;
@@ -548,6 +604,7 @@ function initTeamChat(config) {
   }
 
   function renderThread() {
+    if (infoOpen) return;   // info screen owns #chat-messages — don't repaint over it
     const box = document.getElementById('chat-messages');
     if (!box) return;
     const me = getIdentity();
@@ -584,14 +641,44 @@ function initTeamChat(config) {
     renderThread();
   }
 
+  // Load the open conversation's members (name + role) for the group header
+  // member line and the info screen. Membership doesn't change this sub-slice,
+  // so a per-open fetch is plenty (no realtime membership sync).
+  async function loadConvMembers(convId) {
+    const { data, error } = await db.from('chat_members')
+      .select('member_name, member_role').eq('conversation_id', convId);
+    if (error) { console.warn('[Chat] member load failed', error.message); currentConvMembers = []; return; }
+    // Stable alphabetical order by name; the current user is included, no "You".
+    currentConvMembers = (data || []).slice()
+      .sort((a, b) => (a.member_name || '').localeCompare(b.member_name || ''));
+  }
+
+  // Paint the thread back-bar for the currently open conversation: a group gets
+  // the two-line tappable header (bold title + member line → info); a DM keeps
+  // the plain, non-tappable name header (unchanged behavior).
+  function applyThreadChrome() {
+    if (currentConvIsGroup) {
+      const memberLine = currentConvMembers.map(m => m.member_name).filter(Boolean).join(', ');
+      setChrome('thread', currentConvTitle, backToInbox, { memberLine, onTitleClick: openInfo });
+    } else {
+      setChrome('thread', currentConvTitle, backToInbox);
+    }
+  }
+
   // fallbackTitle labels the back-bar when the conversation isn't in convById
   // yet (e.g. a DM/group just created in the compose flow, before loadInbox).
   async function openThread(convId, fallbackTitle) {
     if (voice) closeVoicePanel();   // cancel any in-progress recording on nav
+    infoOpen = false;
     currentConvId = convId;
     compose = null;
     const conv = convById[convId];
-    setChrome('thread', conv ? conv.displayName : (fallbackTitle || ''), backToInbox);
+    await loadConvMembers(convId);
+    // conv.type is authoritative when known; for a just-created conversation not
+    // yet in convById, a DM has exactly 2 members and a group has 3–4.
+    currentConvIsGroup = conv ? conv.type === 'group' : currentConvMembers.length > 2;
+    currentConvTitle = conv ? conv.displayName : (fallbackTitle || '');
+    applyThreadChrome();
     await loadThread(convId);
     markConversationRead(convId);
     const input = document.getElementById('chat-input');
@@ -600,11 +687,59 @@ function initTeamChat(config) {
 
   function backToInbox() {
     if (voice) closeVoicePanel();   // cancel any in-progress recording on nav
+    infoOpen = false;
     currentConvId = null;
     compose = null;
     setChrome('inbox');
     renderInbox();   // immediate paint from cached state
     loadInbox();     // then refresh previews / unread
+  }
+
+  // ── conversation info (read-only, GROUPS ONLY this sub-slice) ──────────────
+  // Rendered over #chat-messages like compose; background loadInbox()/realtime
+  // never repaint it (currentConvId stays set → inbox guard; infoOpen → thread
+  // guard). Back returns to the THREAD, not the inbox.
+  function openInfo() {
+    if (!currentConvId || !currentConvIsGroup) return;   // DMs: no info this sub-slice
+    infoOpen = true;
+    renderInfo();
+  }
+
+  function renderInfo() {
+    const box = document.getElementById('chat-messages');
+    if (!box) return;
+    const conv = convById[currentConvId];
+    const title = (conv ? conv.displayName : currentConvTitle) || 'Group';
+    setChrome('info', title, backToThreadFromInfo);
+    const rows = currentConvMembers.map(m => {
+      const initial = (m.member_name || '?').trim().charAt(0).toUpperCase();
+      return `<div class="chat-info-member">` +
+        `<span class="chat-inbox-avatar">${esc(initial)}</span>` +
+        `<span class="chat-info-member-main">` +
+          `<span class="chat-info-member-name">${esc(m.member_name)}</span>` +
+          `<span class="chat-info-member-role">${esc(m.member_role || '')}</span>` +
+        `</span>` +
+      `</div>`;
+    }).join('');
+    box.innerHTML =
+      `<div class="chat-info">` +
+        `<div class="chat-info-head">` +
+          `<span class="chat-info-avatar">👥</span>` +
+          `<div class="chat-info-name">${esc(title)}</div>` +
+          `<div class="chat-info-sub">${currentConvMembers.length} member${currentConvMembers.length === 1 ? '' : 's'}</div>` +
+        `</div>` +
+        `<div class="chat-info-section-label">Members</div>` +
+        `<div class="chat-info-members">${rows}</div>` +
+      `</div>`;
+    box.scrollTop = 0;
+  }
+
+  function backToThreadFromInfo() {
+    infoOpen = false;
+    applyThreadChrome();
+    renderThread();   // repaint the thread from cached threadMessages
+    const box = document.getElementById('chat-messages');
+    if (box) box.scrollTop = box.scrollHeight;
   }
 
   // ── compose: new DM / new group (Slice 3c) ──────────────────
