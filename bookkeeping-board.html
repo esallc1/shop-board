@@ -451,7 +451,7 @@
         <div class="sidebar-item" data-view="queue" data-label="Unprocessed Invoices"><span class="icon">🧾</span>Unprocessed Invoices</div>
         <div class="sidebar-item" data-view="history" data-label="History"><span class="icon">📚</span>History</div>
         <div class="sidebar-item" data-view="capture" data-label="Capture Invoice"><span class="icon">📸</span>Capture Invoice</div>
-        <div class="sidebar-item" data-view="todo" data-label="To-Do"><span class="icon">✅</span>To-Do</div>
+        <div class="sidebar-item" data-view="todo" data-label="To-Do"><span class="icon">✅</span>To-Do<span class="chat-nav-badge" id="todo-nav-badge" style="display:none">0</span></div>
       </div>
       <div class="sidebar-group">
         <div class="sidebar-group-label">Manage</div>
@@ -2850,7 +2850,21 @@
     renderTodos();
   }
 
+  function updateTodoNavBadge() {
+    const badge = document.getElementById('todo-nav-badge');
+    if (!badge) return;
+    // Personal "mine to act on" count: undone AND (assigned to me, or my own
+    // personal unassigned). Excludes to-dos I created and delegated to someone
+    // else — those show tagged "Assigned to X" but belong on that person's badge.
+    const n = todoRows.filter(t => !t.completed_at &&
+      (t.assigned_to === CURRENT_EMPLOYEE_ID ||
+        (t.created_by === CURRENT_EMPLOYEE_ID && !t.assigned_to))).length;
+    badge.textContent = n;
+    badge.style.display = n > 0 ? '' : 'none';
+  }
+
   function renderTodos() {
+    updateTodoNavBadge();
     const box = document.getElementById('todoList');
     if (!box) return;
     if (todoRows.length === 0) {
