@@ -148,12 +148,6 @@ window.Planner = (function () {
 .pl-inline-capture { box-sizing:border-box; border:1px solid var(--accent,#5b5ef4); border-radius:7px; padding:5px 7px; font-size:0.78rem; font-family:inherit; outline:none; width:100%; }
 .pl-inline-timed { position:absolute; z-index:20; }
 
-/* quick delete (x) on cards — mis-captures shouldn't take three taps */
-.pl-item { padding-right:24px; }
-.pl-del { position:absolute; top:3px; right:4px; width:18px; height:18px; border:none; background:transparent; color:var(--muted,#6b7280); font-size:15px; line-height:1; cursor:pointer; border-radius:4px; padding:0; opacity:0.55; }
-.pl-del:hover { opacity:1; color:var(--red,#dc2626); background:rgba(220,38,38,0.08); }
-.pl-timed-item .pl-del { top:1px; right:1px; width:15px; height:15px; font-size:12px; }
-
 /* mobile floating capture — escapes the ~55px cell so you can see what you type */
 .pl-fcap-backdrop { position:fixed; inset:0; z-index:8900; background:rgba(10,12,20,0.18); }
 .pl-fcap { position:fixed; left:10px; right:10px; top:10px; z-index:8901; background:#fff; border:1px solid var(--accent,#5b5ef4); border-radius:12px; box-shadow:0 14px 40px rgba(20,30,60,0.3); padding:12px 14px; }
@@ -346,7 +340,6 @@ window.Planner = (function () {
     return `<div class="pl-item${i.done_at ? ' done' : ''}" data-id="${esc(i.id)}" style="border-left-color:${col || 'var(--pl-neutral)'}">
       <input type="checkbox" class="pl-check"${i.done_at ? ' checked' : ''}>
       <div class="pl-item-body"><div class="pl-item-title">${esc(i.title)}</div>${sub ? `<div class="pl-item-sub">${sub}</div>` : ''}</div>
-      <button type="button" class="pl-del" title="Delete">&times;</button>
     </div>`;
   }
   function alldayCard(i) {
@@ -354,7 +347,6 @@ window.Planner = (function () {
     return `<div class="pl-item pl-allday-item${i.done_at ? ' done' : ''}" data-id="${esc(i.id)}" style="border-left-color:${col || 'var(--pl-neutral)'}">
       <input type="checkbox" class="pl-check"${i.done_at ? ' checked' : ''}>
       <div class="pl-item-body"><div class="pl-item-title">${esc(i.title)}</div></div>
-      <button type="button" class="pl-del" title="Delete">&times;</button>
     </div>`;
   }
   function timedCards(list) {
@@ -379,7 +371,6 @@ window.Planner = (function () {
       return `<div class="pl-timed-item${a.i.done_at ? ' done' : ''}" data-id="${esc(a.i.id)}"
         style="top:${top}px;height:${height}px;left:calc(${left}% + 1px);width:calc(${w}% - 2px);border-left-color:${col || 'var(--pl-neutral)'}">
         <div class="pl-item-title">${esc(a.i.title)}</div><div class="pl-item-sub">${fmtTime(a.i.scheduled_time)}</div>
-        <button type="button" class="pl-del" title="Delete">&times;</button>
       </div>`;
     }).join('');
   }
@@ -389,14 +380,12 @@ window.Planner = (function () {
     mountRoot.querySelectorAll('.pl-item, .pl-timed-item').forEach(el => {
       const cb = el.querySelector('.pl-check');
       if (cb) cb.addEventListener('click', (e) => { e.stopPropagation(); toggleDone(el.dataset.id, cb.checked); });
-      const del = el.querySelector('.pl-del');
-      if (del) del.addEventListener('click', (e) => { e.stopPropagation(); deleteItem(el.dataset.id); });
       el.addEventListener('pointerdown', (e) => onItemPointerDown(e, el));
     });
   }
   function onItemPointerDown(e, el) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (e.target.closest('.pl-check') || e.target.closest('.pl-del')) return;  // controls handle their own taps
+    if (e.target.closest('.pl-check')) return;                // the checkbox handles its own taps
     drag = { id: el.dataset.id, startX: e.clientX, startY: e.clientY, moved: false, ghost: null, hover: null };
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
