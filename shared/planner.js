@@ -148,6 +148,20 @@ window.Planner = (function () {
 .pl-inline-capture { box-sizing:border-box; border:1px solid var(--accent,#5b5ef4); border-radius:7px; padding:5px 7px; font-size:0.78rem; font-family:inherit; outline:none; width:100%; }
 .pl-inline-timed { position:absolute; z-index:20; }
 
+/* quick delete (x) on cards — mis-captures shouldn't take three taps */
+.pl-item { padding-right:24px; }
+.pl-del { position:absolute; top:3px; right:4px; width:18px; height:18px; border:none; background:transparent; color:var(--muted,#6b7280); font-size:15px; line-height:1; cursor:pointer; border-radius:4px; padding:0; opacity:0.55; }
+.pl-del:hover { opacity:1; color:var(--red,#dc2626); background:rgba(220,38,38,0.08); }
+.pl-timed-item .pl-del { top:1px; right:1px; width:15px; height:15px; font-size:12px; }
+
+/* mobile floating capture — escapes the ~55px cell so you can see what you type */
+.pl-fcap-backdrop { position:fixed; inset:0; z-index:8900; background:rgba(10,12,20,0.18); }
+.pl-fcap { position:fixed; left:10px; right:10px; top:10px; z-index:8901; background:#fff; border:1px solid var(--accent,#5b5ef4); border-radius:12px; box-shadow:0 14px 40px rgba(20,30,60,0.3); padding:12px 14px; }
+.pl-fcap-ctx { font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.3px; color:var(--muted,#6b7280); margin-bottom:8px; }
+.pl-fcap input { width:100%; box-sizing:border-box; border:1px solid var(--border,#e5e7eb); border-radius:9px; padding:11px 12px; font-size:16px; font-family:inherit; outline:none; }
+.pl-fcap input:focus { border-color:var(--accent,#5b5ef4); }
+.pl-fcap-hint { font-size:0.7rem; color:var(--muted,#6b7280); margin-top:7px; }
+
 /* editor / quick-schedule sheet */
 .pl-modal { display:none; position:fixed; inset:0; z-index:8500; background:rgba(10,12,20,0.5); align-items:flex-start; justify-content:center; padding:40px 16px; overflow-y:auto; }
 .pl-modal.open { display:flex; }
@@ -177,6 +191,8 @@ window.Planner = (function () {
 .pl-btn-sec { background:var(--bg,#f9fafb); border:1px solid var(--border,#e5e7eb); color:var(--text,#111827); }
 .pl-btn-ghost { background:transparent; color:var(--muted,#6b7280); }
 .pl-btn-ghost:hover { color:var(--text,#111827); }
+.pl-btn-danger { background:transparent; color:var(--red,#dc2626); }
+.pl-btn-danger:hover { background:rgba(220,38,38,0.08); }
 `;
     const style = document.createElement('style');
     style.setAttribute('data-planner', '');
@@ -330,6 +346,7 @@ window.Planner = (function () {
     return `<div class="pl-item${i.done_at ? ' done' : ''}" data-id="${esc(i.id)}" style="border-left-color:${col || 'var(--pl-neutral)'}">
       <input type="checkbox" class="pl-check"${i.done_at ? ' checked' : ''}>
       <div class="pl-item-body"><div class="pl-item-title">${esc(i.title)}</div>${sub ? `<div class="pl-item-sub">${sub}</div>` : ''}</div>
+      <button type="button" class="pl-del" title="Delete">&times;</button>
     </div>`;
   }
   function alldayCard(i) {
@@ -337,6 +354,7 @@ window.Planner = (function () {
     return `<div class="pl-item pl-allday-item${i.done_at ? ' done' : ''}" data-id="${esc(i.id)}" style="border-left-color:${col || 'var(--pl-neutral)'}">
       <input type="checkbox" class="pl-check"${i.done_at ? ' checked' : ''}>
       <div class="pl-item-body"><div class="pl-item-title">${esc(i.title)}</div></div>
+      <button type="button" class="pl-del" title="Delete">&times;</button>
     </div>`;
   }
   function timedCards(list) {
@@ -361,6 +379,7 @@ window.Planner = (function () {
       return `<div class="pl-timed-item${a.i.done_at ? ' done' : ''}" data-id="${esc(a.i.id)}"
         style="top:${top}px;height:${height}px;left:calc(${left}% + 1px);width:calc(${w}% - 2px);border-left-color:${col || 'var(--pl-neutral)'}">
         <div class="pl-item-title">${esc(a.i.title)}</div><div class="pl-item-sub">${fmtTime(a.i.scheduled_time)}</div>
+        <button type="button" class="pl-del" title="Delete">&times;</button>
       </div>`;
     }).join('');
   }
@@ -370,12 +389,14 @@ window.Planner = (function () {
     mountRoot.querySelectorAll('.pl-item, .pl-timed-item').forEach(el => {
       const cb = el.querySelector('.pl-check');
       if (cb) cb.addEventListener('click', (e) => { e.stopPropagation(); toggleDone(el.dataset.id, cb.checked); });
+      const del = el.querySelector('.pl-del');
+      if (del) del.addEventListener('click', (e) => { e.stopPropagation(); deleteItem(el.dataset.id); });
       el.addEventListener('pointerdown', (e) => onItemPointerDown(e, el));
     });
   }
   function onItemPointerDown(e, el) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (e.target.closest('.pl-check')) return;               // let the checkbox handle its own click
+    if (e.target.closest('.pl-check') || e.target.closest('.pl-del')) return;  // controls handle their own taps
     drag = { id: el.dataset.id, startX: e.clientX, startY: e.clientY, moved: false, ghost: null, hover: null };
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
@@ -439,6 +460,9 @@ window.Planner = (function () {
     });
   }
   function openInlineCapture(container, ctx) {
+    // On a phone the cell is ~55px wide — an in-cell input shows 3-4 chars.
+    // Escape to a full-width floating bar (pinned at the top, above the keyboard).
+    if (window.matchMedia('(max-width:768px)').matches) { openFloatingCapture(ctx); return; }
     const existing = container.querySelector('.pl-inline-capture');
     if (existing) { existing.focus(); return; }
     const inp = document.createElement('input');
@@ -456,20 +480,79 @@ window.Planner = (function () {
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') finish(true); else if (e.key === 'Escape') finish(false); });
     inp.addEventListener('blur', () => finish(true));
   }
+  function openFloatingCapture(ctx) {
+    document.querySelectorAll('.pl-fcap, .pl-fcap-backdrop').forEach(n => n.remove());
+    const backdrop = document.createElement('div'); backdrop.className = 'pl-fcap-backdrop';
+    const bar = document.createElement('div'); bar.className = 'pl-fcap';
+    const d = parseYmd(ctx.date);
+    const label = (d ? d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '')
+      + (ctx.time ? ' · ' + fmtTime(ctx.time) : ' · all-day');
+    bar.innerHTML = `<div class="pl-fcap-ctx">New — ${esc(label)}</div>`
+      + `<input type="text" placeholder="Type a title, then Enter…">`
+      + `<div class="pl-fcap-hint">Enter to add · Esc / tap away to cancel</div>`;
+    document.body.appendChild(backdrop); document.body.appendChild(bar);
+    const inp = bar.querySelector('input'); inp.focus();
+    let done = false;
+    const finish = (save) => {
+      if (done) return; done = true;
+      const v = inp.value.trim();
+      backdrop.remove(); bar.remove();
+      if (save && v) createItem({ title: v, scheduled_date: ctx.date, scheduled_time: ctx.time });
+    };
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') finish(true); else if (e.key === 'Escape') finish(false); });
+    backdrop.addEventListener('click', () => finish(false));
+  }
 
   // ── writes ──
+  // Log the WHOLE error (name/message/code/details/hint/stack) + context, so an
+  // on-device failure is diagnosable from the console instead of a bare toast.
+  // (The "Could not update: TypeError: Load failed" report had no PostgREST code,
+  // i.e. a fetch-layer failure — this captures what a recurrence actually is.)
+  function logErr(label, error, ctx) {
+    console.error(`[Planner] ${label} failed`, Object.assign({
+      name: error && error.name, message: error && error.message,
+      code: error && error.code, details: error && error.details,
+      hint: error && error.hint, stack: error && error.stack,
+    }, ctx || {}));
+  }
+  function describeErr(e) {
+    if (!e) return 'unknown error';
+    return [e.message, e.code, e.details].filter(Boolean).join(' · ') || String(e);
+  }
+  // A "Load failed" / "Failed to fetch" is a network-layer TypeError — no PostgREST
+  // code. Only these get a single retry, and only for IDEMPOTENT ops (update/delete).
+  function isNetworkError(e) { return !!e && !e.code && /load failed|failed to fetch|networkerror/i.test((e && e.message) || ''); }
+  async function runIdempotent(label, run, ctx) {
+    let { error } = await run();
+    if (error && isNetworkError(error)) {
+      console.warn(`[Planner] ${label}: network error, retrying once —`, describeErr(error));
+      await new Promise(r => setTimeout(r, 300));
+      ({ error } = await run());
+    }
+    if (error) { logErr(label, error, ctx); return error; }
+    return null;
+  }
+
   async function createItem(fields) {
     const ownerId = getOwnerId();
     if (!ownerId) return;
     const row = Object.assign({ owner_employee_id: ownerId, title: fields.title, scheduled_date: null, scheduled_time: null }, fields);
+    // INSERT is NOT idempotent — never retried (a retry could create a duplicate row).
     const { error } = await db.from('planning_items').insert(row);
-    if (error) { console.error('[Planner] create failed', error); alert('Could not add: ' + error.message); return; }
+    if (error) { logErr('create', error, { row }); alert('Could not add: ' + describeErr(error)); return; }
     refetch();
   }
   async function applyPatch(id, patch) {
-    const { error } = await db.from('planning_items').update(patch).eq('id', id);
-    if (error) { console.error('[Planner] update failed', error); alert('Could not update: ' + error.message); return; }
+    const error = await runIdempotent('update', () => db.from('planning_items').update(patch).eq('id', id), { id, patch });
+    if (error) { alert('Could not update: ' + describeErr(error)); return; }
     refetch();
+  }
+  async function deleteItem(id) {
+    if (!confirm('Delete this item? This can\'t be undone.')) return false;
+    const error = await runIdempotent('delete', () => db.from('planning_items').delete().eq('id', id), { id });
+    if (error) { alert('Could not delete: ' + describeErr(error)); return false; }
+    refetch();
+    return true;
   }
   async function toggleDone(id, done) {
     await applyPatch(id, { done_at: done ? new Date().toISOString() : null });
@@ -497,6 +580,7 @@ window.Planner = (function () {
         <div class="pl-field"><label>Notes</label><textarea id="pl-f-notes"></textarea></div>
         <div class="pl-modal-err" id="pl-modal-err"></div>
         <div class="pl-modal-actions">
+          <button type="button" class="pl-btn pl-btn-danger" id="pl-delete">Delete</button>
           <button type="button" class="pl-btn pl-btn-ghost" id="pl-archive"></button>
           <span class="pl-spacer"></span>
           <button type="button" class="pl-btn pl-btn-sec" id="pl-cancel">Cancel</button>
@@ -508,6 +592,11 @@ window.Planner = (function () {
     document.getElementById('pl-cancel').addEventListener('click', closeModal);
     document.getElementById('pl-save').addEventListener('click', saveModal);
     document.getElementById('pl-archive').addEventListener('click', toggleArchiveCurrent);
+    // Delete = hard delete (with confirm). Archive stays as the secondary "keep it" option.
+    document.getElementById('pl-delete').addEventListener('click', async () => {
+      if (!editingId) return;
+      if (await deleteItem(editingId)) closeModal();
+    });
   }
   let pickedDate = null;   // editor's chosen scheduled_date (Y-M-D or null)
   function openEditor(id) {
