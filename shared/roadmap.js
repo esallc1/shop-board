@@ -49,7 +49,8 @@ window.Roadmap = (function () {
   const STATUS_LABEL = Object.fromEntries(STATUSES.map(s => [s.key, s.label]));
   const MIN_QUARTERS = 4;
   const MIN_QUARTER_PX = 130;   // horizontal-scroll floor so quarters never squish to mush
-  const MIN_BAR_PCT = 1.2;      // a same-day bar still shows
+  const FLIP_AT = 84;           // a chip past this % of the track flips to the bar's LEFT side
+                                // (min visible bar width is enforced in CSS: .rm-bar min-width:8px)
 
   let db = null;
   let mountRoot = null;
@@ -128,7 +129,7 @@ window.Roadmap = (function () {
 
 .rm-scroll { overflow-x:auto; }
 .rm-timeline { position:relative; }
-.rm-head { display:flex; height:26px; }
+.rm-head { display:flex; height:30px; }
 .rm-head-spacer { width:var(--rm-label-w); flex:0 0 var(--rm-label-w); }
 .rm-head-track { position:relative; flex:1; }
 .rm-q-label { position:absolute; top:2px; transform:translateX(-50%); font-size:0.72rem; font-weight:700; color:var(--muted,#6b7280); white-space:nowrap; }
@@ -138,7 +139,9 @@ window.Roadmap = (function () {
 .rm-gridlines { position:absolute; top:0; bottom:0; left:var(--rm-label-w); right:0; pointer-events:none; z-index:0; }
 .rm-gridline { position:absolute; top:0; bottom:0; width:1px; background:var(--border,#e5e7eb); }
 .rm-today { position:absolute; top:0; bottom:0; width:2px; background:var(--rm-line); z-index:3; }
-.rm-today-cap { position:absolute; top:-2px; left:50%; transform:translateX(-50%); font-size:0.6rem; font-weight:800; letter-spacing:0.4px; text-transform:uppercase; color:#fff; background:var(--rm-line); border-radius:4px; padding:1px 5px; white-space:nowrap; }
+/* TODAY pill lives in the header row (above the grid) — the line passes through
+   bars, but the label never sits on one. */
+.rm-today-cap { position:absolute; bottom:1px; transform:translateX(-50%); font-size:0.6rem; font-weight:800; letter-spacing:0.4px; text-transform:uppercase; color:#fff; background:var(--rm-line); border-radius:4px; padding:1px 6px; white-space:nowrap; z-index:4; }
 
 .rm-row { position:relative; display:flex; align-items:center; height:40px; z-index:1; }
 .rm-row + .rm-row { border-top:1px dashed #eef0f5; }
@@ -147,8 +150,9 @@ window.Roadmap = (function () {
 .rm-row.rm-archived { opacity:0.5; }
 .rm-track { position:relative; flex:1; height:100%; }
 
-.rm-bar { position:absolute; top:50%; transform:translateY(-50%); height:24px; border-radius:7px; display:flex; align-items:center; gap:6px; padding:0 8px; font-size:0.72rem; font-weight:600; color:#fff; cursor:pointer; overflow:hidden; box-shadow:0 1px 2px rgba(20,30,60,0.12); }
-.rm-bar .rm-bar-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* Bars carry NO text — the row label already names the project. Just a
+   colored block, floored to a visible min width so short spans still show. */
+.rm-bar { position:absolute; top:50%; transform:translateY(-50%); height:24px; min-width:8px; box-sizing:border-box; border-radius:7px; cursor:pointer; box-shadow:0 1px 2px rgba(20,30,60,0.12); }
 .rm-st-not_started { background:var(--rm-grey); color:#1f2937; }
 .rm-st-active { background:var(--rm-active); }
 .rm-st-stalled { background:var(--rm-stalled); }
@@ -162,7 +166,11 @@ window.Roadmap = (function () {
 .rm-bar.rm-running { border-top-right-radius:0; border-bottom-right-radius:0; -webkit-mask-image:linear-gradient(to right, #000 78%, rgba(0,0,0,0.15) 100%); mask-image:linear-gradient(to right, #000 78%, rgba(0,0,0,0.15) 100%); }
 .rm-bar.rm-running::after { content:""; position:absolute; top:0; right:0; bottom:0; width:10px; border-right:2px dashed rgba(255,255,255,0.85); }
 
-.rm-chip { font-size:0.6rem; font-weight:800; letter-spacing:0.3px; text-transform:uppercase; background:rgba(255,255,255,0.25); border-radius:4px; padding:1px 5px; flex:0 0 auto; }
+/* State chips sit OUTSIDE the bar, in the open track (never clipped by bar
+   width). Positioned inline per row; flip to the bar's left near the edge. */
+.rm-chip { position:absolute; top:50%; transform:translateY(-50%); font-size:0.6rem; font-weight:800; letter-spacing:0.3px; text-transform:uppercase; border-radius:4px; padding:2px 6px; white-space:nowrap; pointer-events:none; z-index:2; }
+.rm-chip-late { background:var(--rm-late); color:#fff; }
+.rm-chip-notarget { background:var(--surface-2,#f0f1f5); color:var(--muted,#6b7280); border:1px solid var(--border,#e5e7eb); }
 
 /* MILESTONE — diamond at the target date. */
 .rm-marker { position:absolute; top:50%; width:15px; height:15px; transform:translate(-50%,-50%) rotate(45deg); border-radius:3px; cursor:pointer; box-shadow:0 1px 2px rgba(20,30,60,0.2); }
@@ -330,32 +338,45 @@ window.Roadmap = (function () {
         // rule is !important, so it beats this inline background anyway). Guarded
         // to a hex literal so the field can't inject into the style attribute.
         const customBg = (!late && /^#[0-9a-fA-F]{3,8}$/.test(p.color || '')) ? `;background:${p.color}` : '';
-        let el = '';
+
+        // State chip (Late / No target) — rendered OUTSIDE the bar, in the open
+        // track past the bar's end, so bar width never clips it. Flips to the
+        // bar's LEFT when the anchor is close to the right edge.
+        const chipText = late ? 'Late' : (cls.kind === 'running' ? 'No target' : '');
+        const chipCls = late ? 'rm-chip-late' : 'rm-chip-notarget';
+
+        let el = '', chipEl = '';
         if (cls.kind === 'milestone') {
-          const left = pct(cls.target);
-          el = `<div class="rm-marker ${st}${late ? ' rm-late' : ''}" style="left:${left}%${customBg}" title="${esc(fmtDate(cls.target))}"></div>`;
+          const at = pct(cls.target);
+          el = `<div class="rm-marker ${st}${late ? ' rm-late' : ''}" style="left:${at}%${customBg}" title="${esc(fmtDate(cls.target))}"></div>`;
+          if (chipText) chipEl = at > FLIP_AT
+            ? `<div class="rm-chip ${chipCls}" style="right:calc(${100 - at}% + 12px)">${chipText}</div>`
+            : `<div class="rm-chip ${chipCls}" style="left:calc(${at}% + 12px)">${chipText}</div>`;
         } else {
           const left = pct(cls.start);
           let width = pct(cls.right) - left;
-          if (width < MIN_BAR_PCT) width = MIN_BAR_PCT;
+          if (width < 0) width = 0;                  // guard bad data; CSS min-width:8px floors the visible size
           const running = cls.kind === 'running';
-          const chip = late ? '<span class="rm-chip">Late</span>'
-            : running ? '<span class="rm-chip">No target</span>' : '';
           const cls2 = `rm-bar ${st}${late ? ' rm-late' : ''}${running ? ' rm-running' : ''}`;
-          el = `<div class="${cls2}" style="left:${left}%;width:${width}%${customBg}">`
-             + `<span class="rm-bar-name">${esc(p.name)}</span>${chip}</div>`;
+          el = `<div class="${cls2}" style="left:${left}%;width:${width}%${customBg}"></div>`;
+          if (chipText) {
+            const rightPct = left + width;
+            chipEl = rightPct > FLIP_AT
+              ? `<div class="rm-chip ${chipCls}" style="right:calc(${100 - left}% + 8px)">${chipText}</div>`
+              : `<div class="rm-chip ${chipCls}" style="left:calc(${rightPct}% + 8px)">${chipText}</div>`;
+          }
         }
         return `<div class="rm-row${p.archived_at ? ' rm-archived' : ''}" data-id="${esc(p.id)}">`
              + `<div class="rm-row-label" title="${esc(p.name)}">${esc(p.name)}</div>`
-             + `<div class="rm-track">${el}</div></div>`;
+             + `<div class="rm-track">${el}${chipEl}</div></div>`;
       }).join('');
 
       timelineHTML = `
         <div class="rm-card">
           <div class="rm-scroll"><div class="rm-timeline" style="min-width:${minWidth}px">
-            <div class="rm-head"><div class="rm-head-spacer"></div><div class="rm-head-track">${heads}</div></div>
+            <div class="rm-head"><div class="rm-head-spacer"></div><div class="rm-head-track">${heads}<div class="rm-today-cap" style="left:${todayX}%">Today</div></div></div>
             <div class="rm-body">
-              <div class="rm-gridlines">${grids}<div class="rm-today" style="left:${todayX}%"><span class="rm-today-cap">Today</span></div></div>
+              <div class="rm-gridlines">${grids}<div class="rm-today" style="left:${todayX}%"></div></div>
               ${rowsHTML}
             </div>
           </div></div>
