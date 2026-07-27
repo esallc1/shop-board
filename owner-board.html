@@ -14,6 +14,7 @@
 <script src="shared/board-settings.js"></script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/roadmap.js"></script>
+<script src="shared/planner.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
@@ -96,9 +97,13 @@
       <div class="sidebar-group">
         <div class="sidebar-group-label">Main</div>
         <div class="sidebar-item active" data-view="todo" data-label="To-Do"><span class="icon">✅</span>To-Do<span class="chat-nav-badge" id="todo-nav-badge" style="display:none">0</span></div>
-        <div class="sidebar-item" data-view="roadmap" data-label="Roadmap"><span class="icon">🗺️</span>Roadmap</div>
         <div class="sidebar-item" data-view="marketing" data-label="Marketing Content"><span class="icon">📸</span>Marketing Content</div>
         <div class="sidebar-item" data-view="teamchat" data-label="Team Chat"><span class="icon">💬</span>Team Chat<span class="chat-nav-badge" id="teamchat-unread-badge" style="display:none">0</span></div>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Planning</div>
+        <div class="sidebar-item" data-view="roadmap" data-label="Roadmap"><span class="icon">🗺️</span>Roadmap</div>
+        <div class="sidebar-item" data-view="planner" data-label="Planner"><span class="icon">🗓️</span>Planner</div>
       </div>
     </div>
   </nav>
@@ -138,6 +143,11 @@
   <!-- ══ ROADMAP ══ (shared/roadmap.js — one-line include, self-contained) -->
   <div class="view" id="view-roadmap">
     <div id="roadmap-root"></div>
+  </div>
+
+  <!-- ══ PLANNER ══ (shared/planner.js — one-line include, self-contained) -->
+  <div class="view" id="view-planner">
+    <div id="planner-root"></div>
   </div>
 
   <!-- ══ MARKETING CONTENT ══ -->
@@ -858,6 +868,21 @@
         refetch: roadmap.refetch,
         getChannel: roadmap.getChannel,
         resubscribe: roadmap.resubscribe,
+      };
+
+      // Planner (Phase 2 Slice A) — same private owner_employee_id scoping, so
+      // it also waits for the session to resolve. Shared module, one call.
+      const planner = Planner.init({
+        db,
+        mountSelector: '#planner-root',
+        getOwnerEmployeeId: () => CURRENT_EMPLOYEE_ID,
+        getName: () => CHAT_IDENTITY.name,
+        isSurfaceVisible: () => currentViewKey === 'planner',
+      });
+      VIEW_REFRESH.planner = {
+        refetch: planner.refetch,
+        getChannel: planner.getChannel,
+        resubscribe: planner.resubscribe,
       };
     }
 
