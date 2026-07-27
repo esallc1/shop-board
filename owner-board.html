@@ -16,6 +16,7 @@
 <script src="shared/catch-moment.js"></script>
 <script src="shared/roadmap.js"></script>
 <script src="shared/planner.js"></script>
+<script src="shared/adoption.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
@@ -106,6 +107,10 @@
         <div class="sidebar-item" data-view="roadmap" data-label="Roadmap"><span class="icon">🗺️</span>Roadmap</div>
         <div class="sidebar-item" data-view="planner" data-label="Planner"><span class="icon">🗓️</span>Planner</div>
       </div>
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Insights</div>
+        <div class="sidebar-item" data-view="adoption" data-label="Feature Adoption"><span class="icon">📊</span>Feature Adoption</div>
+      </div>
     </div>
   </nav>
 
@@ -149,6 +154,11 @@
   <!-- ══ PLANNER ══ (shared/planner.js — one-line include, self-contained) -->
   <div class="view" id="view-planner">
     <div id="planner-root"></div>
+  </div>
+
+  <!-- ══ FEATURE ADOPTION ══ (shared/adoption.js — one-line include, owner only) -->
+  <div class="view" id="view-adoption">
+    <div id="adoption-root"></div>
   </div>
 
   <!-- ══ MARKETING CONTENT ══ -->
@@ -885,6 +895,21 @@
         getChannel: planner.getChannel,
         resubscribe: planner.resubscribe,
       };
+
+      // Feature Adoption (owner-only insight). No realtime — loads on tab open
+      // (wired below), the board's visibility hook, and its manual Refresh button.
+      const adoption = Adoption.init({
+        db,
+        mountSelector: '#adoption-root',
+        isSurfaceVisible: () => currentViewKey === 'adoption',
+      });
+      VIEW_REFRESH.adoption = {
+        refetch: adoption.refetch,
+        getChannel: adoption.getChannel,
+        resubscribe: adoption.resubscribe,
+      };
+      document.querySelector('.sidebar-item[data-view="adoption"]')
+        .addEventListener('click', () => adoption.refetch());
     }
 
     let phone = null;
