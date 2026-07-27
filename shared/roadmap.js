@@ -64,6 +64,7 @@ window.Roadmap = (function () {
   let channel = null;
   let editingId = null;         // null = create mode
   let didInitialScroll = false;
+  let resizeBound = false;
 
   // ── helpers ──
   function esc(s) {
@@ -316,7 +317,14 @@ window.Roadmap = (function () {
       while (quartersBetween(winStart, winEnd) < MIN_QUARTERS) winEnd = addQuarters(winEnd, 1);
       spanDays = diffDays(winStart, winEnd) || 1;
       const nQuarters = quartersBetween(winStart, winEnd);
-      const minWidth = nQuarters * MIN_QUARTER_PX + 168;         // 168 = label col
+      // On phones the timeline is the point — give it the majority of the width.
+      // Shrink the name column (names already ellipsis-truncate; full name on tap)
+      // and the per-quarter floor so >=3 quarters + today fit at 390px without scroll.
+      const narrow = window.matchMedia('(max-width:768px)').matches;
+      const labelW = narrow ? 96 : 168;
+      const minQpx = narrow ? 64 : MIN_QUARTER_PX;
+      mountRoot.querySelector('.rm-wrap').style.setProperty('--rm-label-w', labelW + 'px');
+      const minWidth = nQuarters * minQpx + labelW;
       const pct = (dt) => (diffDays(winStart, dt) / spanDays) * 100;
 
       // header labels + ticks, gridlines, today line
@@ -580,6 +588,12 @@ window.Roadmap = (function () {
     renderShell();
     refetch();
     resubscribe();
+    // Re-render on resize/rotate so the narrow (<=768px) layout engages/disengages.
+    if (!resizeBound) {
+      resizeBound = true;
+      let rt;
+      window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { try { render(); } catch (e) {} }, 150); });
+    }
     return { refetch, getChannel, resubscribe };
   }
 
