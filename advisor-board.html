@@ -780,11 +780,48 @@
     .desk-chip.dragging { opacity:0.5; cursor:grabbing; }
     .desk-chip .desk-chip-t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
     .desk-chip.timed { position:absolute; box-sizing:border-box; }
+
+    /* Call log slide-out (slice 3d) */
+    .desk-head { position:relative; }
+    .desk-log-open { margin-left:auto; border:1px solid var(--border); background:#fff; border-radius:8px; padding:6px 12px; font-size:0.8rem; font-weight:700; cursor:pointer; color:var(--text); }
+    .desk-log-open:hover { border-color:var(--accent); }
+    .desk-log-backdrop { position:fixed; inset:0; background:rgba(20,22,40,0.12); z-index:3200; opacity:0; pointer-events:none; transition:opacity .18s ease; }
+    .desk-log-backdrop.open { opacity:1; pointer-events:auto; }
+    .desk-log {
+      position:fixed; top:0; right:0; height:100vh; width:380px; max-width:92vw;
+      background:var(--surface); border-left:1px solid var(--border); box-shadow:-8px 0 24px rgba(20,22,40,0.16);
+      z-index:3300; display:flex; flex-direction:column; transform:translateX(100%); transition:transform .2s ease;
+    }
+    .desk-log.open { transform:translateX(0); }
+    .desk-log-head { display:flex; align-items:center; padding:14px 16px; border-bottom:1px solid var(--border); }
+    .desk-log-title { font-weight:800; font-size:1rem; }
+    .desk-log-x { margin-left:auto; border:none; background:transparent; color:var(--muted); font-size:1.3rem; line-height:1; cursor:pointer; padding:2px 6px; border-radius:6px; }
+    .desk-log-x:hover { background:var(--surface-2); color:var(--text); }
+    .desk-log-daynav { display:flex; align-items:center; gap:8px; padding:10px 16px; border-bottom:1px solid var(--border); }
+    .desk-log-daynav button { border:1px solid var(--border); background:#fff; border-radius:7px; padding:3px 10px; font-size:0.8rem; cursor:pointer; color:var(--text); }
+    .desk-log-daynav #deskLogDate { font-weight:700; font-size:0.85rem; min-width:130px; text-align:center; }
+    .desk-log-body { flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:8px; }
+    .log-row { border:1px solid var(--border); border-radius:9px; padding:9px 11px; cursor:pointer; background:#fff; }
+    .log-row:hover { border-color:var(--accent); background:var(--surface-2); }
+    /* THE POINT OF THE FEATURE: a call nobody wrote anything about stands out. */
+    .log-row.untouched { border-left:4px solid var(--amber); background:#fffaf0; }
+    .log-row-top { display:flex; align-items:baseline; gap:8px; }
+    .log-time { font-size:0.74rem; font-weight:700; color:var(--muted); white-space:nowrap; }
+    .log-name { font-size:0.88rem; font-weight:700; color:var(--text); }
+    .log-num { font-size:0.88rem; font-weight:700; color:var(--text); }
+    .log-chip { margin-left:auto; font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; color:#fff; background:var(--accent); border-radius:999px; padding:2px 8px; white-space:nowrap; }
+    .log-cnam { font-size:0.78rem; color:var(--muted); margin-top:1px; }
+    .log-newcaller { display:inline-block; font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:#3C3489; background:#EEEDFE; border-radius:999px; padding:1px 7px; margin-top:4px; }
+    .log-note { font-size:0.8rem; color:var(--text); margin-top:5px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .log-nextstep { display:inline-block; font-size:0.68rem; font-weight:700; color:var(--muted); border:1px solid var(--border); border-radius:6px; padding:1px 7px; margin-top:5px; }
+    .log-untouched-tag { display:inline-block; font-size:0.66rem; font-weight:800; color:#92400e; margin-top:5px; }
+    .desk-log-empty { color:var(--muted); font-size:0.82rem; text-align:center; padding:28px 8px; }
   </style>
   <div class="view" id="view-desk">
     <div class="desk-head">
       <h2>Desk</h2>
       <span class="desk-overdue" id="deskOverdue" style="display:none"></span>
+      <button type="button" class="desk-log-open" id="deskLogBtn">📋 Call log</button>
     </div>
     <div class="desk-lanes">
       <div class="desk-lane lane-callbacks">
@@ -812,6 +849,24 @@
       </div>
       <div id="deskCal"></div>
     </div>
+
+    <!-- Call log slide-out (slice 3d): every inbound call for a day, touched or
+         not. Lives INSIDE #view-desk so it auto-hides when another tab is shown.
+         position:fixed → overlays, never reflows the lanes/calendar. -->
+    <div class="desk-log-backdrop" id="deskLogBackdrop"></div>
+    <aside class="desk-log" id="deskLog" aria-hidden="true">
+      <div class="desk-log-head">
+        <div class="desk-log-title">Call log</div>
+        <button type="button" class="desk-log-x" id="deskLogClose" title="Close" aria-label="Close">×</button>
+      </div>
+      <div class="desk-log-daynav">
+        <button type="button" id="deskLogPrev" title="Previous day">‹</button>
+        <span id="deskLogDate"></span>
+        <button type="button" id="deskLogNext" title="Next day">›</button>
+        <button type="button" id="deskLogToday">Today</button>
+      </div>
+      <div class="desk-log-body" id="deskLogList"></div>
+    </aside>
   </div>
 
   <!-- ══ RO BOARD (CrisData) — Phase 2 slice 2: find/open an RO + build
@@ -1351,7 +1406,12 @@
     'waiting-part': '<span class="badge badge-parts">Waiting for Parts</span>',
   };
 
-  function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  // Coerces with String() so NUMBERS are safe: calls.id is bigint and ro_number
+  // is an integer, and the old `(s||'')` threw `.replace is not a function` on
+  // them — three separate silent-blank bugs across this project. null/undefined
+  // still render as ''. (0 and false now render as "0"/"false", which is correct
+  // for display text.)
+  function esc(s) { return String(s == null ? '' : s).replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
   // ── Approval Queue — load from Supabase
   async function loadAndRenderQueue() {
@@ -5030,13 +5090,100 @@
     $('deskCalNext').addEventListener('click', () => { weekStart = new Date(weekStart); weekStart.setDate(weekStart.getDate() + 7); if (lastData) renderCalendar(lastData.calls.filter(c => c.next_step === 'dropping_off' && c.due_at && new Date(c.due_at) >= startOfToday())); });
     $('deskCalToday').addEventListener('click', () => { weekStart = mondayOf(new Date()); if (lastData) renderCalendar(lastData.calls.filter(c => c.next_step === 'dropping_off' && c.due_at && new Date(c.due_at) >= startOfToday())); });
 
-    // realtime — refresh on any calls or repair_orders change (declined moves too)
+    // ══ CALL LOG SLIDE-OUT (slice 3d) — every inbound call for a day, whether
+    // or not anyone touched the card. The safety net. Read-only here. ══
+    const NEXT_LABELS = { quoted_callback: 'Quoted — will call back', dropping_off: 'Dropping off', checking_on_car: 'Checking on car', price_shopper: 'Price shopper' };
+    const LOG_COLS = 'id, caller_bare, caller_formatted, cnam, tracking_bare, is_new_caller, note, next_step, customer_id, started_at';
+    let logOpen = false;
+    let logDay = startOfToday();
+
+    function addDays(day, n) { const d = new Date(day); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + n); return d; }
+    function dayBounds(day) {
+      const s = new Date(day); s.setHours(0, 0, 0, 0);
+      const e = new Date(s); e.setDate(e.getDate() + 1);
+      return { startISO: s.toISOString(), endISO: e.toISOString() };
+    }
+    function logDayLabel(day) {
+      if (ymd(day) === ymd(startOfToday())) return 'Today';
+      return day.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    }
+
+    async function logLoad() {
+      const list = $('deskLogList');
+      const { startISO, endISO } = dayBounds(logDay);
+      const resp = await db.from('calls').select(LOG_COLS)
+        .gte('started_at', startISO).lt('started_at', endISO)
+        .order('started_at', { ascending: false });   // newest first
+      if (resp.error) {
+        console.error('[desk] call log load failed', resp.error);
+        list.innerHTML = `<div class="desk-log-empty">Couldn't load calls: ${esc(resp.error.message)}</div>`;
+        return;
+      }
+      const calls = resp.data || [];
+      // Resolve customers with a TARGETED .in() lookup (never select-all — the
+      // 1000-row cap trap), then the SAME customerLabel path the lanes use.
+      const ids = [...new Set(calls.map(c => c.customer_id).filter(Boolean))];
+      const custMap = {};
+      if (ids.length) {
+        const cRes = await db.from('customers').select('id, name, business_name').in('id', ids);
+        (cRes.data || []).forEach(c => { custMap[c.id] = c; });
+      }
+      logRender(calls, custMap);
+    }
+    // test hook: render the log from injected data without the DB
+    window.cdLogRenderTest = (calls, custMap) => logRender(calls, custMap || {});
+
+    function logRender(calls, custMap) {
+      const list = $('deskLogList');
+      if (!calls.length) { list.innerHTML = '<div class="desk-log-empty">No calls on this day.</div>'; return; }
+      list.innerHTML = calls.map(c => {
+        const t = c.started_at ? new Date(c.started_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '—';
+        const matched = !!c.customer_id;
+        const label = customerLabel(c, custMap);             // name when matched, else formatted number
+        const chip = window.cdSourceChip ? window.cdSourceChip(c.tracking_bare) : (c.tracking_bare || '—');
+        const hasNote = !!(c.note && String(c.note).trim());
+        const untouched = !hasNote && !c.next_step;          // the row worth seeing
+        const cnam = (!matched && c.cnam && String(c.cnam).trim()) ? `<div class="log-cnam">${esc(String(c.cnam).trim())}</div>` : '';
+        const newcaller = (!matched && c.is_new_caller) ? `<span class="log-newcaller">new caller</span>` : '';
+        const note = hasNote ? `<div class="log-note">${esc(String(c.note).trim())}</div>` : '';
+        const nextstep = c.next_step ? `<div class="log-nextstep">${esc(NEXT_LABELS[c.next_step] || c.next_step)}</div>` : '';
+        const untouchedTag = untouched ? `<div class="log-untouched-tag">⚠ No note — nobody logged this call</div>` : '';
+        return `<div class="log-row${untouched ? ' untouched' : ''}" data-open-phone="${esc(c.caller_bare || '')}">
+          <div class="log-row-top">
+            <span class="log-time">${esc(t)}</span>
+            <span class="log-${matched ? 'name' : 'num'}">${esc(label)}</span>
+            <span class="log-chip">${esc(chip)}</span>
+          </div>
+          ${cnam}${newcaller}${note}${nextstep}${untouchedTag}
+        </div>`;
+      }).join('');
+      // Row click → open the customer (matched) or the create-customer step
+      // (unmatched). cdOpenCustomerByPhone runs the phone lookup, which does both.
+      list.querySelectorAll('.log-row[data-open-phone]').forEach(row =>
+        row.onclick = () => { const p = row.dataset.openPhone; if (p && window.cdOpenCustomerByPhone) window.cdOpenCustomerByPhone(p); });
+    }
+
+    function setLogDay(day) { logDay = day; $('deskLogDate').textContent = logDayLabel(day); logLoad(); }
+    function openLog() { logOpen = true; $('deskLog').classList.add('open'); $('deskLog').setAttribute('aria-hidden', 'false'); $('deskLogBackdrop').classList.add('open'); setLogDay(logDay); }
+    function closeLog() { logOpen = false; $('deskLog').classList.remove('open'); $('deskLog').setAttribute('aria-hidden', 'true'); $('deskLogBackdrop').classList.remove('open'); }
+
+    $('deskLogBtn').addEventListener('click', openLog);
+    $('deskLogClose').addEventListener('click', closeLog);
+    $('deskLogBackdrop').addEventListener('click', closeLog);
+    $('deskLogPrev').addEventListener('click', () => setLogDay(addDays(logDay, -1)));
+    $('deskLogNext').addEventListener('click', () => setLogDay(addDays(logDay, 1)));
+    $('deskLogToday').addEventListener('click', () => setLogDay(startOfToday()));
+    $('deskLogDate').textContent = logDayLabel(logDay);
+
+    // realtime — refresh lanes/calendar on any calls or repair_orders change,
+    // and the call log too when it's open (a live inbound call appears at once).
+    function onRealtime() { deskLoad(); if (logOpen) logLoad(); }
     let deskChannel = null;
     function subscribe() {
       if (deskChannel) db.removeChannel(deskChannel);
       deskChannel = db.channel('advisor-board-desk-live')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, deskLoad)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'repair_orders' }, deskLoad)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, onRealtime)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'repair_orders' }, onRealtime)
         .subscribe();
     }
     subscribe();
@@ -5070,6 +5217,9 @@
       if (trackingBare && TRACKING_SOURCE[trackingBare]) return TRACKING_SOURCE[trackingBare];
       return formatPhone(trackingBare) || (trackingBare || '—');   // unknown line → the number itself
     }
+    // Exposed so the Desk's call log uses this ONE tracking→source mapping
+    // (slice 3d) — no second/third copy of it.
+    window.cdSourceChip = sourceChip;
 
     // Normalize to the LAST 10 DIGITS on read. This is deliberately NOT the
     // board's other customer-by-phone lookup, which compares full digit strings
