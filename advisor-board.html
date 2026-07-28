@@ -411,6 +411,53 @@
 </head>
 <body>
 
+<!-- CTM caller card (slice 2): read-only "who's calling" cards, newest on top.
+     Fixed overlay so it's visible on any board view. -->
+<div id="callCardStack" aria-live="polite"></div>
+<style>
+  #callCardStack {
+    position: fixed; top: 16px; right: 16px; z-index: 4000;
+    width: 340px; max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 32px); overflow-y: auto;
+    display: flex; flex-direction: column; gap: 10px;
+    pointer-events: none;               /* empty stack never blocks the board */
+  }
+  .call-card {
+    pointer-events: auto;
+    background: var(--surface); border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgba(20,22,40,0.16);
+    padding: 12px 14px; font-size: 0.86rem; color: var(--text);
+    animation: callCardIn .18s ease;
+  }
+  @keyframes callCardIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+  .call-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .call-card-num { font-size: 1.05rem; font-weight: 700; letter-spacing: 0.3px; }
+  .call-card-chip {
+    font-size: 0.64rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+    color: #fff; background: var(--accent); border-radius: 999px; padding: 2px 8px; white-space: nowrap;
+  }
+  .call-card-x {
+    margin-left: auto; cursor: pointer; border: none; background: transparent;
+    color: var(--muted); font-size: 1.15rem; line-height: 1; padding: 2px 6px; border-radius: 6px;
+  }
+  .call-card-x:hover { background: var(--surface-2); color: var(--text); }
+  .call-card-name { font-size: 1rem; font-weight: 700; margin-bottom: 2px; }
+  .call-card-sub { font-size: 0.8rem; color: var(--muted); margin-bottom: 6px; }
+  .call-card-row { font-size: 0.82rem; margin: 3px 0; }
+  .call-card-row .lbl { color: var(--muted); }
+  .call-card-veh { font-size: 0.82rem; margin: 2px 0; }
+  .call-card-est { margin-top: 8px; padding: 7px 9px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; }
+  .call-card-est.declined { background: rgba(239,68,68,0.12); color: var(--red); border: 1px solid rgba(239,68,68,0.35); }
+  .call-card-est.open { background: rgba(245,158,11,0.12); color: #b45309; border: 1px solid rgba(245,158,11,0.35); }
+  .call-card-new { font-size: 0.95rem; font-weight: 700; color: var(--accent); margin: 4px 0 2px; }
+  .call-card-cnam { font-size: 0.85rem; color: var(--text); }
+  .call-card-pick { border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; margin: 5px 0; cursor: pointer; }
+  .call-card-pick:hover { border-color: var(--accent); background: var(--surface-2); }
+  .call-card-muted { color: var(--muted); font-size: 0.8rem; }
+</style>
+
 <div class="app-shell">
   <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
   <nav class="sidebar" id="sidebar">
@@ -4572,6 +4619,221 @@
       if (window.cdOpenRo) { window.cdOpenRo(roId); return; }
       if (n > 0) setTimeout(() => tryOpen(n - 1), 150);
     })(25);
+  })();
+
+  // ══════════════════════════════════════════════════════════
+  // CTM CALLER CARD (slice 2) — read-only "who's calling" card.
+  //
+  // Realtime INSERT on `calls` (written by api/ctm-webhook.js) → match the
+  // caller to a customer → pop a card. Read-only in this slice: nothing on the
+  // card is editable, which is the ONLY reason the 5-minute auto-clear below is
+  // safe. When a later slice puts NOTES on the card, auto-clear becomes silent
+  // data loss and MUST be replaced with explicit dismiss only.
+  // ══════════════════════════════════════════════════════════
+  (function callerCard() {
+    const stack = document.getElementById('callCardStack');
+    if (!stack) return;
+
+    const CARD_TTL_MS = 5 * 60 * 1000;   // auto-clear after 5 min (read-only only)
+
+    // tracking number → source chip. ONE lookup (not hardcoded in three places).
+    const TRACKING_SOURCE = { '2399335750': 'Direct', '2399320855': 'Facebook' };
+    function sourceChip(trackingBare) {
+      if (trackingBare && TRACKING_SOURCE[trackingBare]) return TRACKING_SOURCE[trackingBare];
+      return formatPhone(trackingBare) || (trackingBare || '—');   // unknown line → the number itself
+    }
+
+    // Normalize to the LAST 10 DIGITS on read. This is deliberately NOT the
+    // board's other customer-by-phone lookup, which compares full digit strings
+    // (known bug). Never mutates stored data.
+    const last10 = (s) => (s || '').replace(/\D/g, '').slice(-10);
+
+    function fmtDate(d) {
+      if (!d) return null;
+      const t = new Date(d);
+      if (isNaN(t)) return String(d);
+      return t.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    }
+    function vehLine(v) {
+      return [v.year, v.make, v.model].filter(Boolean).join(' ') || 'Vehicle';
+    }
+
+    // Fetch EVERY customer, paginating past the API's hard 1000-row cap. A
+    // single select silently truncates at 1000 (there are ~2700 customers), so
+    // a plain "select all" would miss ~63% of customers — the bug that makes a
+    // real customer look like a new caller. Pages via .range() until a short
+    // page. Resilient: if last_invoiced/city/state don't exist yet, permanently
+    // downgrade to the core columns. Phone rings are infrequent, so a few small
+    // paged reads per ring is fine; no migration/index needed at this size.
+    const CUST_FULL = 'id, name, business_name, phone_primary, phone_secondary, last_invoiced, city, state';
+    const CUST_CORE = 'id, name, business_name, phone_primary, phone_secondary';
+    async function fetchAllCustomers() {
+      const PAGE = 1000;
+      let cols = CUST_FULL, all = [], from = 0;
+      for (;;) {
+        let resp = await db.from('customers').select(cols).range(from, from + PAGE - 1);
+        if (resp.error && cols === CUST_FULL) {            // missing column → downgrade once
+          cols = CUST_CORE;
+          resp = await db.from('customers').select(cols).range(from, from + PAGE - 1);
+        }
+        if (resp.error) { console.error('[callerCard] customer page load failed', resp.error); break; }
+        const batch = resp.data || [];
+        all = all.concat(batch);
+        if (batch.length < PAGE) break;
+        from += PAGE;
+        if (from > 100000) break;                          // safety valve
+      }
+      return all;
+    }
+
+    // MATCH: filter all customers on last-10 of phone_primary AND
+    // phone_secondary. Normalize the STORED side on read (regexp-free JS
+    // equivalent of right(regexp_replace(phone,'\D','',''),10)) — never mutate
+    // stored data. This is deliberately NOT the board's other full-digit-string
+    // customer-by-phone lookup (known bug).
+    async function matchCustomers(callerBare) {
+      const key = last10(callerBare);
+      if (key.length < 10) return [];
+      const all = await fetchAllCustomers();
+      return all.filter(c => last10(c.phone_primary) === key || last10(c.phone_secondary) === key);
+    }
+
+    // Per-customer detail: vehicles + repair orders (for count + open/declined
+    // estimate). Resilient to declined_at not existing yet.
+    async function loadDetail(customerId) {
+      const [vehRes, roRes] = await Promise.all([
+        db.from('vehicles').select('year, make, model').eq('customer_id', customerId).order('created_at', { ascending: false }),
+        db.from('repair_orders').select('id, ro_number, status, declined_at').eq('customer_id', customerId),
+      ]);
+      let ros = roRes.data;
+      if (roRes.error) {
+        const alt = await db.from('repair_orders').select('id, ro_number, status').eq('customer_id', customerId);
+        ros = alt.data || [];
+      }
+      return { vehicles: vehRes.data || [], ros: ros || [] };
+    }
+
+    function headHtml(call) {
+      const num = call.caller_formatted || formatPhone(call.caller_bare) || '(unknown number)';
+      return `<div class="call-card-head">
+        <span class="call-card-num">${esc(num)}</span>
+        <span class="call-card-chip">${esc(sourceChip(call.tracking_bare))}</span>
+        <button type="button" class="call-card-x" title="Dismiss" aria-label="Dismiss">×</button>
+      </div>`;
+    }
+
+    function estimatesHtml(ros) {
+      const declined = ros.filter(r => r.declined_at);
+      const open = ros.filter(r => r.status === 'estimate' && !r.declined_at);
+      let html = '';
+      // Declined is the highest-value line on the card — most prominent, first.
+      if (declined.length) {
+        const nums = declined.map(r => '#' + (r.ro_number ?? '?')).join(', ');
+        html += `<div class="call-card-est declined">⚠ Declined estimate — ${esc(nums)}</div>`;
+      }
+      if (open.length) {
+        const nums = open.map(r => '#' + (r.ro_number ?? '?')).join(', ');
+        html += `<div class="call-card-est open">Open estimate — ${esc(nums)}</div>`;
+      }
+      return html;
+    }
+
+    function matchedBodyHtml(call, c, detail) {
+      const title = c.business_name || c.name || '(no name)';
+      const sub = (c.business_name && c.name) ? c.name : '';   // person name under a business
+      const vehicles = detail.vehicles.length
+        ? detail.vehicles.map(v => `<div class="call-card-veh">🚗 ${esc(vehLine(v))}</div>`).join('')
+        : `<div class="call-card-muted">No vehicles on file</div>`;
+      const last = fmtDate(c.last_invoiced);
+      return `
+        <div class="call-card-name">${esc(title)}</div>
+        ${sub ? `<div class="call-card-sub">${esc(sub)}</div>` : ''}
+        ${vehicles}
+        <div class="call-card-row"><span class="lbl">Past ROs:</span> ${detail.ros.length}</div>
+        ${last ? `<div class="call-card-row"><span class="lbl">Last invoiced:</span> ${esc(last)}</div>` : ''}
+        ${estimatesHtml(detail.ros)}
+      `;
+    }
+
+    function unmatchedBodyHtml(call) {
+      // cnam is shown ONLY here (no customer match). On a match the DB name wins
+      // and cnam is suppressed as a redundant duplicate.
+      const cnam = (call.cnam && String(call.cnam).trim()) ? String(call.cnam).trim() : '';
+      return `
+        <div class="call-card-new">New caller</div>
+        ${cnam ? `<div class="call-card-cnam">${esc(cnam)}</div>` : `<div class="call-card-muted">No caller ID name</div>`}
+      `;
+    }
+
+    function setBody(card, html) {
+      const body = card.querySelector('.call-card-body');
+      if (body) body.innerHTML = html;
+    }
+
+    function renderPickList(card, call, matches) {
+      const rows = matches.map((c, i) => {
+        const label = c.business_name || c.name || '(no name)';
+        const sub = (c.business_name && c.name) ? c.name : (c.city || c.state ? [c.city, c.state].filter(Boolean).join(', ') : '');
+        return `<div class="call-card-pick" data-idx="${i}">
+          <div><b>${esc(label)}</b></div>
+          ${sub ? `<div class="call-card-muted">${esc(sub)}</div>` : ''}
+        </div>`;
+      }).join('');
+      setBody(card, `<div class="call-card-sub">${matches.length} customers on this number — pick one:</div>${rows}`);
+      card.querySelectorAll('.call-card-pick').forEach(el => {
+        el.addEventListener('click', async () => {
+          const c = matches[Number(el.dataset.idx)];
+          setBody(card, `<div class="call-card-muted">Loading ${esc(c.business_name || c.name || 'customer')}…</div>`);
+          try {
+            const detail = await loadDetail(c.id);
+            setBody(card, matchedBodyHtml(call, c, detail));
+          } catch (e) {
+            console.error('[callerCard] detail load failed', e);
+            setBody(card, matchedBodyHtml(call, c, { vehicles: [], ros: [] }));
+          }
+        });
+      });
+    }
+
+    async function handleNewCall(call) {
+      if (!call || call.ctm_call_id == null) return;
+      // Dedup: one card per ctm_call_id (a retry hits ON CONFLICT server-side and
+      // arrives as UPDATE, not INSERT — but guard anyway).
+      if ([...stack.children].some(el => el.dataset.callId === String(call.ctm_call_id))) return;
+
+      const card = document.createElement('div');
+      card.className = 'call-card';
+      card.dataset.callId = String(call.ctm_call_id);
+      card.innerHTML = headHtml(call) + `<div class="call-card-body"><div class="call-card-muted">Looking up…</div></div>`;
+      stack.prepend(card);   // newest on top; multiple calls stack
+
+      const timer = setTimeout(() => card.remove(), CARD_TTL_MS);
+      card.querySelector('.call-card-x').addEventListener('click', () => { clearTimeout(timer); card.remove(); });
+
+      try {
+        const matches = await matchCustomers(call.caller_bare);
+        if (matches.length === 0) {
+          setBody(card, unmatchedBodyHtml(call));
+        } else if (matches.length === 1) {
+          const detail = await loadDetail(matches[0].id);
+          setBody(card, matchedBodyHtml(call, matches[0], detail));
+        } else {
+          renderPickList(card, call, matches);
+        }
+      } catch (e) {
+        console.error('[callerCard] handle call failed', e);
+        setBody(card, unmatchedBodyHtml(call));   // safe fallback still shows the number + chip
+      }
+    }
+    window.cdHandleTestCall = handleNewCall;   // lets us dry-run a card without a live call
+
+    let callsChannel = null;
+    (function subscribe() {
+      if (callsChannel) db.removeChannel(callsChannel);
+      callsChannel = db.channel('advisor-board-calls-live')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'calls' }, (payload) => handleNewCall(payload.new))
+        .subscribe();
+    })();
   })();
 </script>
 </body>

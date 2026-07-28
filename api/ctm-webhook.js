@@ -1,16 +1,22 @@
 /* ============================================================
-   ctm-webhook.js — CallTrackingMetrics webhook capture stub (CrisData).
+   ctm-webhook.js — CallTrackingMetrics webhook (CrisData).
 
-   RECONNAISSANCE SLICE. Its ONLY job: receive a CTM webhook POST, log the
-   COMPLETE raw payload + all headers to ctm_webhook_log, and return 200.
-   No parsing of caller/phone/vehicle, no matching, no UI, no RO/estimate —
-   that is all deliberately out of scope. We are logging so we can SEE what
-   CTM actually sends before building anything.
+   Slice 1 (capture): receive the POST, log the COMPLETE raw payload + all
+   headers to ctm_webhook_log, return 200. Still does exactly this.
+
+   Slice 2 (caller card): after the ctm_webhook_log insert, ALSO UPSERT the
+   parsed body into `calls`, keyed on ctm_call_id (on conflict do update). The
+   advisor board subscribes to realtime INSERTs on `calls` and pops a read-only
+   caller card. The upsert is what makes CTM's retries harmless (a retry hits
+   ON CONFLICT and updates the same row instead of duplicating) and lets a
+   future `end` trigger update that same row.
+
+   STILL out of scope: audio download, transcription, field extraction,
+   estimate creation, spam/scam flag (no such field in the payload).
 
    HARD CONSTRAINT: respond 200 as early as possible, and respond 200 even on
-   internal error. CTM retries on slow/failed responses, which produces
-   duplicate deliveries. The whole handler is wrapped so a non-200 never
-   reaches CTM in this phase.
+   internal error. CTM retries on slow/failed responses. The whole handler is
+   wrapped so a non-200 never reaches CTM in this phase.
 
    Signature is LOG-ONLY here — computed, stored, compared, but NEVER enforced.
    The exact signing string is an assumption (X-CTM-Time + raw body); we confirm
@@ -97,6 +103,72 @@ async function logRow(row) {
   }
 }
 
+// Epoch seconds (CTM's body.unix_time) → ISO timestamptz, or null if absent /
+// unparseable. Never throws. Exported for the unit test.
+export function unixToIso(unixTime) {
+  const n = Number(unixTime);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return new Date(n * 1000).toISOString();
+}
+
+// Map a parsed CTM body → a `calls` row. Field names are the REAL ones from a
+// captured payload — do NOT substitute plausible-looking alternatives. Returns
+// null when there's no body or no id to key the upsert on. Pure + exported so
+// the exact field mapping is locked by a test and can't silently drift.
+export function mapCallRow(body) {
+  if (!body || body.id == null) return null;
+  return {
+    ctm_call_id:      body.id,
+    caller_bare:      body.caller_number_bare ?? null,
+    caller_formatted: body.caller_number_format ?? null,
+    cnam:             body.cnam ?? null,
+    tracking_bare:    body.tracking_number_bare ?? null,
+    source:           body.source ?? null,
+    city:             body.city ?? null,
+    state:            body.state ?? null,
+    is_new_caller:    body.is_new_caller ?? null,
+    tags:             body.tag_list ?? null,
+    status:           body.dial_status ?? null,
+    started_at:       unixToIso(body.unix_time),
+  };
+}
+
+// Best-effort UPSERT into `calls` keyed on ctm_call_id, via PostgREST with the
+// service-role key. Returns nothing and never throws: a `calls` failure must
+// not turn into a non-200 to CTM, and must not undo the ctm_webhook_log write.
+async function upsertCall(body) {
+  const row = mapCallRow(body);
+  // No parsed body (parse failure) or no id to key on → skip the upsert, but
+  // the caller still logged ctm_webhook_log and still returns 200.
+  if (!row) return;
+
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) {
+    console.error('[ctm-webhook] SUPABASE_SERVICE_ROLE_KEY not set — cannot upsert call.');
+    return;
+  }
+
+  try {
+    // PostgREST upsert: POST + Prefer: resolution=merge-duplicates, conflict
+    // target = the unique ctm_call_id. A CTM retry updates the same row.
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/calls?on_conflict=ctm_call_id`, {
+      method: 'POST',
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates',
+      },
+      body: JSON.stringify(row),
+    });
+    if (!r.ok) {
+      console.error('[ctm-webhook] calls upsert failed', r.status, await r.text());
+    }
+  } catch (e) {
+    console.error('[ctm-webhook] calls upsert threw', e);
+  }
+}
+
 export default async function handler(req, res) {
   // GET — reachability check so the endpoint can be opened in a browser after
   // deploy. No logging, just proof it's live.
@@ -146,6 +218,11 @@ export default async function handler(req, res) {
       sig_match: sigMatch,
       parse_error: parseError,
     });
+
+    // 5. Slice 2: upsert the parsed body into `calls` (skipped if body is null
+    //    on a parse failure). ctm_webhook_log is already written above either
+    //    way, so a malformed payload never costs us the raw capture.
+    await upsertCall(body);
   } catch (e) {
     // Never surface a non-200 to CTM in this phase — log and move on.
     console.error('[ctm-webhook] handler error', e);
