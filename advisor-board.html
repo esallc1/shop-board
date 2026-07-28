@@ -404,6 +404,7 @@
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="shared/board-settings.js"></script>
+<script src="shared/format.js"></script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
@@ -3063,7 +3064,7 @@
           <div class="cd-cb-top">
             <span class="cd-cb-ro">#${esc(ro.po || ro.ro_number)}</span>
             <span class="cd-cb-cust">${esc(c.name || '—')}</span>
-            ${c.phone_primary ? `<a class="cd-cb-phone" href="tel:${esc(c.phone_primary)}" data-noopen>📞 ${esc(c.phone_primary)}</a>` : ''}
+            ${c.phone_primary ? `<a class="cd-cb-phone" href="tel:${esc(c.phone_primary)}" data-noopen>📞 ${esc(formatPhone(c.phone_primary))}</a>` : ''}
           </div>
           <div class="cd-cb-veh">${esc(vehDesc(v))}</div>
           <div class="cd-cb-meta">
@@ -3477,7 +3478,7 @@
       // cd-ro-edit block below — the read-only grid keeps the stable identity.
       $('cdRoHeaderGrid').innerHTML =
         field('Customer', c.name) +
-        field('Phone', c.phone_primary) +
+        field('Phone', formatPhone(c.phone_primary)) +
         field('Vehicle', vehDesc(v)) +
         field('Status', STATUS_LABEL[ro.status] || ro.status);
       // Check in / Arrived — paints against currentRo (mutated in place on
@@ -4253,7 +4254,7 @@
     <div>
       <h2>Customer</h2>
       <div class="kv"><b>Name</b> ${P(c.name)}</div>
-      <div class="kv"><b>Cell</b> ${P(c.phone_primary)}</div>
+      <div class="kv"><b>Cell</b> ${P(formatPhone(c.phone_primary))}</div>
       <div class="kv"><b>Email</b> ${P(c.email)}</div>
     </div>
     <div>
