@@ -486,9 +486,12 @@
     font: inherit; font-size: 0.8rem; color: var(--text); background: var(--surface);
   }
   .cc-when input:focus, .cc-when select:focus { outline: none; border-color: var(--accent); }
-  .cc-saved { margin-top: 6px; font-size: 0.72rem; color: var(--muted); min-height: 1em; }
+  .cc-footer { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+  .cc-saved { font-size: 0.72rem; color: var(--muted); min-height: 1em; }
   .cc-saved.err { color: var(--red); }
   .cc-saved.ok { color: var(--green); }
+  .cc-done { margin-left: auto; border: 1px solid var(--green); background: var(--green); color: #fff; border-radius: 8px; padding: 5px 14px; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+  .cc-done:hover { filter: brightness(0.95); }
 </style>
 
 <div class="app-shell">
@@ -530,6 +533,7 @@
         <div class="sidebar-item" data-view="payments" data-label="Payments"><span class="icon">💳</span>Payments</div>
         <div class="sidebar-item" data-view="customer-log" data-label="Customer Log"><span class="icon">📇</span>Customer Log</div>
         <div class="sidebar-item" data-view="capture" data-label="Capture Invoice"><span class="icon">📸</span>Capture Invoice</div>
+        <div class="sidebar-item" data-view="desk" data-label="Desk"><span class="icon">🗓️</span>Desk<span class="chat-nav-badge" id="desk-overdue-badge" style="display:none">0</span></div>
         <div class="sidebar-item" data-view="todo" data-label="To-Do"><span class="icon">✅</span>To-Do<span class="chat-nav-badge" id="todo-nav-badge" style="display:none">0</span></div>
       </div>
       <div class="sidebar-group">
@@ -712,6 +716,103 @@
     </div>
   </div>
 
+  <!-- ══ DESK (slice 3b) — everything Josh owes a customer: callbacks,
+       declined estimates, cars coming in, + a week drop-off calendar. ══ -->
+  <style>
+    .desk-head { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+    .desk-head h2 { font-size:1.15rem; font-weight:800; margin:0; }
+    .desk-overdue { font-size:0.74rem; font-weight:800; color:#fff; background:var(--red); border-radius:999px; padding:3px 10px; }
+    .desk-lanes { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; margin-bottom:18px; }
+    @media (max-width:820px){ .desk-lanes { grid-template-columns:1fr; } }
+    .desk-lane { border-radius:12px; padding:12px; display:flex; flex-direction:column; min-height:120px; }
+    .desk-lane-head { display:flex; align-items:center; gap:8px; margin-bottom:10px; font-weight:800; font-size:0.9rem; }
+    .desk-lane-icon { font-size:0.95rem; }
+    .desk-lane-count { margin-left:auto; font-size:0.72rem; font-weight:800; color:#fff; border-radius:999px; padding:2px 9px; min-width:20px; text-align:center; }
+    .desk-lane.lane-callbacks { background:#EEEDFE; }
+    .desk-lane.lane-callbacks .desk-lane-head, .desk-lane.lane-callbacks .desk-lane-title { color:#3C3489; }
+    .desk-lane.lane-callbacks .desk-lane-icon, .desk-lane.lane-callbacks .desk-lane-count { color:#fff; background:#534AB7; }
+    .desk-lane.lane-callbacks .desk-lane-icon { background:transparent; color:#534AB7; }
+    .desk-lane.lane-declined  { background:#FAECE7; }
+    .desk-lane.lane-declined .desk-lane-head, .desk-lane.lane-declined .desk-lane-title { color:#712B13; }
+    .desk-lane.lane-declined .desk-lane-count { background:#993C1D; }
+    .desk-lane.lane-declined .desk-lane-icon { color:#993C1D; }
+    .desk-lane.lane-comingin  { background:#E1F5EE; }
+    .desk-lane.lane-comingin .desk-lane-head, .desk-lane.lane-comingin .desk-lane-title { color:#085041; }
+    .desk-lane.lane-comingin .desk-lane-count { background:#0F6E56; }
+    .desk-lane.lane-comingin .desk-lane-icon { color:#0F6E56; }
+    .desk-lane-body { display:flex; flex-direction:column; gap:8px; }
+    .desk-row { background:#fff; border-radius:9px; padding:9px 10px; cursor:pointer; box-shadow:0 1px 2px rgba(20,30,60,0.06); }
+    .desk-row:hover { box-shadow:0 2px 8px rgba(20,30,60,0.12); }
+    .desk-row-top { display:flex; align-items:baseline; gap:8px; }
+    .desk-row-name { font-weight:700; font-size:0.86rem; color:var(--text); }
+    .desk-row-ro { font-weight:800; font-size:0.8rem; color:var(--muted); }
+    .desk-row-note { font-size:0.78rem; color:var(--muted); margin-top:3px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .desk-row-veh { font-size:0.78rem; color:var(--muted); margin-top:2px; }
+    .desk-row-meta { display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap; }
+    .desk-row-due { font-size:0.76rem; font-weight:700; color:var(--text); }
+    .desk-row-due.overdue { color:var(--red); }
+    .desk-row-actions { margin-left:auto; display:flex; gap:6px; }
+    .desk-btn { border:1px solid var(--border); background:#fff; border-radius:7px; padding:3px 9px; font-size:0.72rem; font-weight:700; cursor:pointer; color:var(--text); }
+    .desk-btn:hover { border-color:var(--accent); }
+    .desk-btn.done { border-color:var(--green); color:var(--green); }
+    .desk-lane-empty { font-size:0.78rem; color:var(--muted); padding:8px 2px; }
+
+    .desk-cal-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+    .desk-cal-title { font-weight:800; font-size:0.95rem; }
+    .desk-cal-nav { margin-left:auto; display:flex; align-items:center; gap:6px; }
+    .desk-cal-nav button { border:1px solid var(--border); background:#fff; border-radius:7px; padding:3px 9px; font-size:0.8rem; cursor:pointer; color:var(--text); }
+    .desk-cal-nav #deskCalLabel { font-weight:700; font-size:0.82rem; min-width:150px; text-align:center; }
+    .desk-cal-head-row, .desk-cal-allday, .desk-cal-timed-row { display:grid; grid-template-columns:var(--desk-tpl); }
+    .desk-cal-colhead { padding:6px 4px; text-align:center; border-left:1px solid var(--border); }
+    .desk-cal-dow { font-size:0.66rem; font-weight:800; text-transform:uppercase; letter-spacing:0.3px; color:var(--muted); }
+    .desk-cal-dom { font-size:0.92rem; font-weight:700; color:var(--text); }
+    .desk-cal-colhead.today .desk-cal-dom { color:#fff; background:var(--accent); border-radius:50%; width:23px; height:23px; line-height:23px; display:inline-block; }
+    .desk-cal-allday { border-top:1px solid var(--border); border-bottom:1px solid var(--border); background:var(--bg); }
+    .desk-cal-gutter { border-right:1px solid var(--border); font-size:0.56rem; font-weight:700; text-transform:uppercase; color:var(--muted); display:flex; align-items:center; justify-content:center; text-align:center; }
+    .desk-cal-adcell { border-left:1px solid var(--border); min-height:32px; padding:4px; display:flex; flex-direction:column; gap:3px; }
+    .desk-cal-scroll { max-height:520px; overflow-y:auto; }
+    .desk-cal-timed-row { position:relative; }
+    .desk-cal-timegutter { position:relative; border-right:1px solid var(--border); }
+    .desk-cal-hourlabel { position:absolute; right:5px; font-size:0.6rem; color:var(--muted); transform:translateY(-6px); }
+    .desk-cal-col { position:relative; border-left:1px solid var(--border);
+      background-image:repeating-linear-gradient(to bottom, transparent 0, transparent 43px, #eef0f5 43px, #eef0f5 44px); }
+    .desk-chip { border:1px solid var(--border); border-left:3px solid #0F6E56; border-radius:6px; background:#fff; padding:2px 5px; font-size:0.7rem; line-height:1.2; overflow:hidden; cursor:pointer; box-shadow:0 1px 2px rgba(20,30,60,0.08); }
+    .desk-chip .desk-chip-t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+    .desk-chip.timed { position:absolute; box-sizing:border-box; }
+  </style>
+  <div class="view" id="view-desk">
+    <div class="desk-head">
+      <h2>Desk</h2>
+      <span class="desk-overdue" id="deskOverdue" style="display:none"></span>
+    </div>
+    <div class="desk-lanes">
+      <div class="desk-lane lane-callbacks">
+        <div class="desk-lane-head"><span class="desk-lane-icon">📞</span><span class="desk-lane-title">Callbacks</span><span class="desk-lane-count" id="deskCbCount">0</span></div>
+        <div class="desk-lane-body" id="deskCbList"></div>
+      </div>
+      <div class="desk-lane lane-declined">
+        <div class="desk-lane-head"><span class="desk-lane-icon">↩</span><span class="desk-lane-title">Declined estimates</span><span class="desk-lane-count" id="deskDeclCount">0</span></div>
+        <div class="desk-lane-body" id="deskDeclList"></div>
+      </div>
+      <div class="desk-lane lane-comingin">
+        <div class="desk-lane-head"><span class="desk-lane-icon">🚗</span><span class="desk-lane-title">Coming in</span><span class="desk-lane-count" id="deskInCount">0</span></div>
+        <div class="desk-lane-body" id="deskInList"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="desk-cal-head">
+        <div class="desk-cal-title">Drop-off schedule</div>
+        <div class="desk-cal-nav">
+          <button type="button" id="deskCalPrev" title="Previous week">‹</button>
+          <span id="deskCalLabel"></span>
+          <button type="button" id="deskCalNext" title="Next week">›</button>
+          <button type="button" id="deskCalToday">Today</button>
+        </div>
+      </div>
+      <div id="deskCal"></div>
+    </div>
+  </div>
+
   <!-- ══ RO BOARD (CrisData) — Phase 2 slice 2: find/open an RO + build
        line items with live totals. Beta / parallel; reads+writes ONLY
        the Phase-1 tables (repair_orders, ro_line_items, customers,
@@ -722,8 +823,9 @@
       <div class="card" id="cdBoardCard">
         <div class="card-title">
           <div class="dot" style="background:var(--accent)"></div>Repair Orders
-          <button class="btn btn-ghost" style="margin-left:auto;font-size:0.75rem;padding:5px 12px;display:none" id="cdCallbackToggle">📞 Callbacks <span class="cd-kanban-count" id="cdCallbackCount">0</span></button>
-          <button class="btn btn-primary" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdRoNewBtn">+ New RO</button>
+          <!-- The "📞 Callbacks" toggle moved to the Desk tab's Declined lane
+               (slice 3b). Do not re-add a second way in. -->
+          <button class="btn btn-primary" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdRoNewBtn">+ New RO</button>
         </div>
         <div class="cd-kanban" id="cdKanban">
           <div class="cd-kanban-col" data-stage="estimate">
@@ -744,18 +846,8 @@
           <div id="cdRecentStrip"><div class="cd-recent-empty">Loading…</div></div>
         </div>
       </div>
-
-      <!-- Declined estimates → callback list. Seed for a future Advisor
-           Command Center (follow-ups / customer updates / reviews). -->
-      <div class="card" id="cdCallbackPanel" style="display:none">
-        <div class="card-title">
-          <div class="dot" style="background:var(--amber)"></div>Declined estimates — callback list
-          <span class="cd-kanban-count" id="cdCallbackCount2">0</span>
-          <button class="btn btn-ghost" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdCallbackBackBtn">← Board</button>
-        </div>
-        <div class="cd-callback-hint">Customers who declined the estimate — call back when it's time. Restoring returns the RO to the live Estimate column. (Money is untouched — declining creates no invoice.)</div>
-        <div id="cdCallbackList"><div class="cd-kanban-empty">No declined estimates.</div></div>
-      </div>
+      <!-- (Declined-estimate callback panel removed in slice 3b — it lives in
+           the Desk tab now.) -->
     </div>
 
     <!-- DETAIL panel: open RO -->
@@ -2754,6 +2846,14 @@
     // Shared open handle for the New RO wizard. The sidebar "New RO" tab was
     // retired; the RO Board "+ New RO" button (cdRoNewBtn) calls this directly.
     window.cdOpenNewRo = openModal;
+    // Desk (slice 3b) "open the customer": there's no standalone customer page,
+    // so open the New RO wizard and run its phone-first lookup, which lands on
+    // the matched customer's vehicles + history (or the new-customer step).
+    window.cdOpenCustomerByPhone = (phone) => {
+      openModal();
+      const inp = $('cdPhoneInput');
+      if (inp && phone) { inp.value = phone; lookupPhone(); }
+    };
     $('cdCloseBtn').addEventListener('click', closeModal);
     $('cdPhoneCancelBtn').addEventListener('click', closeModal);
     $('cdVehCancelBtn').addEventListener('click', closeModal);
@@ -2908,7 +3008,6 @@
 
     let allRos = [];          // cached list rows (with embeds) for client-side search
     let declinedColsAvailable = true;  // false until the declined_* migration is run (resilient load)
-    let cdCallbackView = false;        // whether the callback list (vs the board) is showing
     let currentRo = null;     // the open RO (with embedded customer/vehicle)
     let currentLines = [];    // ro_line_items for the open RO
     let currentPayments = [];  // ro_payments for the open RO (Phase 5)
@@ -3073,8 +3172,9 @@
       const closed = [];
       const declined = [];
       allRos.forEach(ro => {
-        // A declined estimate is pulled OFF the pipeline entirely (into the
-        // callback list) while still status='estimate' — money untouched.
+        // A declined estimate is pulled OFF the pipeline entirely (surfaced in
+        // the Desk tab's Declined lane) while still status='estimate' — money
+        // untouched. The `return` is what keeps it off the active board.
         if (declinedColsAvailable && ro.declined_at) { declined.push(ro); return; }
         if (ro.status === 'closed') closed.push(ro);
         else if (cols[ro.status]) cols[ro.status].push(ro);
@@ -3110,73 +3210,15 @@
           }).join('')
         : '<div class="cd-recent-empty">No closed jobs yet.</div>';
 
-      renderCallbacks(declined);
+      // (declined is intentionally computed-but-not-rendered here — the Desk
+      // tab owns the declined list now; this loop only keeps them off the board.)
+      void declined;
       wireKanban();
     }
 
-    // ── Declined / callback list (seed for a future Advisor Command Center) ──
-    function renderCallbacks(declined) {
-      const toggle = $('cdCallbackToggle');
-      if (!declinedColsAvailable) {
-        if (toggle) toggle.style.display = 'none';
-        if (cdCallbackView) showCallbackView(false);   // never strand on a dead view
-        return;
-      }
-      if (toggle) toggle.style.display = '';
-      const n = declined.length;
-      $('cdCallbackCount').textContent = n;
-      $('cdCallbackCount2').textContent = n;
-      const sorted = declined.slice().sort(
-        (a, b) => new Date(b.declined_at) - new Date(a.declined_at));   // newest declined first
-      $('cdCallbackList').innerHTML = sorted.length
-        ? sorted.map(callbackRowHtml).join('')
-        : '<div class="cd-kanban-empty">No declined estimates. Declined estimates land here to call back.</div>';
-      wireCallbacks();
-    }
-
-    function callbackRowHtml(ro) {
-      const c = ro.customers || {}, v = ro.vehicles || {};
-      const when = ro.declined_at
-        ? new Date(ro.declined_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-        : '';
-      return `
-        <div class="cd-callback-row" data-id="${esc(ro.id)}">
-          <div class="cd-cb-top">
-            <span class="cd-cb-ro">#${esc(ro.po || ro.ro_number)}</span>
-            <span class="cd-cb-cust">${esc(c.name || '—')}</span>
-            ${c.phone_primary ? `<a class="cd-cb-phone" href="tel:${esc(c.phone_primary)}" data-noopen>📞 ${esc(formatPhone(c.phone_primary))}</a>` : ''}
-          </div>
-          <div class="cd-cb-veh">${esc(vehDesc(v))}</div>
-          <div class="cd-cb-meta">
-            <span class="cd-cb-when">Declined ${esc(when)}</span>
-            ${ro.declined_reason ? `<span class="cd-cb-reason">“${esc(ro.declined_reason)}”</span>` : ''}
-            <button class="btn cd-cb-receipt" data-receipt="${esc(ro.id)}">🧾 Quick receipt</button>
-            <button class="btn btn-green cd-cb-restore" data-restore="${esc(ro.id)}">↩ Restore to Estimate</button>
-          </div>
-        </div>`;
-    }
-
-    function wireCallbacks() {
-      document.querySelectorAll('#cdCallbackList .cd-callback-row').forEach(row => {
-        row.addEventListener('click', (e) => {
-          if (e.target.closest('[data-restore]') || e.target.closest('[data-receipt]') || e.target.closest('[data-noopen]')) return;
-          openRo(row.dataset.id);
-        });
-      });
-      document.querySelectorAll('#cdCallbackList [data-restore]').forEach(btn => {
-        btn.addEventListener('click', (e) => { e.stopPropagation(); restoreDeclined(btn.dataset.restore); });
-      });
-      document.querySelectorAll('#cdCallbackList [data-receipt]').forEach(btn => {
-        btn.addEventListener('click', (e) => { e.stopPropagation(); openQuickReceipt(btn.dataset.receipt); });
-      });
-    }
-
-    function showCallbackView(on) {
-      cdCallbackView = on;
-      const board = $('cdBoardCard'), panel = $('cdCallbackPanel');
-      if (board) board.style.display = on ? 'none' : '';
-      if (panel) panel.style.display = on ? '' : 'none';
-    }
+    // (The declined "callback list" render/panel functions were removed in slice
+    // 3b — the Desk tab owns that surface now. openRo / restoreDeclined /
+    // openQuickReceipt remain and are exposed for the Desk to call.)
 
     // MARK DECLINED — flag an estimate as declined (declined_at = now + optional
     // reason). Optimistic + revert-on-failure, same pattern as setCardStage.
@@ -4363,9 +4405,7 @@
     // ── wiring ────────────────────────────────────────────────
     // (no search box on this view — pipeline search gets its own tab later)
     $('cdRoBackBtn').addEventListener('click', backToList);
-    // Callback-list toggle (Board ⇄ Declined callback list)
-    $('cdCallbackToggle').addEventListener('click', () => showCallbackView(true));
-    $('cdCallbackBackBtn').addEventListener('click', () => showCallbackView(false));
+    // (Callback-list toggle removed in slice 3b — the Desk tab owns it now.)
     // Quick diag-fee receipt modal
     $('qrCloseBtn').addEventListener('click', closeQuickReceipt);
     $('qrCancelBtn').addEventListener('click', closeQuickReceipt);
@@ -4438,6 +4478,11 @@
 
     // expose for the New RO modal's "Open RO" button
     window.cdOpenRo = (roId) => { loadRecentList(); openRo(roId); };
+    // exposed for the Desk tab's Declined lane (slice 3b). Quick-receipt fetches
+    // its RO fresh, so it's safe to call regardless of which tab is loaded.
+    // (Restore is NOT exposed — it depends on this module's in-memory allRos,
+    // which is empty until the RO board loads; the Desk does its own update.)
+    window.cdOpenQuickReceipt = (roId) => openQuickReceipt(roId);
 
     // re-render live totals when shop_settings (tax rate) changes —
     // called by BoardSettings' onShopSettingsChanged.
@@ -4652,6 +4697,276 @@
       if (window.cdOpenRo) { window.cdOpenRo(roId); return; }
       if (n > 0) setTimeout(() => tryOpen(n - 1), 150);
     })(25);
+  })();
+
+  // ══════════════════════════════════════════════════════════
+  // DESK (slice 3b) — callbacks + declined estimates + cars coming in,
+  // plus a week drop-off calendar. Reads calls (slices 2/3a) and the existing
+  // declined-estimate query on repair_orders. Owns its own realtime channel.
+  // Does NOT depend on shared/planner.js — it only mirrors its look.
+  // ══════════════════════════════════════════════════════════
+  (function desk() {
+    const HOUR_PX = 44, DAY_START = 6, DAY_END = 20;
+    const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+    // ── date helpers (local) ──
+    function startOfToday() { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }
+    function ymd(d) { const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; }
+    function mondayOf(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); const dow = (x.getDay() + 6) % 7; x.setDate(x.getDate() - dow); return x; }
+    function isMissingCol(err) { return err && (err.code === '42703' || /column .* does not exist/i.test(err.message || '')); }
+
+    // A callback / drop-off is overdue when its due moment has passed. All-day
+    // items aren't late until the day itself is past; timed items use the clock.
+    function isOverdue(dueAt, allDay) {
+      if (!dueAt) return false;
+      const due = new Date(dueAt); if (isNaN(due)) return false;
+      if (allDay) { const d = new Date(due); d.setHours(0, 0, 0, 0); return d < startOfToday(); }
+      return due < new Date();
+    }
+    function dueLabel(dueAt, allDay) {
+      if (!dueAt) return 'No date';
+      const d = new Date(dueAt); if (isNaN(d)) return 'No date';
+      const date = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      if (allDay) return date;
+      return `${date} · ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+    }
+    function agoLabel(iso) {
+      if (!iso) return '';
+      const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+      if (days <= 0) return 'today';
+      if (days === 1) return '1 day';
+      return `${days} days`;
+    }
+
+    // ── DOM ──
+    const $ = (id) => document.getElementById(id);
+    let weekStart = mondayOf(new Date());
+    let lastData = null;   // cache so week-nav re-renders the calendar without refetch
+
+    function customerLabel(call, custMap) {
+      if (call.customer_id && custMap[call.customer_id]) {
+        const c = custMap[call.customer_id];
+        return c.business_name || c.name || '(no name)';
+      }
+      return call.caller_formatted || (window.formatPhone ? formatPhone(call.caller_bare) : call.caller_bare) || '(unknown number)';
+    }
+    function vehLabel(v) { return [v.year, v.make, v.model].filter(Boolean).join(' '); }
+
+    // ── data load ──
+    const CALL_COLS = 'id, ctm_call_id, caller_bare, caller_formatted, customer_id, ro_id, note, next_step, due_at, due_all_day, resolved_at';
+    async function deskLoad() {
+      // 1. open call-backed lane items (unresolved callbacks + drop-offs)
+      const callsResp = await db.from('calls').select(CALL_COLS)
+        .in('next_step', ['quoted_callback', 'dropping_off'])
+        .is('resolved_at', null)
+        .order('due_at', { ascending: true, nullsFirst: false });
+      if (callsResp.error) {
+        if (isMissingCol(callsResp.error)) { renderNeedsMigration(); return; }
+        console.error('[desk] calls load failed', callsResp.error);
+      }
+      const calls = callsResp.data || [];
+
+      // 2. resolve customer names + (single) vehicles for the involved customers.
+      //    Targeted .in() lookups — NOT a select-all (the 1000-row cap trap).
+      const custIds = [...new Set(calls.map(c => c.customer_id).filter(Boolean))];
+      const custMap = {}, vehMap = {};
+      if (custIds.length) {
+        const [cRes, vRes] = await Promise.all([
+          db.from('customers').select('id, name, business_name').in('id', custIds),
+          db.from('vehicles').select('customer_id, year, make, model').in('customer_id', custIds),
+        ]);
+        (cRes.data || []).forEach(c => { custMap[c.id] = c; });
+        (vRes.data || []).forEach(v => { (vehMap[v.customer_id] = vehMap[v.customer_id] || []).push(v); });
+      }
+
+      // 3. declined estimates — same declined_at predicate the removed callback
+      //    panel used; oldest-declined first (going cold). Resilient if the
+      //    declined_* migration somehow isn't present.
+      let declined = [];
+      const dRes = await db.from('repair_orders')
+        .select('id, ro_number, po, declined_at, customers(name, business_name), vehicles(year, make, model)')
+        .not('declined_at', 'is', null)
+        .order('declined_at', { ascending: true });
+      if (dRes.error) { if (!isMissingCol(dRes.error)) console.error('[desk] declined load failed', dRes.error); }
+      else declined = dRes.data || [];
+
+      lastData = { calls, custMap, vehMap, declined };
+      deskRender(lastData);
+    }
+    window.cdDeskReload = deskLoad;
+    // test hook: render from injected data without touching the DB (pre-migration)
+    window.cdDeskRenderTest = (data) => { lastData = data; deskRender(data); };
+
+    function renderNeedsMigration() {
+      const msg = '<div class="desk-lane-empty">Run migration 20260728_calls_resolved.sql to enable the Desk.</div>';
+      ['deskCbList', 'deskDeclList', 'deskInList'].forEach(id => { const el = $(id); if (el) el.innerHTML = msg; });
+    }
+
+    // ── render ──
+    function deskRender({ calls, custMap, vehMap, declined }) {
+      const today = startOfToday();
+      const callbacks = calls.filter(c => c.next_step === 'quoted_callback');
+      const comingIn = calls.filter(c => c.next_step === 'dropping_off'
+        && c.due_at && new Date(c.due_at) >= today);   // scheduling view: today onward only
+
+      // Callbacks lane — soonest first (query already ordered by due_at asc)
+      $('deskCbList').innerHTML = callbacks.length ? callbacks.map(c => {
+        const overdue = isOverdue(c.due_at, c.due_all_day);
+        return `<div class="desk-row" data-open-phone="${esc(c.caller_bare || '')}">
+          <div class="desk-row-top"><span class="desk-row-name">${esc(customerLabel(c, custMap))}</span></div>
+          ${c.note ? `<div class="desk-row-note">${esc(c.note)}</div>` : ''}
+          <div class="desk-row-meta">
+            <span class="desk-row-due${overdue ? ' overdue' : ''}">${esc(dueLabel(c.due_at, c.due_all_day))}</span>
+            <span class="desk-row-actions"><button class="desk-btn done" data-done="${esc(String(c.id))}">Done</button></span>
+          </div>
+        </div>`;
+      }).join('') : '<div class="desk-lane-empty">No callbacks owed.</div>';
+
+      // Declined lane — RO#, customer, vehicle, how long declined. Row opens the
+      // RO; Restore un-declines; Receipt = quick diag-fee. (No resolved_at Done —
+      // declined estimates are repair_orders and clear via restore.)
+      $('deskDeclList').innerHTML = declined.length ? declined.map(ro => {
+        const c = ro.customers || {}, v = ro.vehicles || {};
+        return `<div class="desk-row" data-open-ro="${esc(ro.id)}">
+          <div class="desk-row-top"><span class="desk-row-ro">#${ro.po || ro.ro_number || '?'}</span><span class="desk-row-name">${esc(c.business_name || c.name || '—')}</span></div>
+          ${vehLabel(v) ? `<div class="desk-row-veh">${esc(vehLabel(v))}</div>` : ''}
+          <div class="desk-row-meta">
+            <span class="desk-row-due">Declined ${esc(agoLabel(ro.declined_at))} ago</span>
+            <span class="desk-row-actions">
+              <button class="desk-btn" data-receipt="${esc(ro.id)}">🧾</button>
+              <button class="desk-btn" data-restore="${esc(ro.id)}">↩ Restore</button>
+            </span>
+          </div>
+        </div>`;
+      }).join('') : '<div class="desk-lane-empty">No declined estimates.</div>';
+
+      // Coming-in lane — soonest first
+      $('deskInList').innerHTML = comingIn.length ? comingIn.map(c => {
+        const vs = c.customer_id ? (vehMap[c.customer_id] || []) : [];
+        const veh = vs.length === 1 ? vehLabel(vs[0]) : '';   // show only when unambiguous
+        return `<div class="desk-row" data-open-phone="${esc(c.caller_bare || '')}">
+          <div class="desk-row-top"><span class="desk-row-name">${esc(customerLabel(c, custMap))}</span></div>
+          ${veh ? `<div class="desk-row-veh">${esc(veh)}</div>` : ''}
+          <div class="desk-row-meta">
+            <span class="desk-row-due">${esc(dueLabel(c.due_at, c.due_all_day))}</span>
+            <span class="desk-row-actions"><button class="desk-btn done" data-done="${esc(String(c.id))}">Done</button></span>
+          </div>
+        </div>`;
+      }).join('') : '<div class="desk-lane-empty">Nothing scheduled to come in.</div>';
+
+      // counts
+      $('deskCbCount').textContent = callbacks.length;
+      $('deskDeclCount').textContent = declined.length;
+      $('deskInCount').textContent = comingIn.length;
+
+      // total overdue (callbacks past due; coming-in is today-onward by filter)
+      const overdueN = callbacks.filter(c => isOverdue(c.due_at, c.due_all_day)).length;
+      const ov = $('deskOverdue'), badge = $('desk-overdue-badge');
+      if (overdueN) { ov.style.display = ''; ov.textContent = `${overdueN} overdue`; if (badge) { badge.style.display = ''; badge.textContent = overdueN; } }
+      else { ov.style.display = 'none'; if (badge) badge.style.display = 'none'; }
+
+      renderCalendar(comingIn);
+      wireDesk();
+    }
+
+    // ── week calendar (mirrors planner.js visual language; own classes) ──
+    function renderCalendar(comingIn) {
+      const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
+      const keyed = days.map(d => {
+        const key = ymd(d);
+        const items = comingIn.filter(c => c.due_at && ymd(new Date(c.due_at)) === key);
+        return { d, key, allday: items.filter(c => c.due_all_day !== false), timed: items.filter(c => c.due_all_day === false) };
+      });
+      // narrow weekends unless they hold items
+      const tpl = ['44px'].concat(keyed.map((k, i) => ((i === 5 || i === 6) && !(k.allday.length || k.timed.length)) ? 'minmax(34px,0.5fr)' : 'minmax(0,1fr)'));
+      const todayKey = ymd(startOfToday());
+
+      let head = `<div class="desk-cal-head-row"><div class="desk-cal-gutter"></div>`;
+      keyed.forEach((k, i) => {
+        head += `<div class="desk-cal-colhead${k.key === todayKey ? ' today' : ''}"><div class="desk-cal-dow">${DOW[i]}</div><div class="desk-cal-dom">${k.d.getDate()}</div></div>`;
+      });
+      head += `</div>`;
+
+      let allday = `<div class="desk-cal-allday"><div class="desk-cal-gutter">All-<br>day</div>`;
+      keyed.forEach(k => {
+        allday += `<div class="desk-cal-adcell">${k.allday.map(calChip).join('')}</div>`;
+      });
+      allday += `</div>`;
+
+      const gridH = 24 * HOUR_PX;
+      let gutter = `<div class="desk-cal-timegutter" style="height:${gridH}px">`;
+      for (let h = 1; h < 24; h++) gutter += `<div class="desk-cal-hourlabel" style="top:${h * HOUR_PX}px">${(h % 12) || 12}${h < 12 ? 'a' : 'p'}</div>`;
+      gutter += `</div>`;
+      let cols = '';
+      keyed.forEach(k => {
+        cols += `<div class="desk-cal-col" style="height:${gridH}px">${k.timed.map(timedChip).join('')}</div>`;
+      });
+      const timed = `<div class="desk-cal-scroll"><div class="desk-cal-timed-row" style="height:${gridH}px">${gutter}${cols}</div></div>`;
+
+      const cal = $('deskCal');
+      cal.style.setProperty('--desk-tpl', tpl.join(' '));
+      cal.innerHTML = head + allday + timed;
+      const scroller = cal.querySelector('.desk-cal-scroll');
+      if (scroller) scroller.scrollTop = DAY_START * HOUR_PX;
+
+      const label = `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${days[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+      $('deskCalLabel').textContent = label;
+    }
+    function chipName(c) { return esc(c.caller_formatted || (window.formatPhone ? formatPhone(c.caller_bare) : c.caller_bare) || 'Drop-off'); }
+    function calChip(c) {
+      return `<div class="desk-chip" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${chipName(c)}</div></div>`;
+    }
+    function timedChip(c) {
+      const d = new Date(c.due_at);
+      const top = (d.getHours() + d.getMinutes() / 60) * HOUR_PX;
+      const t = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      return `<div class="desk-chip timed" style="top:${top}px;left:2px;right:2px;min-height:22px" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${t} ${chipName(c)}</div></div>`;
+    }
+
+    // ── actions ──
+    async function resolveCall(id) {
+      const { error } = await db.from('calls').update({
+        resolved_at: new Date().toISOString(),
+        resolved_by_name: (typeof CHAT_IDENTITY !== 'undefined' && CHAT_IDENTITY.name) || null,
+      }).eq('id', id);
+      if (error) { console.error('[desk] resolve failed', error); alert('Could not mark done: ' + error.message); return; }
+      deskLoad();
+    }
+    async function restoreDeclinedDesk(roId) {
+      // Self-contained (does NOT use the RO board's in-memory allRos): un-decline
+      // returns the RO to the live Estimate column. The RO board picks it up via
+      // its own repair_orders realtime.
+      const { error } = await db.from('repair_orders').update({ declined_at: null, declined_reason: null }).eq('id', roId);
+      if (error) { console.error('[desk] restore failed', error); alert('Could not restore: ' + error.message); return; }
+      deskLoad();
+    }
+
+    function wireDesk() {
+      document.querySelectorAll('#view-desk [data-done]').forEach(b => b.onclick = (e) => { e.stopPropagation(); resolveCall(b.dataset.done); });
+      document.querySelectorAll('#view-desk [data-restore]').forEach(b => b.onclick = (e) => { e.stopPropagation(); restoreDeclinedDesk(b.dataset.restore); });
+      document.querySelectorAll('#view-desk [data-receipt]').forEach(b => b.onclick = (e) => { e.stopPropagation(); if (window.cdOpenQuickReceipt) window.cdOpenQuickReceipt(b.dataset.receipt); });
+      document.querySelectorAll('#view-desk [data-open-ro]').forEach(row => row.onclick = () => { if (window.cdOpenRo) window.cdOpenRo(row.dataset.openRo); });
+      document.querySelectorAll('#view-desk [data-open-phone]').forEach(row => row.onclick = () => { const p = row.dataset.openPhone; if (p && window.cdOpenCustomerByPhone) window.cdOpenCustomerByPhone(p); });
+    }
+
+    // week nav
+    $('deskCalPrev').addEventListener('click', () => { weekStart = new Date(weekStart); weekStart.setDate(weekStart.getDate() - 7); if (lastData) renderCalendar(lastData.calls.filter(c => c.next_step === 'dropping_off' && c.due_at && new Date(c.due_at) >= startOfToday())); });
+    $('deskCalNext').addEventListener('click', () => { weekStart = new Date(weekStart); weekStart.setDate(weekStart.getDate() + 7); if (lastData) renderCalendar(lastData.calls.filter(c => c.next_step === 'dropping_off' && c.due_at && new Date(c.due_at) >= startOfToday())); });
+    $('deskCalToday').addEventListener('click', () => { weekStart = mondayOf(new Date()); if (lastData) renderCalendar(lastData.calls.filter(c => c.next_step === 'dropping_off' && c.due_at && new Date(c.due_at) >= startOfToday())); });
+
+    // realtime — refresh on any calls or repair_orders change (declined moves too)
+    let deskChannel = null;
+    function subscribe() {
+      if (deskChannel) db.removeChannel(deskChannel);
+      deskChannel = db.channel('advisor-board-desk-live')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, deskLoad)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'repair_orders' }, deskLoad)
+        .subscribe();
+    }
+    subscribe();
+
+    VIEW_REFRESH.desk = { refetch: deskLoad, getChannel: () => deskChannel, resubscribe: subscribe };
+    deskLoad();
   })();
 
   // ══════════════════════════════════════════════════════════
@@ -4947,7 +5262,10 @@
           ${NEXT_STEPS.map(s => `<button type="button" data-next="${s.key}">${esc(s.label)}</button>`).join('')}
         </div>
         <div class="cc-when"></div>
-        <div class="cc-saved" aria-live="polite"></div>
+        <div class="cc-footer">
+          <span class="cc-saved" aria-live="polite"></span>
+          <button type="button" class="cc-done">Done</button>
+        </div>
       </div>`;
     }
 
@@ -5023,6 +5341,13 @@
         noteTimer = setTimeout(saveIfChanged, 2000);
       });
       note.addEventListener('blur', () => { clearTimeout(noteTimer); saveIfChanged(); });
+
+      // Explicit "Done" (slice 3b): flush any pending note, then dismiss the
+      // card. This does NOT set calls.resolved_at — that's the Desk lane's job
+      // when Josh has actually fulfilled the callback/drop-off. Done here just
+      // means "the call is over, close the card." No auto-clear timer is added.
+      const doneBtn = card.querySelector('.cc-done');
+      if (doneBtn) doneBtn.addEventListener('click', () => { clearTimeout(noteTimer); saveIfChanged(); card.remove(); });
 
       card.querySelectorAll('.cc-next button').forEach(b =>
         b.addEventListener('click', () => {
