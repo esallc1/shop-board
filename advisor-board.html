@@ -4804,13 +4804,37 @@
     let weekStart = mondayOf(new Date());
     let lastData = null;   // cache so week-nav re-renders the calendar without refetch
 
-    function customerLabel(call, custMap) {
-      if (call.customer_id && custMap[call.customer_id]) {
-        const c = custMap[call.customer_id];
-        return c.business_name || c.name || '(no name)';
+    const custName = (c) => c.business_name || c.name || '(no name)';
+    const numberLabel = (call) => call.caller_formatted || (window.formatPhone ? formatPhone(call.caller_bare) : call.caller_bare) || '(unknown number)';
+
+    // THE ONE resolver (slice 3e). Identity precedence:
+    //   1. calls.customer_id — a HUMAN confirmed this caller (needed for multi-
+    //      match). Never written on passive render, so it stays meaningful.
+    //   2. else a LAST-10 phone match on caller_bare vs phone_primary/secondary —
+    //      the SAME match the card uses (via cdLast10). This retroactively fixes
+    //      every untouched historical row.
+    // `idx` may be a plain {id:cust} map (lanes/calendar — no phone index) or
+    // {byId, byPhone} (the log). Returns { label, state } where state is
+    // 'matched' | 'multi' | 'new'. 'new' (and only 'new') means the phone match
+    // genuinely returned nothing.
+    function resolveCaller(call, idx) {
+      idx = idx || {};
+      const byId = idx.byId || idx;                 // back-compat: lanes pass a plain map
+      if (call.customer_id && byId[call.customer_id]) {
+        return { label: custName(byId[call.customer_id]), state: 'matched' };
       }
-      return call.caller_formatted || (window.formatPhone ? formatPhone(call.caller_bare) : call.caller_bare) || '(unknown number)';
+      if (idx.byPhone) {                            // phone resolution available (the log)
+        const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
+        const key = l10(call.caller_bare);
+        const hits = (key.length === 10 && idx.byPhone[key]) ? idx.byPhone[key] : [];
+        if (hits.length === 1) return { label: custName(hits[0]), state: 'matched' };
+        if (hits.length > 1) return { label: `${hits.length} customers on this number`, state: 'multi' };
+      }
+      return { label: numberLabel(call), state: 'new' };
     }
+    // Lanes/calendar only need the display string; unchanged behavior (they pass
+    // an id-keyed map with no byPhone, so this is pure customer_id resolution).
+    function customerLabel(call, custMap) { return resolveCaller(call, custMap).label; }
     function vehLabel(v) { return [v.year, v.make, v.model].filter(Boolean).join(' '); }
 
     // ── data load ──
@@ -5108,6 +5132,25 @@
       return day.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
     }
 
+    // All customers, indexed by id AND by last-10 phone, built ONCE (customers
+    // rarely change) via the card's paginated fetch (past the 1000-row cap) +
+    // last-10 match. Cached across day-steps so the log stays snappy.
+    let custIdx = null;
+    async function ensureCustIndex() {
+      if (custIdx) return custIdx;
+      const byId = {}, byPhone = {};
+      const rows = window.cdFetchAllCustomers ? await window.cdFetchAllCustomers() : [];
+      const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
+      for (const c of rows) {
+        byId[c.id] = c;
+        for (const p of [c.phone_primary, c.phone_secondary]) {
+          const k = l10(p); if (k.length === 10) (byPhone[k] = byPhone[k] || []).push(c);
+        }
+      }
+      custIdx = { byId, byPhone };
+      return custIdx;
+    }
+
     async function logLoad() {
       const list = $('deskLogList');
       const { startISO, endISO } = dayBounds(logDay);
@@ -5120,38 +5163,36 @@
         return;
       }
       const calls = resp.data || [];
-      // Resolve customers with a TARGETED .in() lookup (never select-all — the
-      // 1000-row cap trap), then the SAME customerLabel path the lanes use.
-      const ids = [...new Set(calls.map(c => c.customer_id).filter(Boolean))];
-      const custMap = {};
-      if (ids.length) {
-        const cRes = await db.from('customers').select('id, name, business_name').in('id', ids);
-        (cRes.data || []).forEach(c => { custMap[c.id] = c; });
-      }
-      logRender(calls, custMap);
+      // Identity resolves by PHONE MATCH (via the shared resolveCaller), NOT the
+      // passive calls.customer_id — so untouched calls from real customers show
+      // the customer, not the number.
+      const idx = await ensureCustIndex();
+      logRender(calls, idx);
     }
-    // test hook: render the log from injected data without the DB
-    window.cdLogRenderTest = (calls, custMap) => logRender(calls, custMap || {});
+    // test hook: render the log from injected data. Accepts a {byId, byPhone}
+    // index, or a plain id-map (then no phone matching, like a bare custMap).
+    window.cdLogRenderTest = (calls, idx) => logRender(calls, idx || {});
 
-    function logRender(calls, custMap) {
+    function logRender(calls, idx) {
       const list = $('deskLogList');
       if (!calls.length) { list.innerHTML = '<div class="desk-log-empty">No calls on this day.</div>'; return; }
       list.innerHTML = calls.map(c => {
         const t = c.started_at ? new Date(c.started_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '—';
-        const matched = !!c.customer_id;
-        const label = customerLabel(c, custMap);             // name when matched, else formatted number
+        const { label, state } = resolveCaller(c, idx);      // 'matched' | 'multi' | 'new'
+        const isNew = state === 'new';                       // phone match returned NOTHING
         const chip = window.cdSourceChip ? window.cdSourceChip(c.tracking_bare) : (c.tracking_bare || '—');
         const hasNote = !!(c.note && String(c.note).trim());
-        const untouched = !hasNote && !c.next_step;          // the row worth seeing
-        const cnam = (!matched && c.cnam && String(c.cnam).trim()) ? `<div class="log-cnam">${esc(String(c.cnam).trim())}</div>` : '';
-        const newcaller = (!matched && c.is_new_caller) ? `<span class="log-newcaller">new caller</span>` : '';
+        const untouched = !hasNote && !c.next_step;          // separate state — its own amber treatment
+        // cnam + "new caller" ONLY when we genuinely don't know the caller.
+        const cnam = (isNew && c.cnam && String(c.cnam).trim()) ? `<div class="log-cnam">${esc(String(c.cnam).trim())}</div>` : '';
+        const newcaller = isNew ? `<span class="log-newcaller">new caller</span>` : '';
         const note = hasNote ? `<div class="log-note">${esc(String(c.note).trim())}</div>` : '';
         const nextstep = c.next_step ? `<div class="log-nextstep">${esc(NEXT_LABELS[c.next_step] || c.next_step)}</div>` : '';
         const untouchedTag = untouched ? `<div class="log-untouched-tag">⚠ No note — nobody logged this call</div>` : '';
         return `<div class="log-row${untouched ? ' untouched' : ''}" data-open-phone="${esc(c.caller_bare || '')}">
           <div class="log-row-top">
             <span class="log-time">${esc(t)}</span>
-            <span class="log-${matched ? 'name' : 'num'}">${esc(label)}</span>
+            <span class="log-${isNew ? 'num' : 'name'}">${esc(label)}</span>
             <span class="log-chip">${esc(chip)}</span>
           </div>
           ${cnam}${newcaller}${note}${nextstep}${untouchedTag}
@@ -5263,6 +5304,11 @@
       }
       return all;
     }
+    // Exposed (slice 3e) so the Desk call log resolves identity by the SAME
+    // last-10 phone match + the SAME paginated (past-1000-cap) customer fetch —
+    // no fourth copy of either.
+    window.cdLast10 = last10;
+    window.cdFetchAllCustomers = fetchAllCustomers;
 
     // MATCH: filter all customers on last-10 of phone_primary AND
     // phone_secondary. Normalize the STORED side on read (regexp-free JS
