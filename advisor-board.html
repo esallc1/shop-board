@@ -776,7 +776,8 @@
     .desk-cal-hourlabel { position:absolute; right:5px; font-size:0.6rem; color:var(--muted); transform:translateY(-6px); }
     .desk-cal-col { position:relative; border-left:1px solid var(--border);
       background-image:repeating-linear-gradient(to bottom, transparent 0, transparent 43px, #eef0f5 43px, #eef0f5 44px); }
-    .desk-chip { border:1px solid var(--border); border-left:3px solid #0F6E56; border-radius:6px; background:#fff; padding:2px 5px; font-size:0.7rem; line-height:1.2; overflow:hidden; cursor:pointer; box-shadow:0 1px 2px rgba(20,30,60,0.08); }
+    .desk-chip { border:1px solid var(--border); border-left:3px solid #0F6E56; border-radius:6px; background:#fff; padding:2px 5px; font-size:0.7rem; line-height:1.2; overflow:hidden; cursor:grab; box-shadow:0 1px 2px rgba(20,30,60,0.08); touch-action:none; }
+    .desk-chip.dragging { opacity:0.5; cursor:grabbing; }
     .desk-chip .desk-chip-t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
     .desk-chip.timed { position:absolute; box-sizing:border-box; }
   </style>
@@ -4889,7 +4890,7 @@
 
       let allday = `<div class="desk-cal-allday"><div class="desk-cal-gutter">All-<br>day</div>`;
       keyed.forEach(k => {
-        allday += `<div class="desk-cal-adcell">${k.allday.map(calChip).join('')}</div>`;
+        allday += `<div class="desk-cal-adcell" data-date="${k.key}">${k.allday.map(calChip).join('')}</div>`;
       });
       allday += `</div>`;
 
@@ -4899,7 +4900,7 @@
       gutter += `</div>`;
       let cols = '';
       keyed.forEach(k => {
-        cols += `<div class="desk-cal-col" style="height:${gridH}px">${k.timed.map(timedChip).join('')}</div>`;
+        cols += `<div class="desk-cal-col" data-date="${k.key}" style="height:${gridH}px">${k.timed.map(timedChip).join('')}</div>`;
       });
       const timed = `<div class="desk-cal-scroll"><div class="desk-cal-timed-row" style="height:${gridH}px">${gutter}${cols}</div></div>`;
 
@@ -4911,16 +4912,89 @@
 
       const label = `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${days[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
       $('deskCalLabel').textContent = label;
+      wireCalendarDrag(cal);
     }
-    function chipName(c) { return esc(c.caller_formatted || (window.formatPhone ? formatPhone(c.caller_bare) : c.caller_bare) || 'Drop-off'); }
+    // BUG-3 FIX: the calendar resolves the customer the SAME way the lane does
+    // (customerLabel + the loaded custMap) — no second lookup. Falls back to the
+    // formatted number only when customer_id is null.
+    function chipName(c) { return esc(customerLabel(c, (lastData && lastData.custMap) || {})); }
     function calChip(c) {
-      return `<div class="desk-chip" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${chipName(c)}</div></div>`;
+      return `<div class="desk-chip" data-call-id="${esc(String(c.id))}" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${chipName(c)}</div></div>`;
     }
     function timedChip(c) {
       const d = new Date(c.due_at);
       const top = (d.getHours() + d.getMinutes() / 60) * HOUR_PX;
       const t = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-      return `<div class="desk-chip timed" style="top:${top}px;left:2px;right:2px;min-height:22px" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${t} ${chipName(c)}</div></div>`;
+      return `<div class="desk-chip timed" style="top:${top}px;left:2px;right:2px;min-height:22px" data-call-id="${esc(String(c.id))}" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${t} ${chipName(c)}</div></div>`;
+    }
+
+    // ── BUG-4: drag a chip to another day / slot to reschedule ──
+    // Pointer-based (mouse + touch). A press that moves > threshold is a drag; a
+    // press that doesn't is a tap (opens the customer). Drop onto the all-day
+    // strip → all-day; drop onto a timed column → that column's snapped time.
+    const DRAG_THRESHOLD = 8;
+    let drag = null;
+    function deskDueAt(dateKey, hh, mm) {
+      const [y, m, d] = dateKey.split('-').map(Number);
+      if (hh == null) return new Date(y, m - 1, d, 12, 0, 0).toISOString();  // all-day noon anchor
+      return new Date(y, m - 1, d, hh, mm || 0, 0).toISOString();
+    }
+    function wireCalendarDrag(cal) {
+      cal.querySelectorAll('.desk-chip').forEach(chip => {
+        chip.addEventListener('pointerdown', (e) => {
+          if (e.button != null && e.button > 0) return;
+          drag = { id: chip.dataset.callId, chip, x: e.clientX, y: e.clientY, moved: false };
+          try { chip.setPointerCapture(e.pointerId); } catch (_) {}
+        });
+        chip.addEventListener('pointermove', (e) => {
+          if (!drag || drag.chip !== chip) return;
+          if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > DRAG_THRESHOLD) {
+            drag.moved = true; chip.classList.add('dragging'); chip.style.pointerEvents = 'none';
+          }
+        });
+        chip.addEventListener('pointerup', (e) => {
+          if (!drag || drag.chip !== chip) { drag = null; return; }
+          const { id, moved } = drag;
+          chip.classList.remove('dragging'); chip.style.pointerEvents = '';
+          drag = null;
+          if (!moved) {   // tap → open the customer
+            const p = chip.dataset.openPhone; if (p && window.cdOpenCustomerByPhone) window.cdOpenCustomerByPhone(p);
+            return;
+          }
+          const target = document.elementFromPoint(e.clientX, e.clientY);
+          if (!target) return;
+          const adcell = target.closest('.desk-cal-adcell[data-date]');
+          const col = target.closest('.desk-cal-col[data-date]');
+          if (adcell) {
+            rescheduleCall(id, deskDueAt(adcell.dataset.date, null), true);
+          } else if (col) {
+            const rect = col.getBoundingClientRect();
+            let hour = (e.clientY - rect.top) / HOUR_PX;
+            hour = Math.max(0, Math.min(23.75, Math.round(hour * 4) / 4));   // snap to 15 min
+            const hh = Math.floor(hour), mm = Math.round((hour - hh) * 60);
+            rescheduleCall(id, deskDueAt(col.dataset.date, hh, mm), false);
+          }
+        });
+      });
+    }
+    // Optimistic reschedule with revert on failure (same shape as the RO board's
+    // optimistic updates). Uses the shared supabase-js client — NOT a hand-rolled
+    // fetch — so it does not inherit planner.js's edit-modal fetch path.
+    async function rescheduleCall(callId, dueAt, dueAllDay) {
+      const call = (lastData && lastData.calls || []).find(c => String(c.id) === String(callId));
+      if (!call) return;
+      const prev = { due_at: call.due_at, due_all_day: call.due_all_day };
+      call.due_at = dueAt; call.due_all_day = dueAllDay;   // optimistic
+      deskRender(lastData);
+      try {
+        const { error } = await db.from('calls').update({ due_at: dueAt, due_all_day: dueAllDay }).eq('id', callId);
+        if (error) throw error;
+      } catch (e) {
+        console.error('[desk] reschedule failed', e);
+        alert('Could not reschedule: ' + (e && e.message ? e.message : e));
+        call.due_at = prev.due_at; call.due_all_day = prev.due_all_day;   // revert
+        deskRender(lastData);
+      }
     }
 
     // ── actions ──
@@ -4946,7 +5020,9 @@
       document.querySelectorAll('#view-desk [data-restore]').forEach(b => b.onclick = (e) => { e.stopPropagation(); restoreDeclinedDesk(b.dataset.restore); });
       document.querySelectorAll('#view-desk [data-receipt]').forEach(b => b.onclick = (e) => { e.stopPropagation(); if (window.cdOpenQuickReceipt) window.cdOpenQuickReceipt(b.dataset.receipt); });
       document.querySelectorAll('#view-desk [data-open-ro]').forEach(row => row.onclick = () => { if (window.cdOpenRo) window.cdOpenRo(row.dataset.openRo); });
-      document.querySelectorAll('#view-desk [data-open-phone]').forEach(row => row.onclick = () => { const p = row.dataset.openPhone; if (p && window.cdOpenCustomerByPhone) window.cdOpenCustomerByPhone(p); });
+      // Lane rows only — calendar chips open via their own pointer tap (so a
+      // drag isn't also treated as an open). Scope to .desk-lane to exclude #deskCal.
+      document.querySelectorAll('#view-desk .desk-lane [data-open-phone]').forEach(row => row.onclick = () => { const p = row.dataset.openPhone; if (p && window.cdOpenCustomerByPhone) window.cdOpenCustomerByPhone(p); });
     }
 
     // week nav
@@ -5098,6 +5174,26 @@
     function addDaysStr(days) {
       const d = new Date(); d.setDate(d.getDate() + days);
       return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    }
+
+    // Drop-off time picker options: 15-min intervals across shop hours (7a–6p),
+    // "Morning (no time)" as the default all-day choice, and a "Custom time…"
+    // escape hatch that reveals a free-entry time field (any minute). A <select>
+    // fires `change` reliably on selection — unlike the raw iOS time wheel, whose
+    // change failing to reach the handler is what silently dropped the time.
+    function dropoffTimeOptions(selectedHHMM) {
+      let opts = `<option value=""${selectedHHMM ? '' : ' selected'}>Morning (no time)</option>`;
+      let matched = false;
+      for (let mins = 7 * 60; mins <= 18 * 60; mins += 15) {
+        const hh = Math.floor(mins / 60), mm = mins % 60;
+        const val = `${pad2(hh)}:${pad2(mm)}`;
+        const lbl = new Date(2000, 0, 1, hh, mm).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        const sel = (val === selectedHHMM); if (sel) matched = true;
+        opts += `<option value="${val}"${sel ? ' selected' : ''}>${lbl}</option>`;
+      }
+      // a chosen time outside the list (or an odd minute) → preselect Custom
+      opts += `<option value="__custom__"${(selectedHHMM && !matched) ? ' selected' : ''}>Custom time…</option>`;
+      return opts;
     }
 
     // ── PERSISTENCE ────────────────────────────────────────────────────
@@ -5295,17 +5391,38 @@
       } else if (step === 'dropping_off') {
         // Date + OPTIONAL time. Default is morning/no time (all-day); a specific
         // time is the exception → due_all_day=false. Time is never required.
+        // BUG-1 FIX: the time now comes from a <select> (reliable `change`) with
+        // a Custom free-entry fallback, and due_all_day is ALWAYS derived from
+        // the currently-chosen time on every save — so a picked time can never
+        // be silently dropped behind a stale all-day "Saved ✓".
         const allDay = card._call.due_all_day !== false;
+        const curTime = allDay ? '' : dueAtToTimeStr(card._call.due_at);
         when.innerHTML =
           `<input type="date" class="cc-date" value="${esc(dueAtToDateStr(card._call.due_at))}">
-           <input type="time" class="cc-time" value="${allDay ? '' : esc(dueAtToTimeStr(card._call.due_at))}" title="Optional — leave blank for morning">`;
+           <select class="cc-timesel" title="Drop-off time — Morning = no specific time">${dropoffTimeOptions(curTime)}</select>
+           <input type="time" class="cc-timecustom" style="display:none" value="${allDay ? '' : esc(curTime)}" title="Any time">`;
+        const dateEl = when.querySelector('.cc-date');
+        const sel = when.querySelector('.cc-timesel');
+        const custom = when.querySelector('.cc-timecustom');
+        // if a custom (off-list) time was preselected, reveal + fill the field
+        if (sel.value === '__custom__') { custom.style.display = ''; custom.value = curTime; }
+        const readTime = () => (sel.value === '__custom__') ? (custom.value || '') : (sel.value || '');
         const save = () => {
-          const ds = when.querySelector('.cc-date').value;
-          const ts = when.querySelector('.cc-time').value;
+          const ds = dateEl.value;
+          const ts = readTime();
           saveNote(card, { due_at: toDueAt(ds, ts || null), due_all_day: !ts });
         };
-        when.querySelector('.cc-date').addEventListener('change', save);
-        when.querySelector('.cc-time').addEventListener('change', save);
+        dateEl.addEventListener('change', save);
+        sel.addEventListener('change', () => {
+          const custMode = sel.value === '__custom__';
+          custom.style.display = custMode ? '' : 'none';
+          if (custMode) { custom.focus(); if (!custom.value) return; }  // wait for the custom entry
+          save();
+        });
+        // native time field commits differently across browsers/iOS — save on
+        // both input and change so a custom time is never missed.
+        custom.addEventListener('input', save);
+        custom.addEventListener('change', save);
       } else if (step === 'checking_on_car') {
         const ros = card._ros || [];
         if (!ros.length) {
