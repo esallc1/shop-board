@@ -29,6 +29,23 @@ export const config = { api: { bodyParser: false } };
 // default-deny to anon, so the publishable key the boards ship cannot touch it.
 const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
 
+// Vercel's edge injects its OWN infrastructure headers onto the incoming
+// request — including x-vercel-oidc-token (a real signed project JWT) and
+// x-vercel-proxy-signature. Those are Vercel's live credentials, not anything
+// CTM sent, and must never be persisted. Strip exactly these two (case-
+// insensitive) and keep every other header verbatim — we still don't know
+// which CTM headers matter. Exported for the unit test.
+const REDACTED_HEADERS = new Set(['x-vercel-oidc-token', 'x-vercel-proxy-signature']);
+
+export function redactHeaders(headers) {
+  const out = {};
+  for (const k of Object.keys(headers || {})) {
+    if (REDACTED_HEADERS.has(k.toLowerCase())) continue;
+    out[k] = headers[k];
+  }
+  return out;
+}
+
 // Read the raw request stream to a string without any parsing.
 function readRawBody(req) {
   return new Promise((resolve, reject) => {
@@ -118,9 +135,10 @@ export default async function handler(req, res) {
       }
     }
 
-    // 4. Log EVERY header (complete object, not a subset) + both body forms.
+    // 4. Log EVERY header (complete object, not a subset) — minus Vercel's own
+    //    injected credential headers (see redactHeaders) — plus both body forms.
     await logRow({
-      headers: req.headers,
+      headers: redactHeaders(req.headers),
       body,
       body_raw: rawBody,
       sig_received: sigReceived,
