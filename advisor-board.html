@@ -2272,16 +2272,21 @@
       const d = digits(raw);
       $('cdPhoneError').textContent = '';
       if (d.length < 7) { $('cdPhoneError').textContent = 'Enter a full phone number.'; return; }
+      // Match on the LAST 10 DIGITS on both sides, so a leading country code
+      // (1-239-565-3158, or a +1 E.164 number) still finds a customer stored
+      // as (239) 565-3158 instead of spawning a duplicate. Check phone_secondary
+      // too. Normalize on read only — no stored value is changed.
+      const key = d.slice(-10);
+      const last10 = (s) => digits(s).slice(-10);
 
       const btn = $('cdPhoneNextBtn');
       btn.disabled = true; btn.textContent = 'Looking up…';
       try {
         const { data, error } = await db
           .from('customers')
-          .select('id, name, business_name, phone_primary')
-          .not('phone_primary', 'is', null);
+          .select('id, name, business_name, phone_primary, phone_secondary');
         if (error) throw error;
-        const matches = (data || []).filter(c => digits(c.phone_primary) === d);
+        const matches = (data || []).filter(c => last10(c.phone_primary) === key || last10(c.phone_secondary) === key);
 
         if (matches.length === 0) {
           // new customer — prefill the phone as entered
