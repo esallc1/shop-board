@@ -456,6 +456,39 @@
   .call-card-pick { border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; margin: 5px 0; cursor: pointer; }
   .call-card-pick:hover { border-color: var(--accent); background: var(--surface-2); }
   .call-card-muted { color: var(--muted); font-size: 0.8rem; }
+
+  /* slice 3a — note + next-step form on the card */
+  .call-card-form { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .cc-label { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); margin: 8px 0 4px; }
+  .cc-label:first-child { margin-top: 0; }
+  .cc-note {
+    width: 100%; box-sizing: border-box; resize: vertical; min-height: 44px;
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px;
+    font: inherit; font-size: 0.84rem; color: var(--text); background: var(--surface);
+  }
+  .cc-note:focus { outline: none; border-color: var(--accent); }
+  .cc-next { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cc-next button {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    border-radius: 999px; padding: 5px 10px; font-size: 0.76rem; font-weight: 600; cursor: pointer;
+  }
+  .cc-next button:hover { border-color: var(--accent); }
+  .cc-next button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .cc-when { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .cc-quick { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; }
+  .cc-quick button {
+    border: 1px dashed var(--border); background: transparent; color: var(--accent);
+    border-radius: 999px; padding: 4px 9px; font-size: 0.74rem; font-weight: 600; cursor: pointer;
+  }
+  .cc-quick button:hover { border-style: solid; background: var(--surface-2); }
+  .cc-when input[type="date"], .cc-when input[type="time"], .cc-when select {
+    border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px;
+    font: inherit; font-size: 0.8rem; color: var(--text); background: var(--surface);
+  }
+  .cc-when input:focus, .cc-when select:focus { outline: none; border-color: var(--accent); }
+  .cc-saved { margin-top: 6px; font-size: 0.72rem; color: var(--muted); min-height: 1em; }
+  .cc-saved.err { color: var(--red); }
+  .cc-saved.ok { color: var(--green); }
 </style>
 
 <div class="app-shell">
@@ -4634,7 +4667,11 @@
     const stack = document.getElementById('callCardStack');
     if (!stack) return;
 
-    const CARD_TTL_MS = 5 * 60 * 1000;   // auto-clear after 5 min (read-only only)
+    // NOTE: the slice-2 5-minute auto-clear timer has been REMOVED here (slice
+    // 3a). Auto-clear was safe only while the card was read-only; now that Josh
+    // types a note on it, a timer would be silent data loss. The card persists
+    // until he explicitly dismisses it (the × in the header). Do not re-add a
+    // timer — dismissal is manual on purpose.
 
     // tracking number → source chip. ONE lookup (not hardcoded in three places).
     const TRACKING_SOURCE = { '2399335750': 'Direct', '2399320855': 'Facebook' };
@@ -4713,6 +4750,90 @@
       return { vehicles: vehRes.data || [], ros: ros || [] };
     }
 
+    // "Open" ROs to offer for checking_on_car: active work only (a current RO,
+    // or an estimate that hasn't been declined). Already loaded by loadDetail —
+    // we don't build a new search.
+    function openRos(ros) {
+      return (ros || []).filter(r => r.status === 'ro' || (r.status === 'estimate' && !r.declined_at));
+    }
+
+    // ── date/time <-> due_at helpers (local time; due_all_day ignores the time
+    // component — we store a noon-local placeholder so no timezone rolls the
+    // date back a day). ────────────────────────────────────────────────
+    const pad2 = (n) => String(n).padStart(2, '0');
+    function dueAtToDateStr(iso) {
+      if (!iso) return '';
+      const d = new Date(iso); if (isNaN(d)) return '';
+      return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    }
+    function dueAtToTimeStr(iso) {
+      if (!iso) return '';
+      const d = new Date(iso); if (isNaN(d)) return '';
+      return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    }
+    function toDueAt(dateStr, timeStr) {
+      if (!dateStr) return null;
+      const [y, m, d] = dateStr.split('-').map(Number);
+      if (timeStr) {
+        const [hh, mm] = timeStr.split(':').map(Number);
+        return new Date(y, m - 1, d, hh || 0, mm || 0, 0).toISOString();
+      }
+      return new Date(y, m - 1, d, 12, 0, 0).toISOString();   // all-day → noon-local placeholder
+    }
+    function addDaysStr(days) {
+      const d = new Date(); d.setDate(d.getDate() + days);
+      return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    }
+
+    // ── PERSISTENCE ────────────────────────────────────────────────────
+    // Every write is an UPDATE to the existing calls row (created by the
+    // webhook). anon UPDATE is allowed by the slice-3a policy; anon can't INSERT
+    // (webhook owns creation). callId is calls.id (bigserial) from the realtime
+    // row; when it's absent (dry-run test card) we update local state only.
+    function setSaved(card, kind) {
+      const el = card.querySelector('.cc-saved'); if (!el) return;
+      el.classList.remove('err', 'ok');
+      if (kind === 'saving') el.textContent = 'Saving…';
+      else if (kind === 'saved') { el.textContent = 'Saved ✓'; el.classList.add('ok'); }
+      else if (kind === 'error') { el.textContent = 'Save failed — will retry on next change'; el.classList.add('err'); }
+      else el.textContent = '';
+    }
+
+    // customer_id from a multi-match PICK persists immediately, with NO
+    // noted_by/noted_at stamp (picking a name isn't "noting the call").
+    async function persistCustomer(card, customerId) {
+      card._customerId = customerId;
+      card._customerPersisted = true;
+      const id = card._call && card._call.id;
+      if (id == null) return;                       // dry-run card
+      const { error } = await db.from('calls').update({ customer_id: customerId }).eq('id', id);
+      if (error) { console.error('[callerCard] customer save failed', error); card._customerPersisted = false; }
+    }
+
+    // Note / next_step / date / ro_id saves. On the FIRST such save we stamp
+    // noted_by_name + noted_at (who handled the call) and fold in a known-but-
+    // not-yet-persisted customer_id (single match). Idempotent per field.
+    async function saveNote(card, patch) {
+      const p = { ...patch };
+      if (!card._noted) {
+        p.noted_by_name = (CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
+        p.noted_at = new Date().toISOString();
+        card._noted = true;
+      }
+      if (card._customerId != null && !card._customerPersisted) {
+        p.customer_id = card._customerId;
+        card._customerPersisted = true;
+      }
+      Object.assign(card._call, p);
+      card._lastPatch = p;                          // exposed for local verification
+      setSaved(card, 'saving');
+      const id = card._call && card._call.id;
+      if (id == null) { setSaved(card, 'saved'); return; }   // dry-run card
+      const { error } = await db.from('calls').update(p).eq('id', id);
+      if (error) { console.error('[callerCard] note save failed', error); setSaved(card, 'error'); return; }
+      setSaved(card, 'saved');
+    }
+
     function headHtml(call) {
       const num = call.caller_formatted || formatPhone(call.caller_bare) || '(unknown number)';
       return `<div class="call-card-head">
@@ -4765,9 +4886,20 @@
       `;
     }
 
-    function setBody(card, html) {
-      const body = card.querySelector('.call-card-body');
-      if (body) body.innerHTML = html;
+    // The detail area (match / pick-list / unmatched) is SEPARATE from the note
+    // form below it, so re-rendering detail after a pick never wipes a note in
+    // progress.
+    function setDetail(card, html) {
+      const el = card.querySelector('.call-card-detail');
+      if (el) el.innerHTML = html;
+    }
+
+    // After a customer's detail loads, remember their open ROs on the card so
+    // the checking_on_car RO picker can offer them, and refresh that picker if
+    // it's currently showing.
+    function applyLoadedDetail(card, ros) {
+      card._ros = openRos(ros);
+      if (card._call.next_step === 'checking_on_car') renderWhen(card);
     }
 
     function renderPickList(card, call, matches) {
@@ -4779,20 +4911,133 @@
           ${sub ? `<div class="call-card-muted">${esc(sub)}</div>` : ''}
         </div>`;
       }).join('');
-      setBody(card, `<div class="call-card-sub">${matches.length} customers on this number — pick one:</div>${rows}`);
+      setDetail(card, `<div class="call-card-sub">${matches.length} customers on this number — pick one:</div>${rows}`);
       card.querySelectorAll('.call-card-pick').forEach(el => {
         el.addEventListener('click', async () => {
           const c = matches[Number(el.dataset.idx)];
-          setBody(card, `<div class="call-card-muted">Loading ${esc(c.business_name || c.name || 'customer')}…</div>`);
+          persistCustomer(card, c.id);   // picking sets customer_id on the call row now
+          setDetail(card, `<div class="call-card-muted">Loading ${esc(c.business_name || c.name || 'customer')}…</div>`);
           try {
             const detail = await loadDetail(c.id);
-            setBody(card, matchedBodyHtml(call, c, detail));
+            applyLoadedDetail(card, detail.ros);
+            setDetail(card, matchedBodyHtml(call, c, detail));
           } catch (e) {
             console.error('[callerCard] detail load failed', e);
-            setBody(card, matchedBodyHtml(call, c, { vehicles: [], ros: [] }));
+            applyLoadedDetail(card, []);
+            setDetail(card, matchedBodyHtml(call, c, { vehicles: [], ros: [] }));
           }
         });
       });
+    }
+
+    // ── THE NOTE FORM (slice 3a) ───────────────────────────────────────
+    const NEXT_STEPS = [
+      { key: 'quoted_callback',  label: 'Quoted — will call back' },
+      { key: 'dropping_off',     label: 'Dropping off' },
+      { key: 'checking_on_car',  label: 'Checking on their car' },
+      { key: 'price_shopper',    label: 'Price shopper' },
+    ];
+
+    function formShellHtml() {
+      return `<div class="call-card-form">
+        <div class="cc-label">Call note</div>
+        <textarea class="cc-note" rows="2" placeholder="Type your note while you talk…"></textarea>
+        <div class="cc-label">What happens next</div>
+        <div class="cc-next">
+          ${NEXT_STEPS.map(s => `<button type="button" data-next="${s.key}">${esc(s.label)}</button>`).join('')}
+        </div>
+        <div class="cc-when"></div>
+        <div class="cc-saved" aria-live="polite"></div>
+      </div>`;
+    }
+
+    // Rebuild the "when"/RO area for the current next_step. Only quoted_callback
+    // and dropping_off show a date; checking_on_car shows the RO picker; nothing
+    // for price_shopper.
+    function renderWhen(card) {
+      const when = card.querySelector('.cc-when');
+      if (!when) return;
+      const step = card._call.next_step;
+      if (step === 'quoted_callback') {
+        when.innerHTML =
+          `<div class="cc-quick">
+             <button type="button" data-days="1">Tomorrow</button>
+             <button type="button" data-days="3">In 3 days</button>
+             <button type="button" data-days="7">Next week</button>
+           </div>
+           <input type="date" class="cc-date" value="${esc(dueAtToDateStr(card._call.due_at))}">`;
+        when.querySelectorAll('.cc-quick button').forEach(b =>
+          b.addEventListener('click', () => {
+            const ds = addDaysStr(Number(b.dataset.days));
+            when.querySelector('.cc-date').value = ds;
+            saveNote(card, { due_at: toDueAt(ds, null), due_all_day: true });
+          }));
+        when.querySelector('.cc-date').addEventListener('change', (e) =>
+          saveNote(card, { due_at: toDueAt(e.target.value, null), due_all_day: true }));
+      } else if (step === 'dropping_off') {
+        // Date + OPTIONAL time. Default is morning/no time (all-day); a specific
+        // time is the exception → due_all_day=false. Time is never required.
+        const allDay = card._call.due_all_day !== false;
+        when.innerHTML =
+          `<input type="date" class="cc-date" value="${esc(dueAtToDateStr(card._call.due_at))}">
+           <input type="time" class="cc-time" value="${allDay ? '' : esc(dueAtToTimeStr(card._call.due_at))}" title="Optional — leave blank for morning">`;
+        const save = () => {
+          const ds = when.querySelector('.cc-date').value;
+          const ts = when.querySelector('.cc-time').value;
+          saveNote(card, { due_at: toDueAt(ds, ts || null), due_all_day: !ts });
+        };
+        when.querySelector('.cc-date').addEventListener('change', save);
+        when.querySelector('.cc-time').addEventListener('change', save);
+      } else if (step === 'checking_on_car') {
+        const ros = card._ros || [];
+        if (!ros.length) {
+          when.innerHTML = `<div class="call-card-muted">No open ROs to link</div>`;
+          return;
+        }
+        when.innerHTML =
+          `<select class="cc-ro">
+             <option value="">— link an RO —</option>
+             ${ros.map(r => `<option value="${esc(r.id)}" ${r.id === card._call.ro_id ? 'selected' : ''}>#${r.ro_number ?? '?'} · ${esc(r.status)}</option>`).join('')}
+           </select>`;
+        when.querySelector('.cc-ro').addEventListener('change', (e) =>
+          saveNote(card, { ro_id: e.target.value || null }));
+      } else {
+        when.innerHTML = '';   // price_shopper (or none) → no date, no RO
+      }
+    }
+
+    function wireForm(card) {
+      const note = card.querySelector('.cc-note');
+      // Autosave note on a 2s debounce while typing AND on blur — Josh is on the
+      // phone; a note must never be lost for want of a Save button. Skip a save
+      // when the text hasn't changed since the last one.
+      let noteTimer = null;
+      const saveIfChanged = () => {
+        const v = note.value;
+        if (v === card._lastNote) return;
+        card._lastNote = v;
+        saveNote(card, { note: v });
+      };
+      note.addEventListener('input', () => {
+        clearTimeout(noteTimer);
+        noteTimer = setTimeout(saveIfChanged, 2000);
+      });
+      note.addEventListener('blur', () => { clearTimeout(noteTimer); saveIfChanged(); });
+
+      card.querySelectorAll('.cc-next button').forEach(b =>
+        b.addEventListener('click', () => {
+          const step = b.dataset.next;
+          card.querySelectorAll('.cc-next button').forEach(x => x.classList.toggle('active', x === b));
+          // Single-select next_step; null out the fields that don't apply to it
+          // so the row never carries stale date/RO from a previous choice.
+          const patch = { next_step: step };
+          if (step === 'quoted_callback')      { patch.ro_id = null; patch.due_all_day = true; }
+          else if (step === 'dropping_off')    { patch.ro_id = null; if (card._call.due_all_day == null) patch.due_all_day = true; }
+          else if (step === 'checking_on_car') { patch.due_at = null; patch.due_all_day = true; }
+          else                                 { patch.due_at = null; patch.due_all_day = true; patch.ro_id = null; }
+          saveNote(card, patch);
+          renderWhen(card);
+        }));
     }
 
     async function handleNewCall(call) {
@@ -4804,25 +5049,49 @@
       const card = document.createElement('div');
       card.className = 'call-card';
       card.dataset.callId = String(call.ctm_call_id);
-      card.innerHTML = headHtml(call) + `<div class="call-card-body"><div class="call-card-muted">Looking up…</div></div>`;
+      // Mutable working copy of the row + card-local state used by saves.
+      card._call = { ...call };
+      card._ros = [];
+      card._noted = !!(call.noted_at);                 // already stamped? (defensive)
+      card._customerId = call.customer_id ?? null;
+      card._customerPersisted = call.customer_id != null;
+      card._lastNote = call.note || '';
+      // Detail area (re-renderable) + the persistent note form BELOW it. The
+      // form is built once so re-rendering detail (e.g. after a pick) never
+      // wipes an in-progress note. No auto-clear timer — dismiss is manual.
+      card.innerHTML = headHtml(call)
+        + `<div class="call-card-detail"><div class="call-card-muted">Looking up…</div></div>`
+        + formShellHtml();
       stack.prepend(card);   // newest on top; multiple calls stack
 
-      const timer = setTimeout(() => card.remove(), CARD_TTL_MS);
-      card.querySelector('.call-card-x').addEventListener('click', () => { clearTimeout(timer); card.remove(); });
+      card.querySelector('.call-card-x').addEventListener('click', () => card.remove());
+      // Hydrate any pre-existing values (a live INSERT has none yet; defensive).
+      if (call.note) card.querySelector('.cc-note').value = call.note;
+      if (call.next_step) {
+        const b = card.querySelector(`.cc-next button[data-next="${call.next_step}"]`);
+        if (b) b.classList.add('active');
+        renderWhen(card);
+      }
+      wireForm(card);
 
       try {
         const matches = await matchCustomers(call.caller_bare);
         if (matches.length === 0) {
-          setBody(card, unmatchedBodyHtml(call));
+          setDetail(card, unmatchedBodyHtml(call));
         } else if (matches.length === 1) {
+          // Confident single match: remember customer_id locally (persisted with
+          // the first note save, so a card no one touches never writes a row).
+          card._customerId = matches[0].id;
+          card._customerPersisted = false;
           const detail = await loadDetail(matches[0].id);
-          setBody(card, matchedBodyHtml(call, matches[0], detail));
+          applyLoadedDetail(card, detail.ros);
+          setDetail(card, matchedBodyHtml(call, matches[0], detail));
         } else {
           renderPickList(card, call, matches);
         }
       } catch (e) {
         console.error('[callerCard] handle call failed', e);
-        setBody(card, unmatchedBodyHtml(call));   // safe fallback still shows the number + chip
+        setDetail(card, unmatchedBodyHtml(call));   // safe fallback still shows the number + chip
       }
     }
     window.cdHandleTestCall = handleNewCall;   // lets us dry-run a card without a live call
