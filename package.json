@@ -5,7 +5,7 @@
   "type": "module",
   "description": "CrisData static site + Vercel serverless functions (api/).",
   "scripts": {
-    "test": "node --test 'api/*.test.js'"
+    "test": "node --test 'api/*.test.js' 'shared/*.test.js'"
   },
   "dependencies": {
     "web-push": "^3.6.7"

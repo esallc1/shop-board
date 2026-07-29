@@ -408,6 +408,13 @@
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
+<!-- RO service-writer helpers (ESM). Assigns window.RoWriter; used only by
+     event-driven handlers (mintRo/openRo/printRo), which run long after this
+     module executes, so load order is safe. -->
+<script type="module">
+  import * as RoWriter from './shared/ro-writer.js';
+  window.RoWriter = RoWriter;
+</script>
 </head>
 <body>
 
@@ -954,6 +961,10 @@
           <div class="intake-field">
             <label>Technician</label>
             <select id="cdRoTech"><option value="">— Unassigned —</option></select>
+          </div>
+          <div class="intake-field">
+            <label>Service Writer</label>
+            <select id="cdRoWriter"><option value="">— Unassigned —</option></select>
           </div>
           <div class="intake-field cd-hf-full">
             <label>Complaint</label>
@@ -2844,6 +2855,12 @@
         parent_ro_id: state.parentRoId || null,  // set only for a comeback
         complaint: $('cdMintComplaint').value.trim() || null,
         odometer_in: Number.isFinite(odo) ? odo : null,
+        // AUTO-STAMP the writer: whoever is logged in AT CREATION owns this RO.
+        // No prompt, no extra click — the printed "Service Advisor" then reads
+        // from here (see printRo), not from whoever later clicks Print. Null if
+        // the session hasn't resolved an employee. Retried away below if the
+        // column isn't migrated yet, so it never blocks RO creation.
+        service_writer_id: CURRENT_EMPLOYEE_ID || null,
         // ro_number + po are DB-minted — deliberately NOT set here
       };
 
@@ -2872,8 +2889,18 @@
       const btn = $('cdMintBtn');
       btn.disabled = true; btn.textContent = 'Creating…';
       try {
-        const { data, error } = await db.from('repair_orders').insert(row)
+        // Resilient insert: if service_writer_id isn't migrated in yet the
+        // insert 400s (42703 / PGRST204). Retry once WITHOUT it rather than
+        // block RO creation — the writer is a nice-to-have, minting the RO is not.
+        const insertRo = (r) => db.from('repair_orders').insert(r)
           .select('id, ro_number, po, complaint, parent_ro_id').single();
+        let ins = await insertRo(row);
+        if (ins.error && isMissingColumn(ins.error)) {
+          console.warn('[CdRO] service_writer_id column missing — creating RO without it (run the migration).');
+          const { service_writer_id, ...rowNoWriter } = row;
+          ins = await insertRo(rowNoWriter);
+        }
+        const { data, error } = ins;
         if (error) throw error;
         state.roId = data.id;
         const comebackLine = (state.parentRoId && state.priorRo)
@@ -3503,12 +3530,30 @@
       // advisory_notes / technician — naming a missing column would 400
       // the whole query. Embedded customer/vehicle columns all exist
       // from Phase 1.
-      const { data, error } = await db
-        .from('repair_orders')
-        .select('*, ' +
-                'customers(name, phone_primary, phone_secondary, email, tax_exempt), ' +
-                'vehicles(year, make, model, engine, vin, plate, plate_state, transmission_code, drive_type)')
+      const EMBEDS =
+        'customers(name, phone_primary, phone_secondary, email, tax_exempt), ' +
+        'vehicles(year, make, model, engine, vin, plate, plate_state, transmission_code, drive_type)';
+      // Embed the stored service writer's NAME (repair_orders.service_writer_id
+      // → employees) so printRo can show it without reading the logged-in user.
+      // Resilient: before the migration the relationship doesn't exist and the
+      // NAMED select 400s — fall back to the plain select so the RO still opens
+      // (writer just resolves to '—' in print). Same lesson as declined_*.
+      const WRITER_EMBED = 'service_writer:employees!service_writer_id(name)';
+      let resp = await db.from('repair_orders')
+        .select('*, ' + WRITER_EMBED + ', ' + EMBEDS)
         .eq('id', roId).single();
+      // Pre-migration the column is absent, so the embed fails as either a
+      // missing column (42703 / PGRST204) OR a missing relationship (PGRST200,
+      // "could not find a relationship ..."). Either way, drop the writer embed
+      // and re-open with the plain select.
+      if (resp.error && (isMissingColumn(resp.error) ||
+          resp.error.code === 'PGRST200' ||
+          /could not find a relationship/i.test(resp.error.message || ''))) {
+        resp = await db.from('repair_orders')
+          .select('*, ' + EMBEDS)
+          .eq('id', roId).single();
+      }
+      const { data, error } = resp;
       if (error || !data) {
         console.error('[CdRO] open RO failed', error);
         alert('Could not open RO: ' + ((error && error.message) || 'not found'));
@@ -3549,6 +3594,35 @@
         if (n === cur) opt.selected = true;
         sel.appendChild(opt);
       });
+
+      // Service Writer dropdown — advisors/managers/owners, active only. UNLIKE
+      // the technician dropdown above, this stores the employee ID (option
+      // value), not the name. Filtering + option-building live in the tested
+      // shared/ro-writer.js so the role set can't silently drift.
+      const wsel = $('cdRoWriter');
+      if (wsel) {
+        wsel.innerHTML = '<option value="">— Unassigned —</option>';
+        const WR = window.RoWriter;
+        const roles = WR ? WR.WRITER_ROLES : ['advisor', 'manager', 'owner'];
+        let wrows = [];
+        try {
+          const { data } = await db.from('employees')
+            .select('id, name, role, active')
+            .in('role', roles).eq('active', true).order('name');
+          wrows = data || [];
+        } catch (e) { /* non-fatal — leave just "— Unassigned —" */ }
+        const curId = currentRo.service_writer_id || '';
+        const curName = (currentRo.service_writer && currentRo.service_writer.name) || null;
+        const opts = WR
+          ? WR.buildWriterOptions(wrows, curId, curName)
+          : wrows.map(e => ({ id: String(e.id), name: e.name, selected: String(e.id) === String(curId) }));
+        opts.forEach(o => {
+          const opt = document.createElement('option');
+          opt.value = o.id; opt.textContent = o.name;
+          if (o.selected) opt.selected = true;
+          wsel.appendChild(opt);
+        });
+      }
     }
 
     // true when the DB rejects a write because the column isn't there yet
@@ -4270,7 +4344,15 @@
       const cfg = (window.BoardSettings && window.BoardSettings.getShopSettings)
         ? window.BoardSettings.getShopSettings() : {};
       const showTech = !!cfg.show_tech_on_ro;
-      const advisor = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) || '';
+      // The printed "Service Advisor" is the RO's STORED service writer (resolved
+      // to a name by the openRo embed), NOT whoever is logged in at print time.
+      // A blank ('—') is honest for the ~30 pre-tracking ROs and for a board
+      // running before the migration; a wrong name is not. Never reads
+      // CHAT_IDENTITY. Inline fallback mirrors serviceWriterName so the security
+      // property holds even if the module hasn't loaded.
+      const advisor = (window.RoWriter && window.RoWriter.serviceWriterName)
+        ? window.RoWriter.serviceWriterName(ro)
+        : ((ro && ro.service_writer && (Array.isArray(ro.service_writer) ? ro.service_writer[0] : ro.service_writer) || {}).name || '—');
       const P = (s) => esc(s == null ? '' : String(s));
       const M = (n) => '$' + (Number(n) || 0).toFixed(2);
       // Stage drives the document's identity — ESTIMATE (the quote the
@@ -4530,6 +4612,19 @@
         sel.value = prevTech || '';           // revert dropdown
       }
     }
+    // Service Writer edit — stores the employee ID on repair_orders. Separate
+    // from the technician path: it does NOT touch the floor / assigned_tech.
+    // updateRoField already degrades quietly if the column isn't migrated yet.
+    $('cdRoWriter').addEventListener('change', () => {
+      if (!currentRo) return;
+      const sel = $('cdRoWriter');
+      const id = sel.value || null;
+      const name = id ? (sel.options[sel.selectedIndex] && sel.options[sel.selectedIndex].text) || null : null;
+      // Keep the embedded name in sync so a Print in THIS session (before any
+      // reload) shows the newly-chosen writer rather than the stale/blank one.
+      currentRo.service_writer = id ? { name } : null;
+      updateRoField('service_writer_id', id);
+    });
     $('cdRoComplaint').addEventListener('change', () => updateRoField('complaint', $('cdRoComplaint').value.trim() || null));
     $('cdRoAdvisory').addEventListener('change', () => updateRoField('advisory_notes', $('cdRoAdvisory').value.trim() || null));
     // VIN / plate live on the shared vehicle row, not the RO
