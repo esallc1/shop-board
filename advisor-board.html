@@ -415,6 +415,12 @@
   import * as RoWriter from './shared/ro-writer.js';
   window.RoWriter = RoWriter;
 </script>
+<!-- Desk call-log attach / un-attach / not-a-customer decision logic (ESM).
+     Assigns window.CallAttach; used only by event-driven Desk handlers. -->
+<script type="module">
+  import * as CallAttach from './shared/call-attach.js';
+  window.CallAttach = CallAttach;
+</script>
 </head>
 <body>
 
@@ -823,6 +829,30 @@
     .log-nextstep { display:inline-block; font-size:0.68rem; font-weight:700; color:var(--muted); border:1px solid var(--border); border-radius:6px; padding:1px 7px; margin-top:5px; }
     .log-untouched-tag { display:inline-block; font-size:0.66rem; font-weight:800; color:#92400e; margin-top:5px; }
     .desk-log-empty { color:var(--muted); font-size:0.82rem; text-align:center; padding:28px 8px; }
+    /* ── call-log attach (slice 3f) ── */
+    .desk-log-filter { padding:8px 16px; border-bottom:1px solid var(--border); }
+    .desk-log-filter-toggle { display:inline-flex; align-items:center; gap:7px; font-size:0.8rem; font-weight:700; color:var(--text); cursor:pointer; }
+    .desk-log-filter-toggle input { accent-color:var(--accent); width:15px; height:15px; cursor:pointer; }
+    .log-actions { display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap; }
+    .log-act { border:1px solid var(--border); background:#fff; border-radius:7px; padding:3px 10px; font-size:0.72rem; font-weight:700; color:var(--text); cursor:pointer; }
+    .log-act:hover { border-color:var(--accent); background:var(--surface-2); }
+    .log-act.primary { border-color:var(--accent); color:var(--accent); }
+    .log-act.suggest { border-color:var(--accent); background:var(--accent); color:#fff; }
+    .log-attached { font-size:0.72rem; font-weight:800; color:#166534; }
+    .log-nac { font-size:0.72rem; font-weight:800; color:var(--muted); }
+    .desk-attach { position:absolute; inset:0; background:#fff; display:flex; flex-direction:column; transform:translateX(100%); transition:transform .18s ease; z-index:2; }
+    .desk-attach.open { transform:translateX(0); }
+    .desk-attach-head { display:flex; align-items:center; padding:14px 16px; border-bottom:1px solid var(--border); }
+    .desk-attach-title { font-weight:800; font-size:0.95rem; }
+    .desk-attach-search { padding:10px 16px; border-bottom:1px solid var(--border); }
+    .desk-attach-search input { width:100%; border:1px solid var(--border); border-radius:8px; padding:8px 11px; font-size:0.85rem; color:var(--text); }
+    .desk-attach-search input:focus { outline:none; border-color:var(--accent); }
+    .desk-attach-list { flex:1; overflow-y:auto; padding:8px 12px; display:flex; flex-direction:column; gap:5px; }
+    .desk-attach-item { display:flex; align-items:baseline; gap:10px; width:100%; text-align:left; border:1px solid var(--border); border-radius:8px; padding:8px 11px; background:#fff; cursor:pointer; }
+    .desk-attach-item:hover { border-color:var(--accent); background:var(--surface-2); }
+    .desk-attach-name { font-size:0.85rem; font-weight:700; color:var(--text); }
+    .desk-attach-phone { margin-left:auto; font-size:0.76rem; color:var(--muted); white-space:nowrap; }
+    .desk-attach-empty { color:var(--muted); font-size:0.82rem; text-align:center; padding:24px 8px; }
   </style>
   <div class="view" id="view-desk">
     <div class="desk-head">
@@ -872,7 +902,25 @@
         <button type="button" id="deskLogNext" title="Next day">›</button>
         <button type="button" id="deskLogToday">Today</button>
       </div>
+      <div class="desk-log-filter" id="deskLogFilterRow">
+        <label class="desk-log-filter-toggle">
+          <input type="checkbox" id="deskLogUnattached"> Unattached only
+        </label>
+      </div>
       <div class="desk-log-body" id="deskLogList"></div>
+
+      <!-- Attach picker — search across ALL customers (paginated fetch, past the
+           1000-row cap). Slides over the log body; never touches the lanes. -->
+      <div class="desk-attach" id="deskAttach" aria-hidden="true">
+        <div class="desk-attach-head">
+          <span class="desk-attach-title" id="deskAttachTitle">Attach call to customer</span>
+          <button type="button" class="desk-log-x" id="deskAttachClose" title="Close" aria-label="Close">×</button>
+        </div>
+        <div class="desk-attach-search">
+          <input type="search" id="deskAttachSearch" placeholder="Search all customers by name or number…" autocomplete="off">
+        </div>
+        <div class="desk-attach-list" id="deskAttachList"></div>
+      </div>
     </aside>
   </div>
 
@@ -5213,8 +5261,16 @@
     // or not anyone touched the card. The safety net. Read-only here. ══
     const NEXT_LABELS = { quoted_callback: 'Quoted — will call back', dropping_off: 'Dropping off', checking_on_car: 'Checking on car', price_shopper: 'Price shopper' };
     const LOG_COLS = 'id, caller_bare, caller_formatted, cnam, tracking_bare, is_new_caller, note, next_step, customer_id, started_at';
+    // Slice 3f attach columns — added on top of LOG_COLS when they exist. On a
+    // pre-migration DB the extended select 42703s and we fall back to LOG_COLS
+    // with the attach actions + unattached filter dormant (attachColsAvailable).
+    const LOG_COLS_ATTACH = LOG_COLS + ', attached_by_name, attached_at, learned_phone, not_a_customer_at, not_a_customer_by_name';
+    let attachColsAvailable = true;
     let logOpen = false;
     let logDay = startOfToday();
+    let unattachedOnly = false;
+    let logCallsById = {};      // id → call, for the row action buttons
+    let logSuggestById = {};    // id → single phone-matched customer, for one-tap attach
 
     function addDays(day, n) { const d = new Date(day); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + n); return d; }
     function dayBounds(day) {
@@ -5249,19 +5305,38 @@
     async function logLoad() {
       const list = $('deskLogList');
       const { startISO, endISO } = dayBounds(logDay);
-      const resp = await db.from('calls').select(LOG_COLS)
+      const sel = (cols) => db.from('calls').select(cols)
         .gte('started_at', startISO).lt('started_at', endISO)
         .order('started_at', { ascending: false });   // newest first
+      // Try the extended select; if the attach columns aren't migrated in yet
+      // (42703) fall back to the base select with actions + filter dormant.
+      let resp = await sel(LOG_COLS_ATTACH);
+      if (resp.error && isMissingCol(resp.error)) {
+        attachColsAvailable = false;
+        resp = await sel(LOG_COLS);
+      } else if (!resp.error) {
+        attachColsAvailable = true;
+      }
+      // The filter row + toggle are meaningless without the columns.
+      const filterRow = $('deskLogFilterRow');
+      if (filterRow) filterRow.style.display = attachColsAvailable ? '' : 'none';
+      if (!attachColsAvailable) unattachedOnly = false;
       if (resp.error) {
         console.error('[desk] call log load failed', resp.error);
         list.innerHTML = `<div class="desk-log-empty">Couldn't load calls: ${esc(resp.error.message)}</div>`;
         return;
       }
-      const calls = resp.data || [];
+      let calls = resp.data || [];
       // Identity resolves by PHONE MATCH (via the shared resolveCaller), NOT the
       // passive calls.customer_id — so untouched calls from real customers show
       // the customer, not the number.
       const idx = await ensureCustIndex();
+      // Unattached filter — PERSISTED columns only (customer_id / not_a_customer_at).
+      // A phone-matched-but-unconfirmed call has customer_id NULL, so it stays in
+      // the list; that's the point (one-tap confirm). Never filter on the live match.
+      if (unattachedOnly && attachColsAvailable && window.CallAttach) {
+        calls = calls.filter(c => window.CallAttach.isUnattached(c));
+      }
       logRender(calls, idx);
     }
     // test hook: render the log from injected data. Accepts a {byId, byPhone}
@@ -5270,8 +5345,14 @@
 
     function logRender(calls, idx) {
       const list = $('deskLogList');
-      if (!calls.length) { list.innerHTML = '<div class="desk-log-empty">No calls on this day.</div>'; return; }
+      logCallsById = {}; logSuggestById = {};
+      if (!calls.length) {
+        list.innerHTML = `<div class="desk-log-empty">${unattachedOnly ? 'No unattached calls on this day.' : 'No calls on this day.'}</div>`;
+        return;
+      }
+      const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
       list.innerHTML = calls.map(c => {
+        logCallsById[c.id] = c;
         const t = c.started_at ? new Date(c.started_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '—';
         const { label, state } = resolveCaller(c, idx);      // 'matched' | 'multi' | 'new'
         const isNew = state === 'new';                       // phone match returned NOTHING
@@ -5284,24 +5365,171 @@
         const note = hasNote ? `<div class="log-note">${esc(String(c.note).trim())}</div>` : '';
         const nextstep = c.next_step ? `<div class="log-nextstep">${esc(NEXT_LABELS[c.next_step] || c.next_step)}</div>` : '';
         const untouchedTag = untouched ? `<div class="log-untouched-tag">⚠ No note — nobody logged this call</div>` : '';
+
+        // Action bar — only once the attach columns exist (dormant otherwise).
+        let actions = '';
+        if (attachColsAvailable) {
+          const id = esc(c.id);
+          if (c.customer_id) {
+            const who = c.attached_by_name ? ` by ${esc(c.attached_by_name)}` : '';
+            actions = `<div class="log-actions"><span class="log-attached">✓ Attached${who}</span>` +
+              `<button type="button" class="log-act" data-act="unattach" data-id="${id}">Un-attach</button></div>`;
+          } else if (c.not_a_customer_at) {
+            actions = `<div class="log-actions"><span class="log-nac">Not a customer</span>` +
+              `<button type="button" class="log-act" data-act="clear-nac" data-id="${id}">Undo</button></div>`;
+          } else {
+            // Unattached. A SINGLE live phone match becomes a one-tap suggestion
+            // (still an explicit tap — never auto-attached). Multi/new → picker.
+            let suggestBtn = '';
+            if (state === 'matched') {
+              const key = l10(c.caller_bare);
+              const hits = (idx && idx.byPhone && key.length === 10) ? idx.byPhone[key] : null;
+              if (hits && hits.length === 1) {
+                logSuggestById[c.id] = hits[0];
+                suggestBtn = `<button type="button" class="log-act suggest" data-act="attach-suggest" data-id="${id}">Attach to ${esc(label)}</button>`;
+              }
+            }
+            actions = `<div class="log-actions">${suggestBtn}` +
+              `<button type="button" class="log-act primary" data-act="attach" data-id="${id}">Attach…</button>` +
+              `<button type="button" class="log-act" data-act="nac" data-id="${id}">Not a customer</button></div>`;
+          }
+        }
+
         return `<div class="log-row${untouched ? ' untouched' : ''}" data-open-phone="${esc(c.caller_bare || '')}">
           <div class="log-row-top">
             <span class="log-time">${esc(t)}</span>
             <span class="log-${isNew ? 'num' : 'name'}">${esc(label)}</span>
             <span class="log-chip">${esc(chip)}</span>
           </div>
-          ${cnam}${newcaller}${note}${nextstep}${untouchedTag}
+          ${cnam}${newcaller}${note}${nextstep}${untouchedTag}${actions}
         </div>`;
       }).join('');
       // Row click → open the customer (matched) or the create-customer step
       // (unmatched). cdOpenCustomerByPhone runs the phone lookup, which does both.
       list.querySelectorAll('.log-row[data-open-phone]').forEach(row =>
         row.onclick = () => { const p = row.dataset.openPhone; if (p && window.cdOpenCustomerByPhone) window.cdOpenCustomerByPhone(p); });
+      // Action buttons — stop the row's open-customer click; run the explicit action.
+      list.querySelectorAll('.log-act').forEach(b => b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const call = logCallsById[b.dataset.id];
+        if (!call) return;
+        const act = b.dataset.act;
+        if (act === 'attach') openAttach(call);
+        else if (act === 'attach-suggest') { const cust = logSuggestById[call.id]; if (cust) performAttach(call, cust); }
+        else if (act === 'unattach') performUnattach(call);
+        else if (act === 'nac') performNotACustomer(call);
+        else if (act === 'clear-nac') performClearNotACustomer(call);
+      }));
+    }
+
+    // ── attach / un-attach / not-a-customer actions ──
+    // All go through the tested shared/call-attach.js. customer_id is written
+    // ONLY here (deliberate confirmation), never on passive render.
+    async function performAttach(call, customer) {
+      const CA = window.CallAttach; if (!CA || !call || !customer) return;
+      const l10 = window.cdLast10;
+      const plan = CA.phoneLearningPlan(call.caller_bare, customer, l10);
+      const byName = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
+      // 1. Phone learning — write ONLY when plan says so, and ONLY phone_secondary.
+      //    phone_primary is never a target (enforced in call-attach.js).
+      if (plan.customerPatch) {
+        const { error } = await db.from('customers').update(plan.customerPatch).eq('id', customer.id);
+        if (error) { console.error('[desk] phone learn failed', error); alert('Could not save the phone number: ' + error.message); return; }
+      }
+      // 2. Attach the call (customer_id + attribution + learned flag).
+      const patch = CA.attachCallPatch(customer.id, byName, new Date().toISOString(), plan.learnedPhone);
+      const { error } = await db.from('calls').update(patch).eq('id', call.id);
+      if (error) { console.error('[desk] attach failed', error); alert('Could not attach: ' + error.message); return; }
+      Object.assign(call, patch);
+      custIdx = null;                 // rebuild the phone index (a number may have been learned)
+      logLoad();
+    }
+    async function performUnattach(call) {
+      const CA = window.CallAttach; if (!CA || !call) return;
+      // Decide BEFORE we overwrite learned_phone. Clears phone_secondary ONLY if
+      // this attach learned it — a pre-existing number is never deleted.
+      const clearsSecondary = CA.unattachClearsSecondary(call);
+      if (clearsSecondary && call.customer_id) {
+        const { error } = await db.from('customers').update({ phone_secondary: null }).eq('id', call.customer_id);
+        if (error) { console.error('[desk] un-learn phone failed', error); alert('Could not update the customer: ' + error.message); return; }
+      }
+      const patch = CA.unattachCallPatch();
+      const { error } = await db.from('calls').update(patch).eq('id', call.id);
+      if (error) { console.error('[desk] un-attach failed', error); alert('Could not un-attach: ' + error.message); return; }
+      Object.assign(call, patch);
+      if (clearsSecondary) custIdx = null;
+      logLoad();
+    }
+    async function performNotACustomer(call) {
+      const CA = window.CallAttach; if (!CA || !call) return;
+      const byName = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
+      const patch = CA.notACustomerPatch(byName, new Date().toISOString());
+      const { error } = await db.from('calls').update(patch).eq('id', call.id);
+      if (error) { console.error('[desk] mark not-a-customer failed', error); alert('Could not mark: ' + error.message); return; }
+      Object.assign(call, patch);
+      logLoad();
+    }
+    async function performClearNotACustomer(call) {
+      const CA = window.CallAttach; if (!CA || !call) return;
+      const patch = CA.clearNotACustomerPatch();
+      const { error } = await db.from('calls').update(patch).eq('id', call.id);
+      if (error) { console.error('[desk] clear not-a-customer failed', error); alert('Could not undo: ' + error.message); return; }
+      Object.assign(call, patch);
+      logLoad();
+    }
+
+    // ── attach customer picker (search ALL customers, past the 1000-row cap) ──
+    let attachTarget = null;    // the call being attached
+    let attachAllCust = null;   // cached full customer list (paginated fetch)
+    async function openAttach(call) {
+      attachTarget = call;
+      const panel = $('deskAttach');
+      panel.classList.add('open'); panel.setAttribute('aria-hidden', 'false');
+      $('deskAttachSearch').value = '';
+      $('deskAttachList').innerHTML = '<div class="desk-attach-empty">Loading customers…</div>';
+      // Reuse the shared paginated fetch — NEVER a fresh unpaginated select.
+      if (!attachAllCust) attachAllCust = window.cdFetchAllCustomers ? await window.cdFetchAllCustomers() : [];
+      renderAttachList('');
+      $('deskAttachSearch').focus();
+    }
+    function closeAttach() {
+      const panel = $('deskAttach');
+      panel.classList.remove('open'); panel.setAttribute('aria-hidden', 'true');
+      attachTarget = null;
+    }
+    function renderAttachList(q) {
+      const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
+      const query = (q || '').trim().toLowerCase();
+      const list = attachAllCust || [];
+      let rows;
+      if (!query) {
+        // Before typing: recent customers (most-recently-invoiced first if known).
+        rows = [...list].sort((a, b) => String(b.last_invoiced || '').localeCompare(String(a.last_invoiced || ''))).slice(0, 30);
+      } else {
+        const qDigits = query.replace(/\D/g, '');
+        rows = list.filter(c => {
+          const name = ((c.business_name || '') + ' ' + (c.name || '')).toLowerCase();
+          if (name.includes(query)) return true;
+          if (qDigits.length >= 3) return l10(c.phone_primary).includes(qDigits) || l10(c.phone_secondary).includes(qDigits);
+          return false;
+        }).slice(0, 60);
+      }
+      const el = $('deskAttachList');
+      el.innerHTML = rows.length ? rows.map(c =>
+        `<button type="button" class="desk-attach-item" data-cust-id="${esc(c.id)}">` +
+        `<span class="desk-attach-name">${esc(c.business_name || c.name || '(no name)')}</span>` +
+        `<span class="desk-attach-phone">${esc((window.formatPhone ? formatPhone(c.phone_primary) : c.phone_primary) || '')}</span></button>`
+      ).join('') : '<div class="desk-attach-empty">No matches.</div>';
+      el.querySelectorAll('[data-cust-id]').forEach(b => b.onclick = () => {
+        const cust = list.find(x => String(x.id) === b.dataset.custId);
+        const call = attachTarget;
+        if (cust && call) { closeAttach(); performAttach(call, cust); }
+      });
     }
 
     function setLogDay(day) { logDay = day; $('deskLogDate').textContent = logDayLabel(day); logLoad(); }
     function openLog() { logOpen = true; $('deskLog').classList.add('open'); $('deskLog').setAttribute('aria-hidden', 'false'); $('deskLogBackdrop').classList.add('open'); setLogDay(logDay); }
-    function closeLog() { logOpen = false; $('deskLog').classList.remove('open'); $('deskLog').setAttribute('aria-hidden', 'true'); $('deskLogBackdrop').classList.remove('open'); }
+    function closeLog() { closeAttach(); logOpen = false; $('deskLog').classList.remove('open'); $('deskLog').setAttribute('aria-hidden', 'true'); $('deskLogBackdrop').classList.remove('open'); }
 
     $('deskLogBtn').addEventListener('click', openLog);
     $('deskLogClose').addEventListener('click', closeLog);
@@ -5310,6 +5538,10 @@
     $('deskLogNext').addEventListener('click', () => setLogDay(addDays(logDay, 1)));
     $('deskLogToday').addEventListener('click', () => setLogDay(startOfToday()));
     $('deskLogDate').textContent = logDayLabel(logDay);
+    // Unattached-only filter + attach picker wiring.
+    $('deskLogUnattached').addEventListener('change', () => { unattachedOnly = $('deskLogUnattached').checked; logLoad(); });
+    $('deskAttachClose').addEventListener('click', closeAttach);
+    $('deskAttachSearch').addEventListener('input', () => renderAttachList($('deskAttachSearch').value));
 
     // realtime — refresh lanes/calendar on any calls or repair_orders change,
     // and the call log too when it's open (a live inbound call appears at once).
