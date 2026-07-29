@@ -433,6 +433,12 @@
   import * as StatusMirror from './shared/status-mirror.js';
   window.StatusMirror = StatusMirror;
 </script>
+<!-- VIN decode — the ONE implementation (NHTSA vPIC). Assigns window.VinDecode;
+     used by BOTH the New RO wizard and the RO detail decode button. -->
+<script type="module">
+  import * as VinDecode from './shared/vin-decode.js';
+  window.VinDecode = VinDecode;
+</script>
 </head>
 <body>
 
@@ -1017,6 +1023,26 @@
           <div class="intake-field cd-hf-full">
             <label>VIN</label>
             <input type="text" id="cdRoVin" placeholder="Vehicle identification number" autocomplete="off">
+          </div>
+          <div class="intake-field cd-hf-full">
+            <button type="button" class="modal-btn sec" id="cdRoDecodeBtn" style="width:auto;padding:5px 12px;font-size:0.75rem">Decode VIN (NHTSA)</button>
+            <p class="cd-decode-msg" id="cdRoDecodeMsg"></p>
+          </div>
+          <div class="intake-field">
+            <label>Year</label>
+            <input type="number" id="cdRoYear" placeholder="e.g. 2016" autocomplete="off">
+          </div>
+          <div class="intake-field">
+            <label>Make</label>
+            <input type="text" id="cdRoMake" placeholder="e.g. Volkswagen" autocomplete="off">
+          </div>
+          <div class="intake-field">
+            <label>Model</label>
+            <input type="text" id="cdRoModel" placeholder="e.g. Tiguan" autocomplete="off">
+          </div>
+          <div class="intake-field">
+            <label>Engine</label>
+            <input type="text" id="cdRoEngine" placeholder="e.g. 2.0L 4-cyl" autocomplete="off">
           </div>
           <div class="intake-field">
             <label>Technician</label>
@@ -2814,57 +2840,56 @@
       }
     }
 
-    // ── STEP 3: VIN decode via NHTSA vPIC (no key, CORS-open) ──
-    function mapDriveType(v) {
-      const s = (v || '').toUpperCase();
-      if (s.includes('FWD') || s.includes('FRONT')) return 'FWD';
-      if (s.includes('RWD') || s.includes('REAR')) return 'RWD';
-      if (s.includes('AWD') || s.includes('ALL-WHEEL') || s.includes('ALL WHEEL')) return 'AWD';
-      if (s.includes('4WD') || s.includes('4X4') || s.includes('4-WHEEL') || s.includes('FOUR')) return '4WD';
-      return '';
+    // ── STEP 3: VIN decode via the SHARED decoder (shared/vin-decode.js) — the
+    //    same one implementation the RO detail decode button uses. ──
+    // Apply decoded fields to the wizard inputs. onlyEmpty=true leaves anything
+    // the user already typed untouched (auto-decode on blur); onlyEmpty=false
+    // fills from the decode (the manual button's long-standing behavior).
+    function applyWizardDecode(f, onlyEmpty) {
+      const set = (id, val) => { if (!val) return; const el = $(id); if (onlyEmpty && el.value.trim()) return; el.value = val; };
+      set('cdVehYear', f.year);
+      set('cdVehMake', f.make);
+      set('cdVehModel', f.model);
+      set('cdVehEngine', f.engine);
+      if (f.drive) { const el = $('cdVehDrive'); if (!(onlyEmpty && el.value)) el.value = f.drive; }
     }
 
     async function decodeVin() {
-      const vin = $('cdVehVin').value.trim().toUpperCase();
+      const VD = window.VinDecode;
       const msg = $('cdDecodeMsg');
-      msg.className = 'cd-decode-msg';
-      if (vin.length !== 17) { msg.className = 'cd-decode-msg err'; msg.textContent = 'VIN must be 17 characters.'; return; }
-
+      if (!VD) { msg.className = 'cd-decode-msg err'; msg.textContent = 'Decoder not loaded — reload the page.'; return; }
       const btn = $('cdVinDecodeBtn');
       btn.disabled = true; btn.textContent = 'Decoding…';
-      msg.textContent = 'Contacting NHTSA…';
-      try {
-        const resp = await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${encodeURIComponent(vin)}?format=json`);
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        const json = await resp.json();
-        const r = (json.Results && json.Results[0]) || {};
-        if (r.ErrorCode && r.ErrorCode !== '0' && !r.Make && !r.Model) {
-          msg.className = 'cd-decode-msg warn';
-          msg.textContent = 'NHTSA had no clean match — fill in manually.';
-          return;
-        }
-        // prefill only where empty-or-decodable; leave transmission_code to hand entry
-        if (r.ModelYear) $('cdVehYear').value = r.ModelYear;
-        if (r.Make) $('cdVehMake').value = titleCase(r.Make);
-        if (r.Model) $('cdVehModel').value = titleCase(r.Model);
-        const eng = [r.DisplacementL ? (Number(r.DisplacementL).toFixed(1) + 'L') : '',
-                     r.EngineCylinders ? (r.EngineCylinders + '-cyl') : '',
-                     (r.FuelTypePrimary && r.FuelTypePrimary !== 'Gasoline') ? r.FuelTypePrimary : '']
-                    .filter(Boolean).join(' ');
-        if (eng) $('cdVehEngine').value = eng;
-        const dt = mapDriveType(r.DriveType);
-        if (dt) $('cdVehDrive').value = dt;
-
-        msg.className = 'cd-decode-msg ok';
-        const got = [r.ModelYear, titleCase(r.Make), titleCase(r.Model)].filter(Boolean).join(' ');
-        msg.textContent = got ? `Decoded: ${got}. Confirm transmission code by hand.` : 'Decoded — confirm fields.';
-      } catch (err) {
-        console.error('[CdRO] VIN decode failed', err);
-        msg.className = 'cd-decode-msg err';
-        msg.textContent = 'Decode failed (' + (err.message || 'network') + ') — enter manually.';
-      } finally {
-        btn.disabled = false; btn.textContent = 'Decode VIN (NHTSA)';
+      msg.className = 'cd-decode-msg'; msg.textContent = 'Contacting NHTSA…';
+      const res = await VD.decodeVinRemote($('cdVehVin').value);
+      btn.disabled = false; btn.textContent = 'Decode VIN (NHTSA)';
+      if (res.status !== 'ok') {
+        msg.className = 'cd-decode-msg ' + (res.status === 'no-match' ? 'warn' : 'err');
+        msg.textContent = res.message;
+        return;
       }
+      applyWizardDecode(res.fields, false);   // manual button — fill from the decode
+      msg.className = 'cd-decode-msg ok'; msg.textContent = res.message;
+    }
+
+    // Auto-decode on VIN blur — the silently-skippable manual step is what caused
+    // RO #6014's blank vehicle. Fires only when the VIN is 17 chars AND
+    // year/make/model are still empty, NEVER overwrites typed values, and on a
+    // no-match/error writes nothing but SHOWS the inline message (silence is the
+    // very failure mode we're fixing). Guarded so one VIN auto-decodes once.
+    let lastAutoDecodedVin = null;
+    async function autoDecodeWizardVin() {
+      const VD = window.VinDecode; if (!VD) return;
+      const vin = $('cdVehVin').value.trim().toUpperCase();
+      if (vin.length !== 17) return;
+      if ($('cdVehYear').value.trim() || $('cdVehMake').value.trim() || $('cdVehModel').value.trim()) return;
+      if (vin === lastAutoDecodedVin) return;   // don't re-hit NHTSA for the same VIN on repeated blurs
+      lastAutoDecodedVin = vin;
+      const msg = $('cdDecodeMsg');
+      msg.className = 'cd-decode-msg'; msg.textContent = 'Decoding VIN…';
+      const res = await VD.decodeVinRemote(vin);
+      if (res.status === 'ok') { applyWizardDecode(res.fields, true); msg.className = 'cd-decode-msg ok'; msg.textContent = res.message; }
+      else { msg.className = 'cd-decode-msg ' + (res.status === 'no-match' ? 'warn' : 'err'); msg.textContent = res.message; }
     }
 
     function decodePlate() {
@@ -3001,9 +3026,6 @@
         .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
         .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
-    function titleCase(s) {
-      return String(s || '').toLowerCase().replace(/\b([a-z])/g, (m, c) => c.toUpperCase());
-    }
 
     // ── wiring ────────────────────────────────────────────────
     // Shared open handle for the New RO wizard. The sidebar "New RO" tab was
@@ -3057,6 +3079,7 @@
     $('cdEditCustSaveBtn').addEventListener('click', saveCustomerDetails);
 
     $('cdVinDecodeBtn').addEventListener('click', decodeVin);
+    $('cdVehVin').addEventListener('blur', autoDecodeWizardVin);
     $('cdPlateDecodeBtn').addEventListener('click', decodePlate);
     $('cdVehSaveBtn').addEventListener('click', saveVehicle);
 
@@ -3653,6 +3676,13 @@
       $('cdRoVin').value = v.vin || '';
       $('cdRoPlate').value = v.plate || '';
       $('cdRoPlateState').value = v.plate_state || '';
+      // year/make/model/engine live on the shared vehicle row, editable here
+      // (the only place they can be corrected after the wizard).
+      $('cdRoYear').value = v.year != null ? v.year : '';
+      $('cdRoMake').value = v.make || '';
+      $('cdRoModel').value = v.model || '';
+      $('cdRoEngine').value = v.engine || '';
+      const dmsg = $('cdRoDecodeMsg'); if (dmsg) { dmsg.textContent = ''; dmsg.className = 'cd-decode-msg'; }
       // tech dropdown from active techs, plus whatever's already stored
       const sel = $('cdRoTech');
       sel.innerHTML = '<option value="">— Unassigned —</option>';
@@ -4915,6 +4945,55 @@
     $('cdRoVin').addEventListener('change', () => updateVehicleField('vin', $('cdRoVin').value.trim() || null));
     $('cdRoPlate').addEventListener('change', () => updateVehicleField('plate', $('cdRoPlate').value.trim() || null));
     $('cdRoPlateState').addEventListener('change', () => updateVehicleField('plate_state', $('cdRoPlateState').value.trim() || null));
+    // year/make/model/engine — same silent optimistic save as VIN/plate, keyed on
+    // the shared vehicles row. Year is coerced to an integer (or null).
+    $('cdRoYear').addEventListener('change', () => {
+      const n = parseInt($('cdRoYear').value, 10);
+      updateVehicleField('year', Number.isFinite(n) ? n : null);
+    });
+    $('cdRoMake').addEventListener('change', () => updateVehicleField('make', $('cdRoMake').value.trim() || null));
+    $('cdRoModel').addEventListener('change', () => updateVehicleField('model', $('cdRoModel').value.trim() || null));
+    $('cdRoEngine').addEventListener('change', () => updateVehicleField('engine', $('cdRoEngine').value.trim() || null));
+
+    // Decode VIN on the RO detail — the SAME shared decode as the wizard. Fills
+    // EMPTY year/make/model/engine directly; for a field that already holds a
+    // DIFFERENT value, it never silently clobbers — it lists the conflicts and
+    // asks before replacing, so hand-entered data is never lost unseen.
+    $('cdRoDecodeBtn').addEventListener('click', decodeRoVin);
+    async function decodeRoVin() {
+      const VD = window.VinDecode;
+      const msg = $('cdRoDecodeMsg'), btn = $('cdRoDecodeBtn');
+      if (!VD) { msg.className = 'cd-decode-msg err'; msg.textContent = 'Decoder not loaded — reload the page.'; return; }
+      const vin = ($('cdRoVin').value || '').trim().toUpperCase();
+      btn.disabled = true; const label = btn.textContent; btn.textContent = 'Decoding…';
+      msg.className = 'cd-decode-msg'; msg.textContent = 'Contacting NHTSA…';
+      const res = await VD.decodeVinRemote(vin);
+      btn.disabled = false; btn.textContent = label;
+      if (res.status !== 'ok') {
+        msg.className = 'cd-decode-msg ' + (res.status === 'no-match' ? 'warn' : 'err');
+        msg.textContent = res.message;
+        return;   // no-match / bad-vin / error → write nothing
+      }
+      // The fill-vs-conflict decision lives in the shared module (tested). year
+      // is an int column, so persist a coerced number; make/model/engine as text.
+      const EL = { year: 'cdRoYear', make: 'cdRoMake', model: 'cdRoModel', engine: 'cdRoEngine' };
+      const LABEL = { year: 'Year', make: 'Make', model: 'Model', engine: 'Engine' };
+      const current = { year: $('cdRoYear').value, make: $('cdRoMake').value, model: $('cdRoModel').value, engine: $('cdRoEngine').value };
+      const coerce = (field, v) => field === 'year' ? (Number.isFinite(parseInt(v, 10)) ? parseInt(v, 10) : null) : (v || null);
+      const apply = (field, v) => { $(EL[field]).value = v; updateVehicleField(field, coerce(field, v)); };
+      const { fills, conflicts } = VD.planDecodeApply(current, res.fields);
+      fills.forEach(f => apply(f.field, f.value));   // empty targets → fill directly
+      if (conflicts.length) {
+        // Differing hand-entered values are NEVER silently clobbered — show what
+        // would change and let the user accept.
+        const ok = window.confirm(
+          'The VIN decodes differently from what\'s entered:\n\n' +
+          conflicts.map(c => `${LABEL[c.field]}: "${c.current}"  →  "${c.value}"`).join('\n') +
+          '\n\nReplace these with the decoded values?');
+        if (ok) conflicts.forEach(c => apply(c.field, c.value));
+      }
+      msg.className = 'cd-decode-msg ok'; msg.textContent = res.message;
+    }
 
     // expose for the New RO modal's "Open RO" button
     window.cdOpenRo = (roId) => { loadRecentList(); openRo(roId); };
