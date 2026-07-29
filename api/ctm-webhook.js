@@ -162,6 +162,76 @@ export function mapCallRow(body) {
   };
 }
 
+// Map a parsed CTM `end` body → a `recordings` row. Pure + exported so the
+// field mapping is locked by a test. Returns null when there's no id OR no
+// non-empty `audio` (e.g. an end_immediate payload, or a call with no
+// recording) — the caller inserts nothing in that case. remote_url is the CTM
+// API URL (which 302s to a TEMPORARY S3 link); we store ONLY this URL and always
+// re-request it fresh — never the amazonaws.com url.
+export function mapRecordingRow(body, callId) {
+  if (!body || body.id == null) return null;
+  const audio = body.audio;
+  if (audio == null || String(audio).trim() === '') return null;
+  const dur = Number(body.duration);
+  return {
+    source: 'call',
+    ctm_call_id: body.id,
+    call_id: callId ?? null,
+    remote_url: audio,
+    duration_seconds: (Number.isFinite(dur) && dur >= 0) ? Math.round(dur) : null,
+    recorded_at: unixToIso(body.unix_time),
+    fetch_status: 'pending',
+  };
+}
+
+// Best-effort INSERT of a pending `recordings` row for a CTM `end` payload that
+// carries audio. Service-role key, never throws (a recordings failure must not
+// turn into a non-200 to CTM). Idempotent: on-conflict(ctm_call_id)-do-nothing,
+// so CTM retries and repeated end deliveries never duplicate. This does NOT
+// touch `calls` — the recon guard still holds; only the recordings table is
+// written here.
+async function insertRecording(body) {
+  // No id or no audio (end_immediate, or a call with no recording) → nothing to
+  // do. Checked BEFORE any network call so a no-audio end is a clean no-op.
+  if (!body || body.id == null) return;
+  if (body.audio == null || String(body.audio).trim() === '') return;
+
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) {
+    console.error('[ctm-webhook] SUPABASE_SERVICE_ROLE_KEY not set — cannot insert recording.');
+    return;
+  }
+  const headers = { apikey: key, Authorization: `Bearer ${key}` };
+
+  // Resolve call_id from the existing calls row (nullable — leave null if the
+  // ring-time start never created one). This is a READ of calls, not the upsert.
+  let callId = null;
+  try {
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/calls?ctm_call_id=eq.${encodeURIComponent(body.id)}&select=id`,
+      { headers });
+    if (r.ok) { const rows = await r.json(); callId = (rows && rows[0] && rows[0].id != null) ? rows[0].id : null; }
+  } catch (e) { /* non-fatal — leave call_id null */ }
+
+  const row = mapRecordingRow(body, callId);
+  if (!row) return;   // no audio / no id → nothing to insert
+
+  try {
+    // on_conflict=ctm_call_id + resolution=ignore-duplicates = INSERT ... ON
+    // CONFLICT DO NOTHING. return=minimal so a duplicate is a clean no-op.
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/recordings?on_conflict=ctm_call_id`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json', Prefer: 'resolution=ignore-duplicates,return=minimal' },
+      body: JSON.stringify(row),
+    });
+    if (!r.ok) {
+      console.error('[ctm-webhook] recording insert failed', r.status, await r.text());
+    }
+  } catch (e) {
+    console.error('[ctm-webhook] recording insert threw', e);
+  }
+}
+
 // Best-effort UPSERT into `calls` keyed on ctm_call_id, via PostgREST with the
 // service-role key. Returns nothing and never throws: a `calls` failure must
 // not turn into a non-200 to CTM, and must not undo the ctm_webhook_log write.
@@ -211,14 +281,16 @@ export default async function handler(req, res) {
     return res.status(200).send('ok');
   }
 
-  // Recon routing. The `end` and `end_immediate` CTM webhooks point at this
-  // same endpoint with a `?trigger=...` query param; the `start` webhook points
-  // at the BARE url with no param. Presence of the param (any value) = recon
-  // mode: capture the raw delivery only, and NEVER touch `calls`. An end payload
-  // shares the same ctm_call_id and, run through mapCallRow, would UPDATE the row
-  // Josh typed notes into — nulling every field the end payload omits. That
-  // silent data loss is the whole reason this gate exists.
-  //
+  // Trigger routing. The `end` / `end_immediate` CTM webhooks point at this same
+  // endpoint with a `?trigger=...` query param; the `start` webhook points at the
+  // BARE url with no param. Behavior is now driven by the EXPLICIT value:
+  //   • trigger === null   → the start webhook: upsert `calls` (as today).
+  //   • trigger === 'end'  → capture the recording (if audio present). NEVER
+  //                          upsert `calls` — an end payload run through mapCallRow
+  //                          would null the notes Josh typed on the same
+  //                          ctm_call_id. That recon guard is the whole point.
+  //   • any other value    → logged only; nothing else (e.g. 'end_immediate',
+  //                          which carries no audio).
   // trigger stays null when the param is absent, keeping the start path
   // byte-identical to today apart from the (null) trigger_hint we now always log.
   let trigger = null;
@@ -226,7 +298,6 @@ export default async function handler(req, res) {
     const u = new URL(req.url || '', 'http://ctm.local');
     if (u.searchParams.has('trigger')) trigger = u.searchParams.get('trigger') ?? '';
   } catch { trigger = null; }
-  const isRecon = (trigger !== null);
 
   try {
     // 1. Raw bytes first — before anything slow or fallible.
@@ -267,15 +338,16 @@ export default async function handler(req, res) {
       trigger_hint: trigger,
     });
 
-    // 5. Slice 2: upsert the parsed body into `calls` (skipped if body is null
-    //    on a parse failure). ctm_webhook_log is already written above either
-    //    way, so a malformed payload never costs us the raw capture.
-    //
-    //    RECON GUARD: an end / end_immediate delivery must NEVER reach this
-    //    upsert. It is capture-only — skip mapCallRow entirely so an end payload
-    //    can't overwrite the advisor's typed notes on the shared ctm_call_id.
-    if (!isRecon) {
+    // 5. Downstream, keyed on the EXPLICIT trigger value:
+    //    • start (no param) → upsert `calls`.
+    //    • end              → capture the recording ONLY. The calls upsert is
+    //      NOT reached, so Josh's typed notes on this ctm_call_id are safe.
+    //    • anything else     → nothing (already logged above).
+    //    body is null on a parse failure; both branches no-op safely then.
+    if (trigger === null) {
       await upsertCall(body);
+    } else if (trigger === 'end') {
+      if (body) await insertRecording(body);
     }
   } catch (e) {
     // Never surface a non-200 to CTM in this phase — log and move on.

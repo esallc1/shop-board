@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
-import handler, { redactHeaders, unixToIso, mapCallRow } from './ctm-webhook.js';
+import handler, { redactHeaders, unixToIso, mapCallRow, mapRecordingRow } from './ctm-webhook.js';
 
 test('strips both Vercel credential headers, keeps everything else', () => {
   const incoming = {
@@ -247,7 +247,7 @@ test('42703 on the log insert: retries without trigger_hint, still returns 200',
 test('realistic end-shaped payload in recon mode never reaches the calls upsert', async () => {
   // Shaped like an end delivery: same ctm_call_id (id) but missing cnam / source
   // / tag_list. If this reached mapCallRow it would upsert and null those fields
-  // over Josh's notes. The calls endpoint being untouched proves it did not.
+  // over Josh's notes. NO calls WRITE (upsert) proves it did not.
   const END_SHAPED = JSON.stringify({
     id: 4379952365,
     dial_status: 'completed',
@@ -259,6 +259,94 @@ test('realistic end-shaped payload in recon mode never reaches the calls upsert'
     () => fakeResponse({ ok: true, json: [{ id: 1 }] }),
   );
   assert.equal(res.statusCode, 200);
-  assert.equal(calls.filter((c) => isCallsUrl(c.url)).length, 0, 'end payload must never hit the calls upsert');
+  assert.equal(calls.filter((c) => isCallsUpsert(c)).length, 0, 'end payload must never hit the calls upsert');
   assert.equal(calls.filter((c) => isLogUrl(c.url)).length, 1, 'but it is still captured in ctm_webhook_log');
+});
+
+// ── SLICE A recordings: the `end` trigger captures a pending recording ───────
+// A calls WRITE = a POST to /rest/v1/calls?on_conflict=... (the notes-nulling
+// upsert). A calls READ (GET for call_id) is harmless and allowed.
+const isRecordingsInsert = (c) => c.init && c.init.method === 'POST' && String(c.url).includes('/rest/v1/recordings');
+const isCallsUpsert = (c) => c.init && c.init.method === 'POST' && isCallsUrl(c.url);
+
+const END_WITH_AUDIO = JSON.stringify({
+  id: 4380799274,
+  dial_status: 'completed',
+  duration: 214,
+  unix_time: 1722170300,
+  audio: 'https://api.calltrackingmetrics.com/accounts/1/calls/4380799274/recording',
+});
+
+test('end payload WITH audio → a pending recordings insert (and NO calls upsert)', async () => {
+  const { res, calls } = await runHandler(
+    { url: '/api/ctm-webhook?trigger=end', body: END_WITH_AUDIO },
+    (url, init) => {
+      if (String(url).includes('/rest/v1/calls?ctm_call_id')) return fakeResponse({ ok: true, json: [{ id: 55 }] }); // call_id lookup
+      return fakeResponse({ ok: true, json: [] });
+    },
+  );
+  assert.equal(res.statusCode, 200);
+  const recInserts = calls.filter(isRecordingsInsert);
+  assert.equal(recInserts.length, 1, 'exactly one recordings insert');
+  assert.equal(recInserts[0].body.fetch_status, 'pending');
+  assert.equal(recInserts[0].body.ctm_call_id, 4380799274);
+  assert.equal(recInserts[0].body.remote_url, JSON.parse(END_WITH_AUDIO).audio);
+  assert.equal(recInserts[0].body.call_id, 55, 'call_id resolved from the calls read');
+  assert.equal(calls.filter(isCallsUpsert).length, 0, 'the notes-nulling calls upsert must NOT fire');
+});
+
+test('end payload WITHOUT audio → NO recordings insert, NO calls upsert', async () => {
+  const END_NO_AUDIO = JSON.stringify({ id: 4380799274, dial_status: 'completed', duration: 30, unix_time: 1722170300, audio: null });
+  const { res, calls } = await runHandler(
+    { url: '/api/ctm-webhook?trigger=end', body: END_NO_AUDIO },
+    () => fakeResponse({ ok: true, json: [] }),
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(calls.filter(isRecordingsInsert).length, 0, 'no audio → no recordings insert');
+  assert.equal(calls.filter(isCallsUpsert).length, 0, 'still no calls upsert');
+  assert.equal(calls.filter((c) => isLogUrl(c.url)).length, 1, 'still logged');
+});
+
+test('a second end delivery for the same ctm_call_id cannot duplicate (on-conflict-do-nothing)', async () => {
+  const { calls } = await runHandler(
+    { url: '/api/ctm-webhook?trigger=end', body: END_WITH_AUDIO },
+    () => fakeResponse({ ok: true, json: [] }),
+  );
+  const rec = calls.find(isRecordingsInsert);
+  // The DB-level dedupe is the request shape: on_conflict target + do-nothing.
+  assert.ok(String(rec.url).includes('on_conflict=ctm_call_id'), 'conflict target is ctm_call_id');
+  assert.match(rec.init.headers.Prefer, /resolution=ignore-duplicates/, 'ON CONFLICT DO NOTHING');
+});
+
+test('end_immediate (a trigger value other than end) → logs only: no recordings, no calls', async () => {
+  const { res, calls } = await runHandler(
+    { url: '/api/ctm-webhook?trigger=end_immediate', body: END_WITH_AUDIO },
+    () => fakeResponse({ ok: true, json: [] }),
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(calls.filter(isRecordingsInsert).length, 0, 'only trigger===end captures recordings');
+  assert.equal(calls.filter(isCallsUpsert).length, 0, 'and never the calls upsert');
+  assert.equal(calls.filter((c) => isLogUrl(c.url)).length, 1);
+});
+
+// ── mapRecordingRow (pure) ──────────────────────────────────
+test('mapRecordingRow maps an end payload → a pending recordings row', () => {
+  const row = mapRecordingRow({ id: 42, duration: 214, unix_time: 1722170300, audio: 'https://ctm/rec' }, 55);
+  assert.deepEqual(row, {
+    source: 'call',
+    ctm_call_id: 42,
+    call_id: 55,
+    remote_url: 'https://ctm/rec',
+    duration_seconds: 214,
+    recorded_at: '2024-07-28T12:38:20.000Z',
+    fetch_status: 'pending',
+  });
+});
+
+test('mapRecordingRow returns null with no id or no/blank audio; call_id defaults to null', () => {
+  assert.equal(mapRecordingRow({ id: 42, audio: '' }, 1), null);
+  assert.equal(mapRecordingRow({ id: 42, audio: null }, 1), null);
+  assert.equal(mapRecordingRow({ audio: 'https://x' }, 1), null);
+  assert.equal(mapRecordingRow({ id: 42, audio: 'https://x' }).call_id, null);   // unresolved call_id → null
+  assert.equal(mapRecordingRow({ id: 42, audio: 'https://x', duration: 'nope' }, 1).duration_seconds, null);
 });
