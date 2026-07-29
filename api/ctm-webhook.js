@@ -71,29 +71,58 @@ function computeCandidateSignature(secret, ctmTime, rawBody) {
   return crypto.createHmac('sha1', secret).update(signingString, 'utf8').digest('hex');
 }
 
+// PostgREST error 42703 = undefined_column. When the `trigger_hint` column has
+// not been migrated in yet, the insert comes back with this code (in the JSON
+// error body) — we detect it to fall back to a payload without that key rather
+// than lose the whole log row. Same spirit as team-chat's isMissingColumn.
+function isMissingColumnError(errText) {
+  if (!errText) return false;
+  try {
+    const j = JSON.parse(errText);
+    if (j && j.code === '42703') return true;
+  } catch { /* not JSON — fall through to the text match */ }
+  return /42703|column .* does not exist/i.test(errText);
+}
+
 // Best-effort insert into ctm_webhook_log via PostgREST with the service-role
 // key. Returns the inserted row (Prefer: return=representation) or null; never
 // throws — a logging failure must not turn into a non-200 to CTM.
+//
+// RESILIENT to a pre-migration schema: if the row carries `trigger_hint` and the
+// column doesn't exist yet (42703), retry ONCE without it so the raw capture is
+// still written. Same fallback pattern as the declined-estimate columns.
 async function logRow(row) {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key) {
     console.error('[ctm-webhook] SUPABASE_SERVICE_ROLE_KEY not set — cannot log row.');
     return null;
   }
+  const insert = (payload) => fetch(`${SUPABASE_URL}/rest/v1/ctm_webhook_log`, {
+    method: 'POST',
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+    },
+    body: JSON.stringify(payload),
+  });
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/ctm_webhook_log`, {
-      method: 'POST',
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=representation',
-      },
-      body: JSON.stringify(row),
-    });
+    let r = await insert(row);
     if (!r.ok) {
-      console.error('[ctm-webhook] insert failed', r.status, await r.text());
-      return null;
+      const errText = await r.text();
+      // trigger_hint column not migrated in yet → drop it and retry once.
+      if (isMissingColumnError(errText) && row && 'trigger_hint' in row) {
+        const { trigger_hint, ...withoutHint } = row;
+        r = await insert(withoutHint);
+        if (!r.ok) {
+          console.error('[ctm-webhook] insert failed after trigger_hint fallback', r.status, await r.text());
+          return null;
+        }
+      } else {
+        console.error('[ctm-webhook] insert failed', r.status, errText);
+        return null;
+      }
     }
     const rows = await r.json();
     return Array.isArray(rows) ? rows[0] : rows;
@@ -182,6 +211,23 @@ export default async function handler(req, res) {
     return res.status(200).send('ok');
   }
 
+  // Recon routing. The `end` and `end_immediate` CTM webhooks point at this
+  // same endpoint with a `?trigger=...` query param; the `start` webhook points
+  // at the BARE url with no param. Presence of the param (any value) = recon
+  // mode: capture the raw delivery only, and NEVER touch `calls`. An end payload
+  // shares the same ctm_call_id and, run through mapCallRow, would UPDATE the row
+  // Josh typed notes into — nulling every field the end payload omits. That
+  // silent data loss is the whole reason this gate exists.
+  //
+  // trigger stays null when the param is absent, keeping the start path
+  // byte-identical to today apart from the (null) trigger_hint we now always log.
+  let trigger = null;
+  try {
+    const u = new URL(req.url || '', 'http://ctm.local');
+    if (u.searchParams.has('trigger')) trigger = u.searchParams.get('trigger') ?? '';
+  } catch { trigger = null; }
+  const isRecon = (trigger !== null);
+
   try {
     // 1. Raw bytes first — before anything slow or fallible.
     const rawBody = await readRawBody(req);
@@ -209,6 +255,7 @@ export default async function handler(req, res) {
 
     // 4. Log EVERY header (complete object, not a subset) — minus Vercel's own
     //    injected credential headers (see redactHeaders) — plus both body forms.
+    //    trigger_hint records the recon param (null on the start webhook).
     await logRow({
       headers: redactHeaders(req.headers),
       body,
@@ -217,12 +264,19 @@ export default async function handler(req, res) {
       sig_computed: sigComputed,
       sig_match: sigMatch,
       parse_error: parseError,
+      trigger_hint: trigger,
     });
 
     // 5. Slice 2: upsert the parsed body into `calls` (skipped if body is null
     //    on a parse failure). ctm_webhook_log is already written above either
     //    way, so a malformed payload never costs us the raw capture.
-    await upsertCall(body);
+    //
+    //    RECON GUARD: an end / end_immediate delivery must NEVER reach this
+    //    upsert. It is capture-only — skip mapCallRow entirely so an end payload
+    //    can't overwrite the advisor's typed notes on the shared ctm_call_id.
+    if (!isRecon) {
+      await upsertCall(body);
+    }
   } catch (e) {
     // Never surface a non-200 to CTM in this phase — log and move on.
     console.error('[ctm-webhook] handler error', e);
