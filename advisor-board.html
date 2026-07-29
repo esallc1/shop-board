@@ -381,6 +381,29 @@
     margin-top: 4px; padding-top: 8px;
   }
   .cd-totals-grand span:first-child { color: var(--text); }
+  /* ── RO detail: three-column working layout (layout only) ── */
+  .cd-ro-disclosure { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .cd-ro-disclosure > summary {
+    cursor: pointer; font-size: 0.76rem; font-weight: 700; color: var(--accent);
+    list-style: none; user-select: none; padding: 2px 0;
+  }
+  .cd-ro-disclosure > summary::-webkit-details-marker { display: none; }
+  .cd-ro-disclosure > summary::before { content: '▸'; display: inline-block; width: 1.1em; }
+  .cd-ro-disclosure[open] > summary::before { content: '▾'; }
+  .cd-ro-disclosure .cd-ro-edit { margin-top: 12px; border-top: none; padding-top: 0; }
+  .cd-ro-cols {
+    display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start;
+  }
+  .cd-ro-main, .cd-ro-rail { min-width: 0; }
+  .cd-ro-rail-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 2px 0 14px; }
+  .cd-ro-edit.cd-ro-rail-fields { grid-template-columns: 1fr; }
+  .cd-table-scroll { overflow-x: auto; }
+  @media (max-width: 900px) {
+    /* three columns collapse to one: top strip → complaint → line items → rail */
+    .cd-ro-cols { grid-template-columns: 1fr; }
+    /* customer / vehicle each get their own full-width line */
+    .cd-ro-header { grid-template-columns: 1fr; }
+  }
   /* ── RO Call History (read-only) ── */
   .cd-calls-list { display: flex; flex-direction: column; gap: 8px; }
   .cd-calls-empty { color: var(--muted); font-size: 0.82rem; text-align: center; padding: 16px; }
@@ -994,180 +1017,214 @@
            the Desk tab now.) -->
     </div>
 
-    <!-- DETAIL panel: open RO -->
+    <!-- DETAIL panel: open RO — three-column working layout (Shopmonkey-style):
+         top strip (customer/vehicle + disclosure) · middle working surface
+         (complaint + line items) · right rail (reference facts, payments,
+         activity). Collapses to one column at narrow width. -->
     <div id="cdRoDetailPanel" style="display:none">
       <button class="btn btn-ghost" id="cdRoBackBtn" style="font-size:0.78rem;padding:6px 12px;margin-bottom:12px">← Back to list</button>
 
+      <!-- TOP STRIP: customer + vehicle at a glance; the rest of the vehicle /
+           reference detail sits behind a collapsed disclosure so the working
+           surface stays reachable without scrolling. -->
       <div class="card">
-        <div class="card-title">
-          <div class="dot" style="background:var(--accent)"></div>
-          <span id="cdRoDetailTitle">RO #—</span>
-          <span id="cdRoDetailStatus" style="margin-left:10px"></span>
-          <label style="margin-left:auto;font-size:0.72rem;color:var(--muted);display:flex;align-items:center;gap:6px">
-            Stage
-            <select id="cdRoStage" style="font-size:0.75rem;padding:4px 8px;border-radius:6px">
-              <option value="estimate">Estimate</option>
-              <option value="ro">Active RO</option>
-              <option value="invoice">Invoice</option>
-              <option value="closed">Closed</option>
-            </select>
-          </label>
-          <button class="btn" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdRoArrivedBtn"></button>
-          <button class="btn" style="margin-left:8px;font-size:0.75rem;padding:5px 12px;display:none" id="cdRoDeclineBtn"></button>
-          <button class="btn" style="margin-left:8px;font-size:0.75rem;padding:5px 12px;display:none" id="cdRoReceiptBtn">🧾 Quick receipt</button>
-          <button class="btn btn-primary" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdPrintBtn">🖨 Print / Save PDF</button>
-        </div>
         <div class="cd-ro-header" id="cdRoHeaderGrid"></div>
-        <div class="cd-ro-edit">
-          <div class="intake-field">
-            <label>Odometer In</label>
-            <input type="number" id="cdRoOdometerIn" placeholder="Odometer in" autocomplete="off">
-          </div>
-          <div class="intake-field">
-            <label>Miles Out</label>
-            <input type="number" id="cdRoMilesOut" placeholder="Odometer out" autocomplete="off">
-          </div>
-          <div class="intake-field">
-            <label>Plate</label>
-            <input type="text" id="cdRoPlate" placeholder="License plate" autocomplete="off">
-          </div>
-          <div class="intake-field">
-            <label>Plate State</label>
-            <input type="text" id="cdRoPlateState" placeholder="e.g. FL" autocomplete="off">
-          </div>
-          <div class="intake-field cd-hf-full">
-            <label>VIN</label>
-            <input type="text" id="cdRoVin" placeholder="Vehicle identification number" autocomplete="off">
-          </div>
-          <div class="intake-field cd-hf-full">
-            <button type="button" class="modal-btn sec" id="cdRoDecodeBtn" style="width:auto;padding:5px 12px;font-size:0.75rem">Decode VIN (NHTSA)</button>
-            <p class="cd-decode-msg" id="cdRoDecodeMsg"></p>
-          </div>
-          <div class="intake-field">
-            <label>Year</label>
-            <input type="number" id="cdRoYear" placeholder="e.g. 2016" autocomplete="off">
-          </div>
-          <div class="intake-field">
-            <label>Make</label>
-            <input type="text" id="cdRoMake" placeholder="e.g. Volkswagen" autocomplete="off">
-          </div>
-          <div class="intake-field">
-            <label>Model</label>
-            <input type="text" id="cdRoModel" placeholder="e.g. Tiguan" autocomplete="off">
-          </div>
-          <div class="intake-field">
-            <label>Engine</label>
-            <input type="text" id="cdRoEngine" placeholder="e.g. 2.0L 4-cyl" autocomplete="off">
-          </div>
-          <div class="intake-field">
-            <label>Technician</label>
-            <select id="cdRoTech"><option value="">— Unassigned —</option></select>
-          </div>
-          <div class="intake-field">
-            <label>Service Writer</label>
-            <select id="cdRoWriter"><option value="">— Unassigned —</option></select>
-          </div>
-          <div class="intake-field" id="cdRoWarrantyField">
-            <label style="margin-bottom:0">Warranty / Comeback</label>
-            <div style="display:flex;align-items:center;gap:8px">
-              <label class="intake-toggle">
-                <input type="checkbox" id="cdRoWarranty">
-                <span class="intake-toggle-slider"></span>
-              </label>
-              <span id="cdRoWarrantyHint" style="font-size:0.72rem;color:var(--muted)"></span>
+        <details class="cd-ro-disclosure">
+          <summary>Vehicle &amp; reference details</summary>
+          <div class="cd-ro-edit">
+            <div class="intake-field">
+              <label>Odometer In</label>
+              <input type="number" id="cdRoOdometerIn" placeholder="Odometer in" autocomplete="off">
+            </div>
+            <div class="intake-field">
+              <label>Miles Out</label>
+              <input type="number" id="cdRoMilesOut" placeholder="Odometer out" autocomplete="off">
+            </div>
+            <div class="intake-field">
+              <label>Plate</label>
+              <input type="text" id="cdRoPlate" placeholder="License plate" autocomplete="off">
+            </div>
+            <div class="intake-field">
+              <label>Plate State</label>
+              <input type="text" id="cdRoPlateState" placeholder="e.g. FL" autocomplete="off">
+            </div>
+            <div class="intake-field cd-hf-full">
+              <label>VIN</label>
+              <input type="text" id="cdRoVin" placeholder="Vehicle identification number" autocomplete="off">
+            </div>
+            <div class="intake-field cd-hf-full">
+              <button type="button" class="modal-btn sec" id="cdRoDecodeBtn" style="width:auto;padding:5px 12px;font-size:0.75rem">Decode VIN (NHTSA)</button>
+              <p class="cd-decode-msg" id="cdRoDecodeMsg"></p>
+            </div>
+            <div class="intake-field">
+              <label>Year</label>
+              <input type="number" id="cdRoYear" placeholder="e.g. 2016" autocomplete="off">
+            </div>
+            <div class="intake-field">
+              <label>Make</label>
+              <input type="text" id="cdRoMake" placeholder="e.g. Volkswagen" autocomplete="off">
+            </div>
+            <div class="intake-field">
+              <label>Model</label>
+              <input type="text" id="cdRoModel" placeholder="e.g. Tiguan" autocomplete="off">
+            </div>
+            <div class="intake-field">
+              <label>Engine</label>
+              <input type="text" id="cdRoEngine" placeholder="e.g. 2.0L 4-cyl" autocomplete="off">
             </div>
           </div>
-          <div class="intake-field" id="cdRoStatusField">
-            <label>Status</label>
-            <select id="cdRoStatusFloor"></select>
-            <span id="cdRoStatusHint" style="font-size:0.72rem;color:var(--muted)"></span>
-          </div>
-          <div class="intake-field cd-hf-full">
-            <label>Complaint</label>
-            <textarea id="cdRoComplaint" placeholder="Customer concern(s) — one per line"></textarea>
-          </div>
-          <div class="intake-field cd-hf-full">
-            <label>Advisory Notes</label>
-            <textarea id="cdRoAdvisory" placeholder="Advisories / recommendations beyond the complaint"></textarea>
-          </div>
-        </div>
+        </details>
       </div>
 
-      <div class="card">
-        <div class="card-title">
-          <div class="dot" style="background:var(--green)"></div>Line Items
-          <button class="btn btn-ghost" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdAddCardFeeBtn">+ Card fee</button>
-          <button class="btn btn-primary" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdAddLineBtn">+ Add line</button>
-        </div>
-        <table class="cd-lines-table">
-          <thead>
-            <tr>
-              <th style="width:120px">Type</th>
-              <th>Description</th>
-              <th style="width:110px">Part No</th>
-              <th style="width:64px">Qty</th>
-              <th style="width:100px">Unit $</th>
-              <th style="width:48px;text-align:center">Tax</th>
-              <th style="width:92px;text-align:right">Line</th>
-              <th style="width:34px"></th>
-            </tr>
-          </thead>
-          <tbody id="cdLinesTbody">
-            <tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px">No lines yet — add one.</td></tr>
-          </tbody>
-        </table>
+      <div class="cd-ro-cols">
+        <!-- MIDDLE — the working surface -->
+        <div class="cd-ro-main">
+          <div class="card">
+            <div class="card-title"><div class="dot" style="background:var(--accent)"></div>Complaint &amp; Notes</div>
+            <div class="cd-ro-edit">
+              <div class="intake-field cd-hf-full">
+                <label>Complaint</label>
+                <textarea id="cdRoComplaint" placeholder="Customer concern(s) — one per line"></textarea>
+              </div>
+              <div class="intake-field cd-hf-full">
+                <label>Advisory Notes</label>
+                <textarea id="cdRoAdvisory" placeholder="Advisories / recommendations beyond the complaint"></textarea>
+              </div>
+            </div>
+          </div>
 
-        <div class="cd-totals" id="cdTotals">
-          <div class="cd-totals-row"><span>Subtotal</span><span id="cdSubtotal">$0.00</span></div>
-          <div class="cd-totals-row"><span id="cdTaxLabel">Tax</span><span id="cdTax">$0.00</span></div>
-          <div class="cd-totals-row cd-totals-grand"><span>Total</span><span id="cdTotal">$0.00</span></div>
-        </div>
-      </div>
+          <div class="card">
+            <div class="card-title">
+              <div class="dot" style="background:var(--green)"></div>Line Items
+              <button class="btn btn-ghost" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdAddCardFeeBtn">+ Card fee</button>
+              <button class="btn btn-primary" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdAddLineBtn">+ Add line</button>
+            </div>
+            <div class="cd-table-scroll">
+              <table class="cd-lines-table">
+                <thead>
+                  <tr>
+                    <th style="width:120px">Type</th>
+                    <th>Description</th>
+                    <th style="width:110px">Part No</th>
+                    <th style="width:64px">Qty</th>
+                    <th style="width:100px">Unit $</th>
+                    <th style="width:48px;text-align:center">Tax</th>
+                    <th style="width:92px;text-align:right">Line</th>
+                    <th style="width:34px"></th>
+                  </tr>
+                </thead>
+                <tbody id="cdLinesTbody">
+                  <tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px">No lines yet — add one.</td></tr>
+                </tbody>
+              </table>
+            </div>
 
-      <!-- ══ PAYMENTS (Phase 5) — record-only ledger on the RO. Running
-           balance = RO total − Σ payments. Recordable at any stage. ══ -->
-      <div class="card" id="cdPaymentsCard">
-        <div class="card-title">
-          <div class="dot" style="background:var(--blue)"></div>Payments
-          <span id="cdPaidBadge" style="margin-left:auto"></span>
+            <div class="cd-totals" id="cdTotals">
+              <div class="cd-totals-row"><span>Subtotal</span><span id="cdSubtotal">$0.00</span></div>
+              <div class="cd-totals-row"><span id="cdTaxLabel">Tax</span><span id="cdTax">$0.00</span></div>
+              <div class="cd-totals-row cd-totals-grand"><span>Total</span><span id="cdTotal">$0.00</span></div>
+            </div>
+          </div>
         </div>
-        <div class="cd-pay-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
-          <div style="flex:0 0 110px"><label class="cd-pay-lbl">Amount</label><input type="number" id="cdPayAmount" min="0" step="0.01" placeholder="0.00"></div>
-          <div style="flex:0 0 130px"><label class="cd-pay-lbl">Method</label><select id="cdPayMethod"></select></div>
-          <div style="flex:1 1 150px"><label class="cd-pay-lbl">Note (optional)</label><input type="text" id="cdPayNote" placeholder="e.g. deposit"></div>
-          <button class="btn btn-primary" id="cdPayRecordBtn" style="flex:0 0 auto;font-size:0.78rem;padding:8px 16px">Record</button>
-        </div>
-        <table class="cd-lines-table" id="cdPayTable">
-          <thead>
-            <tr>
-              <th style="width:130px">Date</th>
-              <th style="width:110px">Method</th>
-              <th>Note</th>
-              <th style="width:110px;text-align:right">Amount</th>
-              <th style="width:34px"></th>
-            </tr>
-          </thead>
-          <tbody id="cdPayTbody">
-            <tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px">No payments recorded yet.</td></tr>
-          </tbody>
-        </table>
-        <div class="cd-totals" id="cdPayTotals">
-          <div class="cd-totals-row"><span>Invoice Total</span><span id="cdPayTotal">$0.00</span></div>
-          <div class="cd-totals-row"><span>Amount Paid</span><span id="cdPayPaid">$0.00</span></div>
-          <div class="cd-totals-row cd-totals-grand" id="cdPayBalanceRow"><span>Balance Due</span><span id="cdPayBalance">$0.00</span></div>
-        </div>
-        <div id="cdPayError" style="color:var(--red);font-size:0.78rem;min-height:16px;margin-top:6px"></div>
-      </div>
 
-      <!-- Call History — read-only list of calls linked to this RO (calls.ro_id,
-           written from the ring-time card's "Checking on their car"). INTERNAL —
-           deliberately NOT part of printRo. -->
-      <div class="card" id="cdRoCallsCard">
-        <div class="card-title">
-          <div class="dot" style="background:var(--accent)"></div>Call History
-          <span style="margin-left:auto;font-size:0.66rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.4px">Internal · never printed</span>
+        <!-- RIGHT RAIL — reference facts, payments, activity -->
+        <div class="cd-ro-rail">
+          <div class="card">
+            <div class="card-title">
+              <div class="dot" style="background:var(--accent)"></div>
+              <span id="cdRoDetailTitle">RO #—</span>
+              <span id="cdRoDetailStatus" style="margin-left:10px"></span>
+            </div>
+            <div class="cd-ro-rail-actions">
+              <label style="font-size:0.72rem;color:var(--muted);display:flex;align-items:center;gap:6px">
+                Stage
+                <select id="cdRoStage" style="font-size:0.75rem;padding:4px 8px;border-radius:6px">
+                  <option value="estimate">Estimate</option>
+                  <option value="ro">Active RO</option>
+                  <option value="invoice">Invoice</option>
+                  <option value="closed">Closed</option>
+                </select>
+              </label>
+              <button class="btn" style="font-size:0.75rem;padding:5px 12px" id="cdRoArrivedBtn"></button>
+              <button class="btn" style="font-size:0.75rem;padding:5px 12px;display:none" id="cdRoDeclineBtn"></button>
+              <button class="btn" style="font-size:0.75rem;padding:5px 12px;display:none" id="cdRoReceiptBtn">🧾 Quick receipt</button>
+              <button class="btn btn-primary" style="font-size:0.75rem;padding:5px 12px" id="cdPrintBtn">🖨 Print / Save PDF</button>
+            </div>
+            <div class="cd-ro-edit cd-ro-rail-fields">
+              <div class="intake-field">
+                <label>Service Writer</label>
+                <select id="cdRoWriter"><option value="">— Unassigned —</option></select>
+              </div>
+              <div class="intake-field">
+                <label>Technician</label>
+                <select id="cdRoTech"><option value="">— Unassigned —</option></select>
+              </div>
+              <div class="intake-field" id="cdRoWarrantyField">
+                <label style="margin-bottom:0">Warranty / Comeback</label>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <label class="intake-toggle">
+                    <input type="checkbox" id="cdRoWarranty">
+                    <span class="intake-toggle-slider"></span>
+                  </label>
+                  <span id="cdRoWarrantyHint" style="font-size:0.72rem;color:var(--muted)"></span>
+                </div>
+              </div>
+              <div class="intake-field" id="cdRoStatusField">
+                <label>Status</label>
+                <select id="cdRoStatusFloor"></select>
+                <span id="cdRoStatusHint" style="font-size:0.72rem;color:var(--muted)"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ══ PAYMENTS (Phase 5) — record-only ledger on the RO. Running
+               balance = RO total − Σ payments. Recordable at any stage. ══ -->
+          <div class="card" id="cdPaymentsCard">
+            <div class="card-title">
+              <div class="dot" style="background:var(--blue)"></div>Payments
+              <span id="cdPaidBadge" style="margin-left:auto"></span>
+            </div>
+            <div class="cd-pay-form" style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
+              <div style="flex:0 0 110px"><label class="cd-pay-lbl">Amount</label><input type="number" id="cdPayAmount" min="0" step="0.01" placeholder="0.00"></div>
+              <div style="flex:0 0 130px"><label class="cd-pay-lbl">Method</label><select id="cdPayMethod"></select></div>
+              <div style="flex:1 1 150px"><label class="cd-pay-lbl">Note (optional)</label><input type="text" id="cdPayNote" placeholder="e.g. deposit"></div>
+              <button class="btn btn-primary" id="cdPayRecordBtn" style="flex:0 0 auto;font-size:0.78rem;padding:8px 16px">Record</button>
+            </div>
+            <div class="cd-table-scroll">
+              <table class="cd-lines-table" id="cdPayTable">
+                <thead>
+                  <tr>
+                    <th style="width:130px">Date</th>
+                    <th style="width:110px">Method</th>
+                    <th>Note</th>
+                    <th style="width:110px;text-align:right">Amount</th>
+                    <th style="width:34px"></th>
+                  </tr>
+                </thead>
+                <tbody id="cdPayTbody">
+                  <tr><td colspan="5" style="color:var(--muted);text-align:center;padding:16px">No payments recorded yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="cd-totals" id="cdPayTotals">
+              <div class="cd-totals-row"><span>Invoice Total</span><span id="cdPayTotal">$0.00</span></div>
+              <div class="cd-totals-row"><span>Amount Paid</span><span id="cdPayPaid">$0.00</span></div>
+              <div class="cd-totals-row cd-totals-grand" id="cdPayBalanceRow"><span>Balance Due</span><span id="cdPayBalance">$0.00</span></div>
+            </div>
+            <div id="cdPayError" style="color:var(--red);font-size:0.78rem;min-height:16px;margin-top:6px"></div>
+          </div>
+
+          <!-- Call History — read-only list of calls linked to this RO (calls.ro_id,
+               written from the ring-time card's "Checking on their car"). INTERNAL —
+               deliberately NOT part of printRo. Lives at the BOTTOM of the rail. -->
+          <div class="card" id="cdRoCallsCard">
+            <div class="card-title">
+              <div class="dot" style="background:var(--accent)"></div>Call History
+              <span style="margin-left:auto;font-size:0.66rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.4px">Internal · never printed</span>
+            </div>
+            <div id="cdRoCallsBody" class="cd-calls-list"></div>
+          </div>
         </div>
-        <div id="cdRoCallsBody" class="cd-calls-list"></div>
       </div>
     </div>
   </div>
@@ -3737,6 +3794,9 @@
     // ── editable per-RO fields (miles out, technician, advisory) ──
     async function populateRoEditFields() {
       const v = currentRo.vehicles || {};
+      // Reference-detail disclosure starts collapsed on every RO open (esp. on
+      // mobile) — the working surface, not the vehicle spec sheet, leads.
+      const _det = document.querySelector('.cd-ro-disclosure'); if (_det) _det.open = false;
       $('cdRoMilesOut').value = currentRo.miles_out != null ? currentRo.miles_out : '';
       $('cdRoOdometerIn').value = currentRo.odometer_in != null ? currentRo.odometer_in : '';
       $('cdRoComplaint').value = currentRo.complaint || '';
@@ -4060,13 +4120,13 @@
       $('cdRoStage').value = STAGES.includes(ro.status) ? ro.status : 'estimate';
       const field = (label, val, full) =>
         `<div class="${full ? 'cd-hf-full' : ''}"><div class="cd-hf-label">${label}</div><div class="cd-hf-val">${esc(val || '—')}</div></div>`;
-      // Complaint, Odometer In, and VIN/Plate moved to editable inputs in the
-      // cd-ro-edit block below — the read-only grid keeps the stable identity.
+      // Top strip: customer and vehicle, one compact line each. Phone folds into
+      // the customer line and plate into the vehicle line; the money stage shows
+      // via the Stage selector + badge in the rail (no separate Status cell).
+      // All the detailed fields live in the disclosure / rail below.
       $('cdRoHeaderGrid').innerHTML =
-        field('Customer', c.name) +
-        field('Phone', formatPhone(c.phone_primary)) +
-        field('Vehicle', vehDesc(v)) +
-        field('Status', STATUS_LABEL[ro.status] || ro.status);
+        field('Customer', [c.name, formatPhone(c.phone_primary)].filter(Boolean).join(' · ')) +
+        field('Vehicle', [vehDesc(v), v.plate].filter(Boolean).join(' · '));
       // Check in / Arrived — paints against currentRo (mutated in place on
       // check-in). On success, mirror arrived_at onto the cached list row so
       // Back-to-list reflects it without a refetch.
