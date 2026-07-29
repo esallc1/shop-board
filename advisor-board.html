@@ -427,6 +427,12 @@
   import * as WarrantyMirror from './shared/warranty-mirror.js';
   window.WarrantyMirror = WarrantyMirror;
 </script>
+<!-- Work-status floor-mirror decision (ESM). Assigns window.StatusMirror; used
+     only by the event-driven RO work-status dropdown. -->
+<script type="module">
+  import * as StatusMirror from './shared/status-mirror.js';
+  window.StatusMirror = StatusMirror;
+</script>
 </head>
 <body>
 
@@ -1029,6 +1035,11 @@
               </label>
               <span id="cdRoWarrantyHint" style="font-size:0.72rem;color:var(--muted)"></span>
             </div>
+          </div>
+          <div class="intake-field" id="cdRoStatusField">
+            <label>Status</label>
+            <select id="cdRoStatusFloor"></select>
+            <span id="cdRoStatusHint" style="font-size:0.72rem;color:var(--muted)"></span>
           </div>
           <div class="intake-field cd-hf-full">
             <label>Complaint</label>
@@ -3693,6 +3704,52 @@
       // floor; before check-in there's no row, so the toggle is disabled with a
       // reason rather than silently no-oping or creating a floor row.
       await populateWarrantyToggle();
+      // Work-status dropdown — mirror of the shop-floor Status dropdown. Same
+      // floor-row-by-po rules; disabled on pickup (no status column) or off-floor.
+      await populateStatusFloor();
+    }
+
+    // Resolved floor row for the open RO's work-status dropdown (null = off floor).
+    let currentStatusFloor = null;
+    async function populateStatusFloor() {
+      const sel = $('cdRoStatusFloor'), hint = $('cdRoStatusHint');
+      if (!sel) return;
+      currentStatusFloor = null;
+      sel.disabled = true;
+      sel.innerHTML = '';
+      if (hint) hint.textContent = 'Checking floor…';
+      let floor = null;
+      try { floor = await findStatusFloorRow(currentRo.po || currentRo.ro_number); }
+      catch (e) { console.warn('[CdRO] status floor lookup failed', e); }
+      currentStatusFloor = floor;
+      const SM = window.StatusMirror;
+      const CANON = (SM && SM.STATUS_OPTIONS) || [];
+      const buildOpts = (cur) => (SM && SM.buildStatusOptions)
+        ? SM.buildStatusOptions(cur)
+        : CANON.map(o => ({ value: o.value, label: o.label, selected: o.value === cur }));
+      if (floor && !floor.isPickup) {
+        // On a lift/parking → live, editable, set to the current stored status.
+        buildOpts(floor.status).forEach(o => {
+          const opt = document.createElement('option');
+          opt.value = o.value; opt.textContent = o.label;
+          if (o.selected) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        sel.disabled = false;
+        if (hint) hint.textContent = '';
+      } else {
+        // Pickup (no status column) or not on the floor → disabled with a reason.
+        // Still render the canonical options so the control looks normal.
+        buildOpts('').forEach(o => {
+          const opt = document.createElement('option');
+          opt.value = o.value; opt.textContent = o.label;
+          sel.appendChild(opt);
+        });
+        sel.disabled = true;
+        if (hint) hint.textContent = (floor && floor.isPickup)
+          ? 'Ready for pickup — status is set by moving the car off pickup.'
+          : 'Check the car in first to set a work status.';
+      }
     }
 
     // Resolved floor row for the open RO's warranty toggle (null = not on floor).
@@ -3830,6 +3887,43 @@
       const { error } = await db.from(floor.table).update(payload).eq('id', floor.id);
       if (error) return { ok: false, error };
       return { ok: true, floor: { ...floor, warranty: !!on, comeback_flagged_at: payload.comeback_flagged_at ?? floor.comeback_flagged_at } };
+    }
+
+    // ── Work-status floor mirror ──────────────────────────────────────────
+    // Mirror of the shop-floor Status dropdown → shopboard_*.status by po. Writes
+    // ONLY the raw `status` column (never a *_at stamp, never repair_orders), and
+    // NEVER creates a floor row. Resolution + write live in the tested
+    // shared/status-mirror.js; inline fallbacks keep it working pre-module-load.
+    async function findStatusFloorRow(po) {
+      const SM = window.StatusMirror;
+      if (SM && SM.findStatusFloorRow) return SM.findStatusFloorRow(db, po);
+      const key = String(po == null ? '' : po);
+      if (!key) return null;
+      for (const t of ['shopboard_parking', 'shopboard_lifts']) {
+        const { data, error } = await db.from(t).select('id,status').eq('po', key).limit(1);
+        if (error) throw error;
+        if (data && data.length) return { table: t, id: data[0].id, status: data[0].status ?? null, isPickup: false };
+      }
+      const { data, error } = await db.from('shopboard_pickup').select('id').eq('po', key).limit(1);
+      if (error) throw error;
+      if (data && data.length) return { table: 'shopboard_pickup', id: data[0].id, status: null, isPickup: true };
+      return null;
+    }
+
+    async function setStatusFloorCore(po, statusValue) {
+      const SM = window.StatusMirror;
+      if (SM && SM.mirrorStatus) {
+        try { return await SM.mirrorStatus(db, po, statusValue); }
+        catch (e) { return { ok: false, error: e }; }
+      }
+      // Inline fallback (module not loaded) — behaves identically.
+      let floor;
+      try { floor = await findStatusFloorRow(po); } catch (e) { return { ok: false, error: e }; }
+      if (!floor) return { ok: false, reason: 'no-floor-row' };
+      if (floor.isPickup) return { ok: false, reason: 'pickup' };
+      const { error } = await db.from(floor.table).update({ status: statusValue }).eq('id', floor.id);
+      if (error) return { ok: false, error };
+      return { ok: true, table: floor.table, id: floor.id, status: statusValue };
     }
 
     async function updateRoField(field, value) {
@@ -4785,6 +4879,35 @@
         return;
       }
       currentFloorRow = res.floor;   // keep the cached floor row (incl. the stamp) in sync
+    });
+    // Work status — mirrors the shop-floor Status dropdown → shopboard_*.status
+    // by po. Writes ONLY the raw status column (no *_at stamp, never repair_orders,
+    // never the money-axis Stage). Handled in setStatusFloorCore via shared/status-mirror.js.
+    $('cdRoStatusFloor').addEventListener('change', async () => {
+      if (!currentRo) return;
+      const sel = $('cdRoStatusFloor');
+      const value = sel.value;
+      const prev = currentStatusFloor && currentStatusFloor.status;
+      if (value === prev) return;
+      sel.disabled = true;   // freeze during the write
+      const res = await setStatusFloorCore(currentRo.po || currentRo.ro_number, value);
+      sel.disabled = false;
+      if (!res.ok) {
+        sel.value = prev != null ? prev : '';   // revert — nothing was written
+        const hint = $('cdRoStatusHint');
+        if (res.reason === 'no-floor-row') {
+          if (hint) hint.textContent = 'Check the car in first to set a work status.';
+          sel.disabled = true; currentStatusFloor = null;
+        } else if (res.reason === 'pickup') {
+          if (hint) hint.textContent = 'Ready for pickup — status is set by moving the car off pickup.';
+          sel.disabled = true;
+        } else {
+          console.error('[CdRO] status write failed', res.error);
+          alert('Could not update status: ' + ((res.error && res.error.message) || 'unknown error'));
+        }
+        return;
+      }
+      if (currentStatusFloor) currentStatusFloor.status = value;   // keep cache in sync
     });
     $('cdRoComplaint').addEventListener('change', () => updateRoField('complaint', $('cdRoComplaint').value.trim() || null));
     $('cdRoAdvisory').addEventListener('change', () => updateRoField('advisory_notes', $('cdRoAdvisory').value.trim() || null));
