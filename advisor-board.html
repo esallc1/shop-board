@@ -413,6 +413,10 @@
   .cd-call-num { margin-left: auto; font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
   .cd-call-note { font-size: 0.85rem; color: var(--text); margin-top: 4px; white-space: pre-wrap; }
   .cd-call-by { font-size: 0.7rem; color: var(--muted); margin-top: 4px; }
+  /* Recording play button on a call-history row (slice C) — reuses the global
+     .rec-btn/.rec-ready/.rec-pending/.rec-marker styles from the desk slice. */
+  .cd-call-rec { margin-top: 6px; }
+  .cd-call-rec:empty { display: none; }   /* no recording → collapse, no gap */
   /* ── Payments (Phase 5) ── */
   .cd-pay-lbl { display: block; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 700; margin-bottom: 3px; }
   .cd-pay-form input, .cd-pay-form select {
@@ -1248,6 +1252,10 @@
               <span style="margin-left:auto;font-size:0.66rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.4px">Internal · never printed</span>
             </div>
             <div id="cdRoCallsBody" class="cd-calls-list"></div>
+            <!-- ONE reused audio element for this card — a second play replaces
+                 the source, so the first stops. Never printed (printRo builds its
+                 own document and does not read this card). -->
+            <audio id="cdRoRecAudio" preload="none" style="display:none"></audio>
           </div>
         </div>
       </div>
@@ -3781,6 +3789,7 @@
     async function loadCallHistory() {
       const box = $('cdRoCallsBody');
       if (!box || !currentRo) return;
+      const _a = $('cdRoRecAudio'); if (_a && !_a.paused) _a.pause();  // stop the prior RO's playback
       const roId = currentRo.id;
       box.innerHTML = '<div class="cd-calls-empty">Loading…</div>';
       const { data, error } = await db.from('calls')
@@ -3812,9 +3821,92 @@
           <div class="cd-call-meta"><span class="cd-call-when">${esc(date)}${time ? ' · ' + esc(time) : ''}</span><span class="cd-call-num">${esc(num)}</span></div>
           <div class="cd-call-note">${noteHtml}</div>
           <div class="cd-call-by">${who}</div>
+          <div class="cd-call-rec" data-rec-call="${esc(c.id)}"></div>
         </div>`;
       }).join('');
+      // Recording play buttons — ONE batched links call for every row (not one
+      // per row), rendered inline as the same three states as the desk log.
+      decorateRoCallRecordings(calls, ++roRecSeq);
     }
+
+    // ── recording play buttons on the Call History card (slice C) ──
+    // Reuse window.RecordingPlayer + api/recording-links.js (ids only; the boards
+    // never read the recordings table). One reused <audio> for this card; a
+    // second play stops the first. Read-only; NEVER printed.
+    let roRecStateByCall = {};   // call id (string) → player descriptor
+    let roRecSeq = 0;            // guards a stale async decorate from a newer open
+    let roRecPlayingBtn = null;
+
+    async function fetchRoRecordingLinks(callIds) {
+      const RP = window.RecordingPlayer;
+      const ids = (callIds || []).map(v => Number(v)).filter(v => Number.isInteger(v) && v > 0);
+      if (!RP || !ids.length) return {};
+      try {
+        const r = await fetch('/api/recording-links', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ call_ids: ids }),
+        });
+        if (!r.ok) { console.warn('[CdRO] recording-links', r.status); return {}; }
+        return RP.indexResults(await r.json());
+      } catch (e) { console.warn('[CdRO] recording-links failed', e); return {}; }
+    }
+
+    async function decorateRoCallRecordings(calls, seq) {
+      const RP = window.RecordingPlayer; if (!RP) return;
+      const idx = await fetchRoRecordingLinks((calls || []).map(c => c.id));
+      if (seq !== roRecSeq) return;         // a newer render already ran — don't paint stale
+      roRecStateByCall = {};
+      const box = $('cdRoCallsBody'); if (!box) return;
+      box.querySelectorAll('.cd-call-rec[data-rec-call]').forEach(cell => {
+        const callId = cell.dataset.recCall;
+        const d = RP.describeCallId(idx, callId);
+        if (!d.render) { cell.innerHTML = ''; return; }   // no recording → no affordance
+        roRecStateByCall[callId] = d;
+        if (d.state === 'ready') {
+          cell.innerHTML = `<button type="button" class="rec-btn rec-ready" data-rec-play="${esc(callId)}" aria-label="${esc(d.aria)}">${esc(d.label)}</button>`;
+        } else if (d.state === 'pending') {
+          cell.innerHTML = `<span class="rec-btn rec-pending" title="${esc(d.aria)}" aria-label="${esc(d.aria)}">${esc(d.label)}</span>`;
+        } else {
+          cell.innerHTML = `<span class="rec-marker" title="${esc(d.aria)}">${esc(d.label)}</span>`;
+        }
+      });
+      box.querySelectorAll('[data-rec-play]').forEach(b =>
+        b.addEventListener('click', (e) => { e.stopPropagation(); playRoRecording(b.dataset.recPlay, b); }));
+    }
+
+    // Re-mint one call's signed URL (they age out in ~5 min). Updates the cached
+    // descriptor and returns the fresh url, or null.
+    async function remintRoRecordingUrl(callId) {
+      const RP = window.RecordingPlayer; if (!RP) return null;
+      const idx = await fetchRoRecordingLinks([callId]);
+      const d = RP.describeCallId(idx, callId);
+      if (roRecStateByCall[callId]) roRecStateByCall[callId] = d;
+      return d.playbackUrl || null;
+    }
+
+    async function playRoRecording(callId, btn) {
+      const audio = $('cdRoRecAudio'); if (!audio) return;
+      if (roRecPlayingBtn === btn && !audio.paused) { audio.pause(); return; }  // tap playing → stop
+      if (roRecPlayingBtn && roRecPlayingBtn !== btn) roRecPlayingBtn.classList.remove('playing');
+      roRecPlayingBtn = btn;
+      let url = (roRecStateByCall[callId] && roRecStateByCall[callId].playbackUrl) || null;
+      if (!url) url = await remintRoRecordingUrl(callId);   // opened >5 min ago
+      if (!url) { btn.classList.remove('playing'); return; }
+      const tryPlay = async (src) => { audio.src = src; await audio.play(); };
+      try { await tryPlay(url); btn.classList.add('playing'); }
+      catch (e) {
+        // Signed URL likely aged out between open and click → re-mint once.
+        const fresh = await remintRoRecordingUrl(callId);
+        if (fresh) { try { await tryPlay(fresh); btn.classList.add('playing'); } catch (_) { btn.classList.remove('playing'); } }
+        else btn.classList.remove('playing');
+      }
+    }
+    (function wireRoRecAudio() {
+      const audio = $('cdRoRecAudio'); if (!audio) return;
+      const clear = () => { if (roRecPlayingBtn) roRecPlayingBtn.classList.remove('playing'); };
+      audio.addEventListener('ended', clear);
+      audio.addEventListener('pause', clear);
+    })();
 
     // ── editable per-RO fields (miles out, technician, advisory) ──
     async function populateRoEditFields() {
@@ -4494,6 +4586,7 @@
     }
 
     function backToList() {
+      const _a = $('cdRoRecAudio'); if (_a && !_a.paused) _a.pause();  // stop recording playback on leave
       $('cdRoDetailPanel').style.display = 'none';
       $('cdRoListPanel').style.display = 'block';
       renderKanban();  // reflect any stage/total changes
