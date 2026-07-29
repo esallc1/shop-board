@@ -477,6 +477,13 @@
   import * as RoCalls from './shared/ro-calls.js';
   window.RoCalls = RoCalls;
 </script>
+<!-- Call-recording play-button render-state logic (ESM). Assigns
+     window.RecordingPlayer; used by the call-log slide-out. Pure/DOM-free —
+     the server (api/recording-links.js) is the ONLY thing that reads recordings. -->
+<script type="module">
+  import * as RecordingPlayer from './shared/recording-player.js';
+  window.RecordingPlayer = RecordingPlayer;
+</script></script>
 </head>
 <body>
 
@@ -909,6 +916,20 @@
     .desk-attach-name { font-size:0.85rem; font-weight:700; color:var(--text); }
     .desk-attach-phone { margin-left:auto; font-size:0.76rem; color:var(--muted); white-space:nowrap; }
     .desk-attach-empty { color:var(--muted); font-size:0.82rem; text-align:center; padding:24px 8px; }
+    /* ── call recording play button (slice B) — three DISTINCT states ── */
+    .log-rec { margin-top:6px; }
+    .log-rec:empty { display:none; }                 /* no recording → collapse, no gap */
+    .rec-btn { display:inline-flex; align-items:center; gap:6px; font-size:0.72rem; font-weight:700; border-radius:7px; padding:4px 11px; border:1px solid var(--border); }
+    /* ready → a real, tappable play button */
+    .rec-ready { color:var(--accent); border-color:var(--accent); background:#fff; cursor:pointer; }
+    .rec-ready:hover { background:var(--accent); color:#fff; }
+    .rec-ready.playing { background:var(--accent); color:#fff; }
+    /* pending → present but disabled; NOT absent (the ~90s "audio is coming" gap) */
+    .rec-pending { color:var(--muted); background:var(--surface-2); cursor:default; }
+    .rec-pending::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--amber); animation:recPulse 1.4s ease-in-out infinite; }
+    @keyframes recPulse { 0%,100% { opacity:0.35; } 50% { opacity:1; } }
+    /* failed → a quiet, honest marker; no border, no affordance */
+    .rec-marker { display:inline-block; font-size:0.7rem; font-style:italic; color:var(--muted); }
   </style>
   <div class="view" id="view-desk">
     <div class="desk-head">
@@ -964,6 +985,10 @@
         </label>
       </div>
       <div class="desk-log-body" id="deskLogList"></div>
+
+      <!-- ONE reused audio element for the whole log — playing a second row
+           replaces the source, so the first stops. Never one <audio> per row. -->
+      <audio id="deskRecAudio" preload="none" style="display:none"></audio>
 
       <!-- Attach picker — search across ALL customers (paginated fetch, past the
            1000-row cap). Slides over the log body; never touches the lanes. -->
@@ -5714,6 +5739,8 @@
     let unattachedOnly = false;
     let logCallsById = {};      // id → call, for the row action buttons
     let logSuggestById = {};    // id → single phone-matched customer, for one-tap attach
+    let recStateByCall = {};    // call id (string) → player descriptor, for play/re-mint
+    let recDecorateSeq = 0;     // guards a stale async decorate from painting over a newer render
 
     function addDays(day, n) { const d = new Date(day); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + n); return d; }
     function dayBounds(day) {
@@ -5844,7 +5871,9 @@
             <span class="log-${isNew ? 'num' : 'name'}">${esc(label)}</span>
             <span class="log-chip">${esc(chip)}</span>
           </div>
-          ${cnam}${newcaller}${note}${nextstep}${untouchedTag}${actions}
+          ${cnam}${newcaller}${note}${nextstep}${untouchedTag}
+          <div class="log-rec" data-rec-call="${esc(c.id)}"></div>
+          ${actions}
         </div>`;
       }).join('');
       // Row click → open the customer (matched) or the create-customer step
@@ -5863,7 +5892,91 @@
         else if (act === 'nac') performNotACustomer(call);
         else if (act === 'clear-nac') performClearNotACustomer(call);
       }));
+      // Recording play buttons — ONE batched call for every visible row (not one
+      // request per row). Async, so it can't hold up the log paint.
+      decorateRecordings(calls, ++recDecorateSeq);
     }
+
+    // ── call-recording play button (slice B) ──
+    // The boards never read the recordings table; api/recording-links.js is the
+    // ONLY reader and hands back per-call { status, duration_seconds, playback_url }.
+    // We render the THREE states distinctly (ready/pending/failed) and play via
+    // the single reused <audio>. No auto-refresh loop — we re-fetch on open only.
+    async function fetchRecordingLinks(callIds) {
+      const RP = window.RecordingPlayer;
+      const ids = (callIds || []).map(v => Number(v)).filter(v => Number.isInteger(v) && v > 0);
+      if (!RP || !ids.length) return {};
+      try {
+        const r = await fetch('/api/recording-links', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ call_ids: ids }),
+        });
+        if (!r.ok) { console.warn('[desk] recording-links', r.status); return {}; }
+        return RP.indexResults(await r.json());
+      } catch (e) { console.warn('[desk] recording-links failed', e); return {}; }
+    }
+
+    async function decorateRecordings(calls, seq) {
+      const RP = window.RecordingPlayer; if (!RP) return;
+      const idx = await fetchRecordingLinks((calls || []).map(c => c.id));
+      if (seq !== recDecorateSeq) return;         // a newer render already ran — don't paint stale
+      recStateByCall = {};
+      $('deskLogList').querySelectorAll('.log-rec[data-rec-call]').forEach(cell => {
+        const callId = cell.dataset.recCall;
+        const d = RP.describeCallId(idx, callId);
+        if (!d.render) { cell.innerHTML = ''; return; }   // no recording → no affordance
+        recStateByCall[callId] = d;
+        if (d.state === 'ready') {
+          cell.innerHTML = `<button type="button" class="rec-btn rec-ready" data-rec-play="${esc(callId)}" aria-label="${esc(d.aria)}">${esc(d.label)}</button>`;
+        } else if (d.state === 'pending') {
+          cell.innerHTML = `<span class="rec-btn rec-pending" title="${esc(d.aria)}" aria-label="${esc(d.aria)}">${esc(d.label)}</span>`;
+        } else {
+          cell.innerHTML = `<span class="rec-marker" title="${esc(d.aria)}">${esc(d.label)}</span>`;
+        }
+      });
+      $('deskLogList').querySelectorAll('[data-rec-play]').forEach(b =>
+        b.addEventListener('click', (e) => { e.stopPropagation(); playRecording(b.dataset.recPlay, b); }));
+    }
+
+    // Re-mint a single call's signed URL (they age out in ~5 min). Updates the
+    // cached descriptor and returns the fresh url, or null.
+    async function remintRecordingUrl(callId) {
+      const RP = window.RecordingPlayer; if (!RP) return null;
+      const idx = await fetchRecordingLinks([callId]);
+      const d = RP.describeCallId(idx, callId);
+      if (recStateByCall[callId]) recStateByCall[callId] = d;
+      return d.playbackUrl || null;
+    }
+
+    let recPlayingBtn = null;
+    async function playRecording(callId, btn) {
+      const audio = $('deskRecAudio'); if (!audio) return;
+      // Tapping the button that's already playing → pause/stop it.
+      if (recPlayingBtn === btn && !audio.paused) { audio.pause(); return; }
+      // Starting a new one always stops the previous (single reused element).
+      if (recPlayingBtn && recPlayingBtn !== btn) recPlayingBtn.classList.remove('playing');
+      recPlayingBtn = btn;
+      let url = (recStateByCall[callId] && recStateByCall[callId].playbackUrl) || null;
+      if (!url) url = await remintRecordingUrl(callId);   // opened >5 min ago, or never minted
+      if (!url) { btn.classList.remove('playing'); return; }
+      const tryPlay = async (src) => { audio.src = src; await audio.play(); };
+      try {
+        await tryPlay(url);
+        btn.classList.add('playing');
+      } catch (e) {
+        // Most likely the signed URL aged out between open and click → re-mint once.
+        const fresh = await remintRecordingUrl(callId);
+        if (fresh) { try { await tryPlay(fresh); btn.classList.add('playing'); } catch (_) { btn.classList.remove('playing'); } }
+        else btn.classList.remove('playing');
+      }
+    }
+    // Clear the playing highlight when playback ends or is paused elsewhere.
+    (function wireRecAudio() {
+      const audio = $('deskRecAudio'); if (!audio) return;
+      const clear = () => { if (recPlayingBtn) recPlayingBtn.classList.remove('playing'); };
+      audio.addEventListener('ended', clear);
+      audio.addEventListener('pause', clear);
+    })();
 
     // ── attach / un-attach / not-a-customer actions ──
     // All go through the tested shared/call-attach.js. customer_id is written
@@ -5994,7 +6107,7 @@
 
     function setLogDay(day) { logDay = day; $('deskLogDate').textContent = logDayLabel(day); logLoad(); }
     function openLog() { logOpen = true; $('deskLog').classList.add('open'); $('deskLog').setAttribute('aria-hidden', 'false'); $('deskLogBackdrop').classList.add('open'); setLogDay(logDay); }
-    function closeLog() { closeAttach(); logOpen = false; $('deskLog').classList.remove('open'); $('deskLog').setAttribute('aria-hidden', 'true'); $('deskLogBackdrop').classList.remove('open'); }
+    function closeLog() { closeAttach(); const a = $('deskRecAudio'); if (a && !a.paused) a.pause(); logOpen = false; $('deskLog').classList.remove('open'); $('deskLog').setAttribute('aria-hidden', 'true'); $('deskLogBackdrop').classList.remove('open'); }
 
     $('deskLogBtn').addEventListener('click', openLog);
     $('deskLogClose').addEventListener('click', closeLog);
