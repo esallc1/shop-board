@@ -416,6 +416,9 @@
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
+<!-- Planner (shared/planner.js — self-contained; mounted below after the
+     bookkeeping session resolves, scoped private to this employee). -->
+<script src="shared/planner.js"></script>
 <!-- Core Bank → invoice-image view decisions (ESM). Assigns window.CoreInvoiceView;
      used by event-driven Core Bank handlers. -->
 <script type="module">
@@ -470,6 +473,7 @@
         <div class="sidebar-item" data-view="history" data-label="History"><span class="icon">📚</span>History</div>
         <div class="sidebar-item" data-view="capture" data-label="Capture Invoice"><span class="icon">📸</span>Capture Invoice</div>
         <div class="sidebar-item" data-view="todo" data-label="To-Do"><span class="icon">✅</span>To-Do<span class="chat-nav-badge" id="todo-nav-badge" style="display:none">0</span></div>
+        <div class="sidebar-item" data-view="planner" data-label="Planner"><span class="icon">🗓️</span>Planner</div>
       </div>
       <div class="sidebar-group">
         <div class="sidebar-group-label">Manage</div>
@@ -584,6 +588,11 @@
         <button class="chat-send-btn" id="chat-send">➤</button>
       </div>
     </div>
+  </div>
+
+  <!-- ══ PLANNER ══ (shared/planner.js — one-line include, self-contained) -->
+  <div class="view" id="view-planner">
+    <div id="planner-root"></div>
   </div>
 
     </div>
@@ -3377,6 +3386,24 @@
       refetch: loadAndRenderTodos,
       getChannel: () => todoChannel,
       resubscribe: todoSubscribeRealtime,
+    };
+
+    // Planner (shared/planner.js) — private to THIS employee via the live
+    // owner_employee_id getter, so on the bookkeeping board it scopes to Daiana.
+    // Mounted here (inside bootBoard) so it only initializes AFTER the session's
+    // CURRENT_EMPLOYEE_ID has resolved, and uses THIS board's currentViewKey for
+    // visibility. Same four-line contract as owner-board; planner.js untouched.
+    const planner = Planner.init({
+      db,
+      mountSelector: '#planner-root',
+      getOwnerEmployeeId: () => CURRENT_EMPLOYEE_ID,
+      getName: () => CHAT_IDENTITY.name,
+      isSurfaceVisible: () => currentViewKey === 'planner',
+    });
+    VIEW_REFRESH.planner = {
+      refetch: planner.refetch,
+      getChannel: planner.getChannel,
+      resubscribe: planner.resubscribe,
     };
 
     initRefreshSafetyNet();
