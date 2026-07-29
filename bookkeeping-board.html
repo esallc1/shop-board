@@ -145,6 +145,13 @@
   }
   .history-lightbox.open { display: flex; }
   .history-lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; }
+  .history-lightbox-record {
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
+    background: #fff; color: var(--text); border: 1px solid var(--border);
+    border-radius: 999px; padding: 9px 18px; font-size: 0.82rem; font-weight: 700;
+    cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+  }
+  .history-lightbox-record:hover { border-color: var(--accent); }
 
   .history-breadcrumb { display: none; align-items: center; gap: 10px; margin-bottom: 16px; font-size: 0.8rem; }
   .history-back-btn {
@@ -289,6 +296,10 @@
   .ov-core-info { flex: 1; min-width: 0; }
   .ov-core-label { font-size: 0.85rem; font-weight: 700; color: var(--text); }
   .ov-core-meta { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+  .ov-core-row.clickable { cursor: pointer; }
+  .ov-core-row.clickable:hover { border-color: var(--accent); }
+  .ov-core-view-hint { color: var(--accent); font-weight: 700; }
+  .ov-core-noinv { color: var(--muted); font-style: italic; }
   .ov-core-amt { font-size: 0.95rem; font-weight: 800; color: var(--text); white-space: nowrap; }
   .ov-core-btn { flex-shrink: 0; }
   .ov-returned-toggle {
@@ -405,6 +416,12 @@
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
+<!-- Core Bank → invoice-image view decisions (ESM). Assigns window.CoreInvoiceView;
+     used by event-driven Core Bank handlers. -->
+<script type="module">
+  import * as CoreInvoiceView from './shared/core-invoice-view.js';
+  window.CoreInvoiceView = CoreInvoiceView;
+</script>
 </head>
 <body>
 
@@ -703,6 +720,9 @@
 <!-- History full-size image lightbox -->
 <div class="history-lightbox" id="historyLightbox">
   <img id="historyLightboxImg" alt="Invoice">
+  <!-- Full-record link — shown ONLY when the lightbox is opened from a Core Bank
+       row (hidden for History-thumbnail opens, which have no invoice context). -->
+  <button type="button" class="history-lightbox-record" id="historyLightboxRecord" style="display:none">Open full invoice record →</button>
 </div>
 
 <!-- Kiki AI Chat Widget — shared floating widget, independent of sidebar view -->
@@ -1516,6 +1536,89 @@
     document.getElementById('historyLightbox').classList.remove('open');
     document.getElementById('historyLightboxImg').src = '';
   });
+
+  // ── Core Bank → original invoice image (read-only). Opens the EXISTING
+  // openHistoryLightbox viewer; NOT the editable classify modal. openHistoryLightbox
+  // and openInvoiceDetail are left untouched. ──────────────────────────────────
+  let lightboxRecordInvoiceId = null;
+  function showLightboxRecordLink(invoiceQueueId) {
+    lightboxRecordInvoiceId = invoiceQueueId || null;
+    const link = document.getElementById('historyLightboxRecord');
+    if (link) link.style.display = invoiceQueueId ? '' : 'none';
+  }
+  function hideLightboxRecordLink() {
+    lightboxRecordInvoiceId = null;
+    const link = document.getElementById('historyLightboxRecord');
+    if (link) link.style.display = 'none';
+  }
+  // Reset the record link on ANY lightbox close (image / backdrop click), so it
+  // never lingers onto a History-thumbnail open (which has no invoice context).
+  document.getElementById('historyLightbox').addEventListener('click', hideLightboxRecordLink);
+  // The record link is an EXPLICIT action: close the image view, then open the
+  // full invoice record. stopPropagation so we own the close (no double-handling).
+  document.getElementById('historyLightboxRecord').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const id = lightboxRecordInvoiceId;
+    document.getElementById('historyLightbox').classList.remove('open');
+    document.getElementById('historyLightboxImg').src = '';
+    hideLightboxRecordLink();
+    if (id) openInvoiceFullRecord(id);
+  });
+
+  async function openCoreInvoiceImage(invoiceQueueId) {
+    if (!invoiceQueueId) return;   // NULL invoice_queue_id rows aren't clickable, but guard anyway
+    const CIV = window.CoreInvoiceView;
+    try {
+      // Always read the CURRENT image_path at click time — it is REWRITTEN
+      // (vendor-slug/yyyy-mm/…) when the invoice is processed, so a cached or
+      // derived path would be stale. Never cache it.
+      const { data: inv, error } = await db.from('invoice_queue')
+        .select('image_path').eq('id', invoiceQueueId).maybeSingle();
+      if (error) throw error;
+      const { data: signed } = (inv && inv.image_path)
+        ? await db.storage.from(INVOICE_BUCKET).createSignedUrl(inv.image_path, SIGNED_URL_TTL)
+        : { data: null };
+      const outcome = CIV
+        ? CIV.resolveImageOpen(inv, signed)
+        : { open: !!(inv && inv.image_path && signed && signed.signedUrl), url: (signed && signed.signedUrl) || null };
+      // A lookup/sign failure must NOT leave a blank overlay — only open the
+      // lightbox when we actually hold a signed URL.
+      if (!outcome.open) {
+        alert(outcome.reason === 'no-image'
+          ? 'No invoice image is on file for this core.'
+          : 'Could not open the invoice image. Please try again.');
+        return;
+      }
+      showLightboxRecordLink(invoiceQueueId);   // the full-record link, for this invoice
+      openHistoryLightbox(outcome.url);         // the EXISTING read-only viewer
+    } catch (err) {
+      console.error('[Cores] open invoice image failed', err);
+      alert('Could not open the invoice image. Please try again.');
+    }
+  }
+
+  // Open the FULL invoice record (editable) for the "full record" link. A core's
+  // parent is processed, and openInvoiceDetail only knows UNPROCESSED rows, so a
+  // processed parent routes to openHistoryEditModal. Both openers are unmodified;
+  // we just make sure the target row is loaded into the array each reads from.
+  async function openInvoiceFullRecord(invoiceQueueId) {
+    if (!invoiceQueueId) return;
+    const CIV = window.CoreInvoiceView;
+    if (invoiceQueueRows.some(r => String(r.id) === String(invoiceQueueId))) { openInvoiceDetail(invoiceQueueId); return; }
+    if (historyRows.some(r => String(r.id) === String(invoiceQueueId))) { openHistoryEditModal(invoiceQueueId); return; }
+    // Not cached (e.g. clicked from Overview before History was ever opened):
+    // fetch just this one row and route by status — no tab re-render side effect.
+    try {
+      const { data, error } = await db.from('invoice_queue').select('*').eq('id', invoiceQueueId).maybeSingle();
+      if (error || !data) { alert('Could not open the full invoice record.'); return; }
+      const route = CIV ? CIV.fullRecordModal(data) : (data.status === 'processed' ? 'history' : 'detail');
+      if (route === 'history') { historyRows = historyRows.concat([data]); openHistoryEditModal(invoiceQueueId); }
+      else { invoiceQueueRows = invoiceQueueRows.concat([data]); openInvoiceDetail(invoiceQueueId); }
+    } catch (err) {
+      console.error('[Cores] open full record failed', err);
+      alert('Could not open the full invoice record.');
+    }
+  }
 
   document.getElementById('historySearchInput').addEventListener('input', renderHistory);
 
@@ -2684,10 +2787,22 @@
     const returnedNote = isReturned && c.returned_at
       ? ` · Returned by ${esc(c.returned_by || 'someone')} • ${esc(formatDateTime(c.returned_at))}`
       : '';
-    return `<div class="ov-core-row${isReturned ? ' returned' : ''}">
+    // Clickable → opens the ORIGINAL invoice image (read-only lightbox) only when
+    // a parent invoice is linked. A NULL invoice_queue_id (schema-permitted) is
+    // NOT clickable and shows a plain "no invoice attached" note instead of a
+    // broken viewer. Decision lives in shared/core-invoice-view.js.
+    const CIV = window.CoreInvoiceView;
+    const viewable = CIV ? CIV.coreIsViewable(c) : !!c.invoice_queue_id;
+    const clickAttrs = viewable
+      ? ` data-view-invoice="${esc(c.invoice_queue_id)}" title="View original invoice image"`
+      : '';
+    const viewTag = viewable
+      ? ` · <span class="ov-core-view-hint">View invoice</span>`
+      : ` · <span class="ov-core-noinv">no invoice attached</span>`;
+    return `<div class="ov-core-row${isReturned ? ' returned' : ''}${viewable ? ' clickable' : ''}"${clickAttrs}>
       <div class="ov-core-info">
         <div class="ov-core-label">${esc(c.label || 'Core')}</div>
-        <div class="ov-core-meta">${meta || '—'}${returnedNote}</div>
+        <div class="ov-core-meta">${meta || '—'}${returnedNote}${viewTag}</div>
       </div>
       <div class="ov-core-amt">${fmtMoney(c.amount)}</div>
       ${isReturned
@@ -2724,8 +2839,14 @@
       rlist.innerHTML = returned.slice(0, 50).map(c => coreRowHtml(c, true)).join('');
     }
 
-    list.querySelectorAll('[data-return]').forEach(b => b.addEventListener('click', () => markCoreReturned(b.dataset.return)));
-    rlist.querySelectorAll('[data-undo]').forEach(b => b.addEventListener('click', () => undoCoreReturn(b.dataset.undo)));
+    // Mark Returned / Undo must keep working and must NOT open the image view —
+    // stop propagation so the row's click handler doesn't also fire.
+    list.querySelectorAll('[data-return]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); markCoreReturned(b.dataset.return); }));
+    rlist.querySelectorAll('[data-undo]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); undoCoreReturn(b.dataset.undo); }));
+    // Clicking a linked core row opens its original invoice image (outstanding
+    // AND returned lists get the same behavior).
+    [list, rlist].forEach(container => container.querySelectorAll('[data-view-invoice]')
+      .forEach(row => row.addEventListener('click', () => openCoreInvoiceImage(row.dataset.viewInvoice))));
   }
 
   async function markCoreReturned(id) {
