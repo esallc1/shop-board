@@ -421,6 +421,12 @@
   import * as CallAttach from './shared/call-attach.js';
   window.CallAttach = CallAttach;
 </script>
+<!-- Warranty / Comeback floor-mirror decision (ESM). Assigns
+     window.WarrantyMirror; used only by the event-driven RO warranty toggle. -->
+<script type="module">
+  import * as WarrantyMirror from './shared/warranty-mirror.js';
+  window.WarrantyMirror = WarrantyMirror;
+</script>
 </head>
 <body>
 
@@ -1013,6 +1019,16 @@
           <div class="intake-field">
             <label>Service Writer</label>
             <select id="cdRoWriter"><option value="">— Unassigned —</option></select>
+          </div>
+          <div class="intake-field" id="cdRoWarrantyField">
+            <label style="margin-bottom:0">Warranty / Comeback</label>
+            <div style="display:flex;align-items:center;gap:8px">
+              <label class="intake-toggle">
+                <input type="checkbox" id="cdRoWarranty">
+                <span class="intake-toggle-slider"></span>
+              </label>
+              <span id="cdRoWarrantyHint" style="font-size:0.72rem;color:var(--muted)"></span>
+            </div>
           </div>
           <div class="intake-field cd-hf-full">
             <label>Complaint</label>
@@ -3671,6 +3687,37 @@
           wsel.appendChild(opt);
         });
       }
+
+      // Warranty / Comeback toggle — reads/writes the car's FLOOR row (mirror of
+      // the shop-floor board's toggle). Only meaningful once the car is on the
+      // floor; before check-in there's no row, so the toggle is disabled with a
+      // reason rather than silently no-oping or creating a floor row.
+      await populateWarrantyToggle();
+    }
+
+    // Resolved floor row for the open RO's warranty toggle (null = not on floor).
+    let currentFloorRow = null;
+    async function populateWarrantyToggle() {
+      const box = $('cdRoWarranty'), hint = $('cdRoWarrantyHint');
+      if (!box) return;
+      currentFloorRow = null;
+      box.checked = false; box.disabled = true;
+      if (hint) hint.textContent = 'Checking floor…';
+      let floor = null;
+      try { floor = await findFloorRow(currentRo.po || currentRo.ro_number); }
+      catch (e) { console.warn('[CdRO] warranty floor lookup failed', e); }
+      // Guard against a race: the detail may have moved on to another RO while
+      // this awaited. Only paint if we're still the current RO's toggle.
+      currentFloorRow = floor;
+      if (floor) {
+        box.disabled = false;
+        box.checked = !!floor.warranty;
+        if (hint) hint.textContent = '';
+      } else {
+        box.disabled = true;
+        box.checked = false;
+        if (hint) hint.textContent = 'Check the car in first to flag warranty.';
+      }
     }
 
     // true when the DB rejects a write because the column isn't there yet
@@ -3741,6 +3788,48 @@
       }
       // not found + unassigning → nothing on the floor to touch
       return { ok: true };
+    }
+
+    // ── Warranty / Comeback floor mirror ──────────────────────────────────
+    // The warranty flag lives on the FLOOR row (shopboard_*), the SAME column
+    // shop-board.html (v1) and gm-board's Shop Floor tab write and gm-board's
+    // Comebacks tab reads. We mirror into it by po — like assignTechCore mirrors
+    // technician → assigned_tech — so repair_orders needs NO warranty column.
+    // Resolution + write live in the tested shared/warranty-mirror.js; the inline
+    // fallbacks below keep it working if that module hasn't loaded.
+    async function findFloorRow(po) {
+      const WM = window.WarrantyMirror;
+      if (WM && WM.findFloorRow) return WM.findFloorRow(db, po);
+      const key = String(po == null ? '' : po);
+      if (!key) return null;
+      for (const t of ['shopboard_parking', 'shopboard_lifts', 'shopboard_pickup']) {
+        const { data, error } = await db.from(t).select('id,warranty,comeback_flagged_at').eq('po', key).limit(1);
+        if (error) throw error;
+        if (data && data.length) return { table: t, id: data[0].id, warranty: !!data[0].warranty, comeback_flagged_at: data[0].comeback_flagged_at };
+      }
+      return null;
+    }
+
+    // Write the warranty toggle to the floor row. Re-resolves at write time so a
+    // car picked up between render and click can't be written to a stale row.
+    // NEVER creates a floor row and NEVER writes repair_orders — a car with no
+    // floor row returns { ok:false, reason:'no-floor-row' } and nothing is written.
+    async function setWarrantyCore(po, on) {
+      const WM = window.WarrantyMirror;
+      if (WM && WM.mirrorWarranty) {
+        try { return await WM.mirrorWarranty(db, po, on); }
+        catch (e) { return { ok: false, error: e }; }
+      }
+      // Inline fallback (module not loaded) — behaves identically.
+      let floor;
+      try { floor = await findFloorRow(po); } catch (e) { return { ok: false, error: e }; }
+      if (!floor) return { ok: false, reason: 'no-floor-row' };
+      const payload = on
+        ? { warranty: true, comeback_flagged_at: floor.comeback_flagged_at || new Date().toISOString() }
+        : { warranty: false };
+      const { error } = await db.from(floor.table).update(payload).eq('id', floor.id);
+      if (error) return { ok: false, error };
+      return { ok: true, floor: { ...floor, warranty: !!on, comeback_flagged_at: payload.comeback_flagged_at ?? floor.comeback_flagged_at } };
     }
 
     async function updateRoField(field, value) {
@@ -4672,6 +4761,30 @@
       // reload) shows the newly-chosen writer rather than the stale/blank one.
       currentRo.service_writer = id ? { name } : null;
       updateRoField('service_writer_id', id);
+    });
+    // Warranty / Comeback — mirrors to the FLOOR row (shopboard_*), never to
+    // repair_orders. ON stamps comeback_flagged_at once; OFF leaves it intact
+    // (both handled in setWarrantyCore via the tested shared/warranty-mirror.js).
+    $('cdRoWarranty').addEventListener('change', async () => {
+      if (!currentRo) return;
+      const box = $('cdRoWarranty');
+      const on = box.checked;
+      box.disabled = true;   // freeze during the write
+      const res = await setWarrantyCore(currentRo.po || currentRo.ro_number, on);
+      box.disabled = false;
+      if (!res.ok) {
+        // Revert the checkbox — nothing was written (no floor row, or an error).
+        box.checked = !on;
+        if (res.reason === 'no-floor-row') {
+          const hint = $('cdRoWarrantyHint'); if (hint) hint.textContent = 'Check the car in first to flag warranty.';
+          box.disabled = true; currentFloorRow = null;
+        } else {
+          console.error('[CdRO] warranty toggle failed', res.error);
+          alert('Could not update warranty: ' + ((res.error && res.error.message) || 'unknown error'));
+        }
+        return;
+      }
+      currentFloorRow = res.floor;   // keep the cached floor row (incl. the stamp) in sync
     });
     $('cdRoComplaint').addEventListener('change', () => updateRoField('complaint', $('cdRoComplaint').value.trim() || null));
     $('cdRoAdvisory').addEventListener('change', () => updateRoField('advisory_notes', $('cdRoAdvisory').value.trim() || null));
