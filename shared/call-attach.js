@@ -64,6 +64,35 @@ export function phoneLearningPlan(callerBare, customer, last10) {
   return noop;                                                    // occupied → never overwrite
 }
 
+// Perform the phone-learning step of an attach against a LIVE, ATOMIC writer,
+// returning whether THIS attach actually learned the number. This is the
+// browser entry point — NOT phoneLearningPlan directly — because the empty-vs-
+// occupied decision must be the database's, made at write time, not read from a
+// (possibly stale) customer snapshot.
+//
+// `setSecondaryIfNull(customerId, value)` MUST perform an atomic
+//   UPDATE customers SET phone_secondary = value
+//    WHERE id = customerId AND phone_secondary IS NULL
+// and resolve to the NUMBER OF ROWS written (1 = we claimed an empty slot,
+// 0 = the slot was already occupied). Because the "IS NULL" guard lives in the
+// DB, a stale snapshot that still reads "empty" can never overwrite an occupied
+// slot: the write simply matches zero rows. learned_phone is derived from that
+// row count — never from the snapshot — so two attaches to the same customer
+// can never both claim to have learned the number.
+//
+// phoneLearningPlan is still used as the INTENT gate (never duplicate the
+// primary number, skip an already-known number), but it is not the authority on
+// whether a write happened — the atomic result is.
+export async function attachPhoneLearn({ callerBare, customer, last10, setSecondaryIfNull }) {
+  const l10 = last10 || last10Default;
+  const plan = phoneLearningPlan(callerBare, customer, l10);
+  if (!plan.customerPatch) return { learnedPhone: false, wrote: null };
+  const value = plan.customerPatch.phone_secondary;
+  const rows = await setSecondaryIfNull(customer.id, value);
+  const learnedPhone = rows === 1;
+  return { learnedPhone, wrote: learnedPhone ? value : null };
+}
+
 // The `calls` patch written on ATTACH: the confirmed customer + attribution +
 // the learned-phone flag (so un-attach knows whether it may clear the number).
 export function attachCallPatch(customerId, byName, nowISO, learnedPhone) {

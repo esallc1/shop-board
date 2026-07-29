@@ -5425,23 +5425,39 @@
     // ── attach / un-attach / not-a-customer actions ──
     // All go through the tested shared/call-attach.js. customer_id is written
     // ONLY here (deliberate confirmation), never on passive render.
+    const l10Local = (s) => (window.cdLast10 ? window.cdLast10(s) : String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
     async function performAttach(call, customer) {
       const CA = window.CallAttach; if (!CA || !call || !customer) return;
       const l10 = window.cdLast10;
-      const plan = CA.phoneLearningPlan(call.caller_bare, customer, l10);
       const byName = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
-      // 1. Phone learning — write ONLY when plan says so, and ONLY phone_secondary.
-      //    phone_primary is never a target (enforced in call-attach.js).
-      if (plan.customerPatch) {
-        const { error } = await db.from('customers').update(plan.customerPatch).eq('id', customer.id);
-        if (error) { console.error('[desk] phone learn failed', error); alert('Could not save the phone number: ' + error.message); return; }
+      // 1. Phone learning — ATOMIC. The `customer` handed in here is a cached
+      //    snapshot (from custIdx / attachAllCust, loaded before earlier attaches),
+      //    so its phone_secondary can read empty when the real slot is already
+      //    full. The empty/occupied decision therefore CANNOT live in JS: this
+      //    writer sets phone_secondary only WHERE it is currently NULL, in the DB.
+      //    A stale "empty" read matches zero rows → nothing is overwritten, and
+      //    learned_phone is derived from the row count, never from the snapshot.
+      //    phone_primary is never a write target (enforced in call-attach.js).
+      const setSecondaryIfNull = async (custId, value) => {
+        const r = await db.from('customers').update({ phone_secondary: value })
+          .eq('id', custId).is('phone_secondary', null).select('id');
+        if (r.error) throw r.error;
+        return (r.data || []).length;          // 1 = claimed the empty slot, 0 = already occupied
+      };
+      let learn;
+      try {
+        learn = await CA.attachPhoneLearn({ callerBare: call.caller_bare, customer, last10: l10, setSecondaryIfNull });
+      } catch (error) {
+        console.error('[desk] phone learn failed', error);
+        alert('Could not save the phone number: ' + (error.message || 'unknown error')); return;
       }
-      // 2. Attach the call (customer_id + attribution + learned flag).
-      const patch = CA.attachCallPatch(customer.id, byName, new Date().toISOString(), plan.learnedPhone);
+      // 2. Attach the call (customer_id + attribution + the AUTHORITATIVE learned flag).
+      const patch = CA.attachCallPatch(customer.id, byName, new Date().toISOString(), learn.learnedPhone);
       const { error } = await db.from('calls').update(patch).eq('id', call.id);
       if (error) { console.error('[desk] attach failed', error); alert('Could not attach: ' + error.message); return; }
       Object.assign(call, patch);
       custIdx = null;                 // rebuild the phone index (a number may have been learned)
+      attachAllCust = null;           // and drop the picker's snapshot so it can't feed a stale slot next time
       logLoad();
     }
     async function performUnattach(call) {
@@ -5450,7 +5466,13 @@
       // this attach learned it — a pre-existing number is never deleted.
       const clearsSecondary = CA.unattachClearsSecondary(call);
       if (clearsSecondary && call.customer_id) {
-        const { error } = await db.from('customers').update({ phone_secondary: null }).eq('id', call.customer_id);
+        // Conditional delete: clear ONLY when phone_secondary STILL holds the
+        // exact number this attach wrote (canonical 10 digits). If it changed
+        // since, the guard matches zero rows and we touch nothing — so a stale
+        // learned_phone can never delete a number this call didn't write.
+        const key = l10Local(call.caller_bare);
+        const { error } = await db.from('customers').update({ phone_secondary: null })
+          .eq('id', call.customer_id).eq('phone_secondary', key).select('id');
         if (error) { console.error('[desk] un-learn phone failed', error); alert('Could not update the customer: ' + error.message); return; }
       }
       const patch = CA.unattachCallPatch();
