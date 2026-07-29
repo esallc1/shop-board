@@ -381,6 +381,15 @@
     margin-top: 4px; padding-top: 8px;
   }
   .cd-totals-grand span:first-child { color: var(--text); }
+  /* ── RO Call History (read-only) ── */
+  .cd-calls-list { display: flex; flex-direction: column; gap: 8px; }
+  .cd-calls-empty { color: var(--muted); font-size: 0.82rem; text-align: center; padding: 16px; }
+  .cd-call-row { border: 1px solid var(--border); border-radius: 8px; padding: 8px 11px; background: #fff; }
+  .cd-call-meta { display: flex; align-items: baseline; gap: 10px; }
+  .cd-call-when { font-size: 0.76rem; font-weight: 700; color: var(--text); }
+  .cd-call-num { margin-left: auto; font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
+  .cd-call-note { font-size: 0.85rem; color: var(--text); margin-top: 4px; white-space: pre-wrap; }
+  .cd-call-by { font-size: 0.7rem; color: var(--muted); margin-top: 4px; }
   /* ── Payments (Phase 5) ── */
   .cd-pay-lbl { display: block; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 700; margin-bottom: 3px; }
   .cd-pay-form input, .cd-pay-form select {
@@ -438,6 +447,12 @@
 <script type="module">
   import * as VinDecode from './shared/vin-decode.js';
   window.VinDecode = VinDecode;
+</script>
+<!-- RO call-history + checking_on_car picker helpers (ESM). Assigns
+     window.RoCalls; used by the RO detail call list and the caller-card picker. -->
+<script type="module">
+  import * as RoCalls from './shared/ro-calls.js';
+  window.RoCalls = RoCalls;
 </script>
 </head>
 <body>
@@ -1142,6 +1157,17 @@
           <div class="cd-totals-row cd-totals-grand" id="cdPayBalanceRow"><span>Balance Due</span><span id="cdPayBalance">$0.00</span></div>
         </div>
         <div id="cdPayError" style="color:var(--red);font-size:0.78rem;min-height:16px;margin-top:6px"></div>
+      </div>
+
+      <!-- Call History — read-only list of calls linked to this RO (calls.ro_id,
+           written from the ring-time card's "Checking on their car"). INTERNAL —
+           deliberately NOT part of printRo. -->
+      <div class="card" id="cdRoCallsCard">
+        <div class="card-title">
+          <div class="dot" style="background:var(--accent)"></div>Call History
+          <span style="margin-left:auto;font-size:0.66rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.4px">Internal · never printed</span>
+        </div>
+        <div id="cdRoCallsBody" class="cd-calls-list"></div>
       </div>
     </div>
   </div>
@@ -3662,8 +3688,50 @@
       await populateRoEditFields();
       await loadLines();
       await loadPayments();
+      loadCallHistory();   // read-only; fire-and-forget so it never blocks the panel
       $('cdRoListPanel').style.display = 'none';
       $('cdRoDetailPanel').style.display = 'block';
+    }
+
+    // Call History — calls whose ro_id = this RO, newest first, read FRESH each
+    // open (not cached). Read-only: the note is written on the ring-time card.
+    // Never printed (printRo builds its own document and does not read this).
+    async function loadCallHistory() {
+      const box = $('cdRoCallsBody');
+      if (!box || !currentRo) return;
+      const roId = currentRo.id;
+      box.innerHTML = '<div class="cd-calls-empty">Loading…</div>';
+      const { data, error } = await db.from('calls')
+        .select('id, caller_bare, caller_formatted, note, noted_by_name, noted_at, started_at')
+        .eq('ro_id', roId);
+      // The panel may have moved to another RO while this awaited — bail if so.
+      if (!currentRo || String(currentRo.id) !== String(roId)) return;
+      if (error) {
+        console.error('[CdRO] load call history failed', error);
+        box.innerHTML = '<div class="cd-calls-empty">Could not load call history.</div>';
+        return;
+      }
+      const RC = window.RoCalls;
+      const calls = RC ? RC.sortCallsNewestFirst(data || [])
+        : (data || []).slice().sort((a, b) => String(b.started_at || b.noted_at || '').localeCompare(String(a.started_at || a.noted_at || '')));
+      if (!calls.length) {
+        box.innerHTML = '<div class="cd-calls-empty">No calls logged on this RO yet.</div>';
+        return;
+      }
+      box.innerHTML = calls.map(c => {
+        const d = c.started_at ? new Date(c.started_at) : (c.noted_at ? new Date(c.noted_at) : null);
+        const date = d && !isNaN(d) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+        const time = d && !isNaN(d) ? d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+        const num = c.caller_formatted || (window.formatPhone ? formatPhone(c.caller_bare) : c.caller_bare) || '';
+        const who = c.noted_by_name ? esc(c.noted_by_name) : '—';
+        const hasNote = c.note && String(c.note).trim();
+        const noteHtml = hasNote ? esc(String(c.note).trim()) : '<span style="color:var(--muted)">(no note text)</span>';
+        return `<div class="cd-call-row">
+          <div class="cd-call-meta"><span class="cd-call-when">${esc(date)}${time ? ' · ' + esc(time) : ''}</span><span class="cd-call-num">${esc(num)}</span></div>
+          <div class="cd-call-note">${noteHtml}</div>
+          <div class="cd-call-by">${who}</div>
+        </div>`;
+      }).join('');
     }
 
     // ── editable per-RO fields (miles out, technician, advisory) ──
@@ -5989,23 +6057,18 @@
     // Per-customer detail: vehicles + repair orders (for count + open/declined
     // estimate). Resilient to declined_at not existing yet.
     async function loadDetail(customerId) {
+      // created_at is selected so the checking_on_car picker can order each stage
+      // group newest-first (see shared/ro-calls.js sortRosForPicker).
       const [vehRes, roRes] = await Promise.all([
         db.from('vehicles').select('year, make, model').eq('customer_id', customerId).order('created_at', { ascending: false }),
-        db.from('repair_orders').select('id, ro_number, status, declined_at').eq('customer_id', customerId),
+        db.from('repair_orders').select('id, ro_number, status, declined_at, created_at').eq('customer_id', customerId),
       ]);
       let ros = roRes.data;
       if (roRes.error) {
-        const alt = await db.from('repair_orders').select('id, ro_number, status').eq('customer_id', customerId);
+        const alt = await db.from('repair_orders').select('id, ro_number, status, created_at').eq('customer_id', customerId);
         ros = alt.data || [];
       }
       return { vehicles: vehRes.data || [], ros: ros || [] };
-    }
-
-    // "Open" ROs to offer for checking_on_car: active work only (a current RO,
-    // or an estimate that hasn't been declined). Already loaded by loadDetail —
-    // we don't build a new search.
-    function openRos(ros) {
-      return (ros || []).filter(r => r.status === 'ro' || (r.status === 'estimate' && !r.declined_at));
     }
 
     // ── date/time <-> due_at helpers (local time; due_all_day ignores the time
@@ -6169,7 +6232,9 @@
     // the checking_on_car RO picker can offer them, and refresh that picker if
     // it's currently showing.
     function applyLoadedDetail(card, ros) {
-      card._ros = openRos(ros);
+      // ALL of the customer's ROs (not just active) — a call may be about a
+      // finished/closed job. Ordering + labelling happen in the picker render.
+      card._ros = ros || [];
       if (card._call.next_step === 'checking_on_car') renderWhen(card);
     }
 
@@ -6286,13 +6351,19 @@
       } else if (step === 'checking_on_car') {
         const ros = card._ros || [];
         if (!ros.length) {
-          when.innerHTML = `<div class="call-card-muted">No open ROs to link</div>`;
+          when.innerHTML = `<div class="call-card-muted">No ROs to link</div>`;
           return;
         }
+        // ALL of the customer's ROs, ordered (active first) and stage-labelled
+        // via shared/ro-calls.js so a closed RO is never shown as current work.
+        const RC = window.RoCalls;
+        const opts = RC
+          ? RC.buildRoPickerOptions(ros, card._call.ro_id)
+          : ros.map(r => ({ id: String(r.id), label: `#${r.ro_number ?? '?'} · ${r.status}`, selected: String(r.id) === String(card._call.ro_id || '') }));
         when.innerHTML =
           `<select class="cc-ro">
              <option value="">— link an RO —</option>
-             ${ros.map(r => `<option value="${esc(r.id)}" ${r.id === card._call.ro_id ? 'selected' : ''}>#${r.ro_number ?? '?'} · ${esc(r.status)}</option>`).join('')}
+             ${opts.map(o => `<option value="${esc(o.id)}" ${o.selected ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}
            </select>`;
         when.querySelector('.cc-ro').addEventListener('change', (e) =>
           saveNote(card, { ro_id: e.target.value || null }));
