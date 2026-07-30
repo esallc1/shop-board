@@ -1,8 +1,8 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-07-30 — verified vs commit `f449c1c`
-> Status: ✅ verified vs commit `f449c1c` — checked against `advisor-board.html` (the `callerCard` and `desk` IIFEs), `api/desk-appointment.js`, and the `calls` migrations.
+> Last updated: 2026-07-30 — verified vs commit `PENDING`
+> Status: ✅ verified vs commit `PENDING` — checked against `advisor-board.html` (the `callerCard` and `desk` IIFEs, the refresh safety net), `api/desk-appointment.js`, and the `calls` migrations.
 
 ## 0. In one line
 An inbound call pops a card where the advisor picks **what happens next**; that choice
@@ -46,6 +46,28 @@ via `next_step` + `due_at`). Written by `api/desk-appointment.js` (§8).
 - **All-day dates** are stored as **noon local** (`toDueAt(date, null)` → `new Date(y,m-1,d,12,0,0)`),
   so the calendar date can't slip a day across a timezone. A specific drop-off time sets
   `due_all_day=false`.
+
+### 2a. The card is realtime — and self-heals a dropped socket
+- The card pops from a **realtime INSERT** on `calls` (`subscribeCalls()` →
+  `advisor-board-calls-live` → `handleNewCall(payload.new)`). The card is **ephemeral**
+  (DOM only) — there is no "card shown" flag in the DB.
+- **The problem this channel had:** it is **global** (cards pop on any tab), so it is
+  *not* one of the per-view `VIEW_REFRESH` channels the connection-health net watches. If
+  its socket dropped (backgrounded tab, device sleep, network blip), Supabase never
+  replays the missed INSERTs, so a real call landed in the DB + **Call Log but no card
+  popped** — while the log kept working because it re-queries on open. This was **not** a
+  render bug; the render path was fine.
+- **The fix (self-heal):** the safety net (`ensureCallsHealth`) now, on
+  **focus / visibilitychange / the 60s tick, regardless of active view**:
+  1. re-subscribes the channel if `cdCallsHealthy()` is false (`cdResubscribeCalls`), and
+  2. runs **`backfillRecentCalls()`** (`cdBackfillCalls`) when the tab is visible.
+- **Backfill** queries `calls` for **untouched, real inbound calls** in the last
+  `BACKFILL_WINDOW_MIN` (15) minutes — `noted_at is null` (nobody has worked the card),
+  `resolved_at is null`, `ctm_call_id > 0` (excludes manual appointments) — newest first,
+  capped at `BACKFILL_MAX` (5) so a long sleep can't dump a pile of stale cards. It pops a
+  card per row via `handleNewCall` (which **dedups** any still-open card by `ctm_call_id`).
+- A card dismissed **without being touched** (× or **Close**) records its `ctm_call_id` in
+  an in-memory `dismissedCardIds` set, so backfill won't re-pop it.
 
 ## 3. Switching chips clears the date (no stale carryover)
 A chip switch **always** resets the date: the handler writes
@@ -127,8 +149,13 @@ service-role key (same posture as `api/recording-assign.js`).
 
 ## Where it lives in the code
 - Call window: `advisor-board.html` — `callerCard` IIFE (`formShellHtml`, `renderWhen`,
-  `updateEcho`, `wireForm`, `saveNote`, `resolveCallCard`; realtime subscribe at the
-  bottom). Date helpers `toDueAt` / `dueAtToDateStr` / `addDaysStr` in the same IIFE.
+  `updateEcho`, `wireForm`, `saveNote`, `resolveCallCard`, `handleNewCall`; the realtime
+  `subscribeCalls` + `backfillRecentCalls` + the `window.cdCallsHealthy /
+  cdResubscribeCalls / cdBackfillCalls` hooks at the bottom). Date helpers `toDueAt` /
+  `dueAtToDateStr` / `addDaysStr` in the same IIFE.
+- Connection-health for the card channel: `initRefreshSafetyNet` → `ensureCallsHealth`
+  (advisor-board.html, ~line 2853) — the only place the global calls channel is health-
+  checked/re-subscribed + backfilled.
 - Desk: `advisor-board.html` — `desk` IIFE (`deskLoad`, `deskRender`, `renderCalendar`,
   `resolveCall`, `rescheduleCall`); `dueLabel` / `isOverdue` / `startOfToday` here.
 - Edit / re-route + manual-add modal: `advisor-board.html` `desk` IIFE
@@ -147,3 +174,8 @@ service-role key (same posture as `api/recording-assign.js`).
   via `api/desk-appointment.js`). Documented the walk-in single-row representation (§1)
   and the endpoint (§8). Resolves the "no way to fix a mis-bucketed item / no manual add"
   gap.
+- 2026-07-30 — Fixed **incoming cards silently stopping after a dropped socket** (§2a).
+  The global `advisor-board-calls-live` channel was never in the connection-health net;
+  now `ensureCallsHealth` re-subscribes it on focus/visibility/60s and backfills recent
+  untouched calls (bounded 15 min / 5 max, dedup + dismissed-tracking). Not a regression
+  from the day's earlier commits — a pre-existing gap.

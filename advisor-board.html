@@ -2869,11 +2869,25 @@
       if (typeof entry.resubscribe === 'function') entry.resubscribe();
     }
 
+    // The caller-card channel (advisor-board-calls-live) is GLOBAL, not a
+    // per-view VIEW_REFRESH channel, so it's health-checked here regardless of
+    // the active view: re-subscribe a dropped socket, then backfill any calls it
+    // missed (bounded inside backfillRecentCalls). This is what stops incoming
+    // cards from silently dying after a backgrounded tab / device sleep.
+    function ensureCallsHealth() {
+      if (typeof window.cdCallsHealthy === 'function' && !window.cdCallsHealthy()) {
+        if (window.cdResubscribeCalls) window.cdResubscribeCalls();
+      }
+      // Backfill only when visible — no point popping cards into a hidden tab,
+      // and it catches the case where the socket auto-recovered to 'joined' but
+      // still dropped the INSERTs during the gap.
+      if (document.visibilityState === 'visible' && window.cdBackfillCalls) window.cdBackfillCalls();
+    }
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') refreshActiveView();
+      if (document.visibilityState === 'visible') { refreshActiveView(); ensureCallsHealth(); }
     });
-    window.addEventListener('focus', refreshActiveView);
-    setInterval(checkActiveChannelHealth, 60 * 1000);
+    window.addEventListener('focus', () => { refreshActiveView(); ensureCallsHealth(); });
+    setInterval(() => { checkActiveChannelHealth(); ensureCallsHealth(); }, 60 * 1000);
 
     // ── Manual refresh button
     const refreshBtn = document.getElementById('refreshBtn');
@@ -7648,7 +7662,7 @@
       // scheduling something for later. Renamed from the old "Done", which read
       // as "handled" but only dismissed — the ambiguity that hid an open callback.
       const closeBtn = card.querySelector('.cc-close');
-      if (closeBtn) closeBtn.addEventListener('click', () => { clearTimeout(noteTimer); saveIfChanged(); card.remove(); });
+      if (closeBtn) closeBtn.addEventListener('click', () => { clearTimeout(noteTimer); saveIfChanged(); dismissedCardIds.add(card.dataset.callId); card.remove(); });
 
       // "Mark done" — the callback / drop-off is actually complete: set
       // resolved_at (same as the Desk lane's Done), then close. Only shown for an
@@ -7713,7 +7727,7 @@
         + formShellHtml();
       stack.prepend(card);   // newest on top; multiple calls stack
 
-      card.querySelector('.call-card-x').addEventListener('click', () => card.remove());
+      card.querySelector('.call-card-x').addEventListener('click', () => { dismissedCardIds.add(card.dataset.callId); card.remove(); });
       // Clicking the matched customer name opens the customer record (delegated,
       // so it survives the detail area re-rendering after a pick). No origin →
       // Back returns to the Desk (where the card lives).
@@ -7757,12 +7771,57 @@
     window.cdHandleTestCall = handleNewCall;   // lets us dry-run a card without a live call
 
     let callsChannel = null;
-    (function subscribe() {
+    function subscribeCalls() {
       if (callsChannel) db.removeChannel(callsChannel);
       callsChannel = db.channel('advisor-board-calls-live')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'calls' }, (payload) => handleNewCall(payload.new))
         .subscribe();
-    })();
+    }
+    subscribeCalls();
+
+    // ── Connection-health backfill ────────────────────────────────────────
+    // The caller-card channel is GLOBAL (cards pop on any tab), NOT a per-view
+    // channel, so the main VIEW_REFRESH safety net doesn't cover it. If the
+    // socket drops (backgrounded tab / device sleep / network blip) Supabase
+    // never replays the INSERTs it missed, so a real call lands in the DB + Call
+    // Log but no card ever pops — the reported bug. On focus / visibility / the
+    // 60s health tick the safety net re-subscribes us (cdResubscribeCalls) and
+    // calls this to pop any call that slipped through. BOUNDED by a short time
+    // window AND a max count so a long sleep can't dump a pile of stale cards.
+    const BACKFILL_WINDOW_MIN = 15;      // only calls from the last 15 minutes
+    const BACKFILL_MAX = 5;              // at most 5 cards per backfill
+    const dismissedCardIds = new Set();  // ctm ids dismissed WITHOUT being touched — don't re-pop
+    let backfilling = false;
+    async function backfillRecentCalls() {
+      if (backfilling) return;
+      backfilling = true;
+      try {
+        const sinceIso = new Date(Date.now() - BACKFILL_WINDOW_MIN * 60 * 1000).toISOString();
+        // UNTOUCHED, real inbound calls in the window: never noted (noted_at null
+        // = nobody has seen/worked the card), not resolved, positive ctm_call_id
+        // (excludes manual appointments, whose ids are negative). Newest first,
+        // capped at BACKFILL_MAX.
+        const { data, error } = await db.from('calls').select('*')
+          .gte('started_at', sinceIso)
+          .gt('ctm_call_id', 0)
+          .is('noted_at', null)
+          .is('resolved_at', null)
+          .order('started_at', { ascending: false })
+          .limit(BACKFILL_MAX);
+        if (error) { console.warn('[callerCard] backfill query failed', error.message); return; }
+        // Oldest first so the newest ends up on top after each prepend; skip ones
+        // the advisor already dismissed. handleNewCall dedups any still-open card.
+        (data || []).filter(c => !dismissedCardIds.has(String(c.ctm_call_id))).reverse()
+          .forEach(c => handleNewCall(c));
+      } catch (e) { console.warn('[callerCard] backfill threw', e && e.message); }
+      finally { backfilling = false; }
+    }
+
+    // Exposed for the main connection-health safety net (it lives in another
+    // scope and can only reach this channel through these hooks).
+    window.cdCallsHealthy = () => !!callsChannel && callsChannel.state === 'joined';
+    window.cdResubscribeCalls = subscribeCalls;
+    window.cdBackfillCalls = backfillRecentCalls;
   })();
 </script>
 </body>
