@@ -1,8 +1,8 @@
 # How the File Cabinet tab is wired
 
 > Doc: `/docs/wiring/file-cabinet.md`
-> Last updated: 2026-07-30 — verified vs commit `PENDING`
-> Status: ✅ verified vs commit `PENDING` — built and checked this session against `shared/file-cabinet.js` and `owner-board.html`.
+> Last updated: 2026-07-30 — verified vs commit `1259692`
+> Status: ✅ verified vs commit `1259692` — built and checked this session against `shared/file-cabinet.js` and `owner-board.html`.
 
 ## 0. In one line
 A read-only tab on the **owner board** that lists the wiring docs in `/docs/wiring/`
