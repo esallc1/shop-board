@@ -1089,6 +1089,43 @@
     @keyframes recPulse { 0%,100% { opacity:0.35; } 50% { opacity:1; } }
     /* failed → a quiet, honest marker; no border, no affordance */
     .rec-marker { display:inline-block; font-size:0.7rem; font-style:italic; color:var(--muted); }
+
+    /* ── Desk edit / re-route + manual-add modal ── */
+    .deskadd-btn { border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:8px; padding:4px 11px; font-size:0.78rem; font-weight:700; cursor:pointer; }
+    .deskadd-btn:hover { filter:brightness(0.96); }
+    .deskedit-backdrop { position:fixed; inset:0; background:rgba(20,22,40,0.28); z-index:4200; opacity:0; pointer-events:none; transition:opacity .16s ease; }
+    .deskedit-backdrop.open { opacity:1; pointer-events:auto; }
+    .deskedit { position:fixed; z-index:4300; top:50%; left:50%; transform:translate(-50%,-46%) scale(0.98);
+      width:min(420px,calc(100vw - 32px)); max-height:calc(100vh - 48px); overflow-y:auto; background:#fff;
+      border:1px solid var(--border); border-radius:14px; box-shadow:0 18px 50px rgba(20,25,50,0.28);
+      opacity:0; pointer-events:none; transition:opacity .16s ease, transform .16s ease; }
+    .deskedit.open { opacity:1; pointer-events:auto; transform:translate(-50%,-50%) scale(1); }
+    .deskedit-head { display:flex; align-items:center; padding:15px 18px; border-bottom:1px solid var(--border); }
+    .deskedit-title { font-weight:800; font-size:1rem; }
+    .deskedit-body { padding:14px 18px 4px; }
+    .deskedit-label { font-size:0.68rem; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted); margin:12px 0 6px; }
+    .deskedit-who-name { font-size:0.95rem; font-weight:800; color:var(--text); }
+    .deskedit-who-sub { font-size:0.8rem; color:var(--muted); margin-top:1px; }
+    .deskedit-who-add { display:flex; flex-direction:column; gap:7px; }
+    .deskedit-who-add input, .deskedit-when input, .deskedit-when select {
+      border:1px solid var(--border); border-radius:8px; padding:8px 10px; font:inherit; font-size:0.85rem; color:var(--text); background:#fff; }
+    .deskedit-who-add input:focus, .deskedit-when input:focus, .deskedit-when select:focus { outline:none; border-color:var(--accent); }
+    .deskedit-who-hint { font-size:0.75rem; color:var(--muted); margin-top:5px; min-height:1em; }
+    .deskedit-who-hint.match { color:var(--green); font-weight:700; }
+    .deskedit-types { display:flex; gap:8px; }
+    .deskedit-type { flex:1; border:1px solid var(--border); background:#fff; color:var(--text); border-radius:9px; padding:9px 8px; font-size:0.82rem; font-weight:700; cursor:pointer; }
+    .deskedit-type:hover { border-color:var(--accent); }
+    .deskedit-type.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+    .deskedit-when { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .deskedit-when input[type="date"] { flex:1; min-width:130px; }
+    .deskedit-echo { margin-top:12px; font-size:0.82rem; font-weight:700; border-radius:8px; padding:8px 11px; }
+    .deskedit-echo.lane-in { background:#e7f3ff; color:#1d4ed8; border:1px solid #bfdbfe; }
+    .deskedit-echo.lane-cb { background:#EEEDFE; color:#3C3489; border:1px solid #d5d2f7; }
+    .deskedit-echo.prompt  { background:var(--surface-2); color:var(--muted); border:1px solid var(--border); font-weight:600; }
+    .deskedit-err { color:var(--red); font-size:0.78rem; margin-top:8px; min-height:1em; }
+    .deskedit-foot { display:flex; gap:8px; justify-content:flex-end; padding:12px 18px 16px; }
+    .deskedit-save { border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:8px; padding:7px 16px; font-size:0.82rem; font-weight:800; cursor:pointer; }
+    .deskedit-save:hover { filter:brightness(0.96); }
   </style>
   <div class="view" id="view-desk">
     <div class="desk-head">
@@ -1118,6 +1155,7 @@
           <span id="deskCalLabel"></span>
           <button type="button" id="deskCalNext" title="Next week">›</button>
           <button type="button" id="deskCalToday">Today</button>
+          <button type="button" id="deskCalAdd" class="deskadd-btn" title="Add a drop-off or callback (no call needed)">+ Add</button>
         </div>
       </div>
       <div id="deskCal"></div>
@@ -1162,6 +1200,36 @@
         <div class="desk-attach-list" id="deskAttachList"></div>
       </div>
     </aside>
+
+    <!-- Edit / re-route + manual-add modal (slice: schedule edit). Edit is an
+         anon UPDATE on the calls row; Add posts to /api/desk-appointment
+         (service-role INSERT — anon can't create a calls row). -->
+    <div class="deskedit-backdrop" id="deskEditBackdrop"></div>
+    <div class="deskedit" id="deskEdit" role="dialog" aria-modal="true" aria-hidden="true">
+      <div class="deskedit-head">
+        <span class="deskedit-title" id="deskEditTitle">Edit appointment</span>
+        <button type="button" class="desk-log-x" id="deskEditX" aria-label="Close">×</button>
+      </div>
+      <div class="deskedit-body">
+        <div id="deskEditWho"></div>
+        <div class="deskedit-label">Type</div>
+        <div class="deskedit-types">
+          <button type="button" class="deskedit-type" data-type="quoted_callback">📞 Callback</button>
+          <button type="button" class="deskedit-type" data-type="dropping_off">🚗 Drop-off</button>
+        </div>
+        <div class="deskedit-label">When</div>
+        <div class="deskedit-when">
+          <input type="date" id="deskEditDate">
+          <select id="deskEditTime" title="Drop-off time — Morning = no specific time"></select>
+        </div>
+        <div class="deskedit-echo prompt" id="deskEditEcho"></div>
+        <div class="deskedit-err" id="deskEditErr"></div>
+      </div>
+      <div class="deskedit-foot">
+        <button type="button" class="desk-btn" id="deskEditCancel">Cancel</button>
+        <button type="button" class="deskedit-save" id="deskEditSave">Save</button>
+      </div>
+    </div>
   </div>
 
   <!-- ══ RO BOARD (CrisData) — Phase 2 slice 2: find/open an RO + build
@@ -6299,7 +6367,7 @@
           ${c.note ? `<div class="desk-row-note">${esc(c.note)}</div>` : ''}
           <div class="desk-row-meta">
             <span class="desk-row-due${overdue ? ' overdue' : ''}">${esc(dueLabel(c.due_at, c.due_all_day))}</span>
-            <span class="desk-row-actions"><button class="desk-btn done" data-done="${esc(String(c.id))}">Done</button></span>
+            <span class="desk-row-actions"><button class="desk-btn" data-edit="${esc(String(c.id))}">Edit</button><button class="desk-btn done" data-done="${esc(String(c.id))}">Done</button></span>
           </div>
         </div>`;
       }).join('') : '<div class="desk-lane-empty">No callbacks owed.</div>';
@@ -6331,7 +6399,7 @@
           ${veh ? `<div class="desk-row-veh">${esc(veh)}</div>` : ''}
           <div class="desk-row-meta">
             <span class="desk-row-due">${esc(dueLabel(c.due_at, c.due_all_day))}</span>
-            <span class="desk-row-actions"><button class="desk-btn done" data-done="${esc(String(c.id))}">Done</button></span>
+            <span class="desk-row-actions"><button class="desk-btn" data-edit="${esc(String(c.id))}">Edit</button><button class="desk-btn done" data-done="${esc(String(c.id))}">Done</button></span>
           </div>
         </div>`;
       }).join('') : '<div class="desk-lane-empty">Nothing scheduled to come in.</div>';
@@ -6415,6 +6483,7 @@
     // strip → all-day; drop onto a timed column → that column's snapped time.
     const DRAG_THRESHOLD = 8;
     let drag = null;
+    let justDragged = false;   // set on a real drop so the trailing click can't also open "Add"
     function deskDueAt(dateKey, hh, mm) {
       const [y, m, d] = dateKey.split('-').map(Number);
       if (hh == null) return new Date(y, m - 1, d, 12, 0, 0).toISOString();  // all-day noon anchor
@@ -6447,14 +6516,36 @@
           const adcell = target.closest('.desk-cal-adcell[data-date]');
           const col = target.closest('.desk-cal-col[data-date]');
           if (adcell) {
+            justDragged = true; setTimeout(() => { justDragged = false; }, 0);
             rescheduleCall(id, deskDueAt(adcell.dataset.date, null), true);
           } else if (col) {
             const rect = col.getBoundingClientRect();
             let hour = (e.clientY - rect.top) / HOUR_PX;
             hour = Math.max(0, Math.min(23.75, Math.round(hour * 4) / 4));   // snap to 15 min
             const hh = Math.floor(hour), mm = Math.round((hour - hh) * 60);
+            justDragged = true; setTimeout(() => { justDragged = false; }, 0);
             rescheduleCall(id, deskDueAt(col.dataset.date, hh, mm), false);
           }
+        });
+      });
+
+      // Click an EMPTY calendar slot → open the manual-add modal pre-filled with
+      // that date (all-day cell) or that date + snapped time (timed column). A
+      // click on a chip, or the click that trails a drag-drop, is ignored.
+      cal.querySelectorAll('.desk-cal-adcell[data-date]').forEach(cell => {
+        cell.addEventListener('click', (e) => {
+          if (justDragged || e.target.closest('.desk-chip')) return;
+          openDeskEdit('add', { dateKey: cell.dataset.date, time: '' });
+        });
+      });
+      cal.querySelectorAll('.desk-cal-col[data-date]').forEach(col => {
+        col.addEventListener('click', (e) => {
+          if (justDragged || e.target.closest('.desk-chip')) return;
+          const rect = col.getBoundingClientRect();
+          let hour = (e.clientY - rect.top) / HOUR_PX;
+          hour = Math.max(0, Math.min(23.75, Math.round(hour * 4) / 4));
+          const hh = Math.floor(hour), mm = Math.round((hour - hh) * 60);
+          openDeskEdit('add', { dateKey: col.dataset.date, time: `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}` });
         });
       });
     }
@@ -6496,8 +6587,169 @@
       deskLoad();
     }
 
+    // ── Desk edit / re-route + manual-add modal ───────────────────────────
+    // EDIT re-routes/reschedules an existing calls row (anon UPDATE). ADD creates
+    // a walk-in appointment with no originating call (service-role INSERT via
+    // /api/desk-appointment — anon can't insert into calls). The outcome echo
+    // (lane + weekday) is the SAME guardrail as the call window, and both keep the
+    // invariant: the item is on the Desk (unresolved) the moment it's saved.
+    let deskEditState = { mode: 'add', id: null, type: 'dropping_off', addCustomerId: null };
+
+    function deskTimeOptions(selected) {
+      let out = '<option value="">Morning (no time)</option>';
+      let has = false;
+      const add = (v) => { const [h, m] = v.split(':').map(Number); const d = new Date(2000, 0, 1, h, m);
+        out += `<option value="${v}"${v === selected ? ' selected' : ''}>${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</option>`; };
+      for (let h = 7; h <= 18; h++) for (const m of [0, 30]) {
+        if (h === 18 && m === 30) continue;
+        const v = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        if (v === selected) has = true;
+        add(v);
+      }
+      if (selected && !has) add(selected);   // keep an off-list preset time selectable
+      return out;
+    }
+    function deskEditTimeVis() { $('deskEditTime').style.display = deskEditState.type === 'dropping_off' ? '' : 'none'; }
+
+    // Outcome echo — lane + weekday, identical intent to the call window's .cc-echo.
+    function deskEditEcho() {
+      const echo = $('deskEditEcho');
+      const type = deskEditState.type;
+      const dateKey = $('deskEditDate').value;
+      if (!dateKey) {
+        echo.className = 'deskedit-echo prompt';
+        echo.textContent = type === 'dropping_off' ? '→ Coming in: drop-off — pick a date' : '→ Callback — pick a date';
+        return;
+      }
+      const timeVal = type === 'dropping_off' ? ($('deskEditTime').value || '') : '';
+      const allDay = !timeVal;
+      const [hh, mm] = timeVal ? timeVal.split(':').map(Number) : [null, null];
+      const when = dueLabel(deskDueAt(dateKey, allDay ? null : hh, allDay ? null : mm), allDay);
+      if (type === 'dropping_off') { echo.className = 'deskedit-echo lane-in'; echo.textContent = `→ Coming in: drop-off ${when} · on the schedule`; }
+      else { echo.className = 'deskedit-echo lane-cb'; echo.textContent = `→ Callback: ${when}`; }
+    }
+
+    // ADD mode: live phone→customer hint. A unique match links customer_id (so the
+    // Desk shows the name); otherwise it's a phone-only walk-in.
+    function deskEditPhoneHint() {
+      const hintEl = $('deskEditMatch'); if (!hintEl) return;
+      const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
+      const bare = l10($('deskEditPhone') ? $('deskEditPhone').value : '');
+      deskEditState.addCustomerId = null;
+      if (bare.length !== 10) { hintEl.className = 'deskedit-who-hint'; hintEl.textContent = ''; return; }
+      ensureCustIndex().then((idx) => {
+        const hits = idx.byPhone[bare] || [];
+        if (hits.length === 1) { deskEditState.addCustomerId = hits[0].id; hintEl.className = 'deskedit-who-hint match'; hintEl.textContent = `Matches ${custName(hits[0])}`; }
+        else if (hits.length > 1) { hintEl.className = 'deskedit-who-hint'; hintEl.textContent = `${hits.length} customers on this number — link by phone`; }
+        else { hintEl.className = 'deskedit-who-hint'; hintEl.textContent = 'New number — no customer on file'; }
+      });
+    }
+
+    function openDeskEdit(mode, opts) {
+      opts = opts || {};
+      const st = deskEditState = { mode, id: null, type: 'dropping_off', addCustomerId: null };
+      const who = $('deskEditWho');
+      let presetTime = '';
+      if (mode === 'edit') {
+        const call = opts.call;
+        st.id = call.id;
+        st.type = call.next_step === 'quoted_callback' ? 'quoted_callback' : 'dropping_off';
+        $('deskEditTitle').textContent = 'Edit appointment';
+        who.innerHTML = `<div class="deskedit-who-name">${esc(customerLabel(call, (lastData && lastData.custMap) || {}))}</div><div class="deskedit-who-sub">${esc(numberLabel(call))}</div>`;
+        const d = call.due_at ? new Date(call.due_at) : null;
+        $('deskEditDate').value = d ? ymd(d) : '';
+        const allDay = call.due_all_day !== false;
+        presetTime = (!allDay && d) ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : '';
+      } else {
+        st.type = 'dropping_off';
+        $('deskEditTitle').textContent = 'New appointment';
+        who.innerHTML = `<div class="deskedit-label">Customer</div>
+          <div class="deskedit-who-add">
+            <input type="tel" id="deskEditPhone" placeholder="Phone (10 digits)" autocomplete="off" inputmode="tel">
+            <input type="text" id="deskEditName" placeholder="Name (optional)" autocomplete="off">
+          </div>
+          <div class="deskedit-who-hint" id="deskEditMatch"></div>`;
+        $('deskEditDate').value = opts.dateKey || '';
+        presetTime = opts.time || '';
+        const p = $('deskEditPhone'); if (p) p.addEventListener('input', deskEditPhoneHint);
+      }
+      document.querySelectorAll('.deskedit-type').forEach(b => b.classList.toggle('active', b.dataset.type === st.type));
+      $('deskEditTime').innerHTML = deskTimeOptions(presetTime);
+      deskEditTimeVis();
+      $('deskEditErr').textContent = '';
+      deskEditEcho();
+      $('deskEditBackdrop').classList.add('open');
+      $('deskEdit').classList.add('open');
+      $('deskEdit').setAttribute('aria-hidden', 'false');
+    }
+    window.cdOpenDeskEdit = openDeskEdit;   // test hook
+
+    function closeDeskEdit() {
+      $('deskEditBackdrop').classList.remove('open');
+      $('deskEdit').classList.remove('open');
+      $('deskEdit').setAttribute('aria-hidden', 'true');
+    }
+
+    async function deskEditSave() {
+      const st = deskEditState;
+      const err = $('deskEditErr'); err.textContent = '';
+      const type = st.type;
+      const dateKey = $('deskEditDate').value;
+      if (!dateKey) { err.textContent = 'Pick a date.'; return; }
+      const timeVal = type === 'dropping_off' ? ($('deskEditTime').value || '') : '';
+      const allDay = !timeVal;
+      const [hh, mm] = timeVal ? timeVal.split(':').map(Number) : [null, null];
+      const due_at = deskDueAt(dateKey, allDay ? null : hh, allDay ? null : mm);
+      const due_all_day = allDay;
+      const saveBtn = $('deskEditSave'); saveBtn.disabled = true;
+      try {
+        if (st.mode === 'edit') {
+          // Re-route / reschedule — anon UPDATE. resolved_at is untouched, so the
+          // item stays visible on the Desk (invariant held).
+          const { error } = await db.from('calls').update({ next_step: type, due_at, due_all_day }).eq('id', st.id);
+          if (error) { err.textContent = 'Could not save: ' + error.message; return; }
+          closeDeskEdit(); deskLoad();
+        } else {
+          const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
+          const bare = l10($('deskEditPhone') ? $('deskEditPhone').value : '');
+          const name = (($('deskEditName') && $('deskEditName').value) || '').trim();
+          let customer_id = st.addCustomerId;
+          if (!customer_id && bare.length === 10) { const idx = await ensureCustIndex(); const hits = idx.byPhone[bare] || []; if (hits.length === 1) customer_id = hits[0].id; }
+          if (bare.length !== 10 && !customer_id) { err.textContent = 'Enter a 10-digit phone (or a number that matches a customer).'; return; }
+          const fmt = (bare.length === 10 && window.formatPhone) ? window.formatPhone(bare) : (bare.length === 10 ? bare : null);
+          const body = { next_step: type, due_at, due_all_day, caller_bare: bare.length === 10 ? bare : null, caller_formatted: fmt, cnam: name || null, customer_id: customer_id || null, noted_by_name: (typeof CHAT_IDENTITY !== 'undefined' && CHAT_IDENTITY.name) || null };
+          let resp;
+          try { resp = await fetch('/api/desk-appointment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
+          catch (e) { err.textContent = 'Could not add (network): ' + (e.message || e); return; }
+          if (!resp.ok) { let m = 'HTTP ' + resp.status; try { const j = await resp.json(); if (j && j.error) m = j.error; } catch (_) {} err.textContent = 'Could not add: ' + m; return; }
+          closeDeskEdit(); deskLoad();
+        }
+      } finally { saveBtn.disabled = false; }
+    }
+
+    // Wire the modal's static controls once.
+    (function wireDeskEdit() {
+      document.querySelectorAll('.deskedit-type').forEach(b => b.addEventListener('click', () => {
+        deskEditState.type = b.dataset.type;
+        document.querySelectorAll('.deskedit-type').forEach(x => x.classList.toggle('active', x === b));
+        deskEditTimeVis(); deskEditEcho();
+      }));
+      $('deskEditDate').addEventListener('change', deskEditEcho);
+      $('deskEditTime').addEventListener('change', deskEditEcho);
+      $('deskEditCancel').addEventListener('click', closeDeskEdit);
+      $('deskEditX').addEventListener('click', closeDeskEdit);
+      $('deskEditBackdrop').addEventListener('click', closeDeskEdit);
+      $('deskEditSave').addEventListener('click', deskEditSave);
+      const addBtn = $('deskCalAdd'); if (addBtn) addBtn.addEventListener('click', () => openDeskEdit('add', {}));
+    })();
+
     function wireDesk() {
       document.querySelectorAll('#view-desk [data-done]').forEach(b => b.onclick = (e) => { e.stopPropagation(); resolveCall(b.dataset.done); });
+      document.querySelectorAll('#view-desk [data-edit]').forEach(b => b.onclick = (e) => {
+        e.stopPropagation();
+        const call = (lastData && lastData.calls || []).find(c => String(c.id) === String(b.dataset.edit));
+        if (call) openDeskEdit('edit', { call });
+      });
       document.querySelectorAll('#view-desk [data-restore]').forEach(b => b.onclick = (e) => { e.stopPropagation(); restoreDeclinedDesk(b.dataset.restore); });
       document.querySelectorAll('#view-desk [data-receipt]').forEach(b => b.onclick = (e) => { e.stopPropagation(); if (window.cdOpenQuickReceipt) window.cdOpenQuickReceipt(b.dataset.receipt); });
       document.querySelectorAll('#view-desk [data-open-ro]').forEach(row => row.onclick = () => { if (window.cdOpenRo) window.cdOpenRo(row.dataset.openRo); });

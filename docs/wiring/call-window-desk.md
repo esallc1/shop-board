@@ -1,8 +1,8 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-07-30 — verified vs commit `2bcd994`
-> Status: ✅ verified vs commit `2bcd994` — checked against `advisor-board.html` (the `callerCard` and `desk` IIFEs) and the `calls` migrations.
+> Last updated: 2026-07-30 — verified vs commit `PENDING`
+> Status: ✅ verified vs commit `PENDING` — checked against `advisor-board.html` (the `callerCard` and `desk` IIFEs), `api/desk-appointment.js`, and the `calls` migrations.
 
 ## 0. In one line
 An inbound call pops a card where the advisor picks **what happens next**; that choice
@@ -16,6 +16,18 @@ Everything below is columns on a single `calls` row (no appointments table):
 `resolved_at/resolved_by_name`, `customer_id`. `next_step` is CHECK-constrained to the
 four values below (or null = not yet chosen). Schema: `20260728_calls*.sql`
 (`_notes` adds next_step/due_*/ro_id/noted_*, `_resolved` adds resolved_*).
+
+**RLS:** anon (the board key) may **SELECT** and **UPDATE** `calls`, but **not INSERT**
+— row creation is service-role only (the CTM webhook owns it). This is why editing an
+appointment is a direct anon UPDATE, but a manual add must go through a server endpoint
+(§8).
+
+**Walk-in / manual appointment (no call).** The same single-row model represents an
+appointment that never came in as a call — a `calls` row marked "not a real call" by two
+fields: `ctm_call_id` = a **synthetic negative id** (real CTM ids are positive, so it
+never collides and is trivially identifiable), and `started_at` = **null** (so it never
+appears in the day's Call Log, which queries by `started_at` — it lives only on the Desk
+via `next_step` + `due_at`). Written by `api/desk-appointment.js` (§8).
 
 ## 2. The call window (the popup) — `callerCard` IIFE
 - Opens on a live inbound call (Supabase realtime **INSERT** on `calls`), one card per
@@ -72,6 +84,39 @@ meant) visible **before** the card is closed.
 - **Desk row "Done"** (`data-done` → `resolveCall`) sets `resolved_at` — same write as
   the card's "Mark done".
 
+## 7. Editing / re-routing a Desk item, and adding one by hand
+Nothing on the Desk depends on the live call popup any more — an item can be fixed or
+created directly. One modal (`#deskEdit`, `openDeskEdit(mode, opts)`) does both, with the
+**same lane+weekday outcome echo** as the call window.
+
+- **Edit / re-route** — the **Edit** button on a Callbacks or Coming-in row opens the
+  modal on that item. It can **change the type** (Callback ⇄ Drop-off = `quoted_callback`
+  ⇄ `dropping_off`) and the **date/time**. Save is an **anon UPDATE**
+  (`update({ next_step, due_at, due_all_day })`) — it never touches `resolved_at`, so the
+  item stays on the Desk (invariant held). This is how a mis-bucketed callback becomes a
+  drop-off on the calendar. (Dragging a chip still reschedules date/time only.)
+- **Manual add** — the **`+ Add`** button (calendar header) **or clicking an empty
+  calendar slot** opens the modal in add mode: enter a phone (+ optional name), pick type
+  + date/time. A unique phone→customer match links `customer_id` (so the Desk shows the
+  name); otherwise it's a phone-only walk-in. Save **POSTs `api/desk-appointment`** (§8).
+  An empty all-day cell pre-fills that date; an empty timed column pre-fills date + the
+  snapped time. A click that trails a drag-drop is suppressed (`justDragged`).
+- The echo makes the destination lane + weekday visible before saving here too, so an
+  edit/add can't silently land in the wrong lane or on the wrong day.
+
+## 8. The manual-add endpoint — `api/desk-appointment.js`
+Because anon can't INSERT into `calls` (§1), a manual add runs server-side with the
+service-role key (same posture as `api/recording-assign.js`).
+- `POST { next_step, due_at, due_all_day, caller_bare, caller_formatted, cnam,
+  customer_id, note, noted_by_name }` → inserts one `calls` row, returns `{ appointment }`.
+- `next_step` is limited to `quoted_callback | dropping_off` (the only schedulable steps);
+  requires a 10-digit phone **or** a `customer_id`; `due_at` must be a valid timestamp.
+- Sets the walk-in markers from §1: a synthetic negative `ctm_call_id` (regenerated once
+  on the unlikely UNIQUE collision) and `started_at = null`. `resolved_at` stays null.
+- Pure helpers `parseApptBody` / `syntheticCtmId` are unit-tested in
+  `api/desk-appointment.test.js`. **Prod-only:** the endpoint runs on Vercel, so manual
+  add does not work under a bare static preview; edit/re-route (anon UPDATE) works anywhere.
+
 ## Known gaps & open questions (as of 2026-07-30)
 - The four chips are one undifferentiated wrap row; "Quoted — will call back" and
   "Dropping off" are adjacent and easy to mis-tap. The echo now catches the *result*;
@@ -86,9 +131,19 @@ meant) visible **before** the card is closed.
   bottom). Date helpers `toDueAt` / `dueAtToDateStr` / `addDaysStr` in the same IIFE.
 - Desk: `advisor-board.html` — `desk` IIFE (`deskLoad`, `deskRender`, `renderCalendar`,
   `resolveCall`, `rescheduleCall`); `dueLabel` / `isOverdue` / `startOfToday` here.
+- Edit / re-route + manual-add modal: `advisor-board.html` `desk` IIFE
+  (`openDeskEdit` / `deskEditSave` / `deskEditEcho` / `deskTimeOptions`, the `#deskEdit`
+  markup, the lane `data-edit` buttons, `#deskCalAdd`, and the empty-slot click wiring in
+  `wireCalendarDrag`).
+- Manual-add endpoint: `api/desk-appointment.js` (+ `api/desk-appointment.test.js`).
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
 - 2026-07-30 — Documented the subsystem while adding three fixes after Josh's mis-routed
   drop-off: the outcome echo (§4), Close-vs-Mark-done (§5), and clearing the date on a
   chip switch (§3).
+- 2026-07-30 — Added Desk **edit / re-route** (change type + date/time from the card;
+  anon UPDATE) and **manual add** (`+ Add` / empty calendar slot; walk-in with no call,
+  via `api/desk-appointment.js`). Documented the walk-in single-row representation (§1)
+  and the endpoint (§8). Resolves the "no way to fix a mis-bucketed item / no manual add"
+  gap.
