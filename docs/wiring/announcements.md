@@ -1,8 +1,8 @@
 # How the Announcement Banner is wired
 
 > Doc: `/docs/wiring/announcements.md`
-> Last updated: 2026-07-30 — verified vs commit `PENDING`
-> Status: ✅ verified vs commit `PENDING` — checked against `shared/announcement-banner.js`, `api/announcement.js`, `migrations/20260730_announcements.sql`, and the two office boards.
+> Last updated: 2026-07-30 — verified vs commit `a60bcb7`
+> Status: ✅ verified vs commit `a60bcb7` — checked against `shared/announcement-banner.js`, `api/announcement.js`, `migrations/20260730_announcements.sql`, and the two office boards.
 
 ## 0. In one line
 The owner broadcasts **one short message** to the office team; it shows as a **dismissible
