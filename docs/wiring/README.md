@@ -22,6 +22,7 @@ every claim against the real code before writing it.**
 | RO check-in / tech assign | [ro-checkin-tech.md](ro-checkin-tech.md) | ✅ verified vs `832077d` (documents a live bug) |
 | Tech Board (dispatcher) | [tech-board.md](tech-board.md) | ✅ verified vs `8ec2164` (investigation) |
 | My Numbers (tech phone tool) | [my-numbers.md](my-numbers.md) | ✅ verified vs `be6cef7` (investigation) |
+| Flagged-hours / flat-rate data | [flat-rate-hours.md](flat-rate-hours.md) | ✅ verified vs `22e3a5a` (investigation — data not yet buildable) |
 | To-Do list | [todo-list.md](todo-list.md) | ✅ verified vs the commit that adds it |
 | File Cabinet (this tab) | [file-cabinet.md](file-cabinet.md) | ✅ verified vs the commit that adds it |
 
