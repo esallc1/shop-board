@@ -1,8 +1,8 @@
 # How RO check-in, active-RO status & tech assignment are wired
 
 > Doc: `/docs/wiring/ro-checkin-tech.md`
-> Last updated: 2026-07-30 — verified vs commit `PENDING`
-> Status: ✅ verified vs commit `PENDING` — code re-checked against `advisor-board.html` +
+> Last updated: 2026-07-30 — verified vs commit `596006c`
+> Status: ✅ verified vs commit `596006c` — code re-checked against `advisor-board.html` +
 > `crisdata-techboard.html`, and the floor-table columns introspected against the live DB.
 > §4 assign-tech bug **FIXED**; §5 arrival-date **DONE**; §6 Work Description **DONE**.
 
