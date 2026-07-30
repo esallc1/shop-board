@@ -58,4 +58,5 @@ Every file under `/docs/wiring/` follows this shape:
 | Floor tags & lanes | `floor-tags.md` | `advisor-board.html` |
 | Call window & Desk | `call-window-desk.md` | `advisor-board.html` (`callerCard` + `desk` IIFEs) |
 | Announcement banner | `announcements.md` | `shared/announcement-banner.js`, `api/announcement.js`, advisor + owner boards |
+| RO check-in / tech assign | `ro-checkin-tech.md` | `advisor-board.html` (`checkInArrived`, `assignTechCore`), `crisdata-techboard.html`, `shared/status-mirror.js` |
 | File Cabinet tab | `file-cabinet.md` | `shared/file-cabinet.js`, `owner-board.html` |
