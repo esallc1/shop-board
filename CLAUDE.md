@@ -56,3 +56,4 @@ Every file under `/docs/wiring/` follows this shape:
 | Customer record | `customer-record.md` | `#view-customer` in `advisor-board.html` |
 | Intake wizard | `intake-wizard.md` | `advisor-board.html` |
 | Floor tags & lanes | `floor-tags.md` | `advisor-board.html` |
+| File Cabinet tab | `file-cabinet.md` | `shared/file-cabinet.js`, `owner-board.html` |

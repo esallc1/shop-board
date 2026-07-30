@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CrisData · File Cabinet (mockup)</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --indigo: #6366F1;
+    --indigo-d: #4F46E5;
+    --ink: #1e2233;
+    --muted: #6b7180;
+    --line: #e6e8ee;
+    --bg: #f4f5f8;
+    --card: #ffffff;
+    --amber: #b45309;
+    --amber-bg: #fef3c7;
+    --green: #047857;
+    --green-bg: #d1fae5;
+  }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5;
+  }
+  .app { display: grid; grid-template-columns: 208px 1fr; height: 100vh; }
+
+  /* ---- left board nav rail ---- */
+  .rail { background: #101426; color: #c7cbe0; padding: 16px 12px; display: flex; flex-direction: column; gap: 2px; }
+  .rail .brand { font-weight: 700; color: #fff; font-size: 15px; padding: 6px 10px 14px; letter-spacing: .2px; }
+  .rail .brand small { display:block; font-weight:500; color:#7f86b0; font-size:11px; letter-spacing:.4px; text-transform:uppercase; margin-top:2px;}
+  .rail a { color: #c7cbe0; text-decoration: none; padding: 8px 10px; border-radius: 8px; font-size: 13px; display: flex; align-items: center; gap: 9px; }
+  .rail a:hover { background: #1b2138; }
+  .rail a.active { background: var(--indigo); color: #fff; font-weight: 600; }
+  .rail .grp { font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: #6b719b; padding: 14px 10px 5px; }
+  .rail .spacer { flex: 1; }
+  .rail .me { display:flex; align-items:center; gap:9px; padding:8px 10px; border-top:1px solid #232a45; margin-top:8px; font-size:13px;}
+  .rail .me .av { width:24px; height:24px; border-radius:50%; background:var(--indigo); color:#fff; display:grid; place-items:center; font-size:11px; font-weight:700;}
+
+  /* ---- main ---- */
+  .main { display: grid; grid-template-columns: 288px 1fr; overflow: hidden; }
+
+  /* cabinet column */
+  .cab { background: #fafbfc; border-right: 1px solid var(--line); overflow-y: auto; }
+  .cab-head { padding: 18px 18px 12px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #fafbfc; z-index: 2;}
+  .cab-head h1 { font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .cab-head p { color: var(--muted); font-size: 12px; margin-top: 5px; }
+  .folders { padding: 8px; }
+  .folder { padding: 11px 12px; border-radius: 10px; cursor: pointer; display: flex; gap: 11px; align-items: flex-start; border: 1px solid transparent; }
+  .folder:hover { background: #eef0f6; }
+  .folder.active { background: #fff; border-color: var(--line); box-shadow: 0 1px 2px rgba(20,25,50,.06); }
+  .folder .ic { font-size: 18px; line-height: 1.2; }
+  .folder .ft { flex: 1; min-width: 0; }
+  .folder .fn { font-weight: 600; font-size: 13px; }
+  .folder.active .fn { color: var(--indigo-d); }
+  .folder .fm { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .folder .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--green); margin-right:5px; vertical-align:middle;}
+
+  /* doc column */
+  .doc { overflow-y: auto; background: var(--bg); }
+  .doc-inner { max-width: 760px; margin: 0 auto; padding: 26px 34px 80px; }
+  .crumb { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+  .crumb b { color: var(--ink); }
+  .doc h2.title { font-size: 24px; letter-spacing: -.3px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 4px; }
+  .chip { font-size: 11.5px; padding: 4px 9px; border-radius: 999px; background: #fff; border: 1px solid var(--line); color: var(--muted); display:flex; align-items:center; gap:5px;}
+  .chip.live { background: var(--green-bg); border-color: #a7f3d0; color: var(--green); font-weight: 600; }
+  .banner { background: #eef0ff; border: 1px solid #d5d9ff; color: #3b3f8f; border-radius: 10px; padding: 11px 14px; font-size: 12.5px; margin: 16px 0 22px; display:flex; gap:9px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 14px; }
+  .card h3 { font-size: 14px; color: var(--indigo-d); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px; display:flex; align-items:center; gap:8px;}
+  .card h3 .num { background: var(--indigo); color:#fff; width:20px; height:20px; border-radius:6px; display:grid; place-items:center; font-size:11px;}
+  .card p { margin-bottom: 9px; }
+  .card p:last-child { margin-bottom: 0; }
+  .card ul { margin: 4px 0 4px 2px; list-style: none; }
+  .card li { padding-left: 18px; position: relative; margin-bottom: 7px; }
+  .card li:before { content: "▸"; position: absolute; left: 0; color: var(--indigo); }
+  code { background: #eef0f4; padding: 1px 6px; border-radius: 5px; font-size: 12.5px; font-family: "SF Mono", ui-monospace, Menlo, monospace; color: #2c3350;}
+  .flag { background: var(--amber-bg); border-color: #fde68a; }
+  .flag h3 { color: var(--amber); }
+  .flag h3 .num { background: var(--amber); }
+  .files code { display:inline-block; margin: 2px 4px 2px 0; }
+  .fold-log { margin-top: 20px; border-top: 1px dashed var(--line); padding-top: 14px; }
+  .fold-log summary { cursor: pointer; color: var(--muted); font-size: 12.5px; font-weight: 600; }
+  .fold-log .row { font-size: 12.5px; color: var(--muted); padding: 8px 0 0; display:flex; gap:10px;}
+  .fold-log .row code { font-size: 11.5px; }
+  .stub { color: var(--muted); }
+  .stub .card p { color: var(--ink); }
+  .mock-ribbon { position: fixed; top: 12px; right: -34px; transform: rotate(45deg); background: var(--amber); color:#fff; font-size:10px; font-weight:800; letter-spacing:1px; padding:5px 40px; z-index: 50; box-shadow:0 2px 6px rgba(0,0,0,.2);}
+  .kv { display:grid; grid-template-columns: 130px 1fr; gap:6px 12px; font-size:13px;}
+  .kv .k { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="mock-ribbon">MOCKUP</div>
+<div class="app">
+  <!-- board nav rail for context -->
+  <nav class="rail">
+    <div class="brand">CrisData <small>Owner Board</small></div>
+    <a href="#">🧰 RO Board</a>
+    <a href="#">📋 Planner</a>
+    <a href="#">👥 Customers</a>
+    <a href="#">📞 Call Log</a>
+    <div class="grp">Insights</div>
+    <a href="#">📈 Feature Adoption</a>
+    <a href="#" class="active">🗄️ File Cabinet</a>
+    <div class="spacer"></div>
+    <a href="#">⚙️ Settings</a>
+    <div class="me"><span class="av">C</span> Cris · Owner</div>
+  </nav>
+
+  <div class="main">
+    <!-- the cabinet: folders -->
+    <div class="cab">
+      <div class="cab-head">
+        <h1>🗄️ File Cabinet</h1>
+        <p>Living docs — how CrisData is actually wired. Each folder holds one doc, updated in place. Not session logs.</p>
+      </div>
+      <div class="folders" id="folders"></div>
+    </div>
+
+    <!-- the open document -->
+    <div class="doc"><div class="doc-inner" id="docPane"></div></div>
+  </div>
+</div>
+
+<script>
+const FOLDERS = [
+  { id:"overview",  ic:"🏗️", name:"CrisData Code",                 meta:"Architecture overview", upd:"Jul 27" },
+  { id:"comeback",  ic:"🔁", name:"How comeback / warranty is wired", meta:"Updated by CC · commit bea25cf", upd:"Jul 29", live:true },
+  { id:"audio",     ic:"🎙️", name:"How recordings & audio is wired",  meta:"Updated by CC · commit bea25cf", upd:"Jul 29", live:true },
+  { id:"wizard",    ic:"🧾", name:"Intake wizard (New RO flow)",      meta:"Needs review", upd:"Jul 22" },
+  { id:"customer",  ic:"👤", name:"Customer record",                 meta:"Updated by CC", upd:"Jul 29" },
+  { id:"floor",     ic:"🚩", name:"Floor tags & board lanes",         meta:"Needs review", upd:"Jul 18" },
+];
+
+const DOCS = {
+  comeback: `
+    <div class="crumb">🗄️ File Cabinet › <b>How comeback / warranty is wired</b></div>
+    <h2 class="title">How comeback / warranty is wired</h2>
+    <div class="meta">
+      <span class="chip live">● Living doc</span>
+      <span class="chip">📄 /docs/wiring/comeback-warranty.md</span>
+      <span class="chip">🕑 Updated Jul 29, 2026</span>
+      <span class="chip">🤖 by Claude Code</span>
+      <span class="chip">✓ verified vs commit bea25cf</span>
+    </div>
+    <div class="banner">🔒 <div>This doc is <b>rewritten in place</b> every time comeback/warranty wiring changes — so "how is it wired" always has exactly one, current answer. The dated history lives in the change log at the bottom, out of your way.</div></div>
+
+    <div class="card"><h3><span class="num">0</span> In one line</h3>
+      <p>A comeback is a car returning about work we already did. It's its own RO, linked back to the earlier one, shown with a <b>badge</b> and a <b>chain card</b>, and it <b>can't be closed</b> without recording what the customer said and what we did.</p>
+    </div>
+
+    <div class="card"><h3><span class="num">1</span> What counts as a comeback</h3>
+      <ul>
+        <li>Returning about prior work = comeback, <b>even if nothing's actually wrong.</b></li>
+        <li><b>False-alarm rule:</b> "no issue found" is still logged as the resolution — that's exactly what proves later that a fine car got brought back three times.</li>
+        <li>The red floor <b>COMEBACK tag</b> is about work-in-progress and comes off when the car clears. The RO's comeback <i>record</i> stays forever. Two different things — don't conflate them.</li>
+      </ul>
+    </div>
+
+    <div class="card"><h3><span class="num">2</span> Numbering — why there's no "W"</h3>
+      <ul>
+        <li><code>ro_number</code> is an integer identity column; <code>po</code> is a generated mirror of it. A letter is <b>unstorable</b>.</li>
+        <li>Worse: the floor mirror joins on <code>po</code> string equality, so a <code>W6014</code> row would <b>silently fail to match</b>. <b>W-numbering is dead.</b></li>
+        <li>Instead: the badge reads <b>"Comeback N of RO ####"</b>. The real integer RO# stays the only identifier everywhere.</li>
+      </ul>
+    </div>
+
+    <div class="card"><h3><span class="num">3</span> How the chain links</h3>
+      <ul>
+        <li><code>parent_ro_id</code> points at the <b>immediate</b> parent, not the root.</li>
+        <li>The ordinal ("N of") is computed by <b>walking parent links up to the root</b>.</li>
+        <li>Orphan (parent was deleted): reads <b>"Comeback (linked RO deleted)"</b> — never a guessed number.</li>
+      </ul>
+    </div>
+
+    <div class="card"><h3><span class="num">4</span> The close gate</h3>
+      <ul>
+        <li>A comeback RO <b>cannot be closed</b> with the complaint or resolution empty. The block <b>names both</b> missing fields.</li>
+        <li>Backed by <code>20260729_comeback_capture.sql</code> → <code>repair_orders.comeback_resolution</code>.</li>
+      </ul>
+    </div>
+
+    <div class="card"><h3><span class="num">5</span> Why the old history is thin</h3>
+      <ul>
+        <li>Comebacks were <b>never invoiced</b>, so nothing forced anyone to record what happened — that's why e.g. the green Chevy's four prior visits are gone. Fixed <b>going forward only</b>.</li>
+        <li>Pre-CrisData (ALLDATA) invoice history was <b>deliberately not imported</b> ("it'll be a mess").</li>
+      </ul>
+    </div>
+
+    <div class="card flag"><h3><span class="num">!</span> Known gaps &amp; open questions <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--amber);font-size:12px;">— as of Jul 30</span></h3>
+      <ul>
+        <li><b>Pre-CrisData blind spot:</b> auto-detection can't catch comebacks/warranties on work done before CrisData — no parent RO exists in the platform to detect.</li>
+        <li><b>Proposed fix:</b> one-tap warranty/comeback marker on the <b>call window</b> (Josh tags it live when he recognizes the customer), which then flows into intake. Extends the parked "complaint tag on calls."</li>
+        <li><b>Open:</b> comeback vs warranty — one flag or two distinct types? Undecided.</li>
+        <li><b>Not built:</b> comeback ↔ floor-tag sync — picking Comeback in the wizard doesn't yet auto-set the red floor tag.</li>
+      </ul>
+    </div>
+
+    <div class="card files"><h3><span class="num">📁</span> Where it lives in the code</h3>
+      <p><span style="color:var(--muted)">Intake / wizard:</span> <code>advisor-board.html</code></p>
+      <p><span style="color:var(--muted)">Chain logic, badge &amp; card:</span> <code>shared/comeback-chain.js</code></p>
+      <p><span style="color:var(--muted)">Close gate:</span> <code>advisor-board.html</code> (RO detail close)</p>
+      <p><span style="color:var(--muted)">Migrations:</span> <code>20260729_comeback_capture.sql</code> <code>20260729_repair_orders_no_delete.sql</code></p>
+    </div>
+
+    <details class="fold-log"><summary>📜 Session change log (secondary — the "what we did when")</summary>
+      <div class="row"><code>Jul 29</code><div>Shipped badge, chain card &amp; blocked close (<code>3f17c6f</code>). Added <code>comeback_resolution</code> column.</div></div>
+      <div class="row"><code>Jul 29</code><div>Killed W-numbering after discovering the <code>po</code> string-join would silently drop lettered rows.</div></div>
+      <div class="row"><code>Jul 30</code><div>Found intake doesn't surface the comeback question when there's no prior CrisData RO. Opened the call-window tag idea.</div></div>
+    </details>
+  `,
+
+  audio: `
+    <div class="crumb">🗄️ File Cabinet › <b>How recordings & audio is wired</b></div>
+    <h2 class="title">How recordings &amp; audio is wired</h2>
+    <div class="meta">
+      <span class="chip live">● Living doc</span>
+      <span class="chip">📄 /docs/wiring/recordings-audio.md</span>
+      <span class="chip">🕑 Updated Jul 29, 2026</span>
+      <span class="chip">✓ verified vs commit bea25cf</span>
+    </div>
+    <div class="banner">🔒 <div>Rewritten in place whenever audio wiring changes.</div></div>
+    <div class="card"><h3><span class="num">1</span> Security model</h3>
+      <ul>
+        <li>Postgres RLS is row-level and <b>cannot hide a column</b> — so <code>recordings</code> is default-deny with <b>zero policies</b>; all audio goes through server endpoints.</li>
+        <li><code>remote_url</code>, <code>storage_path</code>, <code>last_error</code> <b>never leave the server</b>. <code>vehicle_id</code> is an internal shop id and <i>is</i> returned.</li>
+        <li>Signed URLs: ids only, ready-only, expire in 5 minutes.</li>
+      </ul>
+    </div>
+    <div class="card"><h3><span class="num">2</span> Which vehicle a recording belongs to</h3>
+      <p>Precedence, highest first:</p>
+      <ul>
+        <li>Session assignment</li>
+        <li>Persisted <code>vehicle_id</code> &nbsp;<b>← a human said it, so it beats derivation</b></li>
+        <li><code>calls.ro_id</code> derivation</li>
+        <li>"vehicle unknown" (null = nobody has said, never "no")</li>
+      </ul>
+      <p>Unassigned recordings show under <b>every</b> vehicle chip — the original-complaint call predates its RO, so hiding it defeats the oldest-first section.</p>
+    </div>
+    <div class="card files"><h3><span class="num">📁</span> Where it lives</h3>
+      <p><code>api/recording-links.js</code> <code>shared/recording-player.js</code> <code>api/recording-assign.js</code></p>
+    </div>
+  `,
+
+  customer: `
+    <div class="crumb">🗄️ File Cabinet › <b>Customer record</b></div>
+    <h2 class="title">Customer record</h2>
+    <div class="meta"><span class="chip live">● Living doc</span><span class="chip">📄 /docs/wiring/customer-record.md</span><span class="chip">🕑 Updated Jul 29, 2026</span></div>
+    <div class="banner">🔒 <div>Rewritten in place whenever the customer view changes.</div></div>
+    <div class="card"><h3><span class="num">1</span> Counts &amp; "customer since"</h3>
+      <ul>
+        <li><b>CrisData-only and labeled as such</b> — old ALLDATA history isn't imported.</li>
+        <li><code>customers.created_at</code> is useless for this — use <code>min(repair_orders.created_at)</code>.</li>
+        <li><code>completed_jobs</code> has <b>no customer_id</b> — never use it for history or counts.</li>
+      </ul>
+    </div>
+    <div class="card"><h3><span class="num">2</span> Which recordings show</h3>
+      <p>Confirmed (<code>calls.customer_id</code>) <b>plus</b> phone-matched unconfirmed (visibly tagged), <code>not_a_customer_at</code> excluded, and calls attached to a <i>different</i> customer excluded.</p>
+    </div>
+  `,
+
+  overview: `
+    <div class="crumb">🗄️ File Cabinet › <b>CrisData Code</b></div>
+    <h2 class="title">CrisData Code — architecture overview</h2>
+    <div class="meta"><span class="chip">📄 /docs/wiring/overview.md</span><span class="chip">🕑 Updated Jul 27, 2026</span></div>
+    <div class="banner">🔒 <div>The map of the whole system — what talks to what.</div></div>
+    <div class="card stub"><h3><span class="num">i</span> The big files</h3>
+      <ul>
+        <li><code>advisor-board.html</code> — one large file holding the RO detail, intake wizard, call log and chain card.</li>
+        <li><code>owner-board.html</code> — the owner view (where this File Cabinet would live).</li>
+        <li>Supabase (Postgres + RLS) for data; server endpoints under <code>api/</code> for anything secret.</li>
+      </ul>
+      <p style="color:var(--muted);margin-top:6px;">Each subsystem has its own folder in this cabinet — open those for the wiring details.</p>
+    </div>
+  `,
+
+  wizard: `
+    <div class="crumb">🗄️ File Cabinet › <b>Intake wizard (New RO flow)</b></div>
+    <h2 class="title">Intake wizard (New RO flow)</h2>
+    <div class="meta"><span class="chip" style="background:var(--amber-bg);border-color:#fde68a;color:var(--amber);font-weight:600;">⚠ Needs review</span><span class="chip">📄 /docs/wiring/intake-wizard.md</span><span class="chip">🕑 Updated Jul 22, 2026</span></div>
+    <div class="banner" style="background:var(--amber-bg);border-color:#fde68a;color:var(--amber);">⚠ <div>This doc is stale — the comeback question behavior (Jul 30) isn't captured here yet. Exactly the kind of gap the cabinet is meant to close.</div></div>
+    <div class="card stub"><h3><span class="num">i</span> Steps</h3>
+      <ul>
+        <li>Step 1–3: phone → pick customer → pick vehicle.</li>
+        <li>Step 4: "Open the RO" — complaint/concern, odometer, optional legacy-PO reuse.</li>
+        <li><b>Open question:</b> where does the comeback/warranty question fire, and is it gated on a prior CrisData RO existing?</li>
+      </ul>
+    </div>
+  `,
+
+  floor: `
+    <div class="crumb">🗄️ File Cabinet › <b>Floor tags & board lanes</b></div>
+    <h2 class="title">Floor tags &amp; board lanes</h2>
+    <div class="meta"><span class="chip" style="background:var(--amber-bg);border-color:#fde68a;color:var(--amber);font-weight:600;">⚠ Needs review</span><span class="chip">📄 /docs/wiring/floor-tags.md</span><span class="chip">🕑 Updated Jul 18, 2026</span></div>
+    <div class="banner" style="background:var(--amber-bg);border-color:#fde68a;color:var(--amber);">⚠ <div>Stub — fill in on the next session that touches floor tags.</div></div>
+    <div class="card stub"><h3><span class="num">i</span> Notes</h3>
+      <ul>
+        <li>Red <b>COMEBACK</b> floor tag = work-in-progress indicator; clears when the car is done.</li>
+        <li>Declined lane bug: renders "Declined today ago" — relative-date formatter has no same-day case.</li>
+      </ul>
+    </div>
+  `,
+};
+
+const folderEl = document.getElementById('folders');
+const docEl = document.getElementById('docPane');
+
+function render(activeId) {
+  folderEl.innerHTML = FOLDERS.map(f => `
+    <div class="folder ${f.id===activeId?'active':''}" data-id="${f.id}">
+      <span class="ic">${f.ic}</span>
+      <span class="ft">
+        <span class="fn">${f.name}</span>
+        <span class="fm">${f.live?'<span class="dot"></span>':''}${f.meta} · ${f.upd}</span>
+      </span>
+    </div>`).join('');
+  docEl.innerHTML = DOCS[activeId] || '<p>Empty folder.</p>';
+  docEl.parentElement.scrollTop = 0;
+  document.querySelectorAll('.folder').forEach(el =>
+    el.addEventListener('click', () => render(el.dataset.id)));
+}
+
+render('comeback');
+</script>
+</body>
+</html>

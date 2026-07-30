@@ -17,6 +17,7 @@
 <script src="shared/roadmap.js"></script>
 <script src="shared/planner.js"></script>
 <script src="shared/adoption.js"></script>
+<script src="shared/file-cabinet.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
@@ -110,6 +111,7 @@
       <div class="sidebar-group">
         <div class="sidebar-group-label">Insights</div>
         <div class="sidebar-item" data-view="adoption" data-label="Feature Adoption"><span class="icon">📊</span>Feature Adoption</div>
+        <div class="sidebar-item" data-view="filecabinet" data-label="File Cabinet"><span class="icon">🗄️</span>File Cabinet</div>
       </div>
     </div>
   </nav>
@@ -159,6 +161,11 @@
   <!-- ══ FEATURE ADOPTION ══ (shared/adoption.js — one-line include, owner only) -->
   <div class="view" id="view-adoption">
     <div id="adoption-root"></div>
+  </div>
+
+  <!-- ══ FILE CABINET ══ (shared/file-cabinet.js — read-only living wiring docs) -->
+  <div class="view" id="view-filecabinet">
+    <div id="filecabinet-root"></div>
   </div>
 
   <!-- ══ MARKETING CONTENT ══ -->
@@ -801,6 +808,13 @@
     getChannel: () => marketingChannel,
     resubscribe: marketingSubscribeRealtime,
   };
+
+  // ── File Cabinet (owner-only) — read-only living wiring docs from
+  //    /docs/wiring/*.md. Static content (no db, no session), so it inits at
+  //    top level like Marketing. No realtime channel; the refresh safety net
+  //    just re-fetches the docs on tab focus.
+  const fileCabinet = FileCabinet.init({ mountSelector: '#filecabinet-root' });
+  VIEW_REFRESH.filecabinet = { refetch: fileCabinet.refetch };
 
   // ── Team Chat (real, Supabase-backed — owner-board = Owner's view)
   // CHAT_IDENTITY is populated by captureSessionAndGreet() below once the
