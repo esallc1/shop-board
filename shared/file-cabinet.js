@@ -39,6 +39,7 @@ window.FileCabinet = (function () {
     { id: 'calldesk', file: 'call-window-desk.md',  icon: '📞', title: 'Call window & Desk' },
     { id: 'announce', file: 'announcements.md',     icon: '📣', title: 'Announcement banner' },
     { id: 'checkin',  file: 'ro-checkin-tech.md',   icon: '🔧', title: 'RO check-in / tech assign' },
+    { id: 'todo',     file: 'todo-list.md',         icon: '✅', title: 'To-Do list' },
     { id: 'cabinet',  file: 'file-cabinet.md',      icon: '🗄️', title: 'File Cabinet tab (this screen)' },
   ];
   const byFile = {}; DOCS.forEach(d => { byFile[d.file] = d; });

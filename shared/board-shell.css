@@ -453,8 +453,21 @@ textarea { resize: vertical; width: 100%; min-height: 60px; }
   display: flex; align-items: flex-start; gap: 10px;
   padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg);
+  border-left-width: 3px;   /* room for the priority accent (color set per-priority below) */
 }
 .todo-item.completed { opacity: 0.65; }
+/* Priority color accent on the row's left border. Immediate=red, High=amber,
+   Normal=neutral (blends with the border), Low=muted. The value is also shown as
+   text in the per-item dropdown, so the cue isn't color-only. */
+.todo-item.todo-prio-immediate { border-left-color: var(--red); }
+.todo-item.todo-prio-high      { border-left-color: var(--amber); }
+.todo-item.todo-prio-normal    { border-left-color: var(--border); }
+.todo-item.todo-prio-low       { border-left-color: var(--muted); }
+.todo-prio-select {
+  font-size: 0.7rem; padding: 2px 5px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; max-width: 118px;
+}
+.todo-prio-select:focus { outline: none; border-color: var(--accent); }
 .todo-checkbox { margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
 .todo-body { flex: 1; min-width: 0; }
 .todo-text { font-size: 0.86rem; color: var(--text); overflow-wrap: anywhere; }

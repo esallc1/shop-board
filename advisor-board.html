@@ -2540,6 +2540,39 @@
     badge.style.display = n > 0 ? '' : 'none';
   }
 
+  // ── priority (Immediate / High / Normal / Low) ──────────────────────────
+  const TODO_PRIORITIES = ['immediate', 'high', 'normal', 'low'];
+  const TODO_PRIORITY_OPTS = [
+    { v: 'immediate', label: 'Immediate' }, { v: 'high', label: 'High' },
+    { v: 'normal', label: 'Normal' }, { v: 'low', label: 'Low' },
+  ];
+  const TODO_PRIORITY_RANK = { immediate: 0, high: 1, normal: 2, low: 3 };
+  // Active before completed, then Immediate → Low, then newest first. Sorts a
+  // COPY so todoRows (which feeds the nav badge) is untouched.
+  function todoSortByPriority(a, b) {
+    const ac = a.completed_at ? 1 : 0, bc = b.completed_at ? 1 : 0;
+    if (ac !== bc) return ac - bc;
+    const pr = (TODO_PRIORITY_RANK[a.priority] ?? 2) - (TODO_PRIORITY_RANK[b.priority] ?? 2);
+    if (pr !== 0) return pr;
+    return String(b.created_at || '').localeCompare(String(a.created_at || ''));
+  }
+  // Optimistic priority set — a direct anon UPDATE (todos is anon-full-access, so
+  // no endpoint). Degrades quietly if the priority column isn't migrated yet.
+  async function setTodoPriority(id, priority) {
+    if (!TODO_PRIORITIES.includes(priority)) return;
+    const row = todoRows.find(t => String(t.id) === String(id));
+    const prev = row ? row.priority : undefined;
+    if (row) row.priority = priority;   // optimistic
+    renderTodos();
+    const { error } = await db.from('todos').update({ priority }).eq('id', id);
+    if (error) {
+      console.error('[Todo] set priority failed', error);
+      if (!/priority.*does not exist/i.test(error.message || '')) alert('Could not set priority: ' + error.message);
+      if (row) row.priority = prev;     // revert
+      renderTodos();
+    }
+  }
+
   function renderTodos() {
     updateTodoNavBadge();
     const box = document.getElementById('todoList');
@@ -2548,9 +2581,11 @@
       box.innerHTML = '<div class="todo-empty">No to-dos right now.</div>';
       return;
     }
-    box.innerHTML = todoRows.map(t => {
+    const rows = todoRows.slice().sort(todoSortByPriority);   // Immediate at top
+    box.innerHTML = rows.map(t => {
       const isCompleted = !!t.completed_at;
       const canManage = t.created_by === CURRENT_EMPLOYEE_ID || t.assigned_to === CURRENT_EMPLOYEE_ID;
+      const priority = TODO_PRIORITIES.includes(t.priority) ? t.priority : 'normal';
       let tag = '';
       if (t.assigned_to && t.created_by === CURRENT_EMPLOYEE_ID) {
         tag = `<span class="todo-tag assigned-to">Assigned to ${esc(t.assigned_to_name || '—')}</span>`;
@@ -2559,8 +2594,11 @@
       }
       const completedNote = isCompleted
         ? `<span class="todo-completed-note">Completed ${formatTodoCompletedWhen(t.completed_at)}</span>` : '';
+      const prioSelect = (canManage && !isCompleted)
+        ? `<select class="todo-prio-select" title="Priority" aria-label="Priority">${TODO_PRIORITY_OPTS.map(o => `<option value="${o.v}"${o.v === priority ? ' selected' : ''}>${o.label}</option>`).join('')}</select>`
+        : '';
       return `
-        <div class="todo-item${isCompleted ? ' completed' : ''}" data-id="${esc(t.id)}">
+        <div class="todo-item todo-prio-${priority}${isCompleted ? ' completed' : ''}" data-id="${esc(t.id)}">
           <input type="checkbox" class="todo-checkbox" ${isCompleted ? 'checked' : ''}>
           <div class="todo-body">
             <div class="todo-text">${esc(t.text)}</div>
@@ -2569,6 +2607,7 @@
           </div>
           ${canManage ? `
           <div class="todo-actions">
+            ${prioSelect}
             <button type="button" class="todo-action-btn todo-edit-btn" title="Edit">✏️</button>
             <button type="button" class="todo-action-btn danger todo-delete-btn" title="Delete">🗑️</button>
           </div>` : ''}
@@ -2577,6 +2616,9 @@
 
     box.querySelectorAll('.todo-checkbox').forEach(cb => {
       cb.addEventListener('change', () => toggleTodoComplete(cb.closest('.todo-item').dataset.id, cb.checked));
+    });
+    box.querySelectorAll('.todo-prio-select').forEach(sel => {
+      sel.addEventListener('change', () => setTodoPriority(sel.closest('.todo-item').dataset.id, sel.value));
     });
     box.querySelectorAll('.todo-edit-btn').forEach(btn => {
       btn.addEventListener('click', () => startEditTodo(btn.closest('.todo-item').dataset.id));
