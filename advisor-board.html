@@ -437,6 +437,61 @@
   .cd-chain-field .lbl { font-weight: 700; color: var(--muted); }
   /* the honest gap this slice closes: "not recorded" is a state, not a blank */
   .cd-chain-field .missing { color: var(--muted); font-style: italic; }
+  /* ── Customer record view ── */
+  .cust-search input { width:100%; border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:0.9rem; color:var(--text); box-sizing:border-box; }
+  .cust-search input:focus { outline:none; border-color:var(--accent); }
+  .cust-search-list { margin-top:10px; display:flex; flex-direction:column; gap:5px; }
+  .cust-search-item { display:flex; align-items:baseline; gap:10px; width:100%; text-align:left; border:1px solid var(--border); border-radius:8px; padding:9px 12px; background:#fff; cursor:pointer; }
+  .cust-search-item:hover { border-color:var(--accent); background:var(--surface-2); }
+  .cust-search-name { font-size:0.9rem; font-weight:700; color:var(--text); }
+  .cust-search-phone { margin-left:auto; font-size:0.78rem; color:var(--muted); white-space:nowrap; }
+  .cust-search-empty { color:var(--muted); font-size:0.85rem; text-align:center; padding:22px 8px; }
+  /* top strip */
+  .cust-name { font-size:1.15rem; font-weight:800; color:var(--text); }
+  .cust-biz { font-size:0.9rem; color:var(--muted); margin-top:1px; }
+  .cust-phones { display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:8px; font-size:0.85rem; color:var(--text); }
+  .cust-phones .lbl { color:var(--muted); font-weight:700; margin-right:5px; }
+  .cust-learned { font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:#3C3489; background:#EEEDFE; border-radius:999px; padding:1px 7px; margin-left:5px; }
+  .cust-openro { display:inline-block; margin-top:9px; font-size:0.78rem; font-weight:700; color:var(--accent); border:1px solid var(--accent); border-radius:7px; padding:4px 11px; cursor:pointer; background:#fff; }
+  .cust-openro:hover { background:var(--accent); color:#fff; }
+  .cust-stats { display:flex; gap:18px; margin-top:12px; }
+  .cust-stat .n { font-size:1.05rem; font-weight:800; color:var(--text); }
+  .cust-stat .k { font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); }
+  .cust-crisdata-note { margin-top:8px; font-size:0.72rem; font-style:italic; color:var(--muted); }
+  /* vehicle chips */
+  .cust-chips { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:14px; }
+  .cust-chip { border:1px solid var(--border); background:#fff; border-radius:999px; padding:5px 13px; font-size:0.8rem; font-weight:700; color:var(--text); cursor:pointer; white-space:nowrap; }
+  .cust-chip:hover { border-color:var(--accent); }
+  .cust-chip.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .cust-cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+  @media (max-width: 900px) { .cust-cols { grid-template-columns:1fr; } }
+  .cust-card-note { margin-left:auto; font-size:0.64rem; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:0.4px; }
+  /* history */
+  .cust-hist-list, .cust-rec-list { display:flex; flex-direction:column; gap:8px; }
+  .cust-hist-empty, .cust-rec-empty { color:var(--muted); font-size:0.82rem; text-align:center; padding:16px; }
+  .cust-hist-row { border:1px solid var(--border); border-radius:8px; padding:8px 11px; background:#fff; cursor:pointer; }
+  .cust-hist-row:hover { border-color:var(--accent); background:var(--surface-2); }
+  .cust-hist-top { display:flex; align-items:baseline; gap:8px; }
+  .cust-hist-num { font-size:0.85rem; font-weight:800; color:var(--text); }
+  .cust-hist-stage { font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); }
+  .cust-hist-total { margin-left:auto; font-size:0.85rem; font-weight:700; color:var(--text); white-space:nowrap; }
+  .cust-hist-veh { font-size:0.78rem; color:var(--muted); margin-top:3px; }
+  .cust-hist-when { font-size:0.72rem; color:var(--muted); margin-top:2px; }
+  /* recordings */
+  .cust-rec-row { border:1px solid var(--border); border-radius:8px; padding:8px 11px; background:#fff; }
+  .cust-rec-row.unconfirmed { border-left:3px solid var(--amber); }
+  .cust-rec-top { display:flex; align-items:baseline; gap:8px; }
+  .cust-rec-when { font-size:0.76rem; font-weight:700; color:var(--text); }
+  .cust-rec-veh { font-size:0.74rem; color:var(--muted); }
+  .cust-rec-unconf { font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:#92400e; background:#fffaf0; border:1px solid var(--amber); border-radius:999px; padding:1px 7px; }
+  .cust-rec-note { font-size:0.82rem; color:var(--text); margin-top:4px; }
+  .cust-rec-play { margin-top:6px; }
+  .cust-rec-play:empty { display:none; }
+  /* clickable customer links into the record view */
+  .cd-cust-link { color:var(--accent); text-decoration:none; font-weight:700; cursor:pointer; }
+  .cd-cust-link:hover { text-decoration:underline; }
+  .call-card-name[data-open-customer] { cursor:pointer; }
+  .call-card-name[data-open-customer]:hover { text-decoration:underline; }
   /* ── Payments (Phase 5) ── */
   .cd-pay-lbl { display: block; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 700; margin-bottom: 3px; }
   .cd-pay-form input, .cd-pay-form select {
@@ -513,6 +568,12 @@
 <script type="module">
   import * as ComebackChain from './shared/comeback-chain.js';
   window.ComebackChain = ComebackChain;
+</script>
+<!-- Customer record logic (ESM). Assigns window.CustomerRecord; used by the
+     #view-customer record panel (counts, vehicle filter, recording union). -->
+<script type="module">
+  import * as CustomerRecord from './shared/customer-record.js';
+  window.CustomerRecord = CustomerRecord;
 </script></script>
 </head>
 <body>
@@ -638,6 +699,7 @@
         <div class="sidebar-item" data-view="parts" data-label="Parts"><span class="icon">🔩</span>Parts</div>
         <div class="sidebar-item" data-view="payments" data-label="Payments"><span class="icon">💳</span>Payments</div>
         <div class="sidebar-item" data-view="customer-log" data-label="Customer Log"><span class="icon">📇</span>Customer Log</div>
+        <div class="sidebar-item" data-view="customer" data-label="Customers"><span class="icon">👤</span>Customers</div>
         <div class="sidebar-item" data-view="capture" data-label="Capture Invoice"><span class="icon">📸</span>Capture Invoice</div>
         <div class="sidebar-item" data-view="desk" data-label="Desk"><span class="icon">🗓️</span>Desk<span class="chat-nav-badge" id="desk-overdue-badge" style="display:none">0</span></div>
         <div class="sidebar-item" data-view="todo" data-label="To-Do"><span class="icon">✅</span>To-Do<span class="chat-nav-badge" id="todo-nav-badge" style="display:none">0</span></div>
@@ -777,6 +839,55 @@
           </div>
         </li>
       </ul>
+    </div>
+  </div>
+
+  <!-- ══ CUSTOMERS — the first screen for a PERSON. Two panels, swapped:
+       LIST (search all customers) and RECORD (one customer: top strip, vehicle
+       chips, history newest-first, recordings oldest-first). No migration —
+       everything here already exists live. ══ -->
+  <div class="view" id="view-customer">
+    <!-- LIST panel -->
+    <div id="custListPanel">
+      <div class="card">
+        <div class="card-title"><div class="dot" style="background:var(--accent)"></div>Customers</div>
+        <div class="cust-search"><input type="text" id="custSearchInput" placeholder="Search by name, business, or phone…" autocomplete="off"></div>
+        <div id="custSearchList" class="cust-search-list"></div>
+      </div>
+    </div>
+
+    <!-- RECORD panel -->
+    <div id="custRecordPanel" style="display:none">
+      <button class="btn btn-ghost" id="custBackBtn" style="font-size:0.78rem;padding:6px 12px;margin-bottom:12px">← Back</button>
+
+      <!-- TOP STRIP — Josh's five seconds, no clicks. -->
+      <div class="card">
+        <div id="custTopStrip"></div>
+      </div>
+
+      <!-- VEHICLE CHIPS — filter History + Recordings. -->
+      <div id="custVehChips" class="cust-chips"></div>
+
+      <div class="cust-cols">
+        <!-- HISTORY (newest first) -->
+        <div class="card">
+          <div class="card-title"><div class="dot" style="background:var(--green)"></div>History
+            <span class="cust-card-note">CrisData ROs · newest first</span>
+          </div>
+          <div id="custHistoryBody" class="cust-hist-list"></div>
+        </div>
+
+        <!-- RECORDINGS (oldest first — the original complaint) -->
+        <div class="card">
+          <div class="card-title"><div class="dot" style="background:var(--amber)"></div>Recordings
+            <span class="cust-card-note">Oldest first · the first call</span>
+          </div>
+          <div id="custRecBody" class="cust-rec-list"></div>
+          <!-- ONE reused audio element for this section; a second play replaces
+               the source so the first stops. -->
+          <audio id="custRecAudio" preload="none" style="display:none"></audio>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -4402,9 +4513,20 @@
       // the customer line and plate into the vehicle line; the money stage shows
       // via the Stage selector + badge in the rail (no separate Status cell).
       // All the detailed fields live in the disclosure / rail below.
+      // Customer cell links to the customer record (id beats phone); back from
+      // there returns to THIS RO. Plain text when there's no customer_id.
+      const custVal = [c.name, formatPhone(c.phone_primary)].filter(Boolean).join(' · ') || '—';
+      const custCell = currentRo.customer_id
+        ? `<div><div class="cd-hf-label">Customer</div><div class="cd-hf-val"><a href="#" class="cd-cust-link" data-open-customer="${esc(currentRo.customer_id)}">${esc(custVal)}</a></div></div>`
+        : field('Customer', custVal);
       $('cdRoHeaderGrid').innerHTML =
-        field('Customer', [c.name, formatPhone(c.phone_primary)].filter(Boolean).join(' · ')) +
+        custCell +
         field('Vehicle', [vehDesc(v), v.plate].filter(Boolean).join(' · '));
+      const cl = $('cdRoHeaderGrid').querySelector('[data-open-customer]');
+      if (cl) cl.onclick = (e) => {
+        e.preventDefault();
+        if (window.openCustomerById) window.openCustomerById(cl.dataset.openCustomer, { kind: 'ro', roId: currentRo.id });
+      };
       // Check in / Arrived — paints against currentRo (mutated in place on
       // check-in). On success, mirror arrived_at onto the cached list row so
       // Back-to-list reflects it without a refetch.
@@ -5464,6 +5586,319 @@
       refetch: loadRecentList,
       getChannel: () => cdRosChannel,
       resubscribe: subscribeRealtime,
+    };
+
+    // ══════════════════════════════════════════════════════════════
+    // CUSTOMER RECORD VIEW (#view-customer) — the first screen for a PERSON.
+    // Lives in this IIFE so History rows can openRo() and Back can return to a
+    // specific RO. Pure logic (classification, filter, counts) in
+    // shared/customer-record.js. Recordings audio reuses window.RecordingPlayer
+    // + api/recording-links.js; the board never reads the recordings table.
+    // ══════════════════════════════════════════════════════════════
+    const CR = () => window.CustomerRecord;
+    let custCustomer = null, custVehicles = [], custRos = [], custVehById = {}, custRoById = {};
+    let custTotals = {}, custRecCallsAll = [], custRecIdx = {}, custSecondaryLearned = false;
+    let custSelectedVehicle = 'all';
+    let custBackTarget = { kind: 'list' };
+    let custAllList = null, custLoadSeq = 0;
+    const custFmtPhone = (p) => (window.formatPhone ? window.formatPhone(p) : (p || ''));
+
+    async function ensureCustAllList() {
+      if (custAllList) return custAllList;
+      custAllList = window.cdFetchAllCustomers ? await window.cdFetchAllCustomers() : [];
+      return custAllList;
+    }
+
+    // ── LIST panel ──
+    function showCustomerList() {
+      const a = $('custRecAudio'); if (a && !a.paused) a.pause();
+      $('custRecordPanel').style.display = 'none';
+      $('custListPanel').style.display = 'block';
+      ensureCustAllList().then(() => renderCustSearch($('custSearchInput').value || ''));
+    }
+    function renderCustSearch(q) {
+      const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
+      const query = (q || '').trim().toLowerCase();
+      const list = custAllList || [];
+      let rows;
+      if (!query) {
+        rows = [...list].sort((a, b) => String(b.last_invoiced || '').localeCompare(String(a.last_invoiced || ''))).slice(0, 30);
+      } else {
+        const qd = query.replace(/\D/g, '');
+        rows = list.filter(c => {
+          const name = ((c.business_name || '') + ' ' + (c.name || '')).toLowerCase();
+          if (name.includes(query)) return true;
+          if (qd.length >= 3) return l10(c.phone_primary).includes(qd) || l10(c.phone_secondary).includes(qd);
+          return false;
+        }).slice(0, 60);
+      }
+      const el = $('custSearchList');
+      el.innerHTML = rows.length ? rows.map(c =>
+        `<button type="button" class="cust-search-item" data-cust-id="${esc(c.id)}">` +
+        `<span class="cust-search-name">${esc(c.business_name || c.name || '(no name)')}</span>` +
+        `<span class="cust-search-phone">${esc(custFmtPhone(c.phone_primary))}</span></button>`
+      ).join('') : `<div class="cust-search-empty">${query ? 'No matches.' : 'No customers.'}</div>`;
+      el.querySelectorAll('[data-cust-id]').forEach(b => b.onclick = () => {
+        custBackTarget = { kind: 'list' };
+        showCustomerRecord(b.dataset.custId);
+      });
+    }
+
+    // ── RECORD panel ──
+    function showCustomerRecord(id) {
+      $('custListPanel').style.display = 'none';
+      $('custRecordPanel').style.display = 'block';
+      loadCustomerRecord(id);
+    }
+    window.openCustomerById = (id, origin) => {
+      if (id == null || id === '') return;
+      custBackTarget = origin || { kind: 'view', viewKey: sessionStorage.getItem('advisorBoardActiveView') || 'desk' };
+      const item = document.querySelector('.sidebar-item[data-view="customer"]');
+      if (item) item.click();          // switch to #view-customer (generic handler + our tab listener)
+      showCustomerRecord(id);          // then override the list with the record (synchronous → no flash)
+    };
+    function openRoFromCustomer(roId) {
+      const nav = document.querySelector('.sidebar-item[data-view="cdros"]'); if (nav) nav.click();
+      openRo(roId);
+    }
+    function custBack() {
+      const t = custBackTarget || { kind: 'list' };
+      const a = $('custRecAudio'); if (a && !a.paused) a.pause();
+      if (t.kind === 'ro' && t.roId != null) { openRoFromCustomer(t.roId); return; }
+      if (t.kind === 'view' && t.viewKey && t.viewKey !== 'customer') {
+        const nav = document.querySelector(`.sidebar-item[data-view="${t.viewKey}"]`);
+        if (nav) { nav.click(); return; }
+      }
+      showCustomerList();
+    }
+
+    async function loadCustomerRecord(id) {
+      const seq = ++custLoadSeq;
+      const a = $('custRecAudio'); if (a && !a.paused) a.pause();
+      $('custTopStrip').innerHTML = '<div style="color:var(--muted);font-size:0.85rem">Loading…</div>';
+      $('custVehChips').innerHTML = ''; $('custHistoryBody').innerHTML = ''; $('custRecBody').innerHTML = '';
+      custSelectedVehicle = 'all';
+      // customer row
+      const custResp = await db.from('customers')
+        .select('id, name, business_name, phone_primary, phone_secondary, tax_exempt, last_invoiced')
+        .eq('id', id).maybeSingle();
+      if (seq !== custLoadSeq) return;
+      const cust = custResp.data;
+      if (custResp.error || !cust) {
+        $('custTopStrip').innerHTML = `<div style="color:var(--red);font-size:0.85rem">Couldn't load customer.</div>`;
+        return;
+      }
+      custCustomer = cust;
+      // vehicles (oldest-first is fine for chips; order stable)
+      const vehResp = await db.from('vehicles').select('id, year, make, model, vin, plate').eq('customer_id', id).order('created_at', { ascending: true });
+      // repair_orders (declined_at may be absent pre-migration → fall back)
+      let roResp = await db.from('repair_orders').select('id, ro_number, po, status, declined_at, created_at, vehicle_id').eq('customer_id', id);
+      if (roResp.error && isMissingColumn(roResp.error)) {
+        roResp = await db.from('repair_orders').select('id, ro_number, po, status, created_at, vehicle_id').eq('customer_id', id);
+      }
+      if (seq !== custLoadSeq) return;
+      custVehicles = vehResp.data || [];
+      custRos = roResp.data || [];
+      custVehById = {}; custVehicles.forEach(v => custVehById[String(v.id)] = v);
+      custRoById = {}; custRos.forEach(r => custRoById[String(r.id)] = r);
+      // line-item totals (one batched .in())
+      custTotals = {};
+      const roIds = custRos.map(r => r.id);
+      if (roIds.length) {
+        const linesResp = await db.from('ro_line_items').select('repair_order_id, quantity, unit_price, taxable, line_type').in('repair_order_id', roIds);
+        if (seq !== custLoadSeq) return;
+        if (!linesResp.error) custTotals = CR().totalsByRo(linesResp.data || [], { rate: taxRate(), exempt: !!cust.tax_exempt });
+      }
+      // calls — two sources (customer_id + phone match), unioned in the module
+      const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
+      const phones = [l10(cust.phone_primary), l10(cust.phone_secondary)].filter(p => p && p.length >= 10);
+      let idCalls = [], phoneCalls = [];
+      try { const r = await db.from('calls').select('*').eq('customer_id', id); if (!r.error) idCalls = r.data || []; } catch (e) { /* degrade */ }
+      if (phones.length) { try { const r = await db.from('calls').select('*').in('caller_bare', phones); if (!r.error) phoneCalls = r.data || []; } catch (e) { /* degrade */ } }
+      if (seq !== custLoadSeq) return;
+      custRecCallsAll = CR().buildRecordingCalls(idCalls, phoneCalls, { customerId: id });
+      custSecondaryLearned = CR().isSecondaryLearned({ phoneSecondary: cust.phone_secondary, calls: idCalls, last10: l10 });
+
+      renderCustTopStrip();
+      renderCustChips();
+      renderCustHistory();
+      // recordings: ONE batched links fetch for all union calls, then render
+      $('custRecBody').innerHTML = '<div class="cust-rec-empty">Loading recordings…</div>';
+      custRecIdx = await fetchCustRecLinks(custRecCallsAll.map(c => c.id));
+      if (seq !== custLoadSeq) return;
+      renderCustRecordings();
+    }
+
+    function renderCustTopStrip() {
+      const c = custCustomer; if (!c) return;
+      const counts = CR().customerCounts(custRos);
+      const open = CR().openRosOf(custRos)[0];
+      const sec = c.phone_secondary;
+      const learned = (sec && custSecondaryLearned) ? '<span class="cust-learned">learned</span>' : '';
+      const since = counts.sinceIso ? new Date(counts.sinceIso).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—';
+      $('custTopStrip').innerHTML =
+        `<div class="cust-name">${esc(c.business_name || c.name || '(no name)')}</div>` +
+        (c.business_name && c.name ? `<div class="cust-biz">${esc(c.name)}</div>` : '') +
+        `<div class="cust-phones">` +
+          (c.phone_primary ? `<span><span class="lbl">Primary</span>${esc(custFmtPhone(c.phone_primary))}</span>` : '') +
+          (sec ? `<span><span class="lbl">Secondary</span>${esc(custFmtPhone(sec))}${learned}</span>` : '') +
+        `</div>` +
+        (open ? `<button type="button" class="cust-openro" data-open-ro="${esc(open.id)}">Open now — RO #${esc(open.ro_number)} · ${esc(STATUS_LABEL[open.status] || open.status)}</button>` : '') +
+        `<div class="cust-stats">` +
+          `<div class="cust-stat"><div class="n">${esc(counts.visits)}</div><div class="k">Visits</div></div>` +
+          `<div class="cust-stat"><div class="n">${esc(since)}</div><div class="k">Customer since</div></div>` +
+        `</div>` +
+        `<div class="cust-crisdata-note">CrisData records only — earlier ALLDATA history isn't imported, so this is not a lifetime total.</div>`;
+      const b = $('custTopStrip').querySelector('[data-open-ro]');
+      if (b) b.onclick = () => openRoFromCustomer(b.dataset.openRo);
+    }
+
+    function renderCustChips() {
+      const el = $('custVehChips');
+      const chips = [{ id: 'all', label: 'All vehicles' }].concat(custVehicles.map(v => ({ id: String(v.id), label: vehDesc(v) || 'Vehicle' })));
+      el.innerHTML = chips.map(ch =>
+        `<button type="button" class="cust-chip${String(custSelectedVehicle) === String(ch.id) ? ' active' : ''}" data-veh="${esc(ch.id)}">${esc(ch.label)}</button>`
+      ).join('');
+      el.querySelectorAll('[data-veh]').forEach(b => b.onclick = () => {
+        custSelectedVehicle = b.dataset.veh;
+        renderCustChips(); renderCustHistory(); renderCustRecordings();
+      });
+    }
+
+    function renderCustHistory() {
+      const el = $('custHistoryBody');
+      const rows = CR().sortNewestFirst(CR().filterByVehicle(custRos, custSelectedVehicle, r => r.vehicle_id));
+      if (!rows.length) { el.innerHTML = `<div class="cust-hist-empty">No repair orders${custSelectedVehicle !== 'all' ? ' for this vehicle' : ''} yet.</div>`; return; }
+      el.innerHTML = rows.map(r => {
+        const v = custVehById[String(r.vehicle_id)];
+        const veh = v ? (vehDesc(v) || 'Vehicle') : 'Vehicle';
+        const d = r.created_at ? new Date(r.created_at) : null;
+        const date = d && !isNaN(d) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+        const total = custTotals[String(r.id)];
+        const totalStr = total != null ? '$' + Number(total).toFixed(2) : '—';
+        return `<div class="cust-hist-row" data-open-ro="${esc(r.id)}">
+          <div class="cust-hist-top"><span class="cust-hist-num">RO #${esc(r.ro_number)}</span><span class="cust-hist-stage">${esc(STATUS_LABEL[r.status] || r.status || '')}</span><span class="cust-hist-total">${esc(totalStr)}</span></div>
+          <div class="cust-hist-veh">${esc(veh)}</div>
+          <div class="cust-hist-when">${esc(date)}</div>
+        </div>`;
+      }).join('');
+      el.querySelectorAll('[data-open-ro]').forEach(b => b.onclick = () => openRoFromCustomer(b.dataset.openRo));
+    }
+
+    // Derive a recording's vehicle from the call's linked RO (calls have no
+    // vehicle of their own; the endpoint doesn't expose recordings.vehicle_id).
+    function custRecVehId(call) {
+      if (!call || !call.ro_id) return null;
+      const ro = custRoById[String(call.ro_id)];
+      return ro ? ro.vehicle_id : null;
+    }
+
+    let custRecState = {}, custRecPlayingBtn = null;
+    function renderCustRecordings() {
+      const el = $('custRecBody'); const RP = window.RecordingPlayer;
+      if (!RP) { el.innerHTML = '<div class="cust-rec-empty">Recordings unavailable.</div>'; return; }
+      // only calls that actually HAVE a recording (present in the links index)
+      const withRec = (custRecCallsAll || []).filter(c => RP.describeCallId(custRecIdx, c.id).render);
+      const rows = CR().filterByVehicle(withRec, custSelectedVehicle, custRecVehId);   // already oldest-first
+      if (!rows.length) { el.innerHTML = `<div class="cust-rec-empty">No recordings${custSelectedVehicle !== 'all' ? ' for this vehicle' : ''}.</div>`; return; }
+      custRecState = {};
+      el.innerHTML = rows.map(c => {
+        const d = c.started_at ? new Date(c.started_at) : null;
+        const date = d && !isNaN(d) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '—';
+        const vid = custRecVehId(c); const v = vid ? custVehById[String(vid)] : null;
+        const veh = v ? (vehDesc(v) || 'Vehicle') : 'vehicle unknown';   // never blank
+        const dsc = RP.describeCallId(custRecIdx, c.id); custRecState[String(c.id)] = dsc;
+        let play;
+        if (dsc.state === 'ready') play = `<button type="button" class="rec-btn rec-ready" data-rec-play="${esc(c.id)}" aria-label="${esc(dsc.aria)}">${esc(dsc.label)}</button>`;
+        else if (dsc.state === 'pending') play = `<span class="rec-btn rec-pending" title="${esc(dsc.aria)}">${esc(dsc.label)}</span>`;
+        else play = `<span class="rec-marker" title="${esc(dsc.aria)}">${esc(dsc.label)}</span>`;
+        const note = (c.note && String(c.note).trim()) ? `<div class="cust-rec-note">${esc(String(c.note).trim())}</div>` : '';
+        const unconf = c.confirmed ? '' : '<span class="cust-rec-unconf">unconfirmed</span>';
+        return `<div class="cust-rec-row${c.confirmed ? '' : ' unconfirmed'}">
+          <div class="cust-rec-top"><span class="cust-rec-when">${esc(date)}</span><span class="cust-rec-veh">${esc(veh)}</span>${unconf}</div>
+          ${note}
+          <div class="cust-rec-play">${play}</div>
+        </div>`;
+      }).join('');
+      el.querySelectorAll('[data-rec-play]').forEach(b => b.addEventListener('click', () => playCustRec(b.dataset.recPlay, b)));
+    }
+
+    // Batched links fetch (chunked by the endpoint's 50 cap so the 31-vehicle
+    // fleet with many calls still resolves fully).
+    async function fetchCustRecLinks(callIds) {
+      const RP = window.RecordingPlayer;
+      const ids = (callIds || []).map(v => Number(v)).filter(v => Number.isInteger(v) && v > 0);
+      if (!RP || !ids.length) return {};
+      const idx = {};
+      for (let i = 0; i < ids.length; i += 50) {
+        try {
+          const r = await fetch('/api/recording-links', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ call_ids: ids.slice(i, i + 50) }),
+          });
+          if (r.ok) Object.assign(idx, RP.indexResults(await r.json()));
+        } catch (e) { console.warn('[cust] recording-links failed', e); }
+      }
+      return idx;
+    }
+    async function remintCustRec(callId) {
+      const RP = window.RecordingPlayer; if (!RP) return null;
+      const idx = await fetchCustRecLinks([callId]);
+      const d = RP.describeCallId(idx, callId);
+      if (custRecState[String(callId)]) custRecState[String(callId)] = d;
+      return d.playbackUrl || null;
+    }
+    async function playCustRec(callId, btn) {
+      const audio = $('custRecAudio'); if (!audio) return;
+      if (custRecPlayingBtn === btn && !audio.paused) { audio.pause(); return; }
+      if (custRecPlayingBtn && custRecPlayingBtn !== btn) custRecPlayingBtn.classList.remove('playing');
+      custRecPlayingBtn = btn;
+      let url = (custRecState[String(callId)] && custRecState[String(callId)].playbackUrl) || null;
+      if (!url) url = await remintCustRec(callId);
+      if (!url) { btn.classList.remove('playing'); return; }
+      const tryPlay = async (src) => { audio.src = src; await audio.play(); };
+      try { await tryPlay(url); btn.classList.add('playing'); }
+      catch (e) {
+        const fresh = await remintCustRec(callId);
+        if (fresh) { try { await tryPlay(fresh); btn.classList.add('playing'); } catch (_) { btn.classList.remove('playing'); } }
+        else btn.classList.remove('playing');
+      }
+    }
+    (function wireCustRecAudio() {
+      const a = $('custRecAudio'); if (!a) return;
+      const clear = () => { if (custRecPlayingBtn) custRecPlayingBtn.classList.remove('playing'); };
+      a.addEventListener('ended', clear); a.addEventListener('pause', clear);
+    })();
+
+    // Repoint the ONE phone entry point every call-log row / Desk row / chip
+    // uses. Resolve phone → customer id (id beats phone). One match → the record;
+    // otherwise the searchable list, seeded with what we know.
+    window.cdOpenCustomerByPhone = async (phone) => {
+      const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
+      const backView = sessionStorage.getItem('advisorBoardActiveView') || 'desk';
+      const item = document.querySelector('.sidebar-item[data-view="customer"]'); if (item) item.click();
+      custBackTarget = { kind: 'view', viewKey: backView };
+      const key = l10(phone);
+      const all = await ensureCustAllList();
+      const hits = (key && key.length >= 10) ? all.filter(c => l10(c.phone_primary) === key || l10(c.phone_secondary) === key) : [];
+      if (hits.length === 1) { showCustomerRecord(hits[0].id); return; }
+      showCustomerList();
+      if ($('custSearchInput')) { $('custSearchInput').value = phone || ''; renderCustSearch(phone || ''); }
+    };
+
+    // ── wiring ──
+    $('custBackBtn').addEventListener('click', custBack);
+    $('custSearchInput').addEventListener('input', () => renderCustSearch($('custSearchInput').value));
+    // A real "Customers" tab tap shows the LIST (openCustomerById overrides after).
+    (function wireCustomerTab() {
+      const item = document.querySelector('.sidebar-item[data-view="customer"]');
+      if (item) item.addEventListener('click', () => { custBackTarget = { kind: 'list' }; showCustomerList(); });
+    })();
+    // Any sidebar navigation stops recording playback (leaving the surface).
+    document.querySelectorAll('.sidebar-item[data-view]').forEach(i =>
+      i.addEventListener('click', () => { const a = $('custRecAudio'); if (a && !a.paused) a.pause(); }));
+    VIEW_REFRESH.customer = {
+      refetch: () => { if ($('custRecordPanel').style.display !== 'none' && custCustomer) loadCustomerRecord(custCustomer.id); },
     };
   })();
 
@@ -6658,7 +7093,7 @@
         : `<div class="call-card-muted">No vehicles on file</div>`;
       const last = fmtDate(c.last_invoiced);
       return `
-        <div class="call-card-name">${esc(title)}</div>
+        <div class="call-card-name" data-open-customer="${esc(c.id)}" role="button" tabindex="0" title="Open customer record">${esc(title)}</div>
         ${sub ? `<div class="call-card-sub">${esc(sub)}</div>` : ''}
         ${vehicles}
         <div class="call-card-row"><span class="lbl">Past ROs:</span> ${detail.ros.length}</div>
@@ -6895,6 +7330,16 @@
       stack.prepend(card);   // newest on top; multiple calls stack
 
       card.querySelector('.call-card-x').addEventListener('click', () => card.remove());
+      // Clicking the matched customer name opens the customer record (delegated,
+      // so it survives the detail area re-rendering after a pick). No origin →
+      // Back returns to the Desk (where the card lives).
+      card.addEventListener('click', (e) => {
+        const el = e.target.closest('[data-open-customer]');
+        if (el && el.dataset.openCustomer && window.openCustomerById) {
+          e.stopPropagation();
+          window.openCustomerById(el.dataset.openCustomer);
+        }
+      });
       // Hydrate any pre-existing values (a live INSERT has none yet; defensive).
       if (call.note) card.querySelector('.cc-note').value = call.note;
       if (call.next_step) {
