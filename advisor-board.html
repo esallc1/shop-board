@@ -417,6 +417,26 @@
      .rec-btn/.rec-ready/.rec-pending/.rec-marker styles from the desk slice. */
   .cd-call-rec { margin-top: 6px; }
   .cd-call-rec:empty { display: none; }   /* no recording → collapse, no gap */
+  /* ── Comeback badge + chain card ── */
+  .cd-comeback-badge {
+    display: inline-flex; align-items: center; gap: 6px; margin-bottom: 10px;
+    font-size: 0.74rem; font-weight: 800; color: #92400e;
+    background: #fffaf0; border: 1px solid var(--amber); border-radius: 999px; padding: 4px 12px;
+  }
+  .cd-comeback-badge.broken { color: var(--muted); background: var(--surface-2); border-color: var(--border); }
+  .cd-chain-list { display: flex; flex-direction: column; gap: 8px; }
+  .cd-chain-row { border: 1px solid var(--border); border-radius: 8px; padding: 8px 11px; background: #fff; cursor: pointer; }
+  .cd-chain-row:hover { border-color: var(--accent); background: var(--surface-2); }
+  .cd-chain-row.current { border-color: var(--accent); border-left: 4px solid var(--accent); background: #f5f5ff; cursor: default; }
+  .cd-chain-top { display: flex; align-items: baseline; gap: 8px; }
+  .cd-chain-num { font-size: 0.82rem; font-weight: 800; color: var(--text); }
+  .cd-chain-tag { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
+  .cd-chain-tag.current { color: var(--accent); }
+  .cd-chain-when { margin-left: auto; font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+  .cd-chain-field { font-size: 0.8rem; color: var(--text); margin-top: 5px; }
+  .cd-chain-field .lbl { font-weight: 700; color: var(--muted); }
+  /* the honest gap this slice closes: "not recorded" is a state, not a blank */
+  .cd-chain-field .missing { color: var(--muted); font-style: italic; }
   /* ── Payments (Phase 5) ── */
   .cd-pay-lbl { display: block; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 700; margin-bottom: 3px; }
   .cd-pay-form input, .cd-pay-form select {
@@ -487,6 +507,12 @@
 <script type="module">
   import * as RecordingPlayer from './shared/recording-player.js';
   window.RecordingPlayer = RecordingPlayer;
+</script>
+<!-- Comeback chain logic (ESM). Assigns window.ComebackChain; used by the RO
+     detail badge + chain card and the blocked-close guard. Pure/DOM-free. -->
+<script type="module">
+  import * as ComebackChain from './shared/comeback-chain.js';
+  window.ComebackChain = ComebackChain;
 </script></script>
 </head>
 <body>
@@ -1057,6 +1083,11 @@
            reference detail sits behind a collapsed disclosure so the working
            surface stays reachable without scrolling. -->
       <div class="card">
+        <!-- Comeback badge — CONTEXT, not an identifier. Shows "Comeback N of RO
+             <root>" only when this RO has a parent. Populated async by
+             loadComebackChain (walks to the root). The RO's own number is
+             unchanged everywhere else. -->
+        <div id="cdRoComebackBadge" style="display:none"></div>
         <div class="cd-ro-header" id="cdRoHeaderGrid"></div>
         <details class="cd-ro-disclosure">
           <summary>Vehicle &amp; reference details</summary>
@@ -1114,6 +1145,14 @@
               <div class="intake-field cd-hf-full">
                 <label>Complaint</label>
                 <textarea id="cdRoComplaint" placeholder="Customer concern(s) — one per line"></textarea>
+              </div>
+              <!-- Comeback resolution — INTERNAL, shown ONLY for comebacks
+                   (parent_ro_id set). Never printed (printRo reads complaint +
+                   advisory_notes, never this). Along with Complaint, this gates
+                   the Close (a comeback can't close until both are filled). -->
+              <div class="intake-field cd-hf-full" id="cdRoComebackWrap" style="display:none">
+                <label>Comeback — what we did <span style="font-weight:600;color:var(--muted);font-size:0.72rem">· internal, required to close</span></label>
+                <textarea id="cdRoComebackResolution" placeholder="What the comeback turned out to be and what we did about it"></textarea>
               </div>
               <div class="intake-field cd-hf-full">
                 <label>Advisory Notes</label>
@@ -1241,6 +1280,18 @@
               <div class="cd-totals-row cd-totals-grand" id="cdPayBalanceRow"><span>Balance Due</span><span id="cdPayBalance">$0.00</span></div>
             </div>
             <div id="cdPayError" style="color:var(--red);font-size:0.78rem;min-height:16px;margin-top:6px"></div>
+          </div>
+
+          <!-- Comeback chain — every RO in this comeback chain, oldest → newest,
+               with its complaint + what-we-did. INTERNAL, never printed. Shown
+               only when this RO is part of a chain (has a parent or a child);
+               populated async by loadComebackChain. -->
+          <div class="card" id="cdRoChainCard" style="display:none">
+            <div class="card-title">
+              <div class="dot" style="background:var(--amber)"></div>Comeback History
+              <span style="margin-left:auto;font-size:0.66rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:0.4px">Internal · never printed</span>
+            </div>
+            <div id="cdRoChainBody" class="cd-chain-list"></div>
           </div>
 
           <!-- Call History — read-only list of calls linked to this RO (calls.ro_id,
@@ -3779,6 +3830,7 @@
       await loadLines();
       await loadPayments();
       loadCallHistory();   // read-only; fire-and-forget so it never blocks the panel
+      loadComebackChain(); // read-only; badge + chain card, also fire-and-forget
       $('cdRoListPanel').style.display = 'none';
       $('cdRoDetailPanel').style.display = 'block';
     }
@@ -3908,6 +3960,109 @@
       audio.addEventListener('pause', clear);
     })();
 
+    // ── comeback chain: badge + chain card (read-only, NEVER printed) ──
+    // parent_ro_id points at the IMMEDIATE parent; the ordinal/root come from
+    // walking to the root in shared/comeback-chain.js. We gather the chain by
+    // walking UP to the root and DOWN through children so the card shows the
+    // whole chain from whichever RO is open.
+    const CHAIN_COLS_BASE = 'id, ro_number, parent_ro_id, complaint, created_at, status';
+    let chainResolutionCol = true;   // optimistic; flipped off if the column isn't migrated (42703/PGRST204)
+    let chainSeq = 0;                 // guards a stale async render from a newer open
+    function chainCols() { return chainResolutionCol ? CHAIN_COLS_BASE + ', comeback_resolution' : CHAIN_COLS_BASE; }
+    // Run a chain query with comeback_resolution, retrying once without it if the
+    // column isn't there yet — so the chain still works pre-migration.
+    async function chainFetch(build) {
+      let resp = await build(chainCols());
+      if (resp.error && isMissingColumn(resp.error) && chainResolutionCol) {
+        chainResolutionCol = false;
+        resp = await build(chainCols());
+      }
+      return resp;
+    }
+    async function gatherComebackChain(seed) {
+      const CAP = 60;
+      const map = {};
+      const put = (r) => { if (r && r.id != null) map[String(r.id)] = r; };
+      put(seed);
+      // walk UP to the root (immediate parent → … → original)
+      let node = seed, guard = 0;
+      const seen = new Set([String(seed.id)]);
+      while (node && node.parent_ro_id != null && guard++ < CAP) {
+        const pid = String(node.parent_ro_id);
+        if (seen.has(pid)) break;                     // cycle guard
+        seen.add(pid);
+        const { data } = await chainFetch((cols) =>
+          db.from('repair_orders').select(cols).eq('id', node.parent_ro_id).maybeSingle());
+        if (!data) break;                             // orphan — parent gone; leave the chain broken
+        put(data); node = data;
+      }
+      // walk DOWN through children (BFS) so later comebacks in the chain show too
+      let frontier = Object.keys(map); guard = 0;
+      while (frontier.length && guard++ < CAP) {
+        const { data } = await chainFetch((cols) =>
+          db.from('repair_orders').select(cols).in('parent_ro_id', frontier));
+        const next = [];
+        for (const r of (data || [])) {
+          const k = String(r.id);
+          if (!map[k]) { put(r); next.push(k); }
+        }
+        frontier = next;
+      }
+      return map;
+    }
+    async function loadComebackChain() {
+      const CC = window.ComebackChain;
+      const badge = $('cdRoComebackBadge'), card = $('cdRoChainCard'), body = $('cdRoChainBody');
+      if (!CC || !currentRo || !badge || !card) return;
+      // Hide up-front so a previous RO's badge/chain never flashes during the walk.
+      badge.style.display = 'none'; badge.textContent = '';
+      card.style.display = 'none';
+      const seq = ++chainSeq;
+      const ro = currentRo;
+      const isCb = CC.isComeback(ro);
+      let map;
+      try { map = await gatherComebackChain(ro); }
+      catch (e) { console.warn('[CdRO] comeback chain gather failed', e); map = { [String(ro.id)]: ro }; }
+      // The panel may have moved to another RO while this awaited — bail if so.
+      if (seq !== chainSeq || !currentRo || String(currentRo.id) !== String(ro.id)) return;
+
+      // BADGE — context only, and only for a comeback.
+      if (isCb) {
+        const analysis = CC.analyzeChain(map, ro.id);
+        badge.className = 'cd-comeback-badge' + (analysis.broken ? ' broken' : '');
+        badge.textContent = '↩ ' + CC.badgeLabel(analysis);
+        badge.style.display = '';
+      }
+
+      // CHAIN CARD — show when this RO is part of a chain (a comeback, or the
+      // original with at least one comeback hanging off it).
+      const rows = CC.orderChain(map);
+      if (!(isCb || rows.length > 1)) { body.innerHTML = ''; return; }
+      body.innerHTML = rows.map(r => {
+        const current = String(r.id) === String(ro.id);
+        const dt = r.created_at ? new Date(r.created_at) : null;
+        const date = dt && !isNaN(dt) ? dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+        const isRoot = r.parent_ro_id == null;
+        const tag = current ? '<span class="cd-chain-tag current">this RO</span>'
+                  : `<span class="cd-chain-tag">${isRoot ? 'original' : 'comeback'}</span>`;
+        const fieldHtml = (lbl, rec) =>
+          `<div class="cd-chain-field"><span class="lbl">${lbl}:</span> ` +
+          (rec.recorded ? esc(rec.text) : `<span class="missing">${esc(rec.text)}</span>`) + '</div>';
+        const complaintHtml = fieldHtml('Complaint', CC.recordedOr(r.complaint));
+        // "What we did" is the comeback resolution — meaningful only for a comeback
+        // row (the original has no comeback_resolution). Shown as "not recorded"
+        // when a comeback has nothing yet — the honest gap this slice closes.
+        const resoHtml = isRoot ? '' : fieldHtml('What we did', CC.recordedOr(r.comeback_resolution));
+        return `<div class="cd-chain-row${current ? ' current' : ''}"${current ? '' : ` data-open-ro="${esc(r.id)}"`}>
+          <div class="cd-chain-top"><span class="cd-chain-num">RO #${esc(r.ro_number)}</span>${tag}<span class="cd-chain-when">${esc(date)}</span></div>
+          ${complaintHtml}${resoHtml}
+        </div>`;
+      }).join('');
+      body.querySelectorAll('[data-open-ro]').forEach(el =>
+        el.addEventListener('click', () => openRo(el.dataset.openRo)));
+      card.style.display = '';
+    }
+
     // ── editable per-RO fields (miles out, technician, advisory) ──
     async function populateRoEditFields() {
       const v = currentRo.vehicles || {};
@@ -3918,6 +4073,12 @@
       $('cdRoOdometerIn').value = currentRo.odometer_in != null ? currentRo.odometer_in : '';
       $('cdRoComplaint').value = currentRo.complaint || '';
       $('cdRoAdvisory').value = currentRo.advisory_notes || '';
+      // Comeback resolution — shown ONLY for a comeback (parent_ro_id set).
+      // parent_ro_id is known synchronously (openRo selects *); the ordinal/root
+      // badge needs the async chain walk, but the field's visibility does not.
+      const isCb = !!currentRo.parent_ro_id;
+      $('cdRoComebackWrap').style.display = isCb ? '' : 'none';
+      $('cdRoComebackResolution').value = currentRo.comeback_resolution || '';
       $('cdRoVin').value = v.vin || '';
       $('cdRoPlate').value = v.plate || '';
       $('cdRoPlateState').value = v.plate_state || '';
@@ -4615,6 +4776,29 @@
       const prev = currentRo.status;
       if (next === prev) return;
 
+      // PART 4 — BLOCK THE CLOSE OF A COMEBACK until BOTH the complaint and the
+      // comeback resolution are recorded. ONLY comebacks (parent_ro_id set); no
+      // gate on estimate/ro/invoice, none on a normal RO's close, none on the
+      // floor status axis. Read the LIVE on-screen values so a just-typed field
+      // counts before its change event fires. Runs BEFORE the optimistic update
+      // so a block changes nothing.
+      if (next === 'closed' && currentRo.parent_ro_id) {
+        const CC = window.ComebackChain;
+        const complaintVal = ($('cdRoComplaint').value || '').trim();
+        const resolutionVal = ($('cdRoComebackResolution').value || '').trim();
+        const v = CC ? CC.validateComebackClose({ complaint: complaintVal, resolution: resolutionVal })
+                     : { ok: !!(complaintVal && resolutionVal), missing: (!complaintVal ? ['complaint'] : []).concat(!resolutionVal ? ['resolution'] : []) };
+        if (!v.ok) {
+          const LABELS = { complaint: 'the Complaint', resolution: 'the “Comeback — what we did” note' };
+          const names = v.missing.map(k => LABELS[k] || k);
+          alert('This is a comeback — it can’t be Closed until you fill in:\n\n• ' + names.join('\n• ') +
+                '\n\nA comeback isn’t invoiced, so this is the only place the complaint and the repair get recorded.');
+          // The stage <select> already shows the attempted "Closed" — snap it back.
+          const sel = $('cdRoStage'); if (sel) sel.value = STAGES.includes(currentRo.status) ? currentRo.status : 'estimate';
+          return;
+        }
+      }
+
       // optimistic local update so the UI feels instant
       currentRo.status = next;
       renderHeader();
@@ -5187,6 +5371,13 @@
     });
     $('cdRoComplaint').addEventListener('change', () => updateRoField('complaint', $('cdRoComplaint').value.trim() || null));
     $('cdRoAdvisory').addEventListener('change', () => updateRoField('advisory_notes', $('cdRoAdvisory').value.trim() || null));
+    // Comeback resolution — same silent optimistic save (missing-column resilient
+    // via updateRoField). On save, repaint the chain card so the row for this RO
+    // reflects the new "what we did" without a reopen.
+    $('cdRoComebackResolution').addEventListener('change', async () => {
+      await updateRoField('comeback_resolution', $('cdRoComebackResolution').value.trim() || null);
+      loadComebackChain();
+    });
     // VIN / plate live on the shared vehicle row, not the RO
     $('cdRoVin').addEventListener('change', () => updateVehicleField('vin', $('cdRoVin').value.trim() || null));
     $('cdRoPlate').addEventListener('change', () => updateVehicleField('plate', $('cdRoPlate').value.trim() || null));
