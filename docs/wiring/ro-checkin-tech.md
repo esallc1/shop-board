@@ -1,8 +1,8 @@
 # How RO check-in, active-RO status & tech assignment are wired
 
 > Doc: `/docs/wiring/ro-checkin-tech.md`
-> Last updated: 2026-07-30 — verified vs commit `PENDING`
-> Status: ✅ verified vs commit `PENDING` — code re-checked against `advisor-board.html` +
+> Last updated: 2026-07-30 — verified vs commit `1dabd59`
+> Status: ✅ verified vs commit `1dabd59` — code re-checked against `advisor-board.html` +
 > `crisdata-techboard.html`, and the floor-table columns introspected against the live DB.
 > The §4 assign-tech bug is now **FIXED**; arrival-date entry (§5) is still open.
 
@@ -52,10 +52,10 @@ selecting `id,status`, then queries `shopboard_pickup` **id-only** and returns
 `crisdata-techboard.html:276`**) is the single source of truth for assigning/clearing a car's
 tech. It:
 1. updates `repair_orders.technician` (degrades quietly if that column is missing);
-2. **finds the car's floor row** by looping `['shopboard_parking','shopboard_lifts',
-   'shopboard_pickup']` and doing `db.from(t).select('id,status')`;
+2. **finds the car's floor row** via the pickup-aware `findStatusFloorRow` / `StatusMirror`
+   (§2) — *not* the old uniform `select('id,status')` across all three tables (that was the bug);
 3. if found → updates that row (`assigned_tech`, and nudges a pre-work row to
-   `status:'waiting-tech'`);
+   `status:'waiting-tech'` — but only when it isn't the pickup zone);
 4. if **not** on the floor and a tech is being assigned → **auto-check-in**: inserts a
    `shopboard_parking` row (`status:'waiting-tech'`, `arrival_date: today`).
 
