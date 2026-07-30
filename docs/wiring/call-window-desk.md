@@ -1,8 +1,8 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-07-30 — verified vs commit `PENDING`
-> Status: ✅ verified vs commit `PENDING` — checked against `advisor-board.html` (the `callerCard` and `desk` IIFEs, the refresh safety net), `api/desk-appointment.js`, and the `calls` migrations.
+> Last updated: 2026-07-30 — verified vs commit `932950b`
+> Status: ✅ verified vs commit `932950b` — checked against `advisor-board.html` (the `callerCard` and `desk` IIFEs, the refresh safety net), `api/desk-appointment.js`, and the `calls` migrations.
 
 ## 0. In one line
 An inbound call pops a card where the advisor picks **what happens next**; that choice
