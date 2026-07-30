@@ -1,12 +1,13 @@
 # How the Announcement Banner is wired
 
 > Doc: `/docs/wiring/announcements.md`
-> Last updated: 2026-07-30 — verified vs commit `PENDING`
-> Status: ✅ verified vs commit `PENDING` — checked against `shared/announcement-banner.js`, `api/announcement.js`, the `announcements` migrations, and the four office boards.
+> Last updated: 2026-07-30 — verified vs commit `e6558fb`
+> Status: ✅ verified vs commit `e6558fb` — checked against `shared/announcement-banner.js`, `api/announcement.js`, the `announcements` migrations, and the four office boards.
 
 ## 0. In one line
 The owner broadcasts **one short message** to the office team; it shows as a **dismissible
-banner** at the top of the **office boards** (advisor + owner). No chat, no to-do.
+banner** at the top of the **office boards**, targeted by role (Manager / Advisor /
+Bookkeeping). No chat, no to-do.
 
 ## 1. Which boards (audience-targeted)
 - **Shows on the office boards, each filtered to its own role** — the `role` passed to
