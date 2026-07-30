@@ -194,6 +194,13 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Work-status floor-mirror (ESM). Assigns window.StatusMirror — the same
+       pickup-aware floor resolver advisor-board.html uses, so assignTechCore's
+       floor lookup is identical on both boards. -->
+  <script type="module">
+    import * as StatusMirror from './shared/status-mirror.js';
+    window.StatusMirror = StatusMirror;
+  </script>
   <script>
   (function () {
     const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
@@ -273,6 +280,26 @@
     //   opts.po    – floor key (ro.po || ro_number); RO fallback key
     //   opts.tech  – tech name, or null to UNASSIGN
     //   opts.customer / opts.vehicle – used ONLY for the auto-check-in insert
+    // Locate the car's live floor row, pickup-aware. Delegates to the shared,
+    // tested StatusMirror when loaded; the inline fallback keeps it working
+    // pre-module-load. parking + lifts have `status`; shopboard_pickup does NOT
+    // (select only id there → no 42703). Mirror of advisor-board.html.
+    async function findStatusFloorRow(po) {
+      const SM = window.StatusMirror;
+      if (SM && SM.findStatusFloorRow) return SM.findStatusFloorRow(db, po);
+      const key = String(po == null ? '' : po);
+      if (!key) return null;
+      for (const t of ['shopboard_parking', 'shopboard_lifts']) {
+        const { data, error } = await db.from(t).select('id,status').eq('po', key).limit(1);
+        if (error) throw error;
+        if (data && data.length) return { table: t, id: data[0].id, status: data[0].status ?? null, isPickup: false };
+      }
+      const { data, error } = await db.from('shopboard_pickup').select('id').eq('po', key).limit(1);
+      if (error) throw error;
+      if (data && data.length) return { table: 'shopboard_pickup', id: data[0].id, status: null, isPickup: true };
+      return null;
+    }
+
     async function assignTechCore(opts) {
       const { roId, po, tech } = opts;
       const key = String(po);
@@ -282,19 +309,20 @@
       const roRes = await roQ;
       if (roRes.error && !isMissingColumn(roRes.error)) return { ok: false, error: roRes.error };
       if (roRes.error) console.warn('[assignTech] technician column missing — floor still updated.');
-      // b) locate the car's live floor row across the three tables
-      const FLOOR = ['shopboard_parking', 'shopboard_lifts', 'shopboard_pickup'];
-      let found = null;
-      for (const t of FLOOR) {
-        const { data, error } = await db.from(t).select('id,status').eq('po', key).limit(1);
-        if (error) return { ok: false, error };
-        if (data && data.length) { found = { table: t, id: data[0].id, status: data[0].status }; break; }
-      }
+      // b) locate the car's live floor row via the pickup-aware resolver
+      // (findStatusFloorRow / StatusMirror). NOT an ad-hoc 3-table select-status
+      // loop: shopboard_pickup has NO `status` column, so selecting it there
+      // 42703s — which is exactly what broke assigning a tech to a not-checked-in
+      // RO (the loop fell through to pickup and errored before the auto-check-in).
+      let found;
+      try { found = await findStatusFloorRow(key); }
+      catch (error) { return { ok: false, error }; }
       if (found) {
         // on the floor → set assigned_tech; nudge a pre-work row to waiting-tech.
         // Unassigning clears the tech but LEAVES the car on the floor (status kept).
+        // NEVER write `status` to the pickup zone — it has no such column.
         const patch = { assigned_tech: tech };
-        if (tech && isPreWorkStatus(found.status)) patch.status = 'waiting-tech';
+        if (tech && !found.isPickup && isPreWorkStatus(found.status)) patch.status = 'waiting-tech';
         const { error } = await db.from(found.table).update(patch).eq('id', found.id);
         if (error) return { ok: false, error };
       } else if (tech) {

@@ -4475,19 +4475,20 @@
       const roRes = await roQ;
       if (roRes.error && !isMissingColumn(roRes.error)) return { ok: false, error: roRes.error };
       if (roRes.error) console.warn('[assignTech] technician column missing — floor still updated.');
-      // b) locate the car's live floor row across the three tables
-      const FLOOR = ['shopboard_parking', 'shopboard_lifts', 'shopboard_pickup'];
-      let found = null;
-      for (const t of FLOOR) {
-        const { data, error } = await db.from(t).select('id,status').eq('po', key).limit(1);
-        if (error) return { ok: false, error };
-        if (data && data.length) { found = { table: t, id: data[0].id, status: data[0].status }; break; }
-      }
+      // b) locate the car's live floor row via the pickup-aware resolver
+      // (findStatusFloorRow / StatusMirror). NOT an ad-hoc 3-table select-status
+      // loop: shopboard_pickup has NO `status` column, so selecting it there
+      // 42703s — which is exactly what broke assigning a tech to a not-checked-in
+      // RO (the loop fell through to pickup and errored before the auto-check-in).
+      let found;
+      try { found = await findStatusFloorRow(key); }
+      catch (error) { return { ok: false, error }; }
       if (found) {
         // on the floor → set assigned_tech; nudge a pre-work row to waiting-tech.
         // Unassigning clears the tech but LEAVES the car on the floor (status kept).
+        // NEVER write `status` to the pickup zone — it has no such column.
         const patch = { assigned_tech: tech };
-        if (tech && isPreWorkStatus(found.status)) patch.status = 'waiting-tech';
+        if (tech && !found.isPickup && isPreWorkStatus(found.status)) patch.status = 'waiting-tech';
         const { error } = await db.from(found.table).update(patch).eq('id', found.id);
         if (error) return { ok: false, error };
       } else if (tech) {

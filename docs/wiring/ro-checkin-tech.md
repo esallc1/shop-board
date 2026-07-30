@@ -1,10 +1,10 @@
 # How RO check-in, active-RO status & tech assignment are wired
 
 > Doc: `/docs/wiring/ro-checkin-tech.md`
-> Last updated: 2026-07-30 — verified vs commit `832077d`
-> Status: ✅ verified vs commit `832077d` — code re-checked against `advisor-board.html` +
+> Last updated: 2026-07-30 — verified vs commit `PENDING`
+> Status: ✅ verified vs commit `PENDING` — code re-checked against `advisor-board.html` +
 > `crisdata-techboard.html`, and the floor-table columns introspected against the live DB.
-> Documents a **known bug** (§4) that is not yet fixed.
+> The §4 assign-tech bug is now **FIXED**; arrival-date entry (§5) is still open.
 
 ## 0. In one line
 An RO's **stage** (`repair_orders.status`, e.g. "ro" = Active) and its **physical presence**
@@ -59,30 +59,30 @@ tech. It:
 4. if **not** on the floor and a tech is being assigned → **auto-check-in**: inserts a
    `shopboard_parking` row (`status:'waiting-tech'`, `arrival_date: today`).
 
-**🐞 BUG (Kevin, RO #6018 → "Cory"):** step 2 selects `status` from **all three** tables,
-including `shopboard_pickup`, which has **no `status` column**. When the car is **not** in
-parking or lifts (an Active RO that isn't checked in — exactly #6018's state at assign time),
-the loop reaches `shopboard_pickup`, the select returns Postgres **42703
-`column shopboard_pickup.status does not exist`** (surfaced to Kevin as
-`"column shopboard.pickup_status does not exist"` — an underscore/dot transcription of the
-same error), and `assignTechCore` returns that error and aborts **before** the auto-check-in
-insert can run. So the intended "assign a tech → auto-check-in" never happens, and the assign
-looks blocked.
-- Contributing edge case: even a car that *is* in `shopboard_pickup` would hit the same select
-  before it could be found.
-- Both `advisor-board.html` and `crisdata-techboard.html` carry the identical loop → the bug
-  is on both boards.
+**🐞 BUG (Kevin, RO #6018 → "Cory") — ✅ FIXED (Option A):** step 2 *used to* select `status`
+from **all three** tables, including `shopboard_pickup`, which has **no `status` column**. When
+the car was **not** in parking or lifts (an Active RO that isn't checked in — exactly #6018's
+state at assign time), the loop reached `shopboard_pickup`, the select returned Postgres
+**42703 `column shopboard_pickup.status does not exist`** (surfaced to Kevin as
+`"column shopboard.pickup_status does not exist"` — an underscore/dot transcription of the same
+error), and `assignTechCore` returned that error and aborted **before** the auto-check-in
+insert could run.
 
-**Fix options (not yet applied):**
-- **A — reuse the correct helper (preferred):** resolve the floor row via
-  `findStatusFloorRow` / `StatusMirror.findStatusFloorRow` (already pickup-aware), and when the
-  hit is pickup (`isPickup`/`status:null`) set **only `assigned_tech`** in the patch (skip
-  `status`, which pickup lacks). One shared fix; also de-duplicates the ad-hoc loop.
-- **B — targeted select fix:** in the loop, select `id` (not `status`) for `shopboard_pickup`,
-  **and** guard the update/auto-check-in so `status` is only written to tables that have it.
-  Smaller diff, but leaves two copies of the logic.
-- Either way, **apply to both** `advisor-board.html` and `crisdata-techboard.html` (verbatim
-  mirror), and add a regression check for "assign a tech to a not-checked-in Active RO."
+**The fix:** step 2 now resolves the floor row via the **pickup-aware helper**
+`findStatusFloorRow` (which delegates to the shared, tested `StatusMirror.findStatusFloorRow`):
+it selects `id,status` from parking + lifts, then queries `shopboard_pickup` **id-only** and
+returns `{ isPickup:true, status:null }`. A not-on-floor car now resolves to `null` cleanly, so
+`assignTechCore` proceeds to its **auto-check-in** insert as intended. The floor-row patch also
+guards `!found.isPickup` before writing `status`, so assigning a tech to a car in the pickup
+zone writes **only `assigned_tech`** (never the missing `status` column).
+- Applied to **both** boards. `crisdata-techboard.html` had neither the helper nor
+  `StatusMirror`, so this change added the `StatusMirror` ESM include + a `findStatusFloorRow`
+  wrapper there, making its `assignTechCore` identical to advisor-board's.
+- Regression test: `shared/status-mirror.test.js` — a schema-accurate mock where selecting
+  `status` from `shopboard_pickup` 42703s; asserts the helper resolves a not-on-floor car to
+  `null` **without** ever asking pickup for `status`. Verified live too: the old
+  `select id,status` on `shopboard_pickup` still 42703s, while the helper returns `null` cleanly.
+
 - **On Kevin's gating point:** there is **no separate check-in gate** on tech assignment — the
   code already *intends* to auto-check-in on assign (step 4). Fixing the select bug delivers
   exactly what Kevin expects (Active RO → assign tech → car dropped onto the floor). No new
@@ -101,7 +101,8 @@ to type the actual arrival day**.
   "today" as the default so the common case is unchanged.
 
 ## Known gaps & open questions (as of 2026-07-30)
-- **The §4 bug is live** on both boards and unfixed.
+- **Arrival-date entry (§5) is still open** — check-in date is hard-coded to today; no UI to
+  type the actual arrival day.
 - `arrived_at` is a history stamp, not a live on-floor flag — a car cleared off the floor still
   reads "Checked in ✓". Intentional, but easy to misread.
 - The `shopboard_*` tables' real schema (e.g. `assigned_tech`, `tech_status`, `warranty`,
@@ -111,9 +112,11 @@ to type the actual arrival day**.
 ## Where it lives in the code
 - Check-in: `advisor-board.html` — `checkInArrived` (~3646), `paintArrivedBtn` (~3681).
 - Tech assign: `advisor-board.html` — `assignTechCore` (~4469), `isPreWorkStatus` (~4454);
-  **mirrored in** `crisdata-techboard.html` — `assignTechCore` (~276).
-- Correct pickup-aware floor resolver: `findStatusFloorRow` (`advisor-board.html:4554`) +
-  `shared/status-mirror.js`.
+  **mirrored in** `crisdata-techboard.html` — `assignTechCore` (now with a local
+  `findStatusFloorRow` wrapper + the `StatusMirror` ESM include).
+- Pickup-aware floor resolver (the fix's linchpin): `shared/status-mirror.js`
+  `findStatusFloorRow` (+ the `advisor-board.html:4554` wrapper), tested in
+  `shared/status-mirror.test.js` (incl. the RO #6018 regression).
 - Floor schema (partial / stale vs live): `setup_shopboard.sql`. Live columns verified by
   introspection, not a migration.
 
@@ -121,5 +124,10 @@ to type the actual arrival day**.
 - 2026-07-30 — Created during the RO #6018 "assign tech" investigation. Root-caused the
   `shopboard_pickup` has-no-`status` select bug in `assignTechCore` (both boards), confirmed
   the arrival date is hard-coded to today, and clarified that "Active RO" and "checked in" are
-  independent axes with auto-check-in already intended on assign. **Investigation only — no app
-  code changed.**
+  independent axes with auto-check-in already intended on assign.
+- 2026-07-30 — **Fixed the §4 bug (Option A):** `assignTechCore` now resolves the floor row via
+  `findStatusFloorRow` / `StatusMirror` (pickup-aware) and guards `!isPickup` before writing
+  `status`; applied to both boards (added `StatusMirror` + a `findStatusFloorRow` wrapper to
+  `crisdata-techboard.html`); added the RO #6018 regression to `shared/status-mirror.test.js`.
+  Verified live (old path 42703s, helper resolves not-on-floor to null). Arrival-date entry (§5)
+  intentionally left for a follow-up.

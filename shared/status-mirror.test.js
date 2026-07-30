@@ -71,6 +71,58 @@ test('findStatusFloorRow returns null when the car is on no floor table / empty 
   assert.equal(await findStatusFloorRow(mockDb(null), ''), null);
 });
 
+// ── regression: the shopboard_pickup-has-no-status bug (Kevin, RO #6018) ──────
+// Schema-accurate mock: shopboard_pickup has NO `status` column, so selecting
+// `status` there returns Postgres 42703 — exactly the error that broke assigning
+// a tech to a not-checked-in RO. parking/lifts have status. Records the columns
+// selected per table so a test can prove pickup is never asked for `status`.
+function schemaMockDb(onTables) {
+  const selects = [];
+  function qb(table) {
+    let cols = '*';
+    const b = {};
+    b.select = (c) => { cols = c; selects.push({ table, cols: c }); return b; };
+    b.eq = () => b;
+    b.limit = () => b;
+    b.then = (resolve) => {
+      if (table === 'shopboard_pickup' && /\bstatus\b/.test(cols)) {
+        resolve({ data: null, error: { code: '42703', message: 'column shopboard_pickup.status does not exist' } });
+        return;
+      }
+      const present = onTables.includes(table);
+      const row = table === 'shopboard_pickup' ? { id: 'k1' } : { id: 'r1', status: 'empty' };
+      resolve({ data: present ? [row] : [], error: null });
+    };
+    return b;
+  }
+  return { selects, from: qb };
+}
+
+test('regression: a NOT-checked-in car resolves to null with NO 42703 (assign-tech auto-check-in path)', async () => {
+  // #6018's state at Kevin's assign: on NO floor table. The old ad-hoc loop
+  // selected id,status from all three and 42703'd on pickup; the helper must not,
+  // so assignTechCore can fall through to its auto-check-in insert.
+  const db = schemaMockDb([]);
+  const floor = await findStatusFloorRow(db, '6018');   // must not throw
+  assert.equal(floor, null);
+  const pickupSel = db.selects.find((s) => s.table === 'shopboard_pickup');
+  assert.ok(pickupSel, 'pickup was queried');
+  assert.ok(!/status/.test(pickupSel.cols), 'pickup selected id-only, never status');
+});
+
+test('regression: a car actually on pickup resolves to isPickup, no 42703', async () => {
+  const db = schemaMockDb(['shopboard_pickup']);
+  const floor = await findStatusFloorRow(db, '6018');
+  assert.deepEqual(floor, { table: 'shopboard_pickup', id: 'k1', status: null, isPickup: true });
+});
+
+test('regression: a parking car resolves early and pickup is never queried', async () => {
+  const db = schemaMockDb(['shopboard_parking']);
+  const floor = await findStatusFloorRow(db, '6018');
+  assert.equal(floor.table, 'shopboard_parking');
+  assert.ok(!db.selects.some((s) => s.table === 'shopboard_pickup'), 'found early → pickup untouched');
+});
+
 // ── the write ───────────────────────────────────────────────
 test('mirrorStatus writes ONLY { status } to the correct floor table (no *_at, no warranty, no repair_orders)', async () => {
   const db = mockDb({ table: 'shopboard_lifts', row: { id: 5, status: 'waiting-tech' } });
