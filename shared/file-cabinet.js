@@ -36,6 +36,7 @@ window.FileCabinet = (function () {
     { id: 'customer', file: 'customer-record.md',   icon: '👤', title: 'Customer record' },
     { id: 'wizard',   file: 'intake-wizard.md',     icon: '🧾', title: 'Intake wizard (New RO flow)' },
     { id: 'floor',    file: 'floor-tags.md',        icon: '🚩', title: 'Floor tags & board lanes' },
+    { id: 'calldesk', file: 'call-window-desk.md',  icon: '📞', title: 'Call window & Desk' },
     { id: 'cabinet',  file: 'file-cabinet.md',      icon: '🗄️', title: 'File Cabinet tab (this screen)' },
   ];
   const byFile = {}; DOCS.forEach(d => { byFile[d.file] = d; });

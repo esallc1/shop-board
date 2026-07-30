@@ -656,12 +656,27 @@
     font: inherit; font-size: 0.8rem; color: var(--text); background: var(--surface);
   }
   .cc-when input:focus, .cc-when select:focus { outline: none; border-color: var(--accent); }
+  /* Outcome-echo: states the LANE + WEEKDAY so a wrong lane / wrong date is
+     visible before the card is closed. Colors mirror the Desk lanes. */
+  .cc-echo { margin-top: 8px; font-size: 0.8rem; font-weight: 700; border-radius: 8px; padding: 7px 10px; display: none; }
+  .cc-echo.show { display: block; }
+  .cc-echo.lane-in { background: #e7f3ff; color: #1d4ed8; border: 1px solid #bfdbfe; }   /* Coming in */
+  .cc-echo.lane-cb { background: #EEEDFE; color: #3C3489; border: 1px solid #d5d2f7; }   /* Callback */
+  .cc-echo.prompt  { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); font-weight: 600; }
   .cc-footer { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
   .cc-saved { font-size: 0.72rem; color: var(--muted); min-height: 1em; }
   .cc-saved.err { color: var(--red); }
   .cc-saved.ok { color: var(--green); }
-  .cc-done { margin-left: auto; border: 1px solid var(--green); background: var(--green); color: #fff; border-radius: 8px; padding: 5px 14px; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
-  .cc-done:hover { filter: brightness(0.95); }
+  .cc-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  /* "Close" = dismiss the popup WITHOUT resolving (the everyday action after
+     scheduling something for later). Prominent + rightmost so the habitual tap
+     never accidentally resolves a future callback/drop-off. */
+  .cc-close { border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; padding: 5px 14px; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+  .cc-close:hover { filter: brightness(0.96); }
+  /* "Mark done" = truly resolve (sets resolved_at). Secondary; only shown for an
+     unresolved callback/drop-off. */
+  .cc-done { border: 1px solid var(--green); background: var(--surface); color: var(--green); border-radius: 8px; padding: 5px 14px; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+  .cc-done:hover { background: #e7f9f1; }
 </style>
 
 <div class="app-shell">
@@ -7104,6 +7119,7 @@
       }
       Object.assign(card._call, p);
       card._lastPatch = p;                          // exposed for local verification
+      updateEcho(card);                             // reflect lane/date + toggle "Mark done"
       setSaved(card, 'saving');
       const id = card._call && card._call.id;
       if (id == null) { setSaved(card, 'saved'); return; }   // dry-run card
@@ -7227,11 +7243,51 @@
           ${NEXT_STEPS.map(s => `<button type="button" data-next="${s.key}">${esc(s.label)}</button>`).join('')}
         </div>
         <div class="cc-when"></div>
+        <div class="cc-echo" aria-live="polite"></div>
         <div class="cc-footer">
           <span class="cc-saved" aria-live="polite"></span>
-          <button type="button" class="cc-done">Done</button>
+          <span class="cc-actions">
+            <button type="button" class="cc-done" style="display:none" title="The callback / drop-off is complete — clears it from the Desk">Mark done</button>
+            <button type="button" class="cc-close" title="Close this call. A callback or drop-off stays on the Desk until it's done.">Close</button>
+          </span>
         </div>
       </div>`;
+    }
+
+    // Local weekday-aware date label. The Desk's dueLabel lives in a different
+    // IIFE, so we format here. The WEEKDAY is the point — it's what surfaces
+    // "Thu, Jul 30" when the advisor meant Tuesday.
+    function echoDateLabel(iso, allDay) {
+      if (!iso) return '';
+      const d = new Date(iso); if (isNaN(d)) return '';
+      const date = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+      if (allDay) return date;
+      return `${date} · ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+    }
+
+    // Outcome-echo under the chips: which LANE this lands in + the WEEKDAY, so a
+    // wrong lane or a wrong date is visible before the card is closed. Only the
+    // two Desk-tracked steps get an echo. Also toggles "Mark done" — only an
+    // unresolved callback/drop-off can be resolved.
+    function updateEcho(card) {
+      const echo = card.querySelector('.cc-echo');
+      const doneBtn = card.querySelector('.cc-done');
+      const call = card._call || {};
+      const step = call.next_step;
+      const tracked = step === 'quoted_callback' || step === 'dropping_off';
+      if (doneBtn) doneBtn.style.display = (tracked && !call.resolved_at) ? '' : 'none';
+      if (!echo) return;
+      if (!tracked) { echo.className = 'cc-echo'; echo.textContent = ''; return; }
+      const when = echoDateLabel(call.due_at, call.due_all_day !== false);
+      if (step === 'dropping_off') {
+        echo.className = 'cc-echo show ' + (when ? 'lane-in' : 'prompt');
+        echo.textContent = when ? `→ Coming in: drop-off ${when} · on the schedule`
+                                : '→ Coming in: drop-off — pick a date';
+      } else {
+        echo.className = 'cc-echo show ' + (when ? 'lane-cb' : 'prompt');
+        echo.textContent = when ? `→ Callback: ${when}`
+                                : '→ Callback — pick a date';
+      }
     }
 
     // Rebuild the "when"/RO area for the current next_step. Only quoted_callback
@@ -7334,27 +7390,51 @@
       });
       note.addEventListener('blur', () => { clearTimeout(noteTimer); saveIfChanged(); });
 
-      // Explicit "Done" (slice 3b): flush any pending note, then dismiss the
-      // card. This does NOT set calls.resolved_at — that's the Desk lane's job
-      // when Josh has actually fulfilled the callback/drop-off. Done here just
-      // means "the call is over, close the card." No auto-clear timer is added.
+      // "Close" — flush any pending note, then dismiss the popup WITHOUT
+      // resolving. A callback / drop-off stays on the Desk (resolved_at null) so
+      // it can't fall off the radar; this is the everyday action after
+      // scheduling something for later. Renamed from the old "Done", which read
+      // as "handled" but only dismissed — the ambiguity that hid an open callback.
+      const closeBtn = card.querySelector('.cc-close');
+      if (closeBtn) closeBtn.addEventListener('click', () => { clearTimeout(noteTimer); saveIfChanged(); card.remove(); });
+
+      // "Mark done" — the callback / drop-off is actually complete: set
+      // resolved_at (same as the Desk lane's Done), then close. Only shown for an
+      // unresolved callback/drop-off (updateEcho toggles it).
       const doneBtn = card.querySelector('.cc-done');
-      if (doneBtn) doneBtn.addEventListener('click', () => { clearTimeout(noteTimer); saveIfChanged(); card.remove(); });
+      if (doneBtn) doneBtn.addEventListener('click', async () => {
+        clearTimeout(noteTimer); saveIfChanged();
+        await resolveCallCard(card);
+        card.remove();
+      });
 
       card.querySelectorAll('.cc-next button').forEach(b =>
         b.addEventListener('click', () => {
           const step = b.dataset.next;
           card.querySelectorAll('.cc-next button').forEach(x => x.classList.toggle('active', x === b));
-          // Single-select next_step; null out the fields that don't apply to it
-          // so the row never carries stale date/RO from a previous choice.
-          const patch = { next_step: step };
-          if (step === 'quoted_callback')      { patch.ro_id = null; patch.due_all_day = true; }
-          else if (step === 'dropping_off')    { patch.ro_id = null; if (card._call.due_all_day == null) patch.due_all_day = true; }
-          else if (step === 'checking_on_car') { patch.due_at = null; patch.due_all_day = true; }
-          else                                 { patch.due_at = null; patch.due_all_day = true; patch.ro_id = null; }
+          // Single-select next_step. A step switch ALWAYS starts the date fresh —
+          // a due_at from the previous step must never ride across (a callback
+          // date silently carried into a drop-off pick once). ro_id applies only
+          // to checking_on_car; clear it for every other step.
+          const patch = { next_step: step, due_at: null, due_all_day: true };
+          if (step !== 'checking_on_car') patch.ro_id = null;
           saveNote(card, patch);
           renderWhen(card);
         }));
+    }
+
+    // Resolve a call from its card — mirrors the Desk lane's resolveCall so the
+    // two "done" paths write the same fields. No-op on a dry-run card (no id).
+    async function resolveCallCard(card) {
+      const id = card._call && card._call.id;
+      if (id == null) return;
+      const patch = {
+        resolved_at: new Date().toISOString(),
+        resolved_by_name: (typeof CHAT_IDENTITY !== 'undefined' && CHAT_IDENTITY.name) || null,
+      };
+      Object.assign(card._call, patch);
+      const { error } = await db.from('calls').update(patch).eq('id', id);
+      if (error) { console.error('[callerCard] resolve failed', error); alert('Could not mark done: ' + (error.message || error)); }
     }
 
     async function handleNewCall(call) {
@@ -7400,6 +7480,7 @@
         renderWhen(card);
       }
       wireForm(card);
+      updateEcho(card);   // reflect any hydrated step/date + "Mark done" visibility
 
       try {
         const matches = await matchCustomers(call.caller_bare);
