@@ -1,10 +1,10 @@
 # How RO check-in, active-RO status & tech assignment are wired
 
 > Doc: `/docs/wiring/ro-checkin-tech.md`
-> Last updated: 2026-07-30 — verified vs commit `1dabd59`
-> Status: ✅ verified vs commit `1dabd59` — code re-checked against `advisor-board.html` +
+> Last updated: 2026-07-30 — verified vs commit `PENDING`
+> Status: ✅ verified vs commit `PENDING` — code re-checked against `advisor-board.html` +
 > `crisdata-techboard.html`, and the floor-table columns introspected against the live DB.
-> The §4 assign-tech bug is now **FIXED**; arrival-date entry (§5) is still open.
+> The §4 assign-tech bug is **FIXED**; the §5 arrival-date entry is now **DONE**.
 
 ## 0. In one line
 An RO's **stage** (`repair_orders.status`, e.g. "ro" = Active) and its **physical presence**
@@ -44,8 +44,9 @@ selecting `id,status`, then queries `shopboard_pickup` **id-only** and returns
   re-clickable.
 - The **"Check in / Arrived" button** (`paintArrivedBtn`): green + active when `arrived_at`
   is null; after check-in it settles to a disabled **"Checked in ✓ · &lt;time&gt;"**.
-- **Arrival date is hard-coded to today** — `arrival_date: now.slice(0,10)` and
-  `arrived_at: now`. There is **no UI to enter the car's actual arrival day** (see §5).
+- **Arrival date defaults to today, with an optional back-date** — `checkInArrived(ro, opts)`
+  takes `opts.arrivalDate` from the picker; today → the true now-stamp, a past date → that day
+  (see §5). The default one-tap path is unchanged.
 
 ## 4. Tech assignment (`assignTechCore`) — and the bug
 `assignTechCore(opts)` (`advisor-board.html:4469`; **mirrored verbatim in
@@ -89,20 +90,25 @@ zone writes **only `assigned_tech`** (never the missing `status` column).
   "auto-check-in Active ROs" feature is needed; auto-check-in on *assign* is the right trigger
   (auto-checking-in every Active RO at creation would wrongly drop cars that haven't arrived).
 
-## 5. The arrival-date question (Kevin)
-Confirmed: the check-in / arrival date is **hard-coded to today** in two places —
-`checkInArrived` (`arrival_date` + `arrived_at`) and `assignTechCore`'s auto-check-in
-(`arrival_date`) — and the "+ Add Car" manual entry on v1 does the same. There is **no field
-to type the actual arrival day**.
-- **Recommended approach (not yet applied):** add an optional **arrival-date input** to the
-  check-in control (default = today), thread it through `checkInArrived` into `arrival_date`
-  (a `date`) — and decide whether a back-dated check-in should also move `arrived_at` (a
-  `timestamptz`, currently the true stamp time that drives "Checked in ✓ · &lt;time&gt;"). Keep
-  "today" as the default so the common case is unchanged.
+## 5. Arrival date — ✅ DONE (optional back-date)
+The check-in control now has an optional **arrival-date input** (`#cdRoArrivedDate`) beside the
+"Check in / Arrived" button:
+- **Default = today, `max` = today** (no future arrivals). The one-tap-today path is unchanged:
+  a missing/today value keeps the exact prior behavior (`arrival_date` = today, `arrived_at` =
+  the true now-stamp).
+- **A past date back-dates the check-in.** `checkInArrived(ro, { arrivalDate })` threads it into
+  the floor row's `arrival_date` **and** sets `repair_orders.arrived_at` to **noon-local of that
+  day** (date-safe), so the two never disagree and the **"Checked in ✓ · &lt;date&gt;"** display
+  reflects the real arrival. A future value is clamped to today.
+- The picker shows only while `arrived_at` is null; once checked in it's hidden and the button
+  settles to "Checked in ✓ · &lt;date&gt;".
+- **The auto-check-in path (`assignTechCore`, §4) stays on today** — it has no UI, by design.
+  (`assignTechCore` inserts with `arrival_date: today`.)
 
 ## Known gaps & open questions (as of 2026-07-30)
-- **Arrival-date entry (§5) is still open** — check-in date is hard-coded to today; no UI to
-  type the actual arrival day.
+- Back-dating updates `repair_orders.arrived_at` (the display source) but does **not** rewrite
+  the `arrival_date` of a floor row that *already existed* (a manual "+ Add Car"); the common
+  path — check-in inserts the row with the chosen date — is unaffected.
 - `arrived_at` is a history stamp, not a live on-floor flag — a car cleared off the floor still
   reads "Checked in ✓". Intentional, but easy to misread.
 - The `shopboard_*` tables' real schema (e.g. `assigned_tech`, `tech_status`, `warranty`,
@@ -131,3 +137,8 @@ to type the actual arrival day**.
   `crisdata-techboard.html`); added the RO #6018 regression to `shared/status-mirror.test.js`.
   Verified live (old path 42703s, helper resolves not-on-floor to null). Arrival-date entry (§5)
   intentionally left for a follow-up.
+- 2026-07-30 — **Arrival date (§5) done:** added an optional arrival-date picker to the check-in
+  control (default today, `max` today). `checkInArrived(ro, {arrivalDate})` threads it into
+  `arrival_date` and, for a back-date, sets `arrived_at` to noon-local of that day so the display
+  matches. Auto-check-in (`assignTechCore`) stays on today. Verified both button states in the
+  browser + the date arithmetic (today/back-date/future-clamp).

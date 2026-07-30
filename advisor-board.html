@@ -1415,6 +1415,7 @@
                   <option value="closed">Closed</option>
                 </select>
               </label>
+              <input type="date" id="cdRoArrivedDate" title="Arrival date — defaults to today; back-date if the car came in earlier" style="font-size:0.75rem;padding:4px 8px;border:1px solid var(--border);border-radius:6px;color:var(--text);display:none">
               <button class="btn" style="font-size:0.75rem;padding:5px 12px" id="cdRoArrivedBtn"></button>
               <button class="btn" style="font-size:0.75rem;padding:5px 12px;display:none" id="cdRoDeclineBtn"></button>
               <button class="btn" style="font-size:0.75rem;padding:5px 12px;display:none" id="cdRoReceiptBtn">🧾 Quick receipt</button>
@@ -3643,9 +3644,24 @@
     // checks in once per RO. Ordering is failure-safe: the parking insert
     // happens first; only on its success do we stamp arrived_at, so a failed
     // drop leaves a clean state and stays re-clickable.
-    async function checkInArrived(ro) {
+    async function checkInArrived(ro, opts) {
       if (ro.arrived_at) return { ok: true, arrived_at: ro.arrived_at };
       const nowIso = new Date().toISOString();
+      const todayYmd = nowIso.slice(0, 10);
+      // Optional arrival date (default = today → the one-tap path is byte-for-byte
+      // unchanged). A PAST date back-dates the check-in; a missing/today/future
+      // value is treated as today (no future arrivals). arrival_date takes the
+      // chosen day; arrived_at keeps the true now-stamp for today, or noon-local
+      // of the chosen day for a back-date — so the two never disagree and the
+      // "Checked in ✓ · <date>" display reflects the real arrival.
+      let arrivalYmd = (opts && opts.arrivalDate) || todayYmd;
+      if (arrivalYmd > todayYmd) arrivalYmd = todayYmd;
+      const isBackdate = arrivalYmd < todayYmd;
+      let arrivedAtIso = nowIso;
+      if (isBackdate) {
+        const [y, m, d] = arrivalYmd.split('-').map(Number);
+        arrivedAtIso = new Date(y, m - 1, d, 12, 0, 0).toISOString();   // noon-local, date-safe
+      }
       // Guard against a duplicate drop: a parking row for this po may already
       // exist (Kevin typed the car in by hand, or a prior half-completed
       // check-in). Don't double-drop — just stamp history so the button
@@ -3656,21 +3672,21 @@
       if (!existing || !existing.length) {
         // Mirror Kevin's manual "+ Add Car" EXACTLY: same columns, same
         // just-arrived lot state (status:'empty' = "- Unassigned -"), plus
-        // the RO's po/customer/vehicle pre-filled. arrival_date is today's
-        // date (YYYY-MM-DD), matching the manual entry.
+        // the RO's po/customer/vehicle pre-filled. arrival_date is the chosen
+        // day (default today), matching the manual entry.
         const c = ro.customers || {}, v = ro.vehicles || {};
         const { error: insErr } = await db.from('shopboard_parking').insert({
           po: String(ro.po), vehicle: vehDesc(v), customer: c.name || '',
-          work: '', status: 'empty', notes: '', arrival_date: nowIso.slice(0, 10)
+          work: '', status: 'empty', notes: '', arrival_date: arrivalYmd
         });
         if (insErr) return { ok: false, error: insErr };   // stay re-clickable, do NOT stamp
       }
       // Car is on the floor → stamp arrival history.
       const { error: stampErr } = await db.from('repair_orders')
-        .update({ arrived_at: nowIso }).eq('id', ro.id);
+        .update({ arrived_at: arrivedAtIso }).eq('id', ro.id);
       if (stampErr) return { ok: false, error: stampErr };
-      ro.arrived_at = nowIso;   // keep the caller's cached row in sync
-      return { ok: true, arrived_at: nowIso };
+      ro.arrived_at = arrivedAtIso;   // keep the caller's cached row in sync
+      return { ok: true, arrived_at: arrivedAtIso };
     }
 
     // Paints an Arrived control into `btn` for the given `ro` and wires its
@@ -3680,7 +3696,9 @@
     // not a live on-floor flag. `onDone` fires after a successful check-in.
     function paintArrivedBtn(btn, ro, onDone) {
       if (!btn) return;
+      const dateEl = document.getElementById('cdRoArrivedDate');   // optional sibling
       if (ro.arrived_at) {
+        if (dateEl) dateEl.style.display = 'none';   // checked in → hide the picker
         const t = new Date(ro.arrived_at).toLocaleString('en-US',
           { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
         btn.textContent = 'Checked in ✓ · ' + t;
@@ -3690,6 +3708,13 @@
         btn.onclick = null;
         return;
       }
+      // not arrived → show the arrival-date picker (default today, no future date)
+      if (dateEl) {
+        const todayYmd = new Date().toISOString().slice(0, 10);
+        dateEl.style.display = '';
+        dateEl.max = todayYmd;
+        if (!dateEl.value || dateEl.value > todayYmd) dateEl.value = todayYmd;
+      }
       btn.textContent = 'Check in / Arrived';
       btn.disabled = false;
       btn.className = 'btn btn-green';
@@ -3697,7 +3722,8 @@
       btn.onclick = async () => {
         btn.disabled = true;
         btn.textContent = 'Checking in…';
-        const res = await checkInArrived(ro);
+        const arrivalDate = dateEl && dateEl.value ? dateEl.value : null;   // null → today
+        const res = await checkInArrived(ro, { arrivalDate });
         if (!res.ok) {
           alert('Check-in failed: ' + ((res.error && res.error.message) || 'unknown error'));
           paintArrivedBtn(btn, ro, onDone);   // revert to active, re-clickable
