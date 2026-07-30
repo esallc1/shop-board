@@ -1348,6 +1348,13 @@
                 <label>Complaint</label>
                 <textarea id="cdRoComplaint" placeholder="Customer concern(s) — one per line"></textarea>
               </div>
+              <!-- Work Description — INTERNAL instructions to the mechanic (NOT
+                   the customer-facing Advisory Notes, and never printed). Shown
+                   read-only to the tech on the Tech Board job modal (by po). -->
+              <div class="intake-field cd-hf-full">
+                <label>Work Description <span style="font-weight:600;color:var(--muted);font-size:0.72rem">· internal — instructions to the tech</span></label>
+                <textarea id="cdRoWorkDescription" placeholder="Specific instructions for the mechanic — e.g. remove the valve body and take it to the bench"></textarea>
+              </div>
               <!-- Comeback resolution — INTERNAL, shown ONLY for comebacks
                    (parent_ro_id set). Never printed (printRo reads complaint +
                    advisory_notes, never this). Along with Complaint, this gates
@@ -4370,6 +4377,7 @@
       $('cdRoMilesOut').value = currentRo.miles_out != null ? currentRo.miles_out : '';
       $('cdRoOdometerIn').value = currentRo.odometer_in != null ? currentRo.odometer_in : '';
       $('cdRoComplaint').value = currentRo.complaint || '';
+      $('cdRoWorkDescription').value = currentRo.work_description || '';
       $('cdRoAdvisory').value = currentRo.advisory_notes || '';
       // Comeback resolution — shown ONLY for a comeback (parent_ro_id set).
       // parent_ro_id is known synchronously (openRo selects *); the ordinal/root
@@ -5680,6 +5688,7 @@
       if (currentStatusFloor) currentStatusFloor.status = value;   // keep cache in sync
     });
     $('cdRoComplaint').addEventListener('change', () => updateRoField('complaint', $('cdRoComplaint').value.trim() || null));
+    $('cdRoWorkDescription').addEventListener('change', () => updateRoField('work_description', $('cdRoWorkDescription').value.trim() || null));
     $('cdRoAdvisory').addEventListener('change', () => updateRoField('advisory_notes', $('cdRoAdvisory').value.trim() || null));
     // Comeback resolution — same silent optimistic save (missing-column resilient
     // via updateRoField). On save, repaint the chain card so the row for this RO

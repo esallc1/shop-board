@@ -158,6 +158,11 @@
   .m-field { margin-bottom:12px; }
   .m-field .m-lbl { font-size:0.6rem; font-weight:800; letter-spacing:.6px; text-transform:uppercase; color:var(--muted); margin-bottom:3px; }
   .m-field .m-val { font-size:0.88rem; }
+  /* Work Description — the advisor's instructions to the mechanic. Emphasized so
+     it stands out from the read-only floor fields; preserves line breaks. */
+  .m-field-work { background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:9px 11px; margin-bottom:12px; }
+  .m-field-work .m-lbl { color:#92400e; }
+  .m-field-work .m-val { white-space:pre-wrap; overflow-wrap:anywhere; }
   .m-ro-only { font-size:0.7rem; color:var(--muted); border-top:1px solid var(--border); padding-top:10px; margin-top:4px; }
 </style>
 </head>
@@ -582,6 +587,31 @@
       ).join('') + '<div class="m-ro-only">Read-only view. Techs update jobs from My Numbers.</div>';
       openModal = { table, sbid };
       $('jobModal').classList.add('open');
+      // Work Description — the advisor/manager's internal instructions to the
+      // mechanic, stored on the RO (repair_orders.work_description). Fetched by po
+      // and shown here; async so the modal opens instantly.
+      loadWorkDescriptionInto(j.po, table, sbid);
+    }
+
+    // Fetch repair_orders.work_description by po and insert it above the read-only
+    // footer of the OPEN job modal. Guards against a stale async (user moved on)
+    // and degrades quietly if the column isn't migrated yet.
+    async function loadWorkDescriptionInto(po, table, sbid) {
+      if (!po) return;
+      let wd = null;
+      try {
+        const { data, error } = await db.from('repair_orders')
+          .select('work_description').eq('po', String(po)).limit(1);
+        if (error) { if (!isMissingColumn(error)) console.warn('[tech] work description load failed', error.message); return; }
+        wd = data && data[0] ? data[0].work_description : null;
+      } catch (e) { console.warn('[tech] work description load threw', e && e.message); return; }
+      // still the same job modal open?
+      if (!openModal || openModal.table !== table || String(openModal.sbid) !== String(sbid)) return;
+      if (!wd || !String(wd).trim()) return;
+      const footer = $('mBody').querySelector('.m-ro-only');
+      const block = `<div class="m-field m-field-work"><div class="m-lbl">Work Description</div><div class="m-val">${esc(String(wd).trim())}</div></div>`;
+      if (footer) footer.insertAdjacentHTML('beforebegin', block);
+      else $('mBody').insertAdjacentHTML('beforeend', block);
     }
     function closeModal() { openModal = null; $('jobModal').classList.remove('open'); }
     $('mClose').addEventListener('click', closeModal);

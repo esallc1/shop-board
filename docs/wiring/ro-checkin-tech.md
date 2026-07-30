@@ -1,10 +1,10 @@
 # How RO check-in, active-RO status & tech assignment are wired
 
 > Doc: `/docs/wiring/ro-checkin-tech.md`
-> Last updated: 2026-07-30 — verified vs commit `59fdfc8`
-> Status: ✅ verified vs commit `59fdfc8` — code re-checked against `advisor-board.html` +
+> Last updated: 2026-07-30 — verified vs commit `PENDING`
+> Status: ✅ verified vs commit `PENDING` — code re-checked against `advisor-board.html` +
 > `crisdata-techboard.html`, and the floor-table columns introspected against the live DB.
-> The §4 assign-tech bug is **FIXED**; the §5 arrival-date entry is now **DONE**.
+> §4 assign-tech bug **FIXED**; §5 arrival-date **DONE**; §6 Work Description **DONE**.
 
 ## 0. In one line
 An RO's **stage** (`repair_orders.status`, e.g. "ro" = Active) and its **physical presence**
@@ -105,7 +105,30 @@ The check-in control now has an optional **arrival-date input** (`#cdRoArrivedDa
 - **The auto-check-in path (`assignTechCore`, §4) stays on today** — it has no UI, by design.
   (`assignTechCore` inserts with `arrival_date: today`.)
 
+## 6. Work Description — advisor → tech instruction (Kevin)
+An **internal** instruction from the advisor/manager to the mechanic (e.g. "remove the valve
+body and take it to the bench"), stored in **`repair_orders.work_description`** (text, nullable;
+`migrations/20260730_ro_work_description.sql`).
+- **Distinct from two neighbors — do not merge:** `complaint` (the customer's concern) and
+  `advisory_notes` (customer-facing recommendations that **print** on the invoice). Work
+  Description is internal and **never prints**. It's also *not* the floor row's short `work`
+  field — the tech modal shows both, labelled separately.
+- **Edited** on the advisor-board RO detail — a textarea (`#cdRoWorkDescription`) placed
+  **directly under Complaint** in the "Complaint & Notes" card; saved via `updateRoField`
+  (a direct anon UPDATE; the RO select is `*` and `updateRoField` swallows a 42703, so it
+  degrades quietly pre-migration).
+- **Shown to the tech** read-only on the Tech Board (`crisdata-techboard.html`, the iframe
+  behind advisor-board's "Tech Board" tab). The read-only job modal (`openJob`) renders floor
+  data synchronously, then **`loadWorkDescriptionInto(po)`** fetches
+  `repair_orders.work_description` **by `po`** and, if non-empty, inserts an emphasized
+  `.m-field-work` block above the "Read-only view" footer (guards against a stale async and a
+  missing column). The tech does **not** edit it — techs update jobs from My Numbers, and this
+  modal is read-only by design.
+
 ## Known gaps & open questions (as of 2026-07-30)
+- The Tech Board modal makes **one extra `repair_orders` read by `po`** per open (for the work
+  description). Cheap; only on modal open. A future option is to mirror it onto the floor row
+  (like `technician` → `assigned_tech`) to avoid the read, but that adds a write path.
 - Back-dating updates `repair_orders.arrived_at` (the display source) but does **not** rewrite
   the `arrival_date` of a floor row that *already existed* (a manual "+ Add Car"); the common
   path — check-in inserts the row with the chosen date — is unaffected.
@@ -116,6 +139,10 @@ The check-in control now has an optional **arrival-date input** (`#cdRoArrivedDa
   behind the live schema) — no maintained migration documents today's columns.
 
 ## Where it lives in the code
+- Work Description: `advisor-board.html` — `#cdRoWorkDescription` textarea (under Complaint) +
+  its hydrate/`updateRoField('work_description', …)` wiring; `crisdata-techboard.html` —
+  `loadWorkDescriptionInto` (in `openJob`) + the `.m-field-work` modal style. Schema:
+  `migrations/20260730_ro_work_description.sql`.
 - Check-in: `advisor-board.html` — `checkInArrived` (~3646), `paintArrivedBtn` (~3681).
 - Tech assign: `advisor-board.html` — `assignTechCore` (~4469), `isPreWorkStatus` (~4454);
   **mirrored in** `crisdata-techboard.html` — `assignTechCore` (now with a local
@@ -142,3 +169,8 @@ The check-in control now has an optional **arrival-date input** (`#cdRoArrivedDa
   `arrival_date` and, for a back-date, sets `arrived_at` to noon-local of that day so the display
   matches. Auto-check-in (`assignTechCore`) stays on today. Verified both button states in the
   browser + the date arithmetic (today/back-date/future-clamp).
+- 2026-07-30 — Added **Work Description** (§6): an internal advisor→tech instruction on
+  `repair_orders.work_description` (`20260730_ro_work_description.sql`), edited under Complaint
+  on the advisor RO detail and shown read-only (by `po`) in the Tech Board job modal. Kept
+  distinct from `complaint` / `advisory_notes`. Verified in the browser (advisor field placement
+  + tech modal block; graceful pre-migration).
