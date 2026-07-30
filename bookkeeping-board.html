@@ -416,6 +416,7 @@
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
+<script src="shared/announcement-banner.js"></script>
 <!-- Planner (shared/planner.js — self-contained; mounted below after the
      bookkeeping session resolves, scoped private to this employee). -->
 <script src="shared/planner.js"></script>
@@ -491,6 +492,10 @@
     </div>
 
     <div class="content">
+
+  <!-- Announcement banner (office boards only) — shared/announcement-banner.js.
+       Filtered to the Bookkeeping audience. -->
+  <div id="announce-banner"></div>
 
   <!-- ══ OVERVIEW — at-a-glance dashboard, default landing tab ══ -->
   <div class="view" id="view-overview">
@@ -753,6 +758,10 @@
   const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // Announcement banner — display only, filtered to the BOOKKEEPING audience. The
+  // module owns its own realtime channel + connection-health self-heal.
+  AnnouncementBanner.init({ db, bannerMount: '#announce-banner', role: 'bookkeeping' });
 
   BoardSettings.init({
     db, targetSelector: '.main-area', mountSelector: '.sidebar-btn-row',

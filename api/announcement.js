@@ -24,6 +24,7 @@ const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const STYLES = ['normal', 'important'];
+export const ROLES = ['manager', 'advisor', 'bookkeeping'];   // the office boards an announcement can target
 export const MAX_MESSAGE = 500;
 
 // Validate + normalize the body. Pure + exported so the contract is locked by a
@@ -50,7 +51,18 @@ export function parseAnnouncementBody(body) {
     expires_at = b.expires_at;
   }
   const posted_by_name = b.posted_by_name ? String(b.posted_by_name).slice(0, 120) : null;
-  return { ok: true, action: 'create', row: { message, style, expires_at, posted_by_name } };
+  // audience = any combo of the three roles. Absent → all three (a broadcast).
+  // Present but empty (after filtering to known roles) → rejected: an
+  // announcement nobody can see is a mistake, not a valid state.
+  let audience;
+  if (b.audience == null) {
+    audience = ROLES.slice();
+  } else {
+    if (!Array.isArray(b.audience)) return { ok: false, error: 'audience must be an array of roles' };
+    audience = [...new Set(b.audience.filter(r => ROLES.includes(r)))];
+    if (audience.length === 0) return { ok: false, error: 'pick at least one audience (Manager / Advisor / Bookkeeping)' };
+  }
+  return { ok: true, action: 'create', row: { message, style, expires_at, posted_by_name, audience } };
 }
 
 export default async function handler(req, res) {
@@ -86,7 +98,7 @@ export default async function handler(req, res) {
     });
     if (!retire.ok) { console.error('[announcement] retire-active failed', retire.status, await retire.text()); return res.status(502).json({ error: 'create failed' }); }
 
-    const ins = await fetch(`${SUPABASE_URL}/rest/v1/announcements?select=id,message,style,posted_by_name,created_at,expires_at`, {
+    const ins = await fetch(`${SUPABASE_URL}/rest/v1/announcements?select=id,message,style,posted_by_name,created_at,expires_at,audience`, {
       method: 'POST', headers, body: JSON.stringify(parsed.row),
     });
     if (!ins.ok) { console.error('[announcement] insert failed', ins.status, await ins.text()); return res.status(502).json({ error: 'create failed' }); }

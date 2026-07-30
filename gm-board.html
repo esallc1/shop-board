@@ -21,6 +21,7 @@
 <script src="shared/help-tips.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
+<script src="shared/announcement-banner.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
 <style>
@@ -1051,6 +1052,10 @@
 
     <div class="content">
 
+  <!-- Announcement banner (office boards only) — shared/announcement-banner.js.
+       Filtered to the Manager audience. -->
+  <div id="announce-banner"></div>
+
   <!-- ══ OVERVIEW ══ -->
   <div class="view active" id="view-overview">
 
@@ -1719,6 +1724,10 @@
   const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
   const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // Announcement banner — display only, filtered to the MANAGER audience. The
+  // module owns its own realtime channel + connection-health self-heal.
+  AnnouncementBanner.init({ db, bannerMount: '#announce-banner', role: 'manager' });
 
   BoardSettings.init({
     db, targetSelector: '.main-area', mountSelector: '.sidebar-btn-row',

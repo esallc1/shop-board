@@ -72,6 +72,10 @@ window.AnnouncementBanner = (function () {
     .anc-controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
     .anc-controls select, .anc-controls input[type="date"] { border:1px solid var(--border); border-radius:8px; padding:7px 9px; font:inherit; font-size:0.82rem; color:var(--text); background:var(--surface,#fff); }
     .anc-controls label { font-size:0.78rem; color:var(--muted); display:inline-flex; align-items:center; gap:6px; }
+    .anc-audience { display:flex; align-items:center; gap:14px; flex-wrap:wrap; font-size:0.82rem; color:var(--text); }
+    .anc-audience-label { font-weight:800; color:var(--muted); font-size:0.68rem; text-transform:uppercase; letter-spacing:0.5px; }
+    .anc-audience label { display:inline-flex; align-items:center; gap:6px; cursor:pointer; font-weight:600; }
+    .anc-audience input { accent-color:var(--accent); width:15px; height:15px; cursor:pointer; }
     .anc-post { margin-left:auto; border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:8px; padding:8px 16px; font-size:0.84rem; font-weight:800; cursor:pointer; }
     .anc-post:hover { filter:brightness(0.96); }
     .anc-post:disabled { opacity:0.6; cursor:default; }
@@ -102,6 +106,11 @@ window.AnnouncementBanner = (function () {
     const db = config.db;
     const endpoint = config.endpoint || '/api/announcement';
     const getName = config.getName || (() => null);
+    // role = which office board this is ('manager'|'advisor'|'bookkeeping'). When
+    // set, the banner only shows announcements whose audience includes that role.
+    // Omitted (owner board) → unfiltered: the most-recent active one, as a
+    // broadcaster preview.
+    const role = config.role || null;
     const bannerEl = config.bannerMount ? document.querySelector(config.bannerMount) : null;
     const manageEl = config.manageMount ? document.querySelector(config.manageMount) : null;
 
@@ -138,7 +147,11 @@ window.AnnouncementBanner = (function () {
       if (!box) return;
       if (!current) { box.innerHTML = '<div class="anc-current-none">No active announcement.</div>'; return; }
       const style = STYLES.includes(current.style) ? current.style : 'normal';
-      const sub = [current.posted_by_name ? `by ${esc(current.posted_by_name)}` : '',
+      const aud = Array.isArray(current.audience) ? current.audience : [];
+      const cap = (r) => r.charAt(0).toUpperCase() + r.slice(1);
+      const audLabel = (!aud.length || aud.length >= 3) ? 'everyone' : aud.map(cap).join(', ');
+      const sub = [`seen by ${audLabel}`,
+        current.posted_by_name ? `by ${esc(current.posted_by_name)}` : '',
         current.expires_at ? `hides after ${esc(fmtDate(current.expires_at))}` : ''].filter(Boolean).join(' · ');
       box.innerHTML =
         `<div class="anc-current-row">` +
@@ -162,6 +175,11 @@ window.AnnouncementBanner = (function () {
       manageEl.innerHTML =
         `<div class="anc-manage">` +
           `<textarea class="anc-input" maxlength="500" placeholder="One short message to the office team…"></textarea>` +
+          `<div class="anc-audience"><span class="anc-audience-label">Who sees it</span>` +
+            `<label><input type="checkbox" class="anc-aud" value="manager" checked> Manager</label>` +
+            `<label><input type="checkbox" class="anc-aud" value="advisor" checked> Advisor</label>` +
+            `<label><input type="checkbox" class="anc-aud" value="bookkeeping" checked> Bookkeeping</label>` +
+          `</div>` +
           `<div class="anc-controls">` +
             `<select class="anc-style"><option value="normal">Normal</option><option value="important">Important</option></select>` +
             `<label>Hide after <input type="date" class="anc-expires"></label>` +
@@ -177,9 +195,11 @@ window.AnnouncementBanner = (function () {
     // ── data ──
     async function refetch() {
       const nowIso = new Date().toISOString();
-      const { data, error } = await db.from('announcements').select('*')
+      let q = db.from('announcements').select('*')
         .is('removed_at', null)
-        .or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+        .or(`expires_at.is.null,expires_at.gt.${nowIso}`);
+      if (role) q = q.contains('audience', [role]);   // this board's role must be in the audience
+      const { data, error } = await q
         .order('created_at', { ascending: false })
         .limit(1);
       if (error) {
@@ -196,6 +216,8 @@ window.AnnouncementBanner = (function () {
       if (!manageEl) return;
       const msg = (manageEl.querySelector('.anc-input').value || '').trim();
       if (!msg) { setStatus('Enter a message.', 'err'); return; }
+      const audience = [...manageEl.querySelectorAll('.anc-aud:checked')].map(c => c.value);
+      if (!audience.length) { setStatus('Pick at least one — Manager / Advisor / Bookkeeping.', 'err'); return; }
       const style = manageEl.querySelector('.anc-style').value === 'important' ? 'important' : 'normal';
       const dateVal = manageEl.querySelector('.anc-expires').value;
       let expires_at = null;
@@ -203,7 +225,7 @@ window.AnnouncementBanner = (function () {
       const btn = manageEl.querySelector('.anc-post'); btn.disabled = true; setStatus('Posting…', 'wait');
       try {
         const resp = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'create', message: msg, style, expires_at, posted_by_name: getName() || null }) });
+          body: JSON.stringify({ action: 'create', message: msg, style, expires_at, audience, posted_by_name: getName() || null }) });
         if (!resp.ok) { let m = 'HTTP ' + resp.status; try { const j = await resp.json(); if (j && j.error) m = j.error; } catch (_) {} throw new Error(m); }
         manageEl.querySelector('.anc-input').value = ''; manageEl.querySelector('.anc-expires').value = '';
         setStatus('Posted ✓', 'ok');

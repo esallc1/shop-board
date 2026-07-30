@@ -1870,9 +1870,10 @@
   // "Catch this moment" capture FAB — lands in the Owner Marketing tab.
   CatchMoment.init({ db, getName: () => CHAT_IDENTITY.name });
 
-  // Announcement banner — display only on the advisor board (owner posts). The
-  // module owns its own realtime channel + connection-health self-heal.
-  AnnouncementBanner.init({ db, bannerMount: '#announce-banner' });
+  // Announcement banner — display only on the advisor board (owner posts),
+  // filtered to the ADVISOR audience. The module owns its own realtime channel +
+  // connection-health self-heal.
+  AnnouncementBanner.init({ db, bannerMount: '#announce-banner', role: 'advisor' });
 
   // ── VIEW REFRESH REGISTRY — connection-health safety net + manual
   // refresh button (see bottom of file). Each view's section below

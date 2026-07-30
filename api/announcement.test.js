@@ -6,18 +6,35 @@
    ============================================================ */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseAnnouncementBody, STYLES, MAX_MESSAGE } from './announcement.js';
+import { parseAnnouncementBody, STYLES, ROLES, MAX_MESSAGE } from './announcement.js';
 
 const UUID = '11111111-2222-3333-4444-555555555555';
 
 // ── create ──────────────────────────────────────────────────
-test('create: accepts a normal message, defaults style to normal', () => {
+test('create: accepts a normal message, defaults style to normal + audience to all roles', () => {
   const r = parseAnnouncementBody({ message: '  Shop closes at 3 today  ' });
   assert.equal(r.ok, true);
   assert.equal(r.action, 'create');
   assert.equal(r.row.message, 'Shop closes at 3 today');   // trimmed
   assert.equal(r.row.style, 'normal');
   assert.equal(r.row.expires_at, null);
+  assert.deepEqual(r.row.audience, ['manager', 'advisor', 'bookkeeping']);   // absent → all three
+});
+
+// ── audience ────────────────────────────────────────────────
+test('audience: a subset is kept, unknown roles dropped, deduped', () => {
+  assert.deepEqual(parseAnnouncementBody({ message: 'hi', audience: ['advisor'] }).row.audience, ['advisor']);
+  assert.deepEqual(parseAnnouncementBody({ message: 'hi', audience: ['manager', 'owner', 'manager'] }).row.audience, ['manager']);
+});
+
+test('audience: present-but-empty (or all-unknown) is rejected', () => {
+  assert.equal(parseAnnouncementBody({ message: 'hi', audience: [] }).ok, false);
+  assert.equal(parseAnnouncementBody({ message: 'hi', audience: ['nobody'] }).ok, false);
+  assert.equal(parseAnnouncementBody({ message: 'hi', audience: 'advisor' }).ok, false);   // not an array
+});
+
+test('ROLES is exactly the three office roles', () => {
+  assert.deepEqual(ROLES, ['manager', 'advisor', 'bookkeeping']);
 });
 
 test('create: accepts important style + expires_at + poster', () => {
