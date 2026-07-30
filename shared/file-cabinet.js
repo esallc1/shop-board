@@ -40,6 +40,7 @@ window.FileCabinet = (function () {
     { id: 'announce', file: 'announcements.md',     icon: '📣', title: 'Announcement banner' },
     { id: 'checkin',  file: 'ro-checkin-tech.md',   icon: '🔧', title: 'RO check-in / tech assign' },
     { id: 'techboard', file: 'tech-board.md',       icon: '🔧', title: 'Tech Board (dispatcher)' },
+    { id: 'mynumbers', file: 'my-numbers.md',       icon: '📱', title: 'My Numbers (tech phone tool)' },
     { id: 'todo',     file: 'todo-list.md',         icon: '✅', title: 'To-Do list' },
     { id: 'cabinet',  file: 'file-cabinet.md',      icon: '🗄️', title: 'File Cabinet tab (this screen)' },
   ];

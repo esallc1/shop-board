@@ -61,4 +61,5 @@ Every file under `/docs/wiring/` follows this shape:
 | To-Do list | `todo-list.md` | To-Do JS duplicated in all 4 office boards; `shared/board-shell.css` |
 | RO check-in / tech assign | `ro-checkin-tech.md` | `advisor-board.html` (`checkInArrived`, `assignTechCore`), `crisdata-techboard.html`, `shared/status-mirror.js` |
 | Tech Board (dispatcher) | `tech-board.md` | `crisdata-techboard.html`, `my-numbers.html`, gm-board Shop Floor |
+| My Numbers (tech phone tool) | `my-numbers.md` | `my-numbers.html`; consumers: `advisor-board.html`, `gm-board.html` |
 | File Cabinet tab | `file-cabinet.md` | `shared/file-cabinet.js`, `owner-board.html` |
