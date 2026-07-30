@@ -1,8 +1,8 @@
 # How the To-Do list is wired
 
 > Doc: `/docs/wiring/todo-list.md`
-> Last updated: 2026-07-30 — verified vs commit `PENDING`
-> Status: ✅ verified vs commit `PENDING` — checked against the four boards' To-Do code, the
+> Last updated: 2026-07-30 — verified vs commit `b02116e`
+> Status: ✅ verified vs commit `b02116e` — checked against the four boards' To-Do code, the
 > shared `board-shell.css`, and the `todos` migrations. ⚠ See the duplication note (§1).
 
 ## 0. In one line
