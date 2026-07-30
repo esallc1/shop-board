@@ -1,12 +1,12 @@
 # How the flagged-hours / "shadow flat-rate" data is wired (and where it isn't)
 
 > Doc: `/docs/wiring/flat-rate-hours.md`
-> Last updated: 2026-07-30 — verified vs commit `22e3a5a`
-> Status: ✅ verified vs commit `22e3a5a` — schema re-read from `migrations/*.sql`, code paths
-> re-checked in `advisor-board.html` / `gm-board.html` / `my-numbers.html`, and **every claim
-> spot-checked against live rows this session** via the anon REST API (read-only, analytic
-> columns only). **Investigation only — no app code changed** (only this doc + its File Cabinet
-> registration).
+> Last updated: 2026-07-30 — verified vs commit `366665d`
+> Status: ✅ §0–§7 verified vs commit `366665d` — schema re-read from `migrations/*.sql`, code
+> paths re-checked in `advisor-board.html` / `gm-board.html` / `my-numbers.html`, and **every
+> data claim spot-checked against live rows** via the anon REST API (read-only, analytic columns
+> only). **§8 is a PROPOSED capture design — not built, pending approval.** No app code changed
+> (only this doc + its File Cabinet registration).
 
 ## 0. In one line
 The raw material for a per-tech per-week **flagged book-hours** report is meant to be three
@@ -146,6 +146,99 @@ single job in the sample yields all three inputs together.
   totals are trustworthy.
 - A **comeback/warranty rule** for how rework hours count.
 
+## 8. PROPOSED capture design — book hours on every job (NOT built; approve first)
+Decision taken: the advisor records **book hours on every RO/estimate**, and flat-priced
+**rebuilds draw from a shop-set "rebuild type → standard book hours" table**. This section
+proposes the minimal way to do that. **No code has changed.**
+
+### 8.1 The one principle that makes it safe: book-hours is a PAY field, not a PRICE field
+Customer **price** stays exactly as today — `Σ(quantity × unit_price)` over `ro_line_items`
+(§2, `recalcTotals`). **Book-hours is a separate per-job number that never enters the money
+math.** Because price = line math and pay = book-hours are *different columns with different
+consumers* (invoice/totals vs. tech-pay/report), they cannot fight. A flat rebuild keeps its
+`qty 1 × $flat` labor line (price unchanged) **and** carries, say, 12.0 book hours for pay.
+
+### 8.2 Where the number lives — options
+- **Option A (RECOMMENDED): one new column `repair_orders.book_hours numeric`**, captured on the
+  **RO/estimate builder** (RO Board detail) — a single "Book Hours" field by the totals/labor
+  area, where Josh already has the ALLDATA lookup open. It is the **system of record**; the floor
+  `flag_hours` becomes a **write-through mirror** so today's pay/archive/report plumbing keeps
+  working unchanged. Captures at the moment hours are known, one number per job, easy to gate.
+- **Option B: reuse `flag_hours` only** — no new column; make the Approval-Queue "Flag Hours"
+  input **required** (the disable-until-`>0` gate is already half-built, `onFlagHoursInput`) and
+  auto-fill it. Smallest schema change, but capture happens at *approval on the floor row* (not
+  at the estimate), misses ROs that never hit the Approval Queue, and still needs the RO-close
+  archive taught to write it (§8.5). The number never lands on the RO itself.
+- **Option C: per-labor-line hours** (`ro_line_items.book_hours` on labor lines, summed) — most
+  granular, but summing across mixed flat + hourly lines **reintroduces the "which lines count"
+  ambiguity** (§2) and is more surface than the single per-job number the report needs.
+
+**Recommendation: Option A** — `repair_orders.book_hours` as the source of truth, **mirrored to
+`flag_hours`** on approve/assign so nothing downstream has to change its read. One capture point,
+decoupled from price, null-until-entered.
+
+### 8.3 (a) Regular jobs — advisor types the ALLDATA hours he already looks up
+- A **"Book Hours" field** on the RO detail. He looks up ALLDATA book time anyway; he types it
+  here once. Stored on `repair_orders.book_hours`.
+- **Hard to leave blank:** gate the **stage advance** (estimate → ro) *and/or* the **Approve**
+  action on `book_hours` present (`> 0`), reusing the exact pattern already on `approveJob`
+  (disable the button + red hint, `flag-hours-hint`). Treat **null = "not captured"**, distinct
+  from a real 0 (a real job is never 0 hours).
+
+### 8.4 (b) Rebuilds — auto-fill from a shop-set lookup
+- **New table `rebuild_book_hours`** (a *list*, so its own table — not `shop_settings` columns):
+  `rebuild_type text unique`, `book_hours numeric not null`, `active boolean default true`,
+  `notes text`, timestamps; anon-full-access RLS + realtime (same pattern as every CrisData
+  table). The shop **already names rebuilds by transmission code** in labor descriptions
+  ("6L80", "68RFE", "9T50", "AW4", "4R75", "48RE" — seen in §2), so those are the natural keys.
+- **Edited by Cris/Kevin** in **Settings** (Owner/GM board), the same home as `shop_settings`
+  (tax rate, `default_labor_rate`) — a small add/edit/deactivate table editor.
+- **Tagging a job as a rebuild so hours auto-fill:** add a nullable **`repair_orders.rebuild_type
+  text`** with a selector on the RO detail populated from `rebuild_book_hours` (active rows).
+  Picking a type **auto-fills `book_hours`** from the lookup (one tap). The existing
+  `job_category = 'Rebuild'` tag (values today: Gen Auto / Rebuild / Diag) can drive whether the
+  selector is **shown/required**; the specific `rebuild_type` is what resolves the hours.
+- **Overridable but resolved-and-stored:** the advisor may override the auto-filled value; store
+  the **resolved number on `repair_orders.book_hours`** (optionally a `book_hours_source`
+  = `'typed' | 'rebuild_table'` for audit). See the trust note §8.6(2) — never re-read the table
+  at report time.
+
+### 8.5 The other write paths must carry the number
+- **RO-close archive** (`advisor-board.html` ~5195, `source_table='repair_orders'`): today writes
+  **no** `flag_hours` — must add `flag_hours: currentRo.book_hours` (and ideally a `book_hours`
+  column on `completed_jobs`) so closed CrisData ROs land the pay number in the archive the report
+  reads.
+- **Pickup archive** (`gm-board.html` ~3353, `source_table='shopboard_pickup'`): already copies
+  `flag_hours` from the floor row / `undo_car` snapshot — **works unchanged IF** `book_hours` was
+  mirrored to the floor `flag_hours` at approve/assign (§8.2 Option A).
+- **`approveJob`** (~2051): pre-fill its "Flag Hours" input from the RO's `book_hours` (join by
+  `po`) so the advisor **confirms** instead of re-typing; keep the required gate as the backstop.
+- Independent of this, per-week sums must still **dedup `completed_jobs` by `po`** (§6.4).
+
+### 8.6 What would still make the captured hours untrustworthy
+1. **Divergent copies** — `book_hours` (RO) vs `flag_hours` (floor) vs `completed_jobs`. Fix: one
+   system of record (`repair_orders.book_hours`); the rest are write-through mirrors, never
+   independently edited.
+2. **Live lookup at report time** — if the report re-reads `rebuild_book_hours` later, editing the
+   table would retroactively change past pay. Fix: **resolve and store** `book_hours` on the job
+   at capture; the table is a default, not the historical source.
+3. **Blank silently defaulting to 0** — looks captured, isn't. Fix: null-means-missing + the gate
+   + a "missing book hours" list so nothing slips through unseen.
+4. **Rebuild tag vs reality** — `job_category='Rebuild'` with no `rebuild_type`, or the wrong type
+   picked. Fix: require `rebuild_type` when category = Rebuild; show the resolved hours to confirm.
+5. **Silent override** — a wrong manual override is invisible. Optional `book_hours_source` flag.
+6. **Still unsolved by this slice** (necessary, not sufficient — carry over from §6): multi-tech
+   jobs can't split one number across techs; reassignment is last-write-wins with no history;
+   comeback/warranty rework needs a credit rule; ALLDATA-parallel jobs that never become CrisData
+   ROs get no `book_hours` at all.
+
+### 8.7 Minimal build order (once approved)
+1. `repair_orders.book_hours` (+ optional `rebuild_type`, `book_hours_source`) — additive, nullable.
+2. `rebuild_book_hours` table + Settings editor (Owner/GM).
+3. RO-detail "Book Hours" field + rebuild-type auto-fill + the required gate.
+4. Mirror to floor `flag_hours` on approve/assign; teach the RO-close archive to write it.
+5. (Separate) `completed_jobs` po-dedup before any aggregation.
+
 ## Known gaps & open questions (as of 2026-07-30)
 - Is the intended hours figure the advisor's `flag_hours` (labor **sold/flagged**) or the
   estimate's book time (labor **quoted**)? They differ, and today neither is clean.
@@ -176,3 +269,10 @@ single job in the sample yields all three inputs together.
   `quantity` conflated with flat "1", no RO completion timestamp (`tech_finished_at` unused, only
   `picked_up_at`), duplicate `completed_jobs` rows from two archive writers, and free-text /
   non-historical tech attribution. **Investigation only — no app code changed.**
+- 2026-07-30 — Added **§8 PROPOSED capture design** (book hours on every job): recommends a new
+  `repair_orders.book_hours` as the pay-only source of truth (decoupled from the line-item
+  price), a shop-set `rebuild_book_hours` lookup keyed on transmission code with a
+  `repair_orders.rebuild_type` selector that auto-fills, a required-gate reusing the `approveJob`
+  pattern, mirroring to floor `flag_hours` + the RO-close archive, and the trust risks
+  (divergent copies, live-lookup-at-report-time, blank-as-0). **Design only — not built,
+  pending approval; no code changed.**
