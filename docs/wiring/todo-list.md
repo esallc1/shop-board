@@ -1,8 +1,8 @@
 # How the To-Do list is wired
 
 > Doc: `/docs/wiring/todo-list.md`
-> Last updated: 2026-07-30 — verified vs commit `f8386ab`
-> Status: ✅ verified vs commit `f8386ab` — checked against the four boards' To-Do code, the
+> Last updated: 2026-07-30 — verified vs commit `PENDING`
+> Status: ✅ verified vs commit `PENDING` — checked against the four boards' To-Do code, the
 > shared `board-shell.css`, and the `todos` migrations. ⚠ See the duplication note (§1).
 
 ## 0. In one line
@@ -32,15 +32,31 @@ priority is a **direct anon UPDATE**; **no endpoint** is needed and nothing is w
 `calls` / `announcements`, which are anon-read-only and need a service-role endpoint to write.)
 
 ## 3. Priority (Kevin)
-- **Set** per item via a small `<select class="todo-prio-select">` in the row's actions (shown
-  for items you manage — `created_by` or `assigned_to` is you — and only while not completed).
-  New to-dos default to Normal via the DB default; nothing is set at creation.
-- **Write:** `setTodoPriority(id, priority)` — optimistic (update the cached row + re-render),
-  then `db.from('todos').update({ priority }).eq('id', id)`; on error it reverts and re-renders,
-  and it **degrades quietly** if the column isn't migrated yet (a 42703 is swallowed, no alert).
+- **Who can edit — the creator/assigner only.** The editable `<select class="todo-prio-select">`
+  renders **only when `CURRENT_EMPLOYEE_ID === t.created_by`** (the person who created/assigned
+  the to-do) and the item isn't completed. New to-dos default to Normal via the DB default;
+  nothing is set at creation.
+  - **Identity match:** `CURRENT_EMPLOYEE_ID` (the current user's `employees.id`, resolved from
+    the session phone) vs `t.created_by` (the creator's `employees.id`, stamped by `addTodo`) —
+    an **id match**, the same reliable key the "Assigned by …" tag uses. `created_by_name` is
+    display-only.
+  - **The receiver sees it read-only.** For everyone else (the assignee), the control is a
+    non-editable pill `<span class="todo-prio-tag todo-prio-tag-<value>">` with the same label +
+    color — they see the priority, they just can't change it.
+  - **Safe fallback:** if the current user or the creator can't be determined
+    (`!CURRENT_EMPLOYEE_ID` or `created_by` null / mismatched) → **read-only** (no editable
+    control). In practice unknown identity renders *no* to-dos at all (`loadAndRenderTodos`
+    guards `if (!CURRENT_EMPLOYEE_ID) return`), and every rendered row has the user as creator
+    or assignee, so a rendered item is always either editable (creator) or a read-only pill
+    (assignee).
+- **Write:** `setTodoPriority(id, priority)` — **creator-guarded** (returns early unless
+  `row.created_by === CURRENT_EMPLOYEE_ID`, defense-in-depth beyond hiding the control), then
+  optimistic (update the cached row + re-render) → `db.from('todos').update({ priority })`; on
+  error it reverts, and it **degrades quietly** if the column isn't migrated yet (42703 swallowed).
 - **Color:** a left-border accent on `.todo-item` via a `todo-prio-<value>` class —
-  **Immediate = red, High = amber, Normal = neutral, Low = muted** (`shared/board-shell.css`).
-  The value is also shown as text in the dropdown, so the cue is **not color-only** (accessible).
+  **Immediate = red, High = amber, Normal = neutral, Low = muted** (`shared/board-shell.css`) —
+  shown for **every** row (creator and receiver). The value is also shown as text (dropdown or
+  read-only pill), so the cue is **not color-only** (accessible).
 - **Sort:** `renderTodos` sorts a **copy** of `todoRows` with `todoSortByPriority` — **active
   before completed, then Immediate → Low, then newest-first**. Completed items sink to the
   bottom regardless of priority; `todoRows` itself (which feeds the nav badge) is untouched.
@@ -61,7 +77,8 @@ it's simply absent → treated as Normal). Realtime on the `todos` table re-runs
 - To-Do JS (identical ×4): `owner-board.html`, `advisor-board.html`, `gm-board.html`,
   `bookkeeping-board.html` — `renderTodos` / `setTodoPriority` / `todoSortByPriority` /
   `TODO_PRIORITIES` / `TODO_PRIORITY_OPTS`.
-- Styles (shared): `shared/board-shell.css` — `.todo-item`, `.todo-prio-*`, `.todo-prio-select`.
+- Styles (shared): `shared/board-shell.css` — `.todo-item`, `.todo-prio-*` (row border),
+  `.todo-prio-select` (creator's dropdown), `.todo-prio-tag*` (receiver's read-only pill).
 - Schema: `migrations/20260715_todos.sql` (+ `_realtime`, `_attachments`) and
   `migrations/20260730_todos_priority.sql`.
 
@@ -71,3 +88,7 @@ it's simply absent → treated as Normal). Realtime on the `todos` table re-runs
   Immediate-first sort in `renderTodos`, and `setTodoPriority` (direct anon UPDATE). Applied the
   identical change to all four boards; CSS added once in `board-shell.css`. Created this doc and
   flagged the four-copy duplication as debt.
+- 2026-07-30 — **Priority edit is creator-only** (Kevin refinement): the editable dropdown shows
+  only when `CURRENT_EMPLOYEE_ID === t.created_by`; the receiver (assignee) sees a read-only
+  colored pill (`.todo-prio-tag`), and `setTodoPriority` is creator-guarded. Safe fallback =
+  read-only. Applied identically to all four boards.

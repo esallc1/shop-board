@@ -3024,8 +3024,11 @@
   async function setTodoPriority(id, priority) {
     if (!TODO_PRIORITIES.includes(priority)) return;
     const row = todoRows.find(t => String(t.id) === String(id));
-    const prev = row ? row.priority : undefined;
-    if (row) row.priority = priority;   // optimistic
+    // Creator/assigner ONLY — the UI hides the control for others; guard here too.
+    // Unknown identity or unknown creator → deny (safe default).
+    if (!row || !CURRENT_EMPLOYEE_ID || row.created_by !== CURRENT_EMPLOYEE_ID) return;
+    const prev = row.priority;
+    row.priority = priority;   // optimistic
     renderTodos();
     const { error } = await db.from('todos').update({ priority }).eq('id', id);
     if (error) {
@@ -3057,9 +3060,15 @@
       }
       const completedNote = isCompleted
         ? `<span class="todo-completed-note">Completed ${formatTodoCompletedWhen(t.completed_at)}</span>` : '';
-      const prioSelect = (canManage && !isCompleted)
-        ? `<select class="todo-prio-select" title="Priority" aria-label="Priority">${TODO_PRIORITY_OPTS.map(o => `<option value="${o.v}"${o.v === priority ? ' selected' : ''}>${o.label}</option>`).join('')}</select>`
-        : '';
+      // Only the creator/assigner can EDIT priority; everyone else (the receiver)
+      // sees it READ-ONLY — same color + label, no dropdown. Unknown identity or
+      // creator → read-only (safe default).
+      const isCreator = !!CURRENT_EMPLOYEE_ID && t.created_by === CURRENT_EMPLOYEE_ID;
+      const prioLabel = (TODO_PRIORITY_OPTS.find(o => o.v === priority) || {}).label || 'Normal';
+      const prioControl = isCompleted ? ''
+        : isCreator
+          ? `<select class="todo-prio-select" title="Priority" aria-label="Priority">${TODO_PRIORITY_OPTS.map(o => `<option value="${o.v}"${o.v === priority ? ' selected' : ''}>${o.label}</option>`).join('')}</select>`
+          : `<span class="todo-prio-tag todo-prio-tag-${priority}" title="Priority — set by ${esc(t.created_by_name || 'the assigner')}">${esc(prioLabel)}</span>`;
       return `
         <div class="todo-item todo-prio-${priority}${isCompleted ? ' completed' : ''}" data-id="${esc(t.id)}">
           <input type="checkbox" class="todo-checkbox" ${isCompleted ? 'checked' : ''}>
@@ -3070,7 +3079,7 @@
           </div>
           ${canManage ? `
           <div class="todo-actions">
-            ${prioSelect}
+            ${prioControl}
             <button type="button" class="todo-action-btn todo-edit-btn" title="Edit">✏️</button>
             <button type="button" class="todo-action-btn danger todo-delete-btn" title="Delete">🗑️</button>
           </div>` : ''}
