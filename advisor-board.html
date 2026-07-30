@@ -485,6 +485,9 @@
   .cust-rec-veh { font-size:0.74rem; color:var(--muted); }
   .cust-rec-unconf { font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:#92400e; background:#fffaf0; border:1px solid var(--amber); border-radius:999px; padding:1px 7px; }
   .cust-rec-note { font-size:0.82rem; color:var(--text); margin-top:4px; }
+  .cust-rec-vehsel { font-size:0.74rem; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:2px 6px; background:#fff; max-width:60%; cursor:pointer; }
+  .cust-rec-vehsel:focus { outline:none; border-color:var(--accent); }
+  .cust-rec-hint { font-size:0.7rem; font-style:italic; color:var(--muted); margin-top:3px; }
   .cust-rec-play { margin-top:6px; }
   .cust-rec-play:empty { display:none; }
   /* clickable customer links into the record view */
@@ -5598,6 +5601,7 @@
     const CR = () => window.CustomerRecord;
     let custCustomer = null, custVehicles = [], custRos = [], custVehById = {}, custRoById = {};
     let custTotals = {}, custRecCallsAll = [], custRecIdx = {}, custSecondaryLearned = false;
+    let custRecAssigned = {};   // call id → session vehicle assignment (via api/recording-assign)
     let custSelectedVehicle = 'all';
     let custBackTarget = { kind: 'list' };
     let custAllList = null, custLoadSeq = 0;
@@ -5678,6 +5682,7 @@
       $('custTopStrip').innerHTML = '<div style="color:var(--muted);font-size:0.85rem">Loading…</div>';
       $('custVehChips').innerHTML = ''; $('custHistoryBody').innerHTML = ''; $('custRecBody').innerHTML = '';
       custSelectedVehicle = 'all';
+      custRecAssigned = {};
       // customer row
       const custResp = await db.from('customers')
         .select('id, name, business_name, phone_primary, phone_secondary, tax_exempt, last_invoiced')
@@ -5785,10 +5790,15 @@
       el.querySelectorAll('[data-open-ro]').forEach(b => b.onclick = () => openRoFromCustomer(b.dataset.openRo));
     }
 
-    // Derive a recording's vehicle from the call's linked RO (calls have no
-    // vehicle of their own; the endpoint doesn't expose recordings.vehicle_id).
+    // A recording's vehicle: a human's explicit assignment this session wins
+    // (custRecAssigned, written through api/recording-assign); otherwise derive
+    // from the call's linked RO (calls carry no vehicle; the links endpoint
+    // doesn't expose recordings.vehicle_id). null = nobody has assigned it.
     function custRecVehId(call) {
-      if (!call || !call.ro_id) return null;
+      if (!call) return null;
+      const ov = custRecAssigned[String(call.id)];
+      if (ov !== undefined) return ov;          // explicit assignment (may be null = cleared)
+      if (!call.ro_id) return null;
       const ro = custRoById[String(call.ro_id)];
       return ro ? ro.vehicle_id : null;
     }
@@ -5799,14 +5809,15 @@
       if (!RP) { el.innerHTML = '<div class="cust-rec-empty">Recordings unavailable.</div>'; return; }
       // only calls that actually HAVE a recording (present in the links index)
       const withRec = (custRecCallsAll || []).filter(c => RP.describeCallId(custRecIdx, c.id).render);
-      const rows = CR().filterByVehicle(withRec, custSelectedVehicle, custRecVehId);   // already oldest-first
+      // Recordings filter: an UNASSIGNED (unknown-vehicle) recording shows under
+      // EVERY chip, not only "All" — the original-complaint call has no vehicle.
+      const rows = CR().filterRecordingsByVehicle(withRec, custSelectedVehicle, custRecVehId);
       if (!rows.length) { el.innerHTML = `<div class="cust-rec-empty">No recordings${custSelectedVehicle !== 'all' ? ' for this vehicle' : ''}.</div>`; return; }
       custRecState = {};
       el.innerHTML = rows.map(c => {
         const d = c.started_at ? new Date(c.started_at) : null;
         const date = d && !isNaN(d) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '—';
-        const vid = custRecVehId(c); const v = vid ? custVehById[String(vid)] : null;
-        const veh = v ? (vehDesc(v) || 'Vehicle') : 'vehicle unknown';   // never blank
+        const vid = custRecVehId(c);
         const dsc = RP.describeCallId(custRecIdx, c.id); custRecState[String(c.id)] = dsc;
         let play;
         if (dsc.state === 'ready') play = `<button type="button" class="rec-btn rec-ready" data-rec-play="${esc(c.id)}" aria-label="${esc(dsc.aria)}">${esc(dsc.label)}</button>`;
@@ -5814,13 +5825,46 @@
         else play = `<span class="rec-marker" title="${esc(dsc.aria)}">${esc(dsc.label)}</span>`;
         const note = (c.note && String(c.note).trim()) ? `<div class="cust-rec-note">${esc(String(c.note).trim())}</div>` : '';
         const unconf = c.confirmed ? '' : '<span class="cust-rec-unconf">unconfirmed</span>';
+        // Vehicle CONTROL. Confirmed → a picker (this customer's vehicles +
+        // "Unassigned"); the label itself becomes the control. Unconfirmed → the
+        // picker is disabled with a hint (attach the call first): the person link
+        // comes before the vehicle link.
+        let vehControl;
+        if (CR().canAssignRecording(c)) {
+          const opts = [`<option value=""${vid == null ? ' selected' : ''}>— Unassigned —</option>`]
+            .concat(custVehicles.map(v => `<option value="${esc(v.id)}"${String(vid) === String(v.id) ? ' selected' : ''}>${esc(vehDesc(v) || 'Vehicle')}</option>`))
+            .join('');
+          vehControl = `<select class="cust-rec-vehsel" data-rec-call="${esc(c.id)}" aria-label="Assign a vehicle to this recording">${opts}</select>`;
+        } else {
+          vehControl = `<span class="cust-rec-veh">vehicle unknown</span>`;
+        }
+        const hint = CR().canAssignRecording(c) ? '' : `<div class="cust-rec-hint">Attach the call to a customer to assign a vehicle</div>`;
         return `<div class="cust-rec-row${c.confirmed ? '' : ' unconfirmed'}">
-          <div class="cust-rec-top"><span class="cust-rec-when">${esc(date)}</span><span class="cust-rec-veh">${esc(veh)}</span>${unconf}</div>
+          <div class="cust-rec-top"><span class="cust-rec-when">${esc(date)}</span>${vehControl}${unconf}</div>
           ${note}
+          ${hint}
           <div class="cust-rec-play">${play}</div>
         </div>`;
       }).join('');
       el.querySelectorAll('[data-rec-play]').forEach(b => b.addEventListener('click', () => playCustRec(b.dataset.recPlay, b)));
+      el.querySelectorAll('.cust-rec-vehsel[data-rec-call]').forEach(sel =>
+        sel.addEventListener('change', () => assignRecVehicle(sel.dataset.recCall, sel.value || null)));
+    }
+
+    // Assign (or clear) a recording's vehicle via the service-role endpoint (the
+    // board can't write recordings directly). On success, remember it for the
+    // session and re-render so the chips filter correctly immediately.
+    async function assignRecVehicle(callId, vehicleId) {
+      try {
+        const r = await fetch('/api/recording-assign', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ call_id: Number(callId), vehicle_id: vehicleId || null }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { alert('Could not assign vehicle: ' + (j.error || ('HTTP ' + r.status))); renderCustRecordings(); return; }
+        custRecAssigned[String(callId)] = (j.vehicle_id != null ? String(j.vehicle_id) : null);
+        renderCustRecordings();
+      } catch (e) { console.error('[cust] assign vehicle failed', e); alert('Could not assign vehicle: ' + e.message); renderCustRecordings(); }
     }
 
     // Batched links fetch (chunked by the endpoint's 50 cap so the 31-vehicle

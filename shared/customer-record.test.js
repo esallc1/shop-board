@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ALL_VEHICLES, buildRecordingCalls, isSecondaryLearned, filterByVehicle,
+  filterRecordingsByVehicle, canAssignRecording,
   customerCounts, openRosOf, sortNewestFirst, roInvoiceTotal, totalsByRo,
 } from './customer-record.js';
 
@@ -76,6 +77,36 @@ test('filterByVehicle survives 1 vehicle and a 31-vehicle fleet', () => {
   const fleet = Array.from({ length: 31 }, (_, i) => ({ v: 'f' + i }));
   assert.equal(filterByVehicle(fleet, 'f17', (i) => i.v).length, 1);
   assert.equal(filterByVehicle(fleet, ALL_VEHICLES, (i) => i.v).length, 31);
+});
+
+// ── filterRecordingsByVehicle: unknown shows under EVERY chip ──
+test('filterRecordingsByVehicle: "all"/null → everything', () => {
+  const items = [{ v: 'x' }, { v: null }, { v: 'y' }];
+  const get = (i) => i.v;
+  assert.equal(filterRecordingsByVehicle(items, ALL_VEHICLES, get).length, 3);
+  assert.equal(filterRecordingsByVehicle(items, null, get).length, 3);
+});
+test('filterRecordingsByVehicle: specific chip keeps its vehicle AND all unknowns', () => {
+  const items = [{ id: 1, v: 'x' }, { id: 2, v: null }, { id: 3, v: 'y' }, { id: 4, v: null }];
+  const out = filterRecordingsByVehicle(items, 'x', (i) => i.v);
+  // x (matching) + both unknowns; y (a DIFFERENT vehicle) filtered out
+  assert.deepEqual(out.map((i) => i.id).sort(), [1, 2, 4]);
+});
+test('filterRecordingsByVehicle: the original-complaint (no vehicle) survives every chip', () => {
+  const orig = { id: 'orig', v: null };
+  const items = [orig, { id: 'a', v: 'truckA' }, { id: 'b', v: 'truckB' }];
+  for (const chip of ['truckA', 'truckB']) {
+    assert.ok(filterRecordingsByVehicle(items, chip, (i) => i.v).some((i) => i.id === 'orig'),
+      `original-complaint must appear under ${chip}`);
+  }
+});
+
+// ── canAssignRecording: confirmed only ──────────────────────
+test('canAssignRecording: only confirmed rows are assignable', () => {
+  assert.equal(canAssignRecording({ confirmed: true }), true);
+  assert.equal(canAssignRecording({ confirmed: false }), false);
+  assert.equal(canAssignRecording({}), false);
+  assert.equal(canAssignRecording(null), false);
 });
 
 // ── customerCounts ──────────────────────────────────────────

@@ -63,9 +63,8 @@ export function isSecondaryLearned(opts) {
   return (o.calls || []).some((c) => c && c.learned_phone && l10(c.caller_bare, o.last10) === key);
 }
 
-// Generic vehicle filter shared by History and Recordings. 'all'/null → everything.
-// getVehId maps an item to its vehicle id; a null vehicle id never matches a
-// specific chip (so an unknown-vehicle recording only shows under "All").
+// Vehicle filter for HISTORY (ROs, which always have a vehicle_id). 'all'/null →
+// everything. A null vehicle id never matches a specific chip.
 export function filterByVehicle(items, vehicleId, getVehId) {
   if (!vehicleId || vehicleId === ALL_VEHICLES) return (items || []).slice();
   const key = String(vehicleId);
@@ -73,6 +72,30 @@ export function filterByVehicle(items, vehicleId, getVehId) {
     const v = getVehId(it);
     return v != null && String(v) === key;
   });
+}
+
+// Vehicle filter for RECORDINGS — differs on purpose: an UNKNOWN-vehicle
+// recording (getVehId null → nobody has assigned it) shows under EVERY chip, not
+// only "All". The original-complaint call comes in before the RO exists, so it
+// has no vehicle; filtering it out of a truck's view would hide exactly the
+// recording this section was built to surface. A recording assigned to a
+// DIFFERENT vehicle still filters out normally.
+export function filterRecordingsByVehicle(items, vehicleId, getVehId) {
+  if (!vehicleId || vehicleId === ALL_VEHICLES) return (items || []).slice();
+  const key = String(vehicleId);
+  return (items || []).filter((it) => {
+    const v = getVehId(it);
+    if (v == null) return true;               // unassigned → shows everywhere
+    return String(v) === key;
+  });
+}
+
+// Can this recording row be assigned to a vehicle? Only CONFIRMED rows (a human
+// has linked the call to this customer). Assigning a vehicle to an unconfirmed
+// call would implicitly assert a person link no human made — the person link
+// comes before the vehicle link. The server enforces this too.
+export function canAssignRecording(row) {
+  return !!(row && row.confirmed);
 }
 
 // CrisData-only counts. visits = number of ROs; sinceIso = earliest RO created_at
