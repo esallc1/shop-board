@@ -47,16 +47,16 @@ function assertNoSecrets(out) {
   }
   assert.deepEqual(
     Object.keys(out).sort(),
-    ['call_id', 'duration_seconds', 'playback_url', 'status'],
-    'exactly the four whitelisted fields',
+    ['call_id', 'duration_seconds', 'playback_url', 'status', 'vehicle_id'],
+    'exactly the five whitelisted fields',
   );
 }
 
-test('publicRow (ready) ships the signed url + the four fields, nothing else', () => {
+test('publicRow (ready) ships the signed url + the five fields, nothing else', () => {
   const rec = {
     id: 'uuid-x', call_id: 500, ctm_call_id: 4380799274,
     fetch_status: 'ready', duration_seconds: 92,
-    storage_path: '2026-07/4380799274.mp3',
+    storage_path: '2026-07/4380799274.mp3', vehicle_id: 'veh-uuid',
     remote_url: 'https://ctm/secret', last_error: null, fetch_attempts: 1,
   };
   const out = publicRow(rec, 'https://signed/url?token=abc');
@@ -64,7 +64,13 @@ test('publicRow (ready) ships the signed url + the four fields, nothing else', (
   assert.equal(out.status, 'ready');
   assert.equal(out.duration_seconds, 92);
   assert.equal(out.playback_url, 'https://signed/url?token=abc');
+  assert.equal(out.vehicle_id, 'veh-uuid', 'persisted assignment flows through');
   assertNoSecrets(out);
+});
+
+test('publicRow: a null/absent vehicle_id → null (nobody has assigned it)', () => {
+  assert.equal(publicRow({ call_id: 1, fetch_status: 'ready' }, 'u').vehicle_id, null);
+  assert.equal(publicRow({ call_id: 1, fetch_status: 'ready', vehicle_id: null }, 'u').vehicle_id, null);
 });
 
 test('publicRow (ready) with no minted url → playback_url null, still ready', () => {

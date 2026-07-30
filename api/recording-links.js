@@ -69,6 +69,12 @@ export function publicRow(rec, playbackUrl) {
     status,
     duration_seconds: Number.isFinite(duration) ? duration : null,
     playback_url: status === 'ready' && playbackUrl ? playbackUrl : null,
+    // A HUMAN's assignment (api/recording-assign), so the customer record can
+    // restore it after a reload instead of only re-deriving from calls.ro_id.
+    // NOT in the secret class: it's an internal shop id the customer record
+    // already holds for its vehicle chips — unlike remote_url / storage_path /
+    // last_error, which stay server-side and are still excluded below.
+    vehicle_id: rec && rec.vehicle_id != null ? rec.vehicle_id : null,
   };
 }
 
@@ -118,7 +124,7 @@ export default async function handler(req, res) {
     const inList = callIds.join(',');
     const url = `${SUPABASE_URL}/rest/v1/recordings` +
       `?call_id=in.(${inList})` +
-      `&select=call_id,fetch_status,duration_seconds,storage_path`;
+      `&select=call_id,fetch_status,duration_seconds,storage_path,vehicle_id`;
     const r = await fetch(url, { headers });
     if (!r.ok) {
       console.error('[recording-links] query failed', r.status, await r.text());

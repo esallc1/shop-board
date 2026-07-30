@@ -5790,14 +5790,19 @@
       el.querySelectorAll('[data-open-ro]').forEach(b => b.onclick = () => openRoFromCustomer(b.dataset.openRo));
     }
 
-    // A recording's vehicle: a human's explicit assignment this session wins
-    // (custRecAssigned, written through api/recording-assign); otherwise derive
-    // from the call's linked RO (calls carry no vehicle; the links endpoint
-    // doesn't expose recordings.vehicle_id). null = nobody has assigned it.
+    // A recording's vehicle, in precedence order — a human's word beats a
+    // derivation:
+    //   1. this session's explicit assignment (custRecAssigned, just written);
+    //   2. the PERSISTED recordings.vehicle_id (via the links endpoint) — this is
+    //      what makes an assignment survive a reload, incl. on a call with no RO;
+    //   3. derive from the call's linked RO (calls carry no vehicle of their own);
+    //   4. null = nobody has assigned it (falls through the whole chain).
     function custRecVehId(call) {
       if (!call) return null;
       const ov = custRecAssigned[String(call.id)];
-      if (ov !== undefined) return ov;          // explicit assignment (may be null = cleared)
+      if (ov !== undefined) return ov;               // explicit this session (may be null = cleared)
+      const entry = custRecIdx && custRecIdx[String(call.id)];
+      if (entry && entry.vehicle_id != null) return entry.vehicle_id;   // persisted human assignment
       if (!call.ro_id) return null;
       const ro = custRoById[String(call.ro_id)];
       return ro ? ro.vehicle_id : null;
