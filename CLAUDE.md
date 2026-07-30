@@ -57,4 +57,5 @@ Every file under `/docs/wiring/` follows this shape:
 | Intake wizard | `intake-wizard.md` | `advisor-board.html` |
 | Floor tags & lanes | `floor-tags.md` | `advisor-board.html` |
 | Call window & Desk | `call-window-desk.md` | `advisor-board.html` (`callerCard` + `desk` IIFEs) |
+| Announcement banner | `announcements.md` | `shared/announcement-banner.js`, `api/announcement.js`, advisor + owner boards |
 | File Cabinet tab | `file-cabinet.md` | `shared/file-cabinet.js`, `owner-board.html` |

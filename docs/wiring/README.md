@@ -18,6 +18,7 @@ every claim against the real code before writing it.**
 | Intake wizard | [intake-wizard.md](intake-wizard.md) | ✅ verified vs `bea25cf` (partial — customer/phone steps still thin) |
 | Floor tags & lanes | [floor-tags.md](floor-tags.md) | ✅ verified vs `bea25cf` (partial — full lane taxonomy still thin) |
 | Call window & Desk | [call-window-desk.md](call-window-desk.md) | ✅ verified vs the commit that adds it |
+| Announcement banner | [announcements.md](announcements.md) | ✅ verified vs the commit that adds it |
 | File Cabinet (this tab) | [file-cabinet.md](file-cabinet.md) | ✅ verified vs the commit that adds it |
 
 _Seeded 2026-07-30 from the Jul 29 session handoff. Verified 2026-07-30 against commit `bea25cf`:

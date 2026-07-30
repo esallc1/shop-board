@@ -522,6 +522,7 @@
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
+<script src="shared/announcement-banner.js"></script>
 <!-- RO service-writer helpers (ESM). Assigns window.RoWriter; used only by
      event-driven handlers (mintRo/openRo/printRo), which run long after this
      module executes, so load order is safe. -->
@@ -738,6 +739,10 @@
     </div>
 
     <div class="content">
+
+  <!-- Announcement banner (office boards only) — shared/announcement-banner.js.
+       Persistent above the views; shows the most-recent active announcement. -->
+  <div id="announce-banner"></div>
 
   <!-- ══ TAB 1: APPROVAL QUEUE ══ -->
   <div class="view active" id="view-approval">
@@ -1864,6 +1869,10 @@
 
   // "Catch this moment" capture FAB — lands in the Owner Marketing tab.
   CatchMoment.init({ db, getName: () => CHAT_IDENTITY.name });
+
+  // Announcement banner — display only on the advisor board (owner posts). The
+  // module owns its own realtime channel + connection-health self-heal.
+  AnnouncementBanner.init({ db, bannerMount: '#announce-banner' });
 
   // ── VIEW REFRESH REGISTRY — connection-health safety net + manual
   // refresh button (see bottom of file). Each view's section below
