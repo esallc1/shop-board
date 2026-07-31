@@ -15,6 +15,7 @@ every claim against the real code before writing it.**
 | Comeback / warranty | [comeback-warranty.md](comeback-warranty.md) | ✅ verified vs `bea25cf` |
 | Recordings / audio | [recordings-audio.md](recordings-audio.md) | ✅ verified vs `bea25cf` |
 | Customer record | [customer-record.md](customer-record.md) | ✅ verified vs `bea25cf` |
+| Customer duplicates & multi-phone | [customer-dedupe.md](customer-dedupe.md) | ⚠ investigation + design vs `c2a180d` (not built) |
 | Intake wizard | [intake-wizard.md](intake-wizard.md) | ✅ verified vs `bea25cf` (partial — customer/phone steps still thin) |
 | Floor tags & lanes | [floor-tags.md](floor-tags.md) | ✅ verified vs `bea25cf` (partial — full lane taxonomy still thin) |
 | Call window & Desk | [call-window-desk.md](call-window-desk.md) | ✅ verified vs the commit that adds it |
