@@ -20,112 +20,150 @@
      dashboard (service-role stays server-only).
    • Reads only `name, role` from employees (never `pin`).
    • Nothing is enforced: no RLS change, no gate. This is login-only.
+
+  Styling = the "shop front door" skin (branded shop photo background + Lee-blue
+  card), matching crisdata-office-login-shopfront.html. The auth logic below is
+  unchanged from the plain build — skin only.
   ============================================================
 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
-  :root {
-    --bg:#f5f6fa; --surface:#ffffff; --border:#e2e5ee; --text:#1a1f36;
-    --muted:#8c93a8; --accent:#5b5ef4; --green:#10b981; --red:#ef4444;
+  :root{
+    --ink:#1c2333; --muted:#6b7688; --line:#e6e9f0;
+    --accent:#1f6fe0; --accent-press:#1857b8; --field:#f6f7fb;
+    --green:#15803d; --red:#dc2626;
   }
-  * { box-sizing:border-box; }
-  body {
-    margin:0; min-height:100vh; background:var(--bg); color:var(--text);
-    font-family:'Segoe UI', system-ui, -apple-system, sans-serif;
-    display:flex; align-items:center; justify-content:center; padding:20px;
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);min-height:100%;
+    display:flex;align-items:center;justify-content:center;padding:24px;
+    background:
+      linear-gradient(180deg, rgba(8,14,28,.62), rgba(8,14,28,.72)),
+      url("assets/office-login-bg.jpg") center 28% / cover no-repeat fixed;
   }
-  .card {
-    background:var(--surface); border:1px solid var(--border); border-radius:16px;
-    box-shadow:0 12px 40px rgba(20,30,60,0.08); width:400px; max-width:100%;
-    padding:28px 26px;
+  .card{
+    width:100%;max-width:400px;background:rgba(255,255,255,.97);
+    border-radius:20px;overflow:hidden;position:relative;
+    box-shadow:0 36px 90px rgba(4,10,24,.6), 0 0 0 1px rgba(255,255,255,.15);
+    backdrop-filter:saturate(1.1) blur(2px);
   }
-  .brand { display:flex; align-items:center; gap:11px; margin-bottom:4px; }
-  .brand .ic {
-    width:38px; height:38px; border-radius:10px; background:#eef0ff; color:var(--accent);
-    display:flex; align-items:center; justify-content:center; font-size:19px; flex-shrink:0;
-  }
-  .brand h1 { font-size:1.1rem; margin:0; }
-  .brand .sub { font-size:0.76rem; color:var(--muted); margin-top:2px; }
-  .note {
-    font-size:0.74rem; color:var(--muted); background:#fbfcff; border:1px solid var(--border);
-    border-radius:9px; padding:9px 11px; margin:16px 0 18px; line-height:1.5;
-  }
-  label { display:block; font-size:0.68rem; font-weight:800; text-transform:uppercase;
-    letter-spacing:0.5px; color:var(--muted); margin:14px 0 6px; }
-  input {
-    width:100%; border:1px solid var(--border); border-radius:9px; padding:11px 12px;
-    font:inherit; font-size:0.92rem; color:var(--text); background:var(--surface);
-  }
-  input:focus { outline:none; border-color:var(--accent); }
-  .btn {
-    width:100%; border:1px solid var(--accent); background:var(--accent); color:#fff;
-    border-radius:10px; padding:12px; font:inherit; font-size:0.92rem; font-weight:700;
-    cursor:pointer; margin-top:18px;
-  }
-  .btn:hover { filter:brightness(0.96); }
-  .btn:disabled { opacity:0.6; cursor:default; }
-  .btn.sec {
-    background:var(--surface); color:var(--text); border-color:var(--border); font-weight:600;
-  }
-  .btn.sec:hover { border-color:var(--accent); color:var(--accent); filter:none; }
-  .msg { font-size:0.82rem; margin-top:14px; min-height:1.1em; line-height:1.45; }
-  .msg.ok { color:var(--green); } .msg.err { color:var(--red); } .msg.wait { color:var(--accent); }
-  .who { font-size:0.95rem; margin:6px 0 2px; }
-  .who b { font-weight:800; }
-  .who .role {
-    display:inline-block; font-size:0.7rem; font-weight:800; color:var(--accent);
-    background:#eef0ff; border-radius:20px; padding:2px 10px; margin-left:6px; vertical-align:middle;
-  }
-  .who .email { font-size:0.78rem; color:var(--muted); margin-top:3px; }
-  hr { border:none; border-top:1px solid var(--border); margin:20px 0 4px; }
-  .section-title { font-size:0.72rem; font-weight:800; text-transform:uppercase;
-    letter-spacing:0.5px; color:var(--muted); margin-top:16px; }
-  .hidden { display:none !important; }
-  .foot { font-size:0.68rem; color:var(--muted); text-align:center; margin-top:22px; }
+  .brand{padding:26px 34px 20px;text-align:center;border-bottom:1px solid var(--line)}
+  .brand .shop{font-size:12px;font-weight:800;letter-spacing:2.5px;color:var(--muted)}
+  .brand .app{font-size:23px;font-weight:800;letter-spacing:-.3px;margin-top:3px}
+  .brand .app b{color:var(--accent)}
+  .body{padding:24px 34px 28px}
+  .hi{font-size:18px;font-weight:750;margin:0 0 4px}
+  .sub{font-size:13px;color:var(--muted);margin:0 0 20px}
+  .field{margin-bottom:14px}
+  label{display:block;font-size:11.5px;font-weight:700;letter-spacing:.5px;color:var(--muted);margin-bottom:7px}
+  .inp{position:relative}
+  .inp input{width:100%;border:1.5px solid var(--line);background:var(--field);border-radius:12px;
+    padding:13px 15px;font-size:14.5px;color:var(--ink);outline:none;transition:.15s}
+  .inp input::placeholder{color:#aab1bf}
+  .inp input:focus{border-color:var(--accent);background:#fff;box-shadow:0 0 0 4px rgba(31,111,224,.14)}
+  .inp .toggle{position:absolute;right:12px;top:50%;transform:translateY(-50%);
+    font-size:11.5px;font-weight:700;color:var(--accent);cursor:pointer;background:none;border:none}
+  .signin{width:100%;margin-top:8px;background:var(--accent);color:#fff;border:none;border-radius:12px;
+    padding:14px;font-size:15px;font-weight:750;cursor:pointer;transition:.15s;box-shadow:0 8px 20px rgba(31,111,224,.35)}
+  .signin:hover{background:var(--accent-press)}
+  .signin:active{transform:translateY(1px)}
+  .signin:disabled{opacity:.6;cursor:default;box-shadow:none}
+  .signin.ghost{background:#fff;color:var(--ink);border:1.5px solid var(--line);box-shadow:none;margin-top:10px;font-weight:700}
+  .signin.ghost:hover{border-color:var(--accent);color:var(--accent)}
+  .trouble{text-align:center;font-size:12px;color:var(--muted);margin-top:12px}
+  .msg{font-size:12.5px;margin-top:12px;min-height:1.1em;line-height:1.45;text-align:center}
+  .msg.ok{color:var(--green)} .msg.err{color:var(--red)} .msg.wait{color:var(--accent)}
+  /* signed-in identity */
+  .who{font-size:15px;margin:2px 0 2px}
+  .who b{font-weight:800}
+  .who .role{display:inline-block;font-size:11px;font-weight:800;color:var(--accent);
+    background:rgba(31,111,224,.10);border-radius:20px;padding:2px 10px;margin-left:6px;vertical-align:middle}
+  .who .email{font-size:12.5px;color:var(--muted);margin-top:3px}
+  hr{border:none;border-top:1px solid var(--line);margin:18px 0 6px}
+  .section-title{font-size:11.5px;font-weight:800;letter-spacing:.5px;color:var(--muted);margin:6px 0 12px}
+  /* footer */
+  .foot{margin-top:20px;padding-top:16px;border-top:1px solid var(--line);text-align:center}
+  .foot .crew{font-size:12px;color:var(--muted);line-height:1.5;background:var(--field);
+    border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+  .foot .crew b{color:var(--ink)}
+  .secure{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:13px;font-size:11.5px;color:#9aa3b2}
+  .secure svg{width:12px;height:12px;fill:#9aa3b2}
+  .hidden{display:none !important}
 </style>
 </head>
 <body>
   <div class="card">
     <div class="brand">
-      <div class="ic">🔐</div>
-      <div>
-        <h1>CrisData · Office Login</h1>
-        <div class="sub">Supabase Auth — office team (test)</div>
+      <div class="shop">LEE TRANSMISSION</div>
+      <div class="app">Cris<b>Data</b></div>
+    </div>
+
+    <div class="body">
+      <!-- ── Signed-out: email + password ── -->
+      <div id="viewLogin">
+        <h1 class="hi">Welcome back</h1>
+        <p class="sub">Sign in to the office workspace.</p>
+
+        <div class="field">
+          <label for="email">EMAIL</label>
+          <div class="inp"><input type="email" id="email" autocomplete="username" placeholder="you@leetransmissionauto.com"></div>
+        </div>
+        <div class="field">
+          <label for="password">PASSWORD</label>
+          <div class="inp">
+            <input type="password" id="password" autocomplete="current-password" placeholder="Your password">
+            <button type="button" class="toggle" data-target="password">Show</button>
+          </div>
+        </div>
+        <button type="button" class="signin" id="signInBtn">Sign in</button>
+        <div class="msg" id="loginMsg"></div>
+        <div class="trouble">Trouble signing in? Ask Cristian to reset it.</div>
+
+        <div class="foot">
+          <div class="crew">🔧 <b>Techs &amp; floor crew:</b> keep using the shop tablet — phone&nbsp;+&nbsp;PIN, same as always. This door is for the office team.</div>
+          <div class="secure">
+            <svg viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+            Secure sign-in · CrisData
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Signed-in: who you are + set/change password + sign out ── -->
+      <div id="viewSession" class="hidden">
+        <h1 class="hi">You're in</h1>
+        <p class="sub" id="sessionHint">You're signed in.</p>
+        <div class="who">
+          Signed in as <b id="whoName">…</b><span class="role hidden" id="whoRole"></span>
+          <div class="email" id="whoEmail"></div>
+        </div>
+
+        <hr>
+        <div class="section-title">SET / CHANGE PASSWORD</div>
+        <div class="field">
+          <label for="newPassword">NEW PASSWORD</label>
+          <div class="inp">
+            <input type="password" id="newPassword" autocomplete="new-password" placeholder="At least 8 characters">
+            <button type="button" class="toggle" data-target="newPassword">Show</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="confirmPassword">CONFIRM PASSWORD</label>
+          <div class="inp"><input type="password" id="confirmPassword" autocomplete="new-password" placeholder="Repeat it"></div>
+        </div>
+        <button type="button" class="signin" id="savePasswordBtn">Save password</button>
+        <div class="msg" id="pwMsg"></div>
+        <button type="button" class="signin ghost" id="signOutBtn">Sign out</button>
+
+        <div class="foot">
+          <div class="secure">
+            <svg viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+            Secure sign-in · CrisData
+          </div>
+        </div>
       </div>
     </div>
-
-    <!-- ── Signed-out: email + password ── -->
-    <div id="viewLogin">
-      <div class="note">This is the new office login (test). Techs and everyone else keep using phone + PIN as usual — this page changes nothing there.</div>
-      <label for="email">Email</label>
-      <input type="email" id="email" autocomplete="username" placeholder="you@example.com">
-      <label for="password">Password</label>
-      <input type="password" id="password" autocomplete="current-password" placeholder="Your password">
-      <button type="button" class="btn" id="signInBtn">Sign in</button>
-      <div class="msg" id="loginMsg"></div>
-    </div>
-
-    <!-- ── Signed-in: who you are + set/change password + sign out ── -->
-    <div id="viewSession" class="hidden">
-      <div class="note" id="sessionHint">You're signed in.</div>
-      <div class="who">
-        Signed in as <b id="whoName">…</b><span class="role hidden" id="whoRole"></span>
-        <div class="email" id="whoEmail"></div>
-      </div>
-
-      <hr>
-      <div class="section-title">Set / change password</div>
-      <label for="newPassword">New password</label>
-      <input type="password" id="newPassword" autocomplete="new-password" placeholder="At least 8 characters">
-      <label for="confirmPassword">Confirm password</label>
-      <input type="password" id="confirmPassword" autocomplete="new-password" placeholder="Repeat it">
-      <button type="button" class="btn" id="savePasswordBtn">Save password</button>
-      <div class="msg" id="pwMsg"></div>
-
-      <button type="button" class="btn sec" id="signOutBtn">Sign out</button>
-    </div>
-
-    <div class="foot">Reading is safe · this page never touches the boards or phone/PIN login.</div>
   </div>
 
 <script>
@@ -227,6 +265,17 @@
   $('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') signIn(); });
   $('savePasswordBtn').addEventListener('click', savePassword);
   $('signOutBtn').addEventListener('click', signOut);
+
+  // Cosmetic-only: password show/hide toggle (no auth behavior).
+  document.querySelectorAll('.toggle[data-target]').forEach((t) => {
+    t.addEventListener('click', () => {
+      const inp = $(t.dataset.target);
+      if (!inp) return;
+      const show = inp.type === 'password';
+      inp.type = show ? 'text' : 'password';
+      t.textContent = show ? 'Hide' : 'Show';
+    });
+  });
 
   // Catch invite/recovery links landing here (detectSessionInUrl consumes the hash
   // token → fires here) and normal sign-in/out.

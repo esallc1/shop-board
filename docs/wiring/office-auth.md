@@ -384,8 +384,11 @@ revoke select on public.feature_adoption from authenticated;
 
 ## Where it lives in the code
 - **Office auth (new, Step 0–1):** `office-login.html` (standalone test page — login/set-password/
-  sign-out + role display); `migrations/20260731_employees_auth_user_id.sql` (the `auth_user_id`
-  link, hand-run). Registered in the File Cabinet via `shared/file-cabinet.js` DOCS.
+  sign-out + role display; **"shop front door" skin** — darkened shop photo background
+  `assets/office-login-bg.jpg`, Lee-blue `#1f6fe0` card, LEE TRANSMISSION / CrisData brand,
+  password show/hide toggle, techs-use-phone+PIN note, secure footer);
+  `migrations/20260731_employees_auth_user_id.sql` (the `auth_user_id` link, hand-run). Registered
+  in the File Cabinet via `shared/file-cabinet.js` DOCS.
 - **Existing identity (unchanged):** login + role routing `crisdata.html`; per-board identity
   `captureSessionAndGreet()` (advisor/gm/owner), `gateAndBoot()` (bookkeeping), `my-numbers.html`
   (tech); logout `initLogout()` per board (already calls `db.auth.signOut()`).
@@ -422,3 +425,11 @@ revoke select on public.feature_adoption from authenticated;
   (§7.6). **Not applied** — a reads-only widen is a silent-write trap, so resume does reads+writes
   together (or writes-behind-endpoints) in a calm off-hours window. **Interim rule: sign out of
   office-login before using a board.** Doc-only pass — no migration, no policy change.
+- 2026-07-31 — **Cosmetic: restyled `office-login.html` to the "shop front door" skin** (matches
+  `crisdata-office-login-shopfront.html`): the real shop photo as a darkened full-screen background
+  (`assets/office-login-bg.jpg`, ~472 KB, referenced by URL — not base64), a centered Lee-blue
+  (`#1f6fe0`) card with the LEE TRANSMISSION / CrisData header, email/password with a show/hide
+  toggle, the techs-&-floor-crew phone+PIN note, and the secure-sign-in footer — applied to the
+  signed-in and set-password views too. **Skin only — all auth logic byte-identical** (supabase-js
+  client, `signInWithPassword`, `updateUser`, `signOut`, the `auth_user_id`→`employees` role lookup,
+  session handling). No boards / policies / migration touched.
