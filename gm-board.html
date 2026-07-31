@@ -22,6 +22,7 @@
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
 <script src="shared/announcement-banner.js"></script>
+<script src="shared/report-change.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
 <style>
@@ -1728,6 +1729,16 @@
   // Announcement banner — display only, filtered to the MANAGER audience. The
   // module owns its own realtime channel + connection-health self-heal.
   AnnouncementBanner.init({ db, bannerMount: '#announce-banner', role: 'manager' });
+
+  // "Report a change" intake — 🚩 button in the topbar → submit a Bug/Idea to the
+  // owner (service-role api/change-request.js). Getters are lazy; identity
+  // resolves in captureSessionAndGreet() before anyone clicks Send.
+  ReportChange.init({
+    db, endpoint: '/api/change-request', board: 'manager',
+    getName: () => CHAT_IDENTITY.name,
+    getRole: () => CHAT_IDENTITY.role,
+    getEmployeeId: () => CURRENT_EMPLOYEE_ID,
+  });
 
   BoardSettings.init({
     db, targetSelector: '.main-area', mountSelector: '.sidebar-btn-row',

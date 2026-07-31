@@ -523,6 +523,7 @@
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
 <script src="shared/announcement-banner.js"></script>
+<script src="shared/report-change.js"></script>
 <!-- RO service-writer helpers (ESM). Assigns window.RoWriter; used only by
      event-driven handlers (mintRo/openRo/printRo), which run long after this
      module executes, so load order is safe. -->
@@ -1882,6 +1883,17 @@
   // filtered to the ADVISOR audience. The module owns its own realtime channel +
   // connection-health self-heal.
   AnnouncementBanner.init({ db, bannerMount: '#announce-banner', role: 'advisor' });
+
+  // "Report a change" intake — 🚩 button in the topbar → submit a Bug/Idea to the
+  // owner. Inbound counterpart to the announcement banner (writes via the
+  // service-role api/change-request.js). Getters are lazy: identity resolves in
+  // captureSessionAndGreet() below, well before anyone clicks Send.
+  ReportChange.init({
+    db, endpoint: '/api/change-request', board: 'advisor',
+    getName: () => CHAT_IDENTITY.name,
+    getRole: () => CHAT_IDENTITY.role,
+    getEmployeeId: () => CURRENT_EMPLOYEE_ID,
+  });
 
   // ── VIEW REFRESH REGISTRY — connection-health safety net + manual
   // refresh button (see bottom of file). Each view's section below

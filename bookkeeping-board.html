@@ -417,6 +417,7 @@
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
 <script src="shared/announcement-banner.js"></script>
+<script src="shared/report-change.js"></script>
 <!-- Planner (shared/planner.js — self-contained; mounted below after the
      bookkeeping session resolves, scoped private to this employee). -->
 <script src="shared/planner.js"></script>
@@ -762,6 +763,16 @@
   // Announcement banner — display only, filtered to the BOOKKEEPING audience. The
   // module owns its own realtime channel + connection-health self-heal.
   AnnouncementBanner.init({ db, bannerMount: '#announce-banner', role: 'bookkeeping' });
+
+  // "Report a change" intake — 🚩 button in the topbar → submit a Bug/Idea to the
+  // owner (service-role api/change-request.js). Getters are lazy; identity
+  // resolves in gateAndBoot() before anyone clicks Send.
+  ReportChange.init({
+    db, endpoint: '/api/change-request', board: 'bookkeeping',
+    getName: () => CHAT_IDENTITY.name,
+    getRole: () => CHAT_IDENTITY.role,
+    getEmployeeId: () => CURRENT_EMPLOYEE_ID,
+  });
 
   BoardSettings.init({
     db, targetSelector: '.main-area', mountSelector: '.sidebar-btn-row',

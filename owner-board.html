@@ -19,6 +19,7 @@
 <script src="shared/adoption.js"></script>
 <script src="shared/file-cabinet.js"></script>
 <script src="shared/announcement-banner.js"></script>
+<script src="shared/report-change.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
@@ -103,7 +104,7 @@
         <div class="sidebar-item active" data-view="todo" data-label="To-Do"><span class="icon">✅</span>To-Do<span class="chat-nav-badge" id="todo-nav-badge" style="display:none">0</span></div>
         <div class="sidebar-item" data-view="marketing" data-label="Marketing Content"><span class="icon">📸</span>Marketing Content</div>
         <div class="sidebar-item" data-view="teamchat" data-label="Team Chat"><span class="icon">💬</span>Team Chat<span class="chat-nav-badge" id="teamchat-unread-badge" style="display:none">0</span></div>
-        <div class="sidebar-item" data-view="announce" data-label="Announcement"><span class="icon">📣</span>Announcement</div>
+        <div class="sidebar-item" data-view="announce" data-label="Team Comms"><span class="icon">📣</span>Team Comms</div>
       </div>
       <div class="sidebar-group">
         <div class="sidebar-group-label">Planning</div>
@@ -174,9 +175,12 @@
     <div id="filecabinet-root"></div>
   </div>
 
-  <!-- ══ ANNOUNCEMENT ══ (owner-only post/remove; the banner itself shows at the
-       top of every office board) -->
+  <!-- ══ TEAM COMMS ══ (two-way: inbound Requests & Feedback, then outbound
+       announcements). The banner itself shows at the top of every office board. -->
   <div class="view" id="view-announce">
+    <!-- INBOUND — the team's Bug/Idea submissions (shared/report-change.js triage
+         role). Sits ABOVE the outbound announcement panel. -->
+    <div id="requests-triage"></div>
     <div class="card">
       <div class="card-title"><div class="dot" style="background:var(--accent)"></div>Post an announcement</div>
       <p style="font-size:0.82rem;color:var(--muted);margin:-4px 0 12px">One short message to the office team. Shows as a banner on the advisor + owner boards until you remove it or it auto-hides.</p>
@@ -891,6 +895,17 @@
     db,
     bannerMount: '#announce-banner',
     manageMount: '#announce-manage',
+    getName: () => CHAT_IDENTITY.name,
+  });
+
+  // Requests & Feedback (inbound) — the triage panel above "Post an announcement"
+  // in the Team Comms tab. Lists the team's Bug/Idea submissions, drives status
+  // and the neutral owner_note back (service-role api/change-request.js). Owns its
+  // own realtime channel + self-heal, so it needs no VIEW_REFRESH registration.
+  ReportChange.init({
+    db,
+    endpoint: '/api/change-request',
+    triageMount: '#requests-triage',
     getName: () => CHAT_IDENTITY.name,
   });
 
