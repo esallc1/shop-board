@@ -2,11 +2,12 @@
 
 > Doc: `/docs/wiring/customer-dedupe.md`
 > Last updated: 2026-07-31 — verified vs commit `c2a180d`
-> Status: ⚠ INVESTIGATION + PROPOSAL — **read-only; nothing built, no migration, no writes.**
+> Status: 🟡 DESIGN APPROVED · **Phase A migration WRITTEN (hand-run pending), nothing else built.**
 > §1–§3 (today's wiring + the live dupe scope) verified against `migrations/*.sql`,
-> `advisor-board.html`, `shared/*.js`, and **live rows** (anon read, 2026-07-31). §4–§7 are a
-> proposed design to approve before any build. Related: [[customer-record]], [[call-window-desk]],
-> [[intake-wizard]].
+> `advisor-board.html`, `shared/*.js`, and **live rows** (anon read, 2026-07-31). §4–§7 are the
+> approved design; Phase A is `migrations/20260731_customer_phones.sql` (additive, inert — nothing
+> reads it yet). Phases B–D not built. Related: [[customer-record]], [[call-window-desk]],
+> [[intake-wizard]], [[office-auth]] (§7 Step 1½ widen now includes `customer_phones`).
 
 ## 0. In one line
 Customers are stored with **two phone slots and no unique constraint**, matched **by phone only**,
@@ -143,8 +144,14 @@ At the single insert (`createCustomer`, `advisor-board.html:3331`) and its wizar
   confirms the keeper per cluster before I generate that cluster's SQL** — no blind bulk merge.
 
 ## 7. Phasing + risk
-- **Phase A (additive, safe, anytime):** `customer_phones` table + backfill; `customers.merged_into`
-  / `archived_at` columns. No behavior change. *(hand-run migration)*
+- **Phase A (additive, safe, anytime) — ✅ WRITTEN (`migrations/20260731_customer_phones.sql`,
+  hand-run pending):** the `customer_phones` table + indexes + one-primary partial-unique + anon RLS
+  (mirrors `customers`) + the two backfills + verify/rollback. **Inert — nothing reads it yet.**
+  Sync during transition: **no trigger** (by decision) — the backfill is a snapshot; at the Phase B
+  cutover we re-run the idempotent insert-missing backfill and Phase B dual-writes so the legacy
+  columns and the table stay in lockstep. `customer_phones` is added to [[office-auth]] §7's Step 1½
+  widen arrays so a logged-in office session isn't blinded to it. *(The `merged_into`/`archived_at`
+  columns are a later, Phase-D concern — NOT in this migration.)*
 - **Phase B (additive, safe):** dual-read matching (caller popup + search also hit `customer_phones`);
   the attach flow learns **unlimited** numbers (not just the one `phone_secondary` slot). No dupes
   created; retire the buggy lookup.
@@ -186,3 +193,9 @@ At the single insert (`createCustomer`, `advisor-board.html:3331`) and its wizar
   clusters; 72 shared-line non-dupes; 58 VIN-dup vehicle clusters; the small live call-in leak).
   Proposed a `customer_phones` table, an intake dedupe guard, and a reviewed off-hours merge, in an
   A→B→C→D phasing. **Investigation only — no code, migration, or writes.**
+- 2026-07-31 — Design approved. **Wrote Phase A** — `migrations/20260731_customer_phones.sql`
+  (the `customer_phones` table + indexes + one-primary partial-unique + anon RLS mirroring
+  `customers` + primary/secondary backfills + verify/rollback). Additive + **inert** (nothing reads
+  it yet; `customers` untouched). No sync trigger (decision) — re-backfill at the Phase B cutover.
+  Added `customer_phones` to [[office-auth]] §7 Step 1½ widen. **Migration is hand-run — not yet
+  applied.** Phases B–D not built; A/B/C deploy in a calm window; D off-hours per-cluster.

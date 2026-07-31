@@ -265,7 +265,7 @@ select schemaname, tablename, policyname, cmd, roles
         'ro_payments','ro_diagnostic_codes','rebuild_book_hours','projects','planning_items',
         'parts_orders','marketing_content','invoice_types','expense_categories','invoice_po_lines',
         'payment_methods','shop_settings','dashboard_preferences','tech_whiteboard',
-        'shopboard_tables','transmissions','punches',
+        'shopboard_tables','transmissions','punches','customer_phones',
         'shopboard_parking','shopboard_lifts','shopboard_pickup'))
     or (schemaname='storage' and tablename='objects')
  order by schemaname, tablename, cmd, policyname;
@@ -288,7 +288,7 @@ begin
     'ro_payments','ro_diagnostic_codes','rebuild_book_hours','projects','planning_items',
     'parts_orders','marketing_content','invoice_types','expense_categories','invoice_po_lines',
     'payment_methods','shop_settings','dashboard_preferences','tech_whiteboard',
-    'shopboard_tables','transmissions','punches'
+    'shopboard_tables','transmissions','punches','customer_phones'
   ] loop
     if to_regclass('public.'||t) is not null then
       execute format('drop policy if exists %I on public.%I', 'auth read '||t, t);
@@ -322,7 +322,7 @@ begin
     'shop_settings','dashboard_preferences','projects','planning_items','parts_orders','core_charges',
     'customers','vehicles','ro_line_items','attachments','completed_jobs','ro_payments',
     'ro_diagnostic_codes','rebuild_book_hours','invoice_queue','invoice_types','expense_categories',
-    'invoice_po_lines','payment_methods'
+    'invoice_po_lines','payment_methods','customer_phones'
   ] loop
     if to_regclass('public.'||t) is not null then
       execute format('drop policy if exists %I on public.%I', 'auth write '||t, t);
@@ -353,7 +353,7 @@ begin
     'chat_conversations','chat_messages','chat_members','chat_reads','ro_payments','ro_diagnostic_codes',
     'rebuild_book_hours','projects','planning_items','parts_orders','marketing_content','invoice_types',
     'expense_categories','invoice_po_lines','payment_methods','shop_settings','dashboard_preferences',
-    'tech_whiteboard','shopboard_tables','transmissions','punches'
+    'tech_whiteboard','shopboard_tables','transmissions','punches','customer_phones'
   ] loop
     if to_regclass('public.'||t) is not null then
       execute format('drop policy if exists %I on public.%I', 'auth read '||t, t);
@@ -433,3 +433,7 @@ revoke select on public.feature_adoption from authenticated;
   signed-in and set-password views too. **Skin only — all auth logic byte-identical** (supabase-js
   client, `signInWithPassword`, `updateUser`, `signOut`, the `auth_user_id`→`employees` role lookup,
   session handling). No boards / policies / migration touched.
+- 2026-07-31 — Added **`customer_phones`** (customer-dedupe Phase A) to the §7 Step 1½ widen
+  arrays (§7.3 verify, §7.4 reads, §7.5 writes, §7.6 rollback) — it's born `anon`-full-access like
+  `customers`, so it must be widened to `authenticated` alongside the rest when Step 1½ runs.
+  Doc-only — the widen is still PARKED / not applied.
