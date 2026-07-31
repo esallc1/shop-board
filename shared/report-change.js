@@ -1,14 +1,22 @@
 /* ============================================================
-   report-change.js — the office "Report a Change" intake (Phase 1).
+   report-change.js — the office "Report a Change" intake (Phase 1 + 2).
 
    The inbound counterpart to the announcement banner. One self-injecting IIFE
    with TWO roles, like announcement-banner.js:
 
    SUBMIT (the three office boards) — a "🚩 Report a change" button in the
-   .view-topbar opens a modal: Bug/Idea toggle · priority (the To-Do scale) · a
-   plain note · an OPTIONAL screenshot upload with preview · submit. Requires a
-   note OR a screenshot. Silently captures context (board, active view, RO if in
-   scope, /api/version build, user-agent, submitter id/name/role):
+   .view-topbar opens a modal with two tabs:
+     • "Report" — Bug/Idea toggle · priority (the To-Do scale) · a plain note · an
+       OPTIONAL screenshot upload with preview · submit (note OR screenshot).
+     • "My requests" (Phase 2) — a READ-ONLY list of the current user's own
+       submissions (client-side filter by submitted_by_id over anon SELECT), each
+       showing type/priority chips, the status, the screenshot, and the latest
+       owner_note back. A per-device unread badge on the 🚩 button + tab flags a
+       status change or a new owner_note the user hasn't seen (localStorage
+       seen-map, mirroring the announcement banner's per-device dismiss). It has
+       its OWN realtime channel + self-heal so updates land without a refresh.
+   Submitting silently captures context (board, active view, RO if in scope,
+   /api/version build, user-agent, submitter id/name/role):
      ReportChange.init({
        db, endpoint: '/api/change-request',
        board: 'advisor',                       // 'manager' | 'advisor' | 'bookkeeping'
@@ -64,6 +72,21 @@ window.ReportChange = (function () {
   const OPEN_STATUSES = ['new', 'reviewing', 'in_progress'];
   const statusLabel = (k) => (STATUSES.find(s => s.key === k) || { label: k }).label;
   const roleLabel = (r) => (r ? r.charAt(0).toUpperCase() + r.slice(1) : '');
+
+  // ── "My requests" per-device seen-tracking (Phase 2) ──
+  // Mirrors the announcement banner's per-device dismiss: nothing server-side,
+  // just a localStorage map { requestId: signature }. A request counts as
+  // "unread" once it has PROGRESSED past the pristine (new, no note) state to a
+  // signature the user hasn't seen on THIS device.
+  const SEEN_KEY = 'crisdata_seen_requests';
+  function loadSeen() {
+    try { const m = JSON.parse(localStorage.getItem(SEEN_KEY) || '{}'); return (m && typeof m === 'object') ? m : {}; }
+    catch (_) { return {}; }
+  }
+  function saveSeen(m) { try { localStorage.setItem(SEEN_KEY, JSON.stringify(m)); } catch (_) {} }
+  function reqSig(r) { return `${r.status}::${r.owner_note_at || ''}`; }         // changes on a status move OR a new note
+  function reqProgressed(r) { return r.status !== 'new' || !!r.owner_note; }      // pristine new-with-no-note is never "unread"
+  function isUnread(r, seen) { return reqProgressed(r) && seen[r.id] !== reqSig(r); }
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -170,6 +193,37 @@ window.ReportChange = (function () {
     .rc-item-status { font-size:0.8rem; }
     .rc-row-status { min-height:1em; font-size:0.74rem; }
     .rc-row-status.ok { color:var(--green,#15803d); } .rc-row-status.err { color:var(--red); } .rc-row-status.wait { color:var(--accent); }
+
+    /* ── Phase 2: launcher unread badge ── */
+    .rc-launch { position:relative; }
+    .rc-launch-badge { min-width:16px; height:16px; padding:0 4px; border-radius:9px; background:var(--red); color:#fff; font-size:0.62rem; font-weight:800; line-height:16px; text-align:center; box-shadow:0 0 0 2px var(--surface,#fff); }
+
+    /* ── Phase 2: modal tabs ── */
+    .rc-tabs { display:flex; gap:4px; border-bottom:1px solid var(--border); margin:-4px -4px 16px; padding:0 2px; }
+    .rc-tab { position:relative; border:none; background:none; padding:9px 12px 10px; font:inherit; font-size:0.85rem; font-weight:700; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; display:inline-flex; align-items:center; gap:7px; }
+    .rc-tab:hover { color:var(--text); }
+    .rc-tab.on { color:var(--accent); border-bottom-color:var(--accent); }
+    .rc-tab-badge { min-width:16px; height:16px; padding:0 4px; border-radius:9px; background:var(--red); color:#fff; font-size:0.62rem; font-weight:800; line-height:16px; text-align:center; }
+
+    /* ── Phase 2: My requests list (read-only) ── */
+    .rc-mine-list { display:flex; flex-direction:column; gap:11px; }
+    .rc-mine-item { border:1px solid var(--border); border-left:3px solid var(--border); border-radius:10px; padding:12px 14px; background:var(--surface,#fff); }
+    .rc-mine-item.prio-immediate { border-left-color:var(--red); }
+    .rc-mine-item.prio-high { border-left-color:var(--amber); }
+    .rc-mine-item.prio-normal { border-left-color:var(--border); }
+    .rc-mine-item.prio-low { border-left-color:var(--muted); }
+    .rc-mine-item.is-unread { box-shadow:inset 3px 0 0 0 var(--accent); background:#f7f8ff; }
+    .rc-mine-new { display:inline-block; font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:#fff; background:var(--accent); border-radius:20px; padding:1px 7px; }
+    /* read-only status pill */
+    .rc-status-pill { font-size:0.66rem; font-weight:800; padding:2px 9px; border-radius:20px; border:1px solid var(--border); background:var(--surface-2,#f5f6fa); color:var(--muted); white-space:nowrap; }
+    .rc-status-reviewing { color:var(--accent); border-color:#c7d2fe; background:#eef2ff; }
+    .rc-status-in_progress { color:var(--amber); border-color:#fde68a; background:#fffbeb; }
+    .rc-status-done { color:var(--green,#15803d); border-color:#bbf7d0; background:#f0fdf4; }
+    .rc-status-wont_build { color:var(--red); border-color:#fecaca; background:#fef2f2; }
+    /* the owner's note back */
+    .rc-update { border:1px solid #c7d2fe; background:#eef2ff; border-radius:8px; padding:8px 11px; margin-top:9px; }
+    .rc-update-head { font-size:0.68rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:var(--accent); margin-bottom:3px; }
+    .rc-update-body { font-size:0.84rem; color:var(--text); line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
     `;
     document.head.appendChild(st);
   }
@@ -192,6 +246,12 @@ window.ReportChange = (function () {
     let pendingFile = null;
     let pendingPreviewUrl = null;
     let appVersion = null, versionFetched = false;
+    // Phase 2 — "My requests" state
+    let launchBtn = null;
+    let activeTab = 'report';
+    let mineRows = [];
+    let mineChannel = null, mineNetWired = false;
+    const mineSigned = new Map();   // path -> signed url (per session)
 
     // fetch the deployed build SHA once (best-effort; null if unavailable)
     async function ensureVersion() {
@@ -212,6 +272,8 @@ window.ReportChange = (function () {
       btn.innerHTML = `<span class="rc-launch-emoji">🚩</span><span class="rc-launch-text">Report a change</span>`;
       btn.addEventListener('click', openModal);
       bar.appendChild(btn);
+      launchBtn = btn;
+      updateBadge();   // in case mine rows are already loaded
     }
 
     function clearPending() {
@@ -236,43 +298,57 @@ window.ReportChange = (function () {
       modalEl.innerHTML =
         `<div class="rc-box">
           <button type="button" class="rc-close" id="rcClose">&times;</button>
-          <h3>Report a change</h3>
-          <div class="rc-sub">Something broken, or an idea? Send it here — it reaches the owner and gets tracked.</div>
+          <div class="rc-tabs">
+            <button type="button" class="rc-tab on" data-tab="report">Report</button>
+            <button type="button" class="rc-tab" data-tab="mine">My requests <span class="rc-tab-badge" style="display:none"></span></button>
+          </div>
 
-          <div class="rc-field">
-            <span class="rc-label">Type</span>
-            <div class="rc-seg">
-              ${TYPES.map(t => `<button type="button" data-type="${t.key}"><span class="rc-seg-emoji">${t.emoji}</span>${t.label}</button>`).join('')}
+          <div class="rc-tabpanel" id="rcPanelReport">
+            <h3>Report a change</h3>
+            <div class="rc-sub">Something broken, or an idea? Send it here — it reaches the owner and gets tracked.</div>
+
+            <div class="rc-field">
+              <span class="rc-label">Type</span>
+              <div class="rc-seg">
+                ${TYPES.map(t => `<button type="button" data-type="${t.key}"><span class="rc-seg-emoji">${t.emoji}</span>${t.label}</button>`).join('')}
+              </div>
+            </div>
+
+            <div class="rc-field" style="max-width:180px">
+              <span class="rc-label">Priority</span>
+              <select class="rc-select" id="rcPriority">
+                ${PRIORITIES.map(p => `<option value="${p.key}"${p.key === 'normal' ? ' selected' : ''}>${p.label}</option>`).join('')}
+              </select>
+            </div>
+
+            <div class="rc-field">
+              <span class="rc-label">What's going on?</span>
+              <textarea class="rc-textarea" id="rcBody" maxlength="5000" placeholder="Describe the bug or the idea… (or just attach a screenshot)"></textarea>
+            </div>
+
+            <div class="rc-field">
+              <span class="rc-label">Screenshot (optional)</span>
+              <label class="rc-shot-pick">📎 Upload a screenshot<input type="file" accept="image/*" id="rcShotInput" style="display:none"></label>
+              <div id="rcShotWrap"></div>
+            </div>
+
+            <div class="rc-actions">
+              <div class="rc-status" id="rcStatus"></div>
+              <button type="button" class="rc-submit" id="rcSubmit">Send</button>
             </div>
           </div>
 
-          <div class="rc-field" style="max-width:180px">
-            <span class="rc-label">Priority</span>
-            <select class="rc-select" id="rcPriority">
-              ${PRIORITIES.map(p => `<option value="${p.key}"${p.key === 'normal' ? ' selected' : ''}>${p.label}</option>`).join('')}
-            </select>
-          </div>
-
-          <div class="rc-field">
-            <span class="rc-label">What's going on?</span>
-            <textarea class="rc-textarea" id="rcBody" maxlength="5000" placeholder="Describe the bug or the idea… (or just attach a screenshot)"></textarea>
-          </div>
-
-          <div class="rc-field">
-            <span class="rc-label">Screenshot (optional)</span>
-            <label class="rc-shot-pick">📎 Upload a screenshot<input type="file" accept="image/*" id="rcShotInput" style="display:none"></label>
-            <div id="rcShotWrap"></div>
-          </div>
-
-          <div class="rc-actions">
-            <div class="rc-status" id="rcStatus"></div>
-            <button type="button" class="rc-submit" id="rcSubmit">Send</button>
+          <div class="rc-tabpanel" id="rcPanelMine" style="display:none">
+            <h3>My requests</h3>
+            <div class="rc-sub">Where your reports landed. Read-only — the owner updates the status and can send a note back.</div>
+            <div class="rc-mine-list" id="rcMineList"><div class="rc-empty">Loading…</div></div>
           </div>
         </div>`;
       document.body.appendChild(modalEl);
 
       modalEl.querySelector('#rcClose').addEventListener('click', closeModal);
       modalEl.addEventListener('click', (e) => { if (e.target === modalEl) closeModal(); });
+      modalEl.querySelectorAll('.rc-tab').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
       modalEl.querySelectorAll('.rc-seg button').forEach(b => b.addEventListener('click', () => setType(b.dataset.type)));
       modalEl.querySelector('#rcShotInput').addEventListener('change', (e) => {
         const file = e.target.files[0];
@@ -303,10 +379,26 @@ window.ReportChange = (function () {
       modalEl.querySelector('#rcBody').value = '';
       modalEl.querySelector('#rcPriority').value = 'normal';
       setStatus('');
+      // If the user has unseen updates, open straight to "My requests"; else Report.
+      const hasUnread = mineRows.some(r => isUnread(r, loadSeen()));
+      showTab(hasUnread ? 'mine' : 'report');
       modalEl.classList.add('open');
       ensureVersion();   // warm the build SHA while they type
     }
     function closeModal() { clearPending(); if (modalEl) modalEl.classList.remove('open'); }
+
+    // ── tabs ──
+    function showTab(t) {
+      activeTab = t;
+      modalEl.querySelectorAll('.rc-tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+      modalEl.querySelector('#rcPanelReport').style.display = (t === 'report') ? '' : 'none';
+      modalEl.querySelector('#rcPanelMine').style.display = (t === 'mine') ? '' : 'none';
+      if (t === 'mine') {
+        renderMine();       // paints with the current unread highlight…
+        refreshMine();      // …then pulls the freshest rows in the background
+        markMineSeen();     // opening the list clears the badge for what's shown
+      }
+    }
 
     async function doSubmit() {
       if (busy) return;
@@ -355,6 +447,7 @@ window.ReportChange = (function () {
         if (!resp.ok) { let m = 'HTTP ' + resp.status; try { const j = await resp.json(); if (j && j.error) m = j.error; } catch (_) {} throw new Error(m); }
 
         setStatus('Sent ✓ Thanks — the owner will see it.', 'ok');
+        refreshMine();   // pull the new row into "My requests" (stays pristine → no badge)
         setTimeout(() => { if (modalEl.classList.contains('open')) closeModal(); }, 1100);
       } catch (e) {
         console.error('[ReportChange] submit failed', e);
@@ -365,9 +458,120 @@ window.ReportChange = (function () {
       }
     }
 
+    // ── "My requests" (Phase 2): read-only view of the current user's own rows ──
+    async function refreshMine() {
+      const meId = getEmployeeId();
+      if (!meId) return;                       // identity not resolved yet — badge stays hidden
+      try {
+        const { data, error } = await db.from('change_requests').select('*')
+          .eq('submitted_by_id', meId).order('created_at', { ascending: false });
+        if (error) { if (!isMissingTable(error)) console.warn('[ReportChange] mine fetch failed', error.message); return; }
+        mineRows = data || [];
+        updateBadge();
+        if (modalEl && modalEl.classList.contains('open') && activeTab === 'mine') renderMine();
+      } catch (e) { /* transient — the self-heal tick retries */ }
+    }
+
+    function updateBadge() {
+      const seen = loadSeen();
+      const n = mineRows.filter(r => isUnread(r, seen)).length;
+      const paint = (el) => {
+        if (!el) return;
+        if (n > 0) { el.textContent = n > 9 ? '9+' : String(n); el.style.display = ''; }
+        else { el.style.display = 'none'; }
+      };
+      if (launchBtn) {
+        let b = launchBtn.querySelector('.rc-launch-badge');
+        if (!b && n > 0) { b = document.createElement('span'); b.className = 'rc-launch-badge'; launchBtn.appendChild(b); }
+        paint(b);
+      }
+      if (modalEl) paint(modalEl.querySelector('.rc-tab-badge'));
+    }
+
+    // Opening the list = the user has seen everything currently shown. Rebuild the
+    // seen map from the loaded rows (prunes ids no longer theirs), then clear the badge.
+    function markMineSeen() {
+      const m = {};
+      mineRows.forEach(r => { m[r.id] = reqSig(r); });
+      saveSeen(m);
+      updateBadge();
+    }
+
+    function renderMine() {
+      const listEl = modalEl && modalEl.querySelector('#rcMineList');
+      if (!listEl) return;
+      if (!getEmployeeId()) { listEl.innerHTML = '<div class="rc-empty">Sign in to see your requests.</div>'; return; }
+      if (!mineRows.length) { listEl.innerHTML = "<div class=\"rc-empty\">You haven't sent any requests yet.</div>"; return; }
+      const seen = loadSeen();
+      listEl.innerHTML = mineRows.map(r => mineRowHtml(r, isUnread(r, seen))).join('');
+      mineRows.forEach(r => wireMineShot(listEl, r));
+    }
+
+    function mineRowHtml(r, unread) {
+      const type = TYPES.find(t => t.key === r.type) || { emoji: '', label: r.type };
+      const prio = PRIORITIES.find(p => p.key === r.priority) || { label: r.priority };
+      const prioPill = `<span class="todo-prio-tag todo-prio-tag-${esc(r.priority)}">${esc(prio.label)}</span>`;
+      const statusPill = `<span class="rc-status-pill rc-status-${esc(r.status)}">${esc(statusLabel(r.status))}</span>`;
+      const newTag = unread ? '<span class="rc-mine-new">Update</span>' : '';
+      const update = r.owner_note
+        ? `<div class="rc-update"><div class="rc-update-head">Update from the owner${r.owner_note_at ? ' · ' + esc(fmtWhen(r.owner_note_at)) : ''}</div><div class="rc-update-body">${esc(r.owner_note)}</div></div>`
+        : '';
+      return `<div class="rc-mine-item prio-${esc(r.priority)}${unread ? ' is-unread' : ''}" data-id="${esc(r.id)}">
+        <div class="rc-item-top">
+          <span class="rc-chip rc-chip-${esc(r.type)}">${type.emoji} ${esc(type.label)}</span>
+          ${prioPill}
+          ${statusPill}
+          ${newTag}
+          <span class="rc-item-when">${esc(fmtWhen(r.created_at))}</span>
+        </div>
+        <div class="rc-item-body${r.body ? '' : ' none'}">${r.body ? esc(r.body) : 'No note — screenshot only.'}</div>
+        <div class="rc-shot-slot" data-path="${esc(r.screenshot_path || '')}"></div>
+        ${update}
+      </div>`;
+    }
+
+    async function wireMineShot(listEl, r) {
+      const slot = listEl.querySelector(`.rc-mine-item[data-id="${r.id}"] .rc-shot-slot`);
+      const path = slot && slot.dataset.path;
+      if (!slot || !path) return;
+      try {
+        let url = mineSigned.get(path);
+        if (!url) {
+          const { data, error } = await db.storage.from(BUCKET).createSignedUrl(path, SIGNED_TTL);
+          if (error) throw error;
+          url = data.signedUrl; mineSigned.set(path, url);
+        }
+        slot.innerHTML = `<a class="rc-shot-thumb" href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="screenshot"></a>`;
+      } catch (e) { /* leave empty on failure */ }
+    }
+
+    // realtime + self-heal for the user's own rows (mirrors the triage channel;
+    // separate channel name so the two roles never collide even if co-mounted).
+    function resubscribeMine() {
+      if (mineChannel) db.removeChannel(mineChannel);
+      mineChannel = db.channel('change-requests-mine')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'change_requests' }, () => refreshMine())
+        .subscribe();
+    }
+    function ensureHealthMine() {
+      if (!mineChannel || mineChannel.state !== 'joined') resubscribeMine();
+      if (document.visibilityState === 'visible') refreshMine();
+    }
+    function wireSelfHealNetMine() {
+      if (mineNetWired) return; mineNetWired = true;
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') ensureHealthMine(); });
+      window.addEventListener('focus', ensureHealthMine);
+      setInterval(ensureHealthMine, 60 * 1000);
+    }
+
     injectStyle();
     mountButton();
-    return { open: openModal };
+    resubscribeMine();
+    wireSelfHealNetMine();
+    // Prime the badge as soon as identity resolves (a few early tries; the 60s
+    // self-heal tick keeps it fresh after that).
+    [800, 2500, 5000].forEach(ms => setTimeout(refreshMine, ms));
+    return { open: openModal, refreshMine };
   }
 
   // ════════════════════════════════════════════════════════════

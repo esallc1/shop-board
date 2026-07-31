@@ -25,7 +25,7 @@ every claim against the real code before writing it.**
 | Flagged-hours / flat-rate data | [flat-rate-hours.md](flat-rate-hours.md) | ✅ verified vs `22e3a5a` (investigation — data not yet buildable) |
 | Settings hub (storage · roles · enforcement) | [settings.md](settings.md) | ✅ verified vs `0663cbd` (investigation + proposal — not built) |
 | To-Do list | [todo-list.md](todo-list.md) | ✅ verified vs the commit that adds it |
-| Requests & Feedback intake | [change-requests.md](change-requests.md) | ✅ Phase 1 built vs `86023fa` (migration pending) |
+| Requests & Feedback intake | [change-requests.md](change-requests.md) | ✅ Phase 1 + 2 built vs `5815454` (live) |
 | File Cabinet (this tab) | [file-cabinet.md](file-cabinet.md) | ✅ verified vs the commit that adds it |
 
 _Seeded 2026-07-30 from the Jul 29 session handoff. Verified 2026-07-30 against commit `bea25cf`:

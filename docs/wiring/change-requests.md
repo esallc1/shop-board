@@ -1,13 +1,12 @@
 # How the "Report a Change" intake is wired
 
 > Doc: `/docs/wiring/change-requests.md`
-> Last updated: 2026-07-31 — verified vs commit `86023fa`
-> Status: ✅ Phase 1 (submit + triage) BUILT — verified vs commit `86023fa`,
-> against `migrations/20260731_change_requests.sql`, `api/change-request.js`
-> (+ `.test.js`), `shared/report-change.js`, and the four boards. **The migration is
-> not auto-run — Cris applies it by hand; until then the triage panel shows "Run the
-> migration" and submitting fails with a hint.** §7 (My requests loop-back) and §8
-> (screenshot annotation) are NOT built — Phase 2 / 3.
+> Last updated: 2026-07-31 — verified vs commit `5815454`
+> Status: ✅ Phase 1 (submit + triage) + Phase 2 ("My requests" loop-back) BUILT —
+> verified vs commit `5815454`, against `migrations/20260731_change_requests.sql`,
+> `api/change-request.js` (+ `.test.js`), `shared/report-change.js`, and the four
+> boards. **The Phase 1 migration is applied (feature live).** §8 (screenshot
+> annotation) is NOT built — Phase 3.
 
 ## 0. In one line
 The **inbound counterpart to the announcement banner**: Kevin (Manager), Josh (Advisor)
@@ -19,7 +18,7 @@ text and get lost.
 
 ---
 
-# PART A — How Phase 1 works (BUILT)
+# PART A — How it works (BUILT: Phase 1 + 2)
 
 ## 1. Data — the `change_requests` table
 One row per submission. **RLS anon-SELECT only; all writes are service-role** (same posture
@@ -75,7 +74,8 @@ Mirrors `api/announcement.js`: a pure, exported, **test-locked** `parseChangeReq
   **uploads the screenshot FIRST** to `reports/<uuid>/screenshot.<ext>` with the anon key
   (a failed upload never leaves a dangling pointer), captures context — active
   `.sidebar-item.active[data-view]`, `/api/version` (fetched once, cached), `navigator.userAgent`,
-  and the `board`/identity getters — then POSTs `create`. Requires a note or a screenshot.
+  and the `board`/identity getters — then POSTs `create`. The modal is **two-tabbed**
+  ("Report" | "My requests" — §7).
 - **Triage role.** Renders a **"Requests & Feedback" `.card`** into its mount. Each row shows a
   type chip (🐞 Bug / 💡 Idea), a **priority pill reusing the To-Do `.todo-prio-tag-*` classes**,
   submitter + role + relative time, the note (or "screenshot only"), the **screenshot** (lazy
@@ -127,16 +127,32 @@ DB call uses the public anon key. So:
   shared `.todo-prio-tag-*` classes; the row's left border is `.rc-item.prio-*` (same
   immediate=red / high=amber / normal=neutral / low=muted mapping).
 
+## 7. "My requests" loop-back (Phase 2 — BUILT)
+The submit role's modal has a second tab, **"My requests"**, showing the current user's own
+submissions — a client-side filter `submitted_by_id = getEmployeeId()` over the same anon SELECT
+(not a security scope, §5). Each row is **read-only**: type/priority chips, a **status pill**
+(same labels/colors as triage), the note or "screenshot only", the screenshot (lazy signed URL),
+and — when the owner has replied — an **"Update from the owner · <when>"** block with the
+denormalized `owner_note`. It has its **own realtime channel** (`change-requests-mine`) plus the
+same focus / visibilitychange / 60s self-heal, so a status move or a new note appears without a
+reload.
+- **Unread cue (per device).** A small red badge on the 🚩 button **and** the "My requests" tab
+  counts the user's requests whose signature (`status::owner_note_at`) changed since they last
+  opened the list — tracked in `localStorage` (`crisdata_seen_requests`), the same per-device
+  posture as the announcement dismiss. A pristine `new`-with-no-note request never counts as
+  unread (so your own just-sent request doesn't badge you). Opening "My requests" marks the shown
+  rows seen and clears the badge; if there are unseen updates when you tap 🚩, the modal opens
+  straight to "My requests".
+- **Owner-note author label** is the literal "the owner" — `owner_note` has no author column
+  (single-owner shop), so no name is stored or looked up.
+- **No new table / migration / endpoint / board wiring.** Phase 2 lives entirely in
+  `shared/report-change.js`, reusing the Phase 1 `getEmployeeId` getter the three office boards
+  already pass. The triage side is unchanged. (A `change_request_updates` thread table is still
+  only needed if a full history — beyond the single latest `owner_note` — is ever wanted.)
+
 ---
 
-# PART B — NOT built yet (Phase 2 / 3)
-
-## 7. Phase 2 — "My requests" loop-back
-Surface each submitter's own rows (status + latest `owner_note`) back on their board, so they
-see where a request landed without a text. A client-side filter by `submitted_by_id` over the
-same anon SELECT; realtime. `owner_note` is already being written in Phase 1, so this is
-read-side only. (Add a `change_request_updates` thread table only if a history is wanted — the
-denormalized `owner_note` covers the single-latest note.)
+# PART B — NOT built yet (Phase 3)
 
 ## 8. Phase 3 — screenshot capture + annotation
 One-click in-browser screenshot (`html2canvas`) + arrow/text-bubble markup (`marker.js`),
@@ -145,8 +161,11 @@ today; must be vendored locally** (no-CDN-for-logic convention). Heaviest lift, 
 Prototype reference: `crisdata-annotate-report.html` (not in the repo).
 
 ## Known gaps & open questions (as of 2026-07-31)
-- **Migration pending** — `20260731_change_requests.sql` must be hand-run in Supabase before the
-  feature is live; the UI degrades gracefully until then.
+- **Migration applied** — `20260731_change_requests.sql` is run; the feature is live. (The UI
+  still degrades gracefully with a "Run the migration" message if the table is ever absent.)
+- **"My requests" unread is per device** — the seen-map is `localStorage`, so a user who switches
+  devices sees the badge again there. Fine for the trusted team; a server-side read receipt would
+  need the auth token (§5).
 - **Owner-only triage is cosmetic** until the [[settings]] §6 auth token (§5). Not a blocker.
 - **`crisdata-attachments` is anon-read** — screenshots (possible PII) are readable with a signed
   URL by anyone with the path; same boundary as existing attachments.
@@ -156,8 +175,10 @@ Prototype reference: `crisdata-annotate-report.html` (not in the repo).
 
 ## Where it lives in the code
 - Module: `shared/report-change.js` — `window.ReportChange.init({ db, endpoint, board?, getName,
-  getRole?, getEmployeeId?, getRo?, triageMount? })`; submit button+modal, triage card, realtime
-  self-heal, injected `.rc-*` CSS.
+  getRole?, getEmployeeId?, getRo?, triageMount? })`; submit button + two-tab modal
+  (Report / My requests) with its own `change-requests-mine` realtime channel + the per-device
+  unread badge (`crisdata_seen_requests`), triage card with the `change-requests-live` channel,
+  injected `.rc-*` CSS.
 - Endpoint: `api/change-request.js` (+ `api/change-request.test.js`, 11 cases).
 - Schema: `migrations/20260731_change_requests.sql` (hand-run; no storage migration).
 - Hosts (submit): `advisor-board.html`, `gm-board.html`, `bookkeeping-board.html` — script +
@@ -178,5 +199,13 @@ Prototype reference: `crisdata-annotate-report.html` (not in the repo).
   self-heal and signed-URL screenshots). Renamed the owner "Announcement" tab to **Team Comms**
   and slotted the triage card above "Post an announcement". Screenshots reuse
   `crisdata-attachments` under `reports/<uuid>/…` (no storage migration). Registered this doc in
-  the File Cabinet. **Migration handed to Cris to run by hand; not yet applied.** Phase 2
-  (My requests loop-back) and Phase 3 (annotation) not built.
+  the File Cabinet. **Migration handed to Cris to run by hand.** Phase 2 (My requests loop-back)
+  and Phase 3 (annotation) not built.
+- 2026-07-31 — **Built Phase 2** ("My requests" loop-back): added a second **"My requests"** tab
+  to the submit modal — a read-only, realtime (`change-requests-mine` channel + self-heal) list of
+  the user's own rows (`submitted_by_id` filter) showing status pill + the owner's `owner_note`
+  back — plus a **per-device unread badge** on the 🚩 button and the tab (`crisdata_seen_requests`
+  localStorage seen-map, mirroring the announcement dismiss; pristine `new` never badges). Opening
+  the tab clears the badge; unseen updates open the modal straight to it. **Entirely in
+  `shared/report-change.js`** — no new table, migration, endpoint, or board wiring; triage side
+  unchanged. Migration now applied / feature live. Phase 3 (annotation) not built.
