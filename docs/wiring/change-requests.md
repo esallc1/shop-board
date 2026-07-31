@@ -1,9 +1,9 @@
 # How the "Report a Change" intake is wired
 
 > Doc: `/docs/wiring/change-requests.md`
-> Last updated: 2026-07-31 — verified vs commit `137d5cd`
+> Last updated: 2026-07-31 — verified vs commit `4bf7eb0`
 > Status: ✅ ALL THREE PHASES BUILT — Phase 1 (submit + triage), Phase 2 ("My requests"
-> loop-back), Phase 3 (capture + annotate). Verified vs commit `137d5cd`, against
+> loop-back), Phase 3 (capture + annotate, with the large "annotate mode" §8). Verified vs commit `4bf7eb0`, against
 > `migrations/20260731_change_requests.sql`, `api/change-request.js` (+ `.test.js`),
 > `shared/report-change.js`, `vendor/html2canvas.min.js`, and the four boards. **The
 > migration is applied (feature live).**
@@ -163,9 +163,16 @@ mean. Two ways in, one annotator, flattened on submit — all in `shared/report-
 - **One annotator, either source.** `openAnnotator(src)` builds an image + an SVG overlay (red
   **arrows**, drawn on pointer drag; a drag under 14 px is a mis-click and discarded) + draggable
   **text-bubble notes** (contenteditable, drop with 💬 Note, drag by the header, ✕ to delete), with
-  **Undo** (pops the creation stack) / **Clear** / **✕ Remove**. Pointer events + `touch-action:none`
-  make arrow-drawing work with a finger (Kevin's iPhone). Bubbles are `pointer-events:none` while in
-  arrow mode so a drag over one still draws.
+  **Undo** (pops the creation stack) / **Clear** / **✕ Remove**. Bubbles are `pointer-events:none`
+  while in arrow mode so a drag over one still draws.
+- **Big "annotate mode" (the readability fix).** The instant there's an image on the Report tab,
+  `applyAnnotateSize()` adds `.annotating` to expand the modal to **~92vw × 92vh (max-width 1180 px)**,
+  collapse the type/priority/note into ONE compact strip, and make the stage the dominant element.
+  `fitAnnoImage()` then sizes the image (measured, not %-based, so the stage shrink-wraps it and the
+  flattened PNG stays tight): **desktop CONTAINS** the whole board (no scroll); **phone FILLS the
+  width** and the stage scrolls. On a phone, **✋ Move** flips the stage `touch-action` to `pan-y` so a
+  finger scrolls, while **Arrow/Note** keep `touch-action:none` to draw/place. Collapsing back
+  (Remove / close / switch to My requests) returns the modal to its compact size.
 - **Flatten on submit.** If the user drew anything, `flattenStage()` rasterizes the image + overlay
   to **one PNG** via `html2canvas` on the stage (`scale:2`), with a `.rc-flattening` class hiding the
   ✕/drag chrome so the PNG shows only the art. That PNG goes through the **unchanged Phase 1 upload**
@@ -254,3 +261,11 @@ mean. Two ways in, one annotator, flattened on submit — all in `shared/report-
   self-contained annotator). Verified capture + annotate + flatten on desktop and a phone viewport;
   no board HTML / table / endpoint changes (html2canvas is lazy-loaded by the module). All three
   phases now live.
+- 2026-07-31 — **Phase 3 UI fix — large "annotate mode"** (§8): the annotator was unusable inside
+  the 440 px modal. Now, once an image is present on the Report tab, the modal expands to
+  ~92vw × 92vh (max-width 1180) with the pre-capture form collapsed to one compact row and the
+  stage dominant; `fitAnnoImage()` contains the board to fit on desktop (no scroll) and fills the
+  width + scrolls on phone, where **✋ Move** toggles `touch-action` so a finger can scroll while
+  Arrow/Note still draw. Collapses back on remove/close/tab-switch. UI-only in
+  `shared/report-change.js`; flatten + upload path unchanged. Verified readable + arrows placing at
+  a usable scale on desktop (704×440 board) and phone (full-width, scroll).

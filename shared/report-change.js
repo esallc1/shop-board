@@ -251,11 +251,12 @@ window.ReportChange = (function () {
     .rc-tool-sp { flex:1; }
     .rc-tool.ghost { color:var(--muted); font-weight:600; }
     .rc-tool.ghost:hover { color:var(--red); border-color:var(--red); }
-    .rc-stage { position:relative; display:block; line-height:0; background:var(--bg,#f5f6fa); touch-action:none; }
+    .rc-anno-scroll { display:flex; align-items:flex-start; justify-content:center; background:var(--bg,#f5f6fa); overflow:auto; }
+    .rc-stage { position:relative; display:inline-block; line-height:0; background:var(--bg,#f5f6fa); touch-action:none; max-width:100%; }
     .rc-stage.mode-arrow { cursor:crosshair; }
     .rc-stage.mode-note { cursor:copy; }
     .rc-stage.mode-select { cursor:default; }
-    .rc-anno-img { display:block; width:100%; height:auto; -webkit-user-select:none; user-select:none; -webkit-user-drag:none; pointer-events:none; }
+    .rc-anno-img { display:block; max-width:100%; width:auto; height:auto; -webkit-user-select:none; user-select:none; -webkit-user-drag:none; pointer-events:none; }
     .rc-anno-svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
     .rc-bubble { position:absolute; min-width:120px; max-width:220px; background:#fffbe6; border:1.5px solid var(--amber); border-radius:9px; box-shadow:0 5px 16px rgba(0,0,0,0.18); z-index:5; line-height:1.3; }
     .rc-bubble-bar { height:15px; background:rgba(224,134,0,0.14); border-radius:7px 7px 0 0; cursor:move; display:flex; align-items:center; justify-content:flex-end; padding-right:3px; }
@@ -264,7 +265,39 @@ window.ReportChange = (function () {
     .rc-bubble-tx:empty::before { content:attr(data-ph); color:#b08a3a; }
     /* while flattening, hide the interactive chrome so the PNG shows only art */
     .rc-stage.rc-flattening .rc-bubble-x, .rc-stage.rc-flattening .rc-bubble-bar { visibility:hidden; }
-    .rc-anno-hint { font-size:0.72rem; color:var(--muted); padding:6px 9px 0; }
+    .rc-anno-hint { font-size:0.72rem; color:var(--muted); padding:6px 9px 0; flex:0 0 auto; }
+
+    /* ── Phase 3 fix: "annotate mode" — expand the modal so the stage is usable ── */
+    .rc-box.annotating { width:92vw; max-width:1180px; height:92vh; max-height:92vh; display:flex; flex-direction:column; overflow:hidden; }
+    .rc-box.annotating .rc-tabs { flex:0 0 auto; }
+    .rc-box.annotating #rcPanelReport { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+    .rc-box.annotating #rcPanelReport > h3, .rc-box.annotating #rcPanelReport > .rc-sub { display:none; }   /* reclaim vertical space */
+    /* type + priority + note collapse into ONE compact strip so the stage dominates */
+    .rc-box.annotating .rc-precap { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap; flex:0 0 auto; margin-bottom:8px; }
+    .rc-box.annotating .rc-precap > .rc-field { margin-bottom:0; }
+    .rc-box.annotating .rc-precap .rc-label { display:none; }
+    .rc-box.annotating .rc-field-type { flex:0 0 auto; min-width:190px; }
+    .rc-box.annotating .rc-field-prio { flex:0 0 auto; }
+    .rc-box.annotating .rc-field-note { flex:1 1 220px; }
+    .rc-box.annotating .rc-seg button { padding:7px 12px; }
+    .rc-box.annotating #rcBody { min-height:36px; }
+    .rc-box.annotating #rcShotField { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; margin-bottom:6px; }
+    .rc-box.annotating #rcShotField > .rc-label { display:none; }                                            /* the toolbar makes it obvious */
+    .rc-box.annotating #rcShotField > .rc-shot-actions { flex:0 0 auto; margin-bottom:8px; }
+    .rc-box.annotating #rcShotWrap { flex:1 1 auto; min-height:0; display:flex; }
+    .rc-box.annotating .rc-anno { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; width:100%; margin-top:0; }
+    .rc-box.annotating .rc-anno-tools { flex:0 0 auto; }
+    .rc-box.annotating .rc-anno-scroll { flex:1 1 auto; min-height:0; align-items:center; }
+    .rc-box.annotating .rc-anno-hint { display:none; }                                                       /* the tools are self-explanatory; save the space */
+    .rc-box.annotating .rc-actions { flex:0 0 auto; margin-top:6px; }
+    /* On a phone the modal is already near-full-screen; go edge-to-edge and let the
+       stage dominate. Keep the top form compact but present. */
+    @media (max-width:768px) {
+      .rc-box.annotating { width:96vw; max-width:96vw; height:94vh; max-height:94vh; padding:14px 14px; }
+      .rc-box.annotating .rc-field-type { min-width:150px; }
+      .rc-box.annotating .rc-anno-scroll { align-items:flex-start; }        /* tall image scrolls from the top */
+      .rc-box.annotating .rc-anno-hint { display:block; }                    /* phone needs the "Move to scroll" cue */
+    }
     `;
     document.head.appendChild(st);
   }
@@ -341,7 +374,7 @@ window.ReportChange = (function () {
       shotBlob = null; shotName = null; shotMime = null;
       if (shotSrc) { try { URL.revokeObjectURL(shotSrc); } catch (_) {} shotSrc = null; }
       stageEl = null; svgEl = null; annoStack = [];
-      if (modalEl) modalEl.querySelector('#rcShotWrap').innerHTML = '';
+      if (modalEl) { modalEl.querySelector('#rcShotWrap').innerHTML = ''; applyAnnotateSize(); }
     }
 
     function setStatus(msg, cls) {
@@ -369,26 +402,28 @@ window.ReportChange = (function () {
             <h3>Report a change</h3>
             <div class="rc-sub">Something broken, or an idea? Send it here — it reaches the owner and gets tracked.</div>
 
-            <div class="rc-field">
-              <span class="rc-label">Type</span>
-              <div class="rc-seg">
-                ${TYPES.map(t => `<button type="button" data-type="${t.key}"><span class="rc-seg-emoji">${t.emoji}</span>${t.label}</button>`).join('')}
+            <div class="rc-precap">
+              <div class="rc-field rc-field-type">
+                <span class="rc-label">Type</span>
+                <div class="rc-seg">
+                  ${TYPES.map(t => `<button type="button" data-type="${t.key}"><span class="rc-seg-emoji">${t.emoji}</span>${t.label}</button>`).join('')}
+                </div>
+              </div>
+
+              <div class="rc-field rc-field-prio" style="max-width:180px">
+                <span class="rc-label">Priority</span>
+                <select class="rc-select" id="rcPriority">
+                  ${PRIORITIES.map(p => `<option value="${p.key}"${p.key === 'normal' ? ' selected' : ''}>${p.label}</option>`).join('')}
+                </select>
+              </div>
+
+              <div class="rc-field rc-field-note">
+                <span class="rc-label">What's going on?</span>
+                <textarea class="rc-textarea" id="rcBody" maxlength="5000" placeholder="Describe the bug or the idea… (or just attach a screenshot)"></textarea>
               </div>
             </div>
 
-            <div class="rc-field" style="max-width:180px">
-              <span class="rc-label">Priority</span>
-              <select class="rc-select" id="rcPriority">
-                ${PRIORITIES.map(p => `<option value="${p.key}"${p.key === 'normal' ? ' selected' : ''}>${p.label}</option>`).join('')}
-              </select>
-            </div>
-
-            <div class="rc-field">
-              <span class="rc-label">What's going on?</span>
-              <textarea class="rc-textarea" id="rcBody" maxlength="5000" placeholder="Describe the bug or the idea… (or just attach a screenshot)"></textarea>
-            </div>
-
-            <div class="rc-field">
+            <div class="rc-field" id="rcShotField">
               <span class="rc-label">Screenshot (optional)</span>
               <div class="rc-shot-actions">
                 <button type="button" class="rc-shot-pick" id="rcGrab">📸 Grab my board</button>
@@ -490,19 +525,25 @@ window.ReportChange = (function () {
             <button type="button" class="rc-tool ghost" id="rcClearAnno">🗑 Clear</button>
             <button type="button" class="rc-tool ghost" id="rcShotRemove">✕ Remove</button>
           </div>
-          <div class="rc-stage mode-arrow" id="rcStage">
-            <img class="rc-anno-img" id="rcAnnoImg" alt="screenshot to annotate">
-            <svg class="rc-anno-svg" id="rcAnnoSvg">
-              <defs><marker id="rcArrowHead" markerWidth="10" markerHeight="10" refX="7" refY="3.2" orient="auto">
-                <path d="M0,0 L8,3.2 L0,6.4 Z" fill="${ARROW_COLOR}"></path>
-              </marker></defs>
-            </svg>
+          <div class="rc-anno-scroll" id="rcAnnoScroll">
+            <div class="rc-stage mode-arrow" id="rcStage">
+              <img class="rc-anno-img" id="rcAnnoImg" alt="screenshot to annotate">
+              <svg class="rc-anno-svg" id="rcAnnoSvg">
+                <defs><marker id="rcArrowHead" markerWidth="10" markerHeight="10" refX="7" refY="3.2" orient="auto">
+                  <path d="M0,0 L8,3.2 L0,6.4 Z" fill="${ARROW_COLOR}"></path>
+                </marker></defs>
+              </svg>
+            </div>
           </div>
-          <div class="rc-anno-hint">Drag to draw an arrow · pick 💬 Note to drop a label · ✋ Move to reposition.</div>
+          <div class="rc-anno-hint">Drag to draw an arrow · 💬 Note to drop a label · ✋ Move to reposition or scroll.</div>
         </div>`;
       stageEl = wrap.querySelector('#rcStage');
       svgEl = wrap.querySelector('#rcAnnoSvg');
       const img = wrap.querySelector('#rcAnnoImg');
+      // Go big the moment we have an image (Report tab): the stage must be usable.
+      // Then, once the image's dimensions are known, contain it to fit the large stage.
+      applyAnnotateSize();
+      img.addEventListener('load', scheduleFit);
       img.src = src;
 
       wrap.querySelectorAll('.rc-tool[data-mode]').forEach(b =>
@@ -518,9 +559,51 @@ window.ReportChange = (function () {
       stageEl.addEventListener('click', onStageClick);
     }
 
+    // Large "annotate mode" is on when the Report tab has an image to mark up. The
+    // pre-capture form stays compact; the stage becomes the dominant element.
+    function applyAnnotateSize() {
+      if (!modalEl) return;
+      const box = modalEl.querySelector('.rc-box');
+      const on = !!(shotBlob && activeTab === 'report');
+      box.classList.toggle('annotating', on);
+      if (on) scheduleFit();
+    }
+    // Fit can miss a frame while the modal is still reflowing to its big size, so
+    // run it on the next frame AND after a short beat (belt-and-suspenders).
+    function scheduleFit() {
+      requestAnimationFrame(fitAnnoImage);
+      setTimeout(fitAnnoImage, 90);
+    }
+    // Contain the image within the (now large) scroll area so the whole board is
+    // readable and arrows land where intended. Measured, not %-based, so the stage
+    // shrink-wraps the image → the flattened PNG stays tight (no letterbox). Queries
+    // the live DOM (not a cached node) so it's robust to re-renders.
+    function fitAnnoImage() {
+      if (!modalEl) return;
+      const box = modalEl.querySelector('.rc-box');
+      const img = modalEl.querySelector('#rcAnnoImg');
+      const scroll = modalEl.querySelector('#rcAnnoScroll');
+      if (!box || !img || !scroll) return;
+      if (!box.classList.contains('annotating')) {
+        img.style.maxWidth = '100%'; img.style.maxHeight = 'none'; return;   // compact: width-bound only
+      }
+      // Break the image↔box size circularity: collapse the image so the flex layout
+      // reports the TRUE space left for the stage, then size the image.
+      img.style.maxHeight = '0px';
+      const w = scroll.clientWidth, h = scroll.clientHeight;   // reads force a reflow → measured with image collapsed
+      img.style.maxWidth = (w > 0 ? w : 100000) + 'px';
+      // Desktop: CONTAIN (fit height too) so the whole board shows with no scroll.
+      // Phone: FILL WIDTH (the board matches the phone's portrait shape); the stage
+      // scrolls, and "✋ Move" switches touch-action to pan so a finger can scroll.
+      const phone = window.innerWidth <= 768;
+      img.style.maxHeight = phone ? 'none' : ((h > 0 ? h : 100000) + 'px');
+    }
+
     function setMode(m) {
       annoMode = m;
       stageEl.className = 'rc-stage mode-' + m;
+      // ✋ Move lets a finger scroll a tall (phone) stage; Arrow/Note capture the touch to draw/place.
+      stageEl.style.touchAction = (m === 'select') ? 'pan-y' : 'none';
       modalEl.querySelectorAll('.rc-tool[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
       // bubbles only draggable/typable when NOT drawing arrows
       stageEl.querySelectorAll('.rc-bubble').forEach(bb => bb.style.pointerEvents = (m === 'arrow') ? 'none' : 'auto');
@@ -626,6 +709,7 @@ window.ReportChange = (function () {
       modalEl.querySelectorAll('.rc-tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
       modalEl.querySelector('#rcPanelReport').style.display = (t === 'report') ? '' : 'none';
       modalEl.querySelector('#rcPanelMine').style.display = (t === 'mine') ? '' : 'none';
+      applyAnnotateSize();   // large only on the Report tab with an image; compact for My requests
       if (t === 'mine') {
         renderMine();       // paints with the current unread highlight…
         refreshMine();      // …then pulls the freshest rows in the background
