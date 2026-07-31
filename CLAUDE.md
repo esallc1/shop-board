@@ -63,4 +63,5 @@ Every file under `/docs/wiring/` follows this shape:
 | Tech Board (dispatcher) | `tech-board.md` | `crisdata-techboard.html`, `my-numbers.html`, gm-board Shop Floor |
 | My Numbers (tech phone tool) | `my-numbers.md` | `my-numbers.html`; consumers: `advisor-board.html`, `gm-board.html` |
 | Flagged-hours / flat-rate data | `flat-rate-hours.md` | `ro_line_items`, `shopboard_*.flag_hours`, `completed_jobs`, `repair_orders.technician` |
+| Settings hub | `settings.md` | `shared/board-settings.js`, `shop_settings`, `employees`, `crisdata.html`, `api/announcement.js` |
 | File Cabinet tab | `file-cabinet.md` | `shared/file-cabinet.js`, `owner-board.html` |

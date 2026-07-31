@@ -23,6 +23,7 @@ every claim against the real code before writing it.**
 | Tech Board (dispatcher) | [tech-board.md](tech-board.md) | ✅ verified vs `8ec2164` (investigation) |
 | My Numbers (tech phone tool) | [my-numbers.md](my-numbers.md) | ✅ verified vs `be6cef7` (investigation) |
 | Flagged-hours / flat-rate data | [flat-rate-hours.md](flat-rate-hours.md) | ✅ verified vs `22e3a5a` (investigation — data not yet buildable) |
+| Settings hub (storage · roles · enforcement) | [settings.md](settings.md) | ✅ verified vs `0663cbd` (investigation + proposal — not built) |
 | To-Do list | [todo-list.md](todo-list.md) | ✅ verified vs the commit that adds it |
 | File Cabinet (this tab) | [file-cabinet.md](file-cabinet.md) | ✅ verified vs the commit that adds it |
 
