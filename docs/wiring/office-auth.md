@@ -2,12 +2,13 @@
 
 > Doc: `/docs/wiring/office-auth.md`
 > Last updated: 2026-07-31 — verified vs commit `77bf5c5`
-> Status: 🟡 STEP 0–1 BUILT (login-only foothold — **nothing enforced**); §5 Steps 2–5 still
-> proposed. §1 (CrisData today) and §2 (KiKi's auth) are verified against the live code
-> (`crisdata.html`, the four boards, `api/*`, the embedded `kiki/` repo). Step 0 migration is
-> **hand-run — not yet applied** until Cris runs it. Extends [[settings]] §6 — which left two
-> identity paths (an HMAC token OR "a Supabase Auth session if we adopt GoTrue later"); this
-> adopts the **Supabase Auth** path using KiKi's proven implementation.
+> Status: 🟡 STEP 0–1 BUILT (login-only foothold, live @ `dc782b3` — **nothing enforced**).
+> **Step 1½ (anon→authenticated read+write widen) is AUDITED with SQL ready but PARKED — NOT
+> applied** (§7); §5 Steps 2–5 still proposed. §1 (CrisData today) and §2 (KiKi's auth) are
+> verified against the live code (`crisdata.html`, the four boards, `api/*`, the embedded `kiki/`
+> repo). Step 0 migration is **hand-run — not yet applied** until Cris runs it. Extends
+> [[settings]] §6 — which left two identity paths (an HMAC token OR "a Supabase Auth session if
+> we adopt GoTrue later"); this adopts the **Supabase Auth** path using KiKi's proven implementation.
 
 ## 0. In one line
 Give the **four office users** (Cristian / Kevin / Josh / Bookkeeping) a real,
@@ -157,6 +158,11 @@ the anon key — tighten it only after login + all boards resolve identity from 
   redirect allowlist + Site URL — do it off-hours, only before Step 3. *Rollback:* delete the auth
   user, null the link, delete the page. **← FIRST SAFE STOPPING POINT** (working auth foothold,
   zero enforcement).
+- **Step 1½ — widen anon-only reads + writes (⏸ PARKED — audited, SQL ready, NOT applied).**
+  The moment a browser holds an office-login session it becomes the `authenticated` role for
+  *every* board tab on the origin, and the whole schema is **anon-only** — so reads (and direct
+  writes) go dark until sign-out. **Full audit + ready SQL + rollback live in §7.** Parked for a
+  calm off-hours window; **interim rule: sign out of office-login before using a board.**
 - **Step 2 — Dual-identity reader (additive).** A shared `office-identity.js` that resolves the
   user by an **auth session if present, else the phone session** (today's path). Wire the **owner
   board first** (only Cristian is on auth). Boards become auth-*aware* without dropping phone/PIN.
@@ -197,6 +203,185 @@ the anon key — tighten it only after login + all boards resolve identity from 
   dual reader is permanent, not transitional, for the floor. (e) Rotate any keys that were ever
   committed (KiKi's lesson) — do not browser-expose the service-role key.
 
+## 7. Step 1½ — anon→authenticated read+write widen (⏸ PARKED — audited, SQL ready, NOT applied)
+**Nothing here has been applied.** This is the completed audit + ready SQL, held for a calm
+off-hours window. Do not run the widen mid-day.
+
+### 7.0 Why it exists, and why we widen reads AND writes together
+The schema was built **anon-only, no auth**. A browser that logs into `office-login.html` carries
+an `authenticated` Supabase session in `localStorage`, **shared across every board tab on the
+origin** — so those clients stop being `anon`. Every object whose policy grants only `anon` then
+returns **zero rows / permission-denied** to `authenticated`. Confirmed live: after an office-login,
+`change_requests` vanished from the owner triage + "My requests" until sign-out.
+- A **reads-only** widen is a **silent-write trap**: a logged-in browser would *see* everything but
+  its **direct writes fail quietly** (add a to-do, send a chat, save a setting, edit an RO…). So the
+  resume does **reads AND writes together** — either widen both to `authenticated`, **or** move the
+  affected writes behind auth-checked endpoints (the enforcement-aligned option; decide at resume).
+- **Service-role writes are unaffected** (they run server-side): announcements, change-request
+  submit/triage, and desk appointments keep working regardless of the browser's role.
+
+### 7.1 Interim rule (until Step 1½ is applied)
+- **Sign out of `office-login.html` before using a board.** The boards' logout already clears the
+  session; simplest is to just not stay signed in. Only **Cristian** has an account and office-login
+  is a **dead-end** page, so this is easy to avoid today. Boards run normally on **phone+PIN**
+  (no auth session → `anon` → everything reads/writes as always).
+- **Current state:** Step 1 foothold live (`dc782b3`); nothing enforced; phone+PIN untouched.
+
+### 7.2 The audit (board-read objects by read role)
+- **Anon-only reads — tables (28) that BREAK for `authenticated`:** `repair_orders`, `calls`,
+  `change_requests`, `announcements`, `todos`, `invoice_queue`, `core_charges`, `customers`,
+  `vehicles`, `ro_line_items`, `attachments`, `completed_jobs`, `chat_conversations`, `chat_members`,
+  `chat_reads`, `ro_payments`, `ro_diagnostic_codes`, `rebuild_book_hours`, `projects`,
+  `planning_items`, `parts_orders`, `marketing_content`, `invoice_types`, `expense_categories`,
+  `invoice_po_lines`, `payment_methods`, `shop_settings`, `dashboard_preferences`.
+- **Anon-only — a view + 3 private storage buckets (BREAK):** `feature_adoption` (VIEW, `grant
+  select … to anon` only) · `crisdata-attachments`, `invoice-images`, `marketing-content`
+  (`for select to anon` on `storage.objects`; `createSignedUrl` fails for `authenticated`).
+- **VERIFY LIVE — no policy in any migration (created ad-hoc in the console):** `employees` (read by
+  all 11 surfaces — highest risk), `chat_messages`, `tech_whiteboard`, `shopboard_tables`,
+  `transmissions`, `punches`, and the `employee-photos` bucket. The additive widen is safe for these
+  regardless of their live state; the verification query (§7.3) shows their real roles.
+- **Already fine (skip):** `shopboard_parking` / `shopboard_lifts` / `shopboard_pickup` (policy has
+  no `TO` clause → `public`, includes `authenticated`); `board-backgrounds` + `employee-photos`
+  (public buckets via `getPublicUrl`).
+- **Direct-anon-WRITE tables (writes ALSO break for `authenticated` — the reason we widen writes
+  too):** `todos`, all `chat_*`, `marketing_content`, `shop_settings`, `dashboard_preferences`,
+  `projects`, `planning_items`, `parts_orders`, `core_charges`, `customers`, `vehicles`,
+  `ro_line_items`, `attachments`, `completed_jobs`, `ro_payments`, `ro_diagnostic_codes`,
+  `rebuild_book_hours`, `invoice_queue`, `invoice_types`, `expense_categories`, `invoice_po_lines`,
+  `payment_methods` (all `for all to anon`), plus `repair_orders` (anon insert/update) and `calls`
+  (anon update). *Not* direct-anon-write (service-role): `change_requests`, `announcements`.
+- Note: also fixes a Step-1 gotcha — office-login's own role display reads `employees`, so it returns
+  null ("not linked") for a *real* logged-in session until `employees` is widened.
+
+### 7.3 Verification SQL (run FIRST at resume — confirms the audit + the 7 unknowns, live)
+```sql
+select schemaname, tablename, policyname, cmd, roles
+  from pg_policies
+ where (schemaname='public' and tablename in (
+        'employees','repair_orders','calls','change_requests','announcements','todos',
+        'invoice_queue','core_charges','customers','vehicles','ro_line_items','attachments',
+        'completed_jobs','chat_conversations','chat_messages','chat_members','chat_reads',
+        'ro_payments','ro_diagnostic_codes','rebuild_book_hours','projects','planning_items',
+        'parts_orders','marketing_content','invoice_types','expense_categories','invoice_po_lines',
+        'payment_methods','shop_settings','dashboard_preferences','tech_whiteboard',
+        'shopboard_tables','transmissions','punches',
+        'shopboard_parking','shopboard_lifts','shopboard_pickup'))
+    or (schemaname='storage' and tablename='objects')
+ order by schemaname, tablename, cmd, policyname;
+select grantee, privilege_type from information_schema.role_table_grants
+ where table_schema='public' and table_name='feature_adoption';
+select id, public from storage.buckets order by id;
+```
+
+### 7.4 READS widen SQL (ready — additive `for select to authenticated`; touches no write policy)
+```sql
+-- Additive + READ-ONLY: adds `for select to authenticated` alongside the anon policies.
+-- Does NOT edit anon policies and does NOT touch any write/`for all` grant. Idempotent.
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'employees','repair_orders','calls','change_requests','announcements','todos',
+    'invoice_queue','core_charges','customers','vehicles','ro_line_items','attachments',
+    'completed_jobs','chat_conversations','chat_messages','chat_members','chat_reads',
+    'ro_payments','ro_diagnostic_codes','rebuild_book_hours','projects','planning_items',
+    'parts_orders','marketing_content','invoice_types','expense_categories','invoice_po_lines',
+    'payment_methods','shop_settings','dashboard_preferences','tech_whiteboard',
+    'shopboard_tables','transmissions','punches'
+  ] loop
+    if to_regclass('public.'||t) is not null then
+      execute format('drop policy if exists %I on public.%I', 'auth read '||t, t);
+      execute format('create policy %I on public.%I for select to authenticated using (true)', 'auth read '||t, t);
+    end if;
+  end loop;
+end $$;
+do $$
+declare b text;
+begin
+  foreach b in array array['crisdata-attachments','invoice-images','marketing-content'] loop
+    execute format('drop policy if exists %I on storage.objects', 'Allow authenticated read '||b);
+    execute format('create policy %I on storage.objects for select to authenticated using (bucket_id = %L)',
+                   'Allow authenticated read '||b, b);
+  end loop;
+end $$;
+grant select on public.feature_adoption to authenticated;
+```
+
+### 7.5 WRITES widen SQL (ready — the "widen together" option; the alternative is auth-checked endpoints)
+At resume, run this **with** §7.4 (or instead move these writes behind endpoints). This gives
+`authenticated` the *same* full access `anon` already has on the direct-anon-write tables (additive;
+nothing tightened). `repair_orders` / `calls` get only the commands their anon policies grant.
+```sql
+-- Direct-anon-write tables → full access for authenticated (mirrors the existing `for all to anon`).
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'todos','chat_conversations','chat_messages','chat_members','chat_reads','marketing_content',
+    'shop_settings','dashboard_preferences','projects','planning_items','parts_orders','core_charges',
+    'customers','vehicles','ro_line_items','attachments','completed_jobs','ro_payments',
+    'ro_diagnostic_codes','rebuild_book_hours','invoice_queue','invoice_types','expense_categories',
+    'invoice_po_lines','payment_methods'
+  ] loop
+    if to_regclass('public.'||t) is not null then
+      execute format('drop policy if exists %I on public.%I', 'auth write '||t, t);
+      execute format('create policy %I on public.%I for all to authenticated using (true) with check (true)', 'auth write '||t, t);
+    end if;
+  end loop;
+end $$;
+-- repair_orders: anon has insert + update (no delete). Mirror for authenticated.
+drop policy if exists "auth insert repair_orders" on public.repair_orders;
+create policy "auth insert repair_orders" on public.repair_orders for insert to authenticated with check (true);
+drop policy if exists "auth update repair_orders" on public.repair_orders;
+create policy "auth update repair_orders" on public.repair_orders for update to authenticated using (true) with check (true);
+-- calls: anon has update only (rows arrive via CTM webhook / service role).
+drop policy if exists "auth update calls" on public.calls;
+create policy "auth update calls" on public.calls for update to authenticated using (true) with check (true);
+-- NOTE: with 7.5's `for all to authenticated`, the matching `auth read <t>` from 7.4 is redundant
+-- (for-all covers select) but harmless — leave both, or skip 7.4 for these tables at resume.
+```
+
+### 7.6 Rollback (removes only what §7.4/§7.5 add)
+```sql
+do $$
+declare t text;
+begin
+  foreach t in array array[
+    'employees','repair_orders','calls','change_requests','announcements','todos','invoice_queue',
+    'core_charges','customers','vehicles','ro_line_items','attachments','completed_jobs',
+    'chat_conversations','chat_messages','chat_members','chat_reads','ro_payments','ro_diagnostic_codes',
+    'rebuild_book_hours','projects','planning_items','parts_orders','marketing_content','invoice_types',
+    'expense_categories','invoice_po_lines','payment_methods','shop_settings','dashboard_preferences',
+    'tech_whiteboard','shopboard_tables','transmissions','punches'
+  ] loop
+    if to_regclass('public.'||t) is not null then
+      execute format('drop policy if exists %I on public.%I', 'auth read '||t, t);
+      execute format('drop policy if exists %I on public.%I', 'auth write '||t, t);
+    end if;
+  end loop;
+end $$;
+drop policy if exists "auth insert repair_orders" on public.repair_orders;
+drop policy if exists "auth update repair_orders" on public.repair_orders;
+drop policy if exists "auth update calls" on public.calls;
+do $$
+declare b text;
+begin
+  foreach b in array array['crisdata-attachments','invoice-images','marketing-content'] loop
+    execute format('drop policy if exists %I on storage.objects', 'Allow authenticated read '||b);
+  end loop;
+end $$;
+revoke select on public.feature_adoption from authenticated;
+```
+
+### 7.7 Resume checklist (the calm window)
+1. Run §7.3 verification; reconcile the 7 "VERIFY LIVE" objects with the audit.
+2. Decide writes: run §7.5 **or** route those writes through auth-checked endpoints.
+3. Apply §7.4 (+ §7.5 if chosen), off-hours.
+4. Test **with an office-login session active**: every board reads AND writes normally
+   (to-dos, chat, settings, RO edits, triage + My requests, signed-URL screenshots) — **and**
+   phone+PIN with no session still works. Then retire the interim sign-out rule.
+
 ## Where it lives in the code
 - **Office auth (new, Step 0–1):** `office-login.html` (standalone test page — login/set-password/
   sign-out + role display); `migrations/20260731_employees_auth_user_id.sql` (the `auth_user_id`
@@ -228,3 +413,12 @@ the anon key — tighten it only after login + all boards resolve identity from 
   Auto-Confirm) needs no Site-URL/redirect change. Registered the doc in the File Cabinet
   (`shared/file-cabinet.js`). `crisdata.html`, the four boards, and every RLS policy untouched;
   phone/PIN fully intact. Steps 2–5 not built.
+- 2026-07-31 — **Audited Step 1½ (anon→authenticated read+write widen) and PARKED it** (§7).
+  Confirmed live: an office-login session makes the browser `authenticated` for every board tab, and
+  the anon-only schema goes dark (`change_requests` vanished from triage/My-requests until sign-out).
+  Enumerated ~36 anon-only board-read objects (28 tables + `feature_adoption` view + 3 private
+  storage buckets) + 7 "verify-live" ad-hoc objects, and the direct-anon-write tables. Captured the
+  live-verification query, the ready READS widen (§7.4), the WRITES widen (§7.5), and the rollback
+  (§7.6). **Not applied** — a reads-only widen is a silent-write trap, so resume does reads+writes
+  together (or writes-behind-endpoints) in a calm off-hours window. **Interim rule: sign out of
+  office-login before using a board.** Doc-only pass — no migration, no policy change.
