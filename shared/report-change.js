@@ -1,5 +1,5 @@
 /* ============================================================
-   report-change.js — the office "Report a Change" intake (Phase 1 + 2).
+   report-change.js — the office "Report a Change" intake (Phase 1 + 2 + 3).
 
    The inbound counterpart to the announcement banner. One self-injecting IIFE
    with TWO roles, like announcement-banner.js:
@@ -7,7 +7,13 @@
    SUBMIT (the three office boards) — a "🚩 Report a change" button in the
    .view-topbar opens a modal with two tabs:
      • "Report" — Bug/Idea toggle · priority (the To-Do scale) · a plain note · an
-       OPTIONAL screenshot upload with preview · submit (note OR screenshot).
+       OPTIONAL screenshot · submit (note OR screenshot). The screenshot can be
+       "📸 Grab my board" (Phase 3: a one-click html2canvas capture of the current
+       board) OR "⬆ Upload a screenshot" — both feed the SAME annotator (draw red
+       ARROWS, drop draggable text-bubble NOTES, Undo/Clear). On submit, if the
+       user annotated, image+markup are FLATTENED to one PNG (html2canvas); else the
+       base image uploads untouched. html2canvas is vendored (vendor/html2canvas.min.js,
+       MIT) and lazy-loaded. Annotation is optional — text-only + plain-upload still work.
      • "My requests" (Phase 2) — a READ-ONLY list of the current user's own
        submissions (client-side filter by submitted_by_id over anon SELECT), each
        showing type/priority chips, the status, the screenshot, and the latest
@@ -49,6 +55,12 @@ window.ReportChange = (function () {
   const BUCKET = 'crisdata-attachments';                 // reuse chat/todo private bucket
   const SHOT_MAX_BYTES = 15 * 1024 * 1024;               // screenshots stay small
   const SIGNED_TTL = 3600;
+  // Phase 3 — capture + annotate. html2canvas is VENDORED (vendor/html2canvas.min.js,
+  // MIT) and LAZY-loaded on first "Grab my board" or first flatten, so no board pays
+  // for it on load and nothing references a CDN.
+  const H2C_SRC = '/vendor/html2canvas.min.js';
+  const ARROW_COLOR = '#d83a3a';                          // annotation red (matches the prototype)
+  const MIN_ARROW = 14;                                   // px — a shorter drag is a mis-click, discarded
 
   const TYPES = [
     { key: 'bug', label: 'Bug', emoji: '🐞' },
@@ -224,6 +236,35 @@ window.ReportChange = (function () {
     .rc-update { border:1px solid #c7d2fe; background:#eef2ff; border-radius:8px; padding:8px 11px; margin-top:9px; }
     .rc-update-head { font-size:0.68rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:var(--accent); margin-bottom:3px; }
     .rc-update-body { font-size:0.84rem; color:var(--text); line-height:1.5; white-space:pre-wrap; overflow-wrap:anywhere; }
+
+    /* ── Phase 3: capture + annotate ── */
+    .rc-shot-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .rc-shot-pick { display:inline-flex; align-items:center; gap:8px; border:1px dashed var(--border); border-radius:8px; padding:9px 13px; font:inherit; font-size:0.82rem; font-weight:600; color:var(--muted); background:var(--surface,#fff); cursor:pointer; }
+    .rc-shot-pick:hover { border-color:var(--accent); color:var(--accent); }
+    .rc-shot-pick.busy { opacity:0.6; cursor:default; }
+    /* annotator */
+    .rc-anno { margin-top:10px; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    .rc-anno-tools { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:7px 9px; border-bottom:1px solid var(--border); background:var(--bg,#f5f6fa); }
+    .rc-tool { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border); background:var(--surface,#fff); color:var(--text); border-radius:7px; padding:5px 10px; font:inherit; font-size:0.76rem; font-weight:700; cursor:pointer; }
+    .rc-tool:hover { border-color:var(--accent); }
+    .rc-tool.on { border-color:var(--accent); background:var(--accent); color:#fff; }
+    .rc-tool-sp { flex:1; }
+    .rc-tool.ghost { color:var(--muted); font-weight:600; }
+    .rc-tool.ghost:hover { color:var(--red); border-color:var(--red); }
+    .rc-stage { position:relative; display:block; line-height:0; background:var(--bg,#f5f6fa); touch-action:none; }
+    .rc-stage.mode-arrow { cursor:crosshair; }
+    .rc-stage.mode-note { cursor:copy; }
+    .rc-stage.mode-select { cursor:default; }
+    .rc-anno-img { display:block; width:100%; height:auto; -webkit-user-select:none; user-select:none; -webkit-user-drag:none; pointer-events:none; }
+    .rc-anno-svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+    .rc-bubble { position:absolute; min-width:120px; max-width:220px; background:#fffbe6; border:1.5px solid var(--amber); border-radius:9px; box-shadow:0 5px 16px rgba(0,0,0,0.18); z-index:5; line-height:1.3; }
+    .rc-bubble-bar { height:15px; background:rgba(224,134,0,0.14); border-radius:7px 7px 0 0; cursor:move; display:flex; align-items:center; justify-content:flex-end; padding-right:3px; }
+    .rc-bubble-x { font-size:0.72rem; color:var(--amber); cursor:pointer; line-height:1; padding:0 3px; font-weight:800; }
+    .rc-bubble-tx { padding:5px 8px 8px; font-size:0.76rem; color:#5a4200; outline:none; min-height:26px; word-break:break-word; }
+    .rc-bubble-tx:empty::before { content:attr(data-ph); color:#b08a3a; }
+    /* while flattening, hide the interactive chrome so the PNG shows only art */
+    .rc-stage.rc-flattening .rc-bubble-x, .rc-stage.rc-flattening .rc-bubble-bar { visibility:hidden; }
+    .rc-anno-hint { font-size:0.72rem; color:var(--muted); padding:6px 9px 0; }
     `;
     document.head.appendChild(st);
   }
@@ -243,9 +284,15 @@ window.ReportChange = (function () {
     let modalEl = null;
     let busy = false;
     let curType = 'bug';
-    let pendingFile = null;
-    let pendingPreviewUrl = null;
     let appVersion = null, versionFetched = false;
+    // Phase 3 — screenshot capture + annotate state
+    let shotBlob = null;            // the BASE image (captured canvas PNG, or the uploaded File)
+    let shotName = null, shotMime = null;
+    let shotSrc = null;             // object/data URL used to display it (revoked on clear)
+    let stageEl = null, svgEl = null;   // the annotator DOM when an image is loaded
+    let annoMode = 'arrow';         // 'arrow' | 'note' | 'select'
+    let annoStack = [];             // annotation els (lines + bubbles) in creation order (for undo)
+    let h2cPromise = null;          // lazy html2canvas loader (shared by capture + flatten)
     // Phase 2 — "My requests" state
     let launchBtn = null;
     let activeTab = 'report';
@@ -260,6 +307,20 @@ window.ReportChange = (function () {
       try { const r = await fetch('/api/version', { cache: 'no-store' }); const j = await r.json(); appVersion = (j && j.version) || null; }
       catch (_) { appVersion = null; }
       return appVersion;
+    }
+
+    // Lazy-load the VENDORED html2canvas (once) — used for both capture and flatten.
+    function ensureHtml2Canvas() {
+      if (window.html2canvas) return Promise.resolve(window.html2canvas);
+      if (h2cPromise) return h2cPromise;
+      h2cPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = H2C_SRC; s.async = true;
+        s.onload = () => window.html2canvas ? resolve(window.html2canvas) : reject(new Error('html2canvas did not initialize'));
+        s.onerror = () => reject(new Error('could not load html2canvas'));
+        document.head.appendChild(s);
+      });
+      return h2cPromise;
     }
 
     function mountButton() {
@@ -277,8 +338,9 @@ window.ReportChange = (function () {
     }
 
     function clearPending() {
-      pendingFile = null;
-      if (pendingPreviewUrl) { URL.revokeObjectURL(pendingPreviewUrl); pendingPreviewUrl = null; }
+      shotBlob = null; shotName = null; shotMime = null;
+      if (shotSrc) { try { URL.revokeObjectURL(shotSrc); } catch (_) {} shotSrc = null; }
+      stageEl = null; svgEl = null; annoStack = [];
       if (modalEl) modalEl.querySelector('#rcShotWrap').innerHTML = '';
     }
 
@@ -328,7 +390,10 @@ window.ReportChange = (function () {
 
             <div class="rc-field">
               <span class="rc-label">Screenshot (optional)</span>
-              <label class="rc-shot-pick">📎 Upload a screenshot<input type="file" accept="image/*" id="rcShotInput" style="display:none"></label>
+              <div class="rc-shot-actions">
+                <button type="button" class="rc-shot-pick" id="rcGrab">📸 Grab my board</button>
+                <label class="rc-shot-pick">⬆ Upload a screenshot<input type="file" accept="image/*" id="rcShotInput" style="display:none"></label>
+              </div>
               <div id="rcShotWrap"></div>
             </div>
 
@@ -355,21 +420,189 @@ window.ReportChange = (function () {
         if (file) onShotPicked(file);
         e.target.value = '';   // reset AFTER grabbing the File (catch-moment ordering fix)
       });
+      modalEl.querySelector('#rcGrab').addEventListener('click', grabBoard);
       modalEl.querySelector('#rcSubmit').addEventListener('click', doSubmit);
       return modalEl;
     }
 
+    // ── the two ways to get a base image; both feed the SAME annotator ──
     function onShotPicked(file) {
       if (!file.type.startsWith('image/')) { setStatus('Please choose an image.', 'err'); return; }
       if (!file.size) { setStatus('That file looks empty — try again.', 'err'); return; }
       if (file.size > SHOT_MAX_BYTES) { setStatus('That image is over 15 MB — please shrink it.', 'err'); return; }
       clearPending();
-      pendingFile = file;
-      pendingPreviewUrl = URL.createObjectURL(file);
-      modalEl.querySelector('#rcShotWrap').innerHTML =
-        `<div class="rc-shot-preview"><img src="${pendingPreviewUrl}" alt="screenshot preview"><button type="button" class="rc-shot-remove" id="rcShotRemove" title="Remove">&times;</button></div>`;
-      modalEl.querySelector('#rcShotRemove').addEventListener('click', () => { clearPending(); setStatus(''); });
+      shotBlob = file;
+      shotName = file.name ? String(file.name).slice(0, 200) : 'screenshot.png';
+      shotMime = file.type || 'image/png';
+      shotSrc = URL.createObjectURL(file);
+      openAnnotator(shotSrc);
       setStatus('');
+    }
+
+    async function grabBoard() {
+      if (busy) return;
+      const grabBtn = modalEl.querySelector('#rcGrab');
+      grabBtn.classList.add('busy'); grabBtn.disabled = true;
+      setStatus('Grabbing your board…', 'wait');
+      // Hide the modal so it isn't in the shot; capture the visible board; restore.
+      modalEl.style.visibility = 'hidden';
+      try {
+        const h2c = await ensureHtml2Canvas();
+        // small paint gap so the hidden modal is actually off before capture
+        await new Promise(r => setTimeout(r, 60));
+        const canvas = await h2c(document.body, {
+          backgroundColor: getComputedStyle(document.body).backgroundColor || '#ffffff',
+          useCORS: true, logging: false,
+          scale: Math.min(2, window.devicePixelRatio || 1),
+          x: window.scrollX, y: window.scrollY,
+          width: window.innerWidth, height: window.innerHeight,
+          ignoreElements: (el) => el.classList && (el.classList.contains('rc-overlay') || el.classList.contains('cm-overlay')),
+        });
+        modalEl.style.visibility = '';
+        const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+        if (!blob) throw new Error('capture produced no image');
+        clearPending();
+        shotBlob = blob; shotName = 'board.png'; shotMime = 'image/png';
+        shotSrc = URL.createObjectURL(blob);
+        openAnnotator(shotSrc);
+        setStatus('Grabbed ✓ Now mark it up — or send as-is.', 'ok');
+      } catch (e) {
+        modalEl.style.visibility = '';
+        console.error('[ReportChange] capture failed', e);
+        setStatus('Couldn\'t grab the board (' + (e.message || 'error') + '). Use “Upload a screenshot” instead.', 'err');
+      } finally {
+        grabBtn.classList.remove('busy'); grabBtn.disabled = false;
+      }
+    }
+
+    // ── the annotator: image + SVG arrows + draggable text bubbles ──
+    function openAnnotator(src) {
+      annoMode = 'arrow'; annoStack = [];
+      const wrap = modalEl.querySelector('#rcShotWrap');
+      wrap.innerHTML =
+        `<div class="rc-anno">
+          <div class="rc-anno-tools">
+            <button type="button" class="rc-tool on" data-mode="arrow">↗ Arrow</button>
+            <button type="button" class="rc-tool" data-mode="note">💬 Note</button>
+            <button type="button" class="rc-tool" data-mode="select">✋ Move</button>
+            <span class="rc-tool-sp"></span>
+            <button type="button" class="rc-tool ghost" id="rcUndo">↶ Undo</button>
+            <button type="button" class="rc-tool ghost" id="rcClearAnno">🗑 Clear</button>
+            <button type="button" class="rc-tool ghost" id="rcShotRemove">✕ Remove</button>
+          </div>
+          <div class="rc-stage mode-arrow" id="rcStage">
+            <img class="rc-anno-img" id="rcAnnoImg" alt="screenshot to annotate">
+            <svg class="rc-anno-svg" id="rcAnnoSvg">
+              <defs><marker id="rcArrowHead" markerWidth="10" markerHeight="10" refX="7" refY="3.2" orient="auto">
+                <path d="M0,0 L8,3.2 L0,6.4 Z" fill="${ARROW_COLOR}"></path>
+              </marker></defs>
+            </svg>
+          </div>
+          <div class="rc-anno-hint">Drag to draw an arrow · pick 💬 Note to drop a label · ✋ Move to reposition.</div>
+        </div>`;
+      stageEl = wrap.querySelector('#rcStage');
+      svgEl = wrap.querySelector('#rcAnnoSvg');
+      const img = wrap.querySelector('#rcAnnoImg');
+      img.src = src;
+
+      wrap.querySelectorAll('.rc-tool[data-mode]').forEach(b =>
+        b.addEventListener('click', () => setMode(b.dataset.mode)));
+      wrap.querySelector('#rcUndo').addEventListener('click', undoAnno);
+      wrap.querySelector('#rcClearAnno').addEventListener('click', clearAnno);
+      wrap.querySelector('#rcShotRemove').addEventListener('click', () => { clearPending(); setStatus(''); });
+
+      // arrow drawing (pointer events → mouse + touch; touch-action:none prevents scroll)
+      stageEl.addEventListener('pointerdown', onStagePointerDown);
+      stageEl.addEventListener('pointermove', onStagePointerMove);
+      stageEl.addEventListener('pointerup', onStagePointerUp);
+      stageEl.addEventListener('click', onStageClick);
+    }
+
+    function setMode(m) {
+      annoMode = m;
+      stageEl.className = 'rc-stage mode-' + m;
+      modalEl.querySelectorAll('.rc-tool[data-mode]').forEach(b => b.classList.toggle('on', b.dataset.mode === m));
+      // bubbles only draggable/typable when NOT drawing arrows
+      stageEl.querySelectorAll('.rc-bubble').forEach(bb => bb.style.pointerEvents = (m === 'arrow') ? 'none' : 'auto');
+    }
+
+    function stagePt(e) { const r = stageEl.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+
+    let drawing = null;
+    function onStagePointerDown(e) {
+      if (annoMode !== 'arrow' || (e.target.closest && e.target.closest('.rc-bubble'))) return;
+      const p = stagePt(e);
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', p.x); line.setAttribute('y1', p.y);
+      line.setAttribute('x2', p.x); line.setAttribute('y2', p.y);
+      line.setAttribute('stroke', ARROW_COLOR); line.setAttribute('stroke-width', '3.5');
+      line.setAttribute('stroke-linecap', 'round'); line.setAttribute('marker-end', 'url(#rcArrowHead)');
+      svgEl.appendChild(line);
+      drawing = { line, p };
+      try { stageEl.setPointerCapture(e.pointerId); } catch (_) {}
+    }
+    function onStagePointerMove(e) {
+      if (!drawing) return;
+      const p = stagePt(e);
+      drawing.line.setAttribute('x2', p.x); drawing.line.setAttribute('y2', p.y);
+    }
+    function onStagePointerUp(e) {
+      if (!drawing) return;
+      const p = stagePt(e);
+      if (Math.hypot(p.x - drawing.p.x, p.y - drawing.p.y) < MIN_ARROW) drawing.line.remove();
+      else annoStack.push(drawing.line);
+      drawing = null;
+    }
+    function onStageClick(e) {
+      if (annoMode !== 'note' || (e.target.closest && e.target.closest('.rc-bubble'))) return;
+      const p = stagePt(e);
+      addBubble(p.x, p.y, '');
+    }
+
+    function addBubble(x, y, text) {
+      const b = document.createElement('div');
+      b.className = 'rc-bubble';
+      b.style.left = Math.max(0, Math.min(x, stageEl.clientWidth - 130)) + 'px';
+      b.style.top = Math.max(0, Math.min(y, stageEl.clientHeight - 44)) + 'px';
+      b.innerHTML = `<div class="rc-bubble-bar"><span class="rc-bubble-x" title="Delete">✕</span></div>` +
+        `<div class="rc-bubble-tx" contenteditable="true" data-ph="What's the concern here?"></div>`;
+      stageEl.appendChild(b);
+      const tx = b.querySelector('.rc-bubble-tx');
+      if (text) tx.textContent = text;
+      b.style.pointerEvents = (annoMode === 'arrow') ? 'none' : 'auto';
+      b.querySelector('.rc-bubble-x').addEventListener('click', (ev) => { ev.stopPropagation(); b.remove(); });
+      // drag by the header bar
+      b.querySelector('.rc-bubble-bar').addEventListener('pointerdown', (ev) => {
+        ev.preventDefault();
+        const r = stageEl.getBoundingClientRect();
+        const offx = ev.clientX - b.offsetLeft, offy = ev.clientY - b.offsetTop;
+        function mv(m) {
+          b.style.left = Math.max(0, Math.min(m.clientX - offx, r.width - b.offsetWidth)) + 'px';
+          b.style.top = Math.max(0, Math.min(m.clientY - offy, r.height - b.offsetHeight)) + 'px';
+        }
+        function up() { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); }
+        document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up);
+      });
+      annoStack.push(b);
+      setTimeout(() => tx.focus(), 0);
+      return b;
+    }
+
+    function undoAnno() { const el = annoStack.pop(); if (el) el.remove(); }
+    function clearAnno() { while (annoStack.length) annoStack.pop().remove(); }
+
+    // Flatten image + annotations to ONE PNG blob (WYSIWYG) via html2canvas on the stage.
+    async function flattenStage() {
+      const h2c = await ensureHtml2Canvas();
+      // blur any focused bubble so no caret is captured; hide chrome via a class
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      stageEl.classList.add('rc-flattening');
+      try {
+        const canvas = await h2c(stageEl, { backgroundColor: null, useCORS: true, logging: false, scale: 2 });
+        return await new Promise(res => canvas.toBlob(res, 'image/png'));
+      } finally {
+        stageEl.classList.remove('rc-flattening');
+      }
     }
 
     function openModal() {
@@ -403,23 +636,35 @@ window.ReportChange = (function () {
     async function doSubmit() {
       if (busy) return;
       const bodyText = (modalEl.querySelector('#rcBody').value || '').trim();
-      if (!bodyText && !pendingFile) { setStatus('Add a note or a screenshot.', 'err'); return; }
+      if (!bodyText && !shotBlob) { setStatus('Add a note or a screenshot.', 'err'); return; }
 
       busy = true;
       const btn = modalEl.querySelector('#rcSubmit'); btn.disabled = true;
       setStatus('Sending…', 'wait');
       try {
-        // 1) upload the screenshot FIRST (a failed upload never leaves a dangling pointer)
+        // 1) upload the screenshot FIRST (a failed upload never leaves a dangling pointer).
+        //    If the user drew arrows/notes, FLATTEN image+annotations to one PNG; otherwise
+        //    upload the base image untouched (no needless re-encode). Flatten is best-effort:
+        //    if html2canvas can't run, we still send the un-annotated base image.
         let screenshot_path = null, screenshot_name = null, screenshot_mime = null;
-        if (pendingFile) {
+        if (shotBlob) {
+          let fileToUpload = shotBlob, upName = shotName || 'screenshot.png', upMime = shotMime || 'image/png';
+          if (annoStack.length) {
+            setStatus('Flattening your markup…', 'wait');
+            try {
+              const flat = await flattenStage();
+              if (flat) { fileToUpload = flat; upName = 'screenshot.png'; upMime = 'image/png'; }
+            } catch (e2) { console.warn('[ReportChange] flatten failed — sending the un-annotated image', e2); }
+            setStatus('Sending…', 'wait');
+          }
           const id = crypto.randomUUID();
-          const ext = (pendingFile.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
+          const ext = (String(upName).split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g, '') || 'png';
           const path = `reports/${id}/screenshot.${ext}`;
-          const { error: upErr } = await db.storage.from(BUCKET).upload(path, pendingFile, { contentType: pendingFile.type || 'image/png', upsert: false });
+          const { error: upErr } = await db.storage.from(BUCKET).upload(path, fileToUpload, { contentType: upMime, upsert: false });
           if (upErr) throw upErr;
           screenshot_path = path;
-          screenshot_name = pendingFile.name ? String(pendingFile.name).slice(0, 200) : `screenshot.${ext}`;
-          screenshot_mime = pendingFile.type || null;
+          screenshot_name = String(upName).slice(0, 200);
+          screenshot_mime = upMime;
         }
 
         // 2) gather silent context

@@ -1,12 +1,12 @@
 # How the "Report a Change" intake is wired
 
 > Doc: `/docs/wiring/change-requests.md`
-> Last updated: 2026-07-31 — verified vs commit `5815454`
-> Status: ✅ Phase 1 (submit + triage) + Phase 2 ("My requests" loop-back) BUILT —
-> verified vs commit `5815454`, against `migrations/20260731_change_requests.sql`,
-> `api/change-request.js` (+ `.test.js`), `shared/report-change.js`, and the four
-> boards. **The Phase 1 migration is applied (feature live).** §8 (screenshot
-> annotation) is NOT built — Phase 3.
+> Last updated: 2026-07-31 — verified vs commit `137d5cd`
+> Status: ✅ ALL THREE PHASES BUILT — Phase 1 (submit + triage), Phase 2 ("My requests"
+> loop-back), Phase 3 (capture + annotate). Verified vs commit `137d5cd`, against
+> `migrations/20260731_change_requests.sql`, `api/change-request.js` (+ `.test.js`),
+> `shared/report-change.js`, `vendor/html2canvas.min.js`, and the four boards. **The
+> migration is applied (feature live).**
 
 ## 0. In one line
 The **inbound counterpart to the announcement banner**: Kevin (Manager), Josh (Advisor)
@@ -18,7 +18,7 @@ text and get lost.
 
 ---
 
-# PART A — How it works (BUILT: Phase 1 + 2)
+# PART A — How it works (BUILT: Phase 1 + 2 + 3)
 
 ## 1. Data — the `change_requests` table
 One row per submission. **RLS anon-SELECT only; all writes are service-role** (same posture
@@ -69,13 +69,14 @@ Mirrors `api/announcement.js`: a pure, exported, **test-locked** `parseChangeReq
 **`triageMount` → triage** (a board passes one).
 - **Submit role.** Self-mounts a **🚩 "Report a change" button into `.view-topbar`**
   (`margin-left:auto`, right-aligned — deliberately NOT a second FAB alongside CatchMoment). It
-  opens a modal: **Bug/Idea** toggle · **priority** select (the To-Do scale) · a note textarea ·
-  an **optional screenshot upload** (`image/*`, ≤15 MB, with a preview + remove). On Send it
-  **uploads the screenshot FIRST** to `reports/<uuid>/screenshot.<ext>` with the anon key
-  (a failed upload never leaves a dangling pointer), captures context — active
-  `.sidebar-item.active[data-view]`, `/api/version` (fetched once, cached), `navigator.userAgent`,
-  and the `board`/identity getters — then POSTs `create`. The modal is **two-tabbed**
-  ("Report" | "My requests" — §7).
+  opens a **two-tabbed** modal ("Report" | "My requests" — §7). The Report tab: **Bug/Idea**
+  toggle · **priority** select (the To-Do scale) · a note textarea · an **optional screenshot**
+  — either **📸 Grab my board** (capture) or **⬆ Upload a screenshot**, both feeding the same
+  annotator (§8). On Send it **uploads the screenshot FIRST** to `reports/<uuid>/screenshot.<ext>`
+  with the anon key (a failed upload never leaves a dangling pointer — if the user annotated, the
+  flattened PNG is what's uploaded, §8), captures context — active `.sidebar-item.active[data-view]`,
+  `/api/version` (fetched once, cached), `navigator.userAgent`, and the `board`/identity getters —
+  then POSTs `create`.
 - **Triage role.** Renders a **"Requests & Feedback" `.card`** into its mount. Each row shows a
   type chip (🐞 Bug / 💡 Idea), a **priority pill reusing the To-Do `.todo-prio-tag-*` classes**,
   submitter + role + relative time, the note (or "screenshot only"), the **screenshot** (lazy
@@ -150,15 +151,36 @@ reload.
   already pass. The triage side is unchanged. (A `change_request_updates` thread table is still
   only needed if a full history — beyond the single latest `owner_note` — is ever wanted.)
 
----
-
-# PART B — NOT built yet (Phase 3)
-
-## 8. Phase 3 — screenshot capture + annotation
-One-click in-browser screenshot (`html2canvas`) + arrow/text-bubble markup (`marker.js`),
-flattened to a PNG, replacing/augmenting the upload. **New dependency — none exists in the app
-today; must be vendored locally** (no-CDN-for-logic convention). Heaviest lift, deliberately last.
-Prototype reference: `crisdata-annotate-report.html` (not in the repo).
+## 8. Screenshot capture + annotation (Phase 3 — BUILT)
+The Report tab's screenshot step is now **capture-and-mark-up**, so submitters point at what they
+mean. Two ways in, one annotator, flattened on submit — all in `shared/report-change.js`.
+- **📸 Grab my board** — a one-click `html2canvas` capture of the current board. The modal hides
+  itself (`visibility:hidden`) so it isn't in the shot, then captures the **visible viewport**
+  (`x/y/width/height` = scroll + `innerWidth/innerHeight`) of `document.body`, `useCORS:true`,
+  `scale = min(2, devicePixelRatio)`, with `ignoreElements` skipping the `.rc-overlay` /
+  `.cm-overlay` modals. On any failure it says so and points at **⬆ Upload a screenshot**, which is
+  the always-available fallback (`image/*`, ≤15 MB).
+- **One annotator, either source.** `openAnnotator(src)` builds an image + an SVG overlay (red
+  **arrows**, drawn on pointer drag; a drag under 14 px is a mis-click and discarded) + draggable
+  **text-bubble notes** (contenteditable, drop with 💬 Note, drag by the header, ✕ to delete), with
+  **Undo** (pops the creation stack) / **Clear** / **✕ Remove**. Pointer events + `touch-action:none`
+  make arrow-drawing work with a finger (Kevin's iPhone). Bubbles are `pointer-events:none` while in
+  arrow mode so a drag over one still draws.
+- **Flatten on submit.** If the user drew anything, `flattenStage()` rasterizes the image + overlay
+  to **one PNG** via `html2canvas` on the stage (`scale:2`), with a `.rc-flattening` class hiding the
+  ✕/drag chrome so the PNG shows only the art. That PNG goes through the **unchanged Phase 1 upload**
+  (`reports/<uuid>/screenshot.png` → signed-URL render in triage + My requests). **No annotations →
+  the base image uploads untouched** (no needless re-encode). Flatten is **best-effort**: if
+  `html2canvas` can't run, the un-annotated base image still uploads.
+- **Annotation stays OPTIONAL** — text-only and plain-upload-without-markup both still work.
+- **Vendored, no CDN.** `html2canvas` **1.4.1 (MIT)** is committed at `vendor/html2canvas.min.js`
+  and **lazy-loaded** on first capture or first flatten (so no board pays for it on load; no board
+  HTML references it). See `vendor/README.md`.
+- **marker.js was NOT used** (the brief's suggested lib): marker.js **v2/v3 are commercially
+  licensed** (paid EULA — not committable into a production repo), and v1 is MIT but
+  old/unmaintained with its own toolbar. Per Cris's call, the annotator is a small **self-contained
+  SVG layer** instead — zero third-party annotation dependency, matches the prototype
+  (`crisdata-annotate-report.html`, not in the repo) exactly, and best fits the offline/PWA posture.
 
 ## Known gaps & open questions (as of 2026-07-31)
 - **Migration applied** — `20260731_change_requests.sql` is run; the feature is live. (The UI
@@ -168,19 +190,33 @@ Prototype reference: `crisdata-annotate-report.html` (not in the repo).
   need the auth token (§5).
 - **Owner-only triage is cosmetic** until the [[settings]] §6 auth token (§5). Not a blocker.
 - **`crisdata-attachments` is anon-read** — screenshots (possible PII) are readable with a signed
-  URL by anyone with the path; same boundary as existing attachments.
+  URL by anyone with the path; same boundary as existing attachments. **Grab-my-board captures the
+  live board**, so a board showing customer names lands a PNG with those names in the bucket — same
+  trust boundary, worth knowing.
+- **html2canvas capture fidelity has known limits** — it re-renders the DOM from computed styles,
+  so some effects (certain gradients/filters, cross-origin images without CORS, exotic CSS) can
+  render off or blank. In testing the office boards captured faithfully (cards, banners, avatars,
+  colors), but **⬆ Upload a screenshot is always the fallback** when a capture looks wrong.
+- **Not exercised locally: the live capture→flatten→upload→triage round-trip.** The static preview
+  has no `/api`, and a real submission would pollute the owner's prod queue, so verification covered
+  capture + annotate + flatten-to-PNG (desktop + phone) and relied on the **unchanged, already-proven
+  Phase 1/2 upload + signed-URL render** for the last hop. Worth a real end-to-end submit once
+  deployed.
 - The stale "advisor + owner boards" helper copy on the announcement panel
-  (`owner-board.html`) was left as-is (out of Phase 1 scope) — the banner actually shows on
+  (`owner-board.html`) was left as-is (out of scope) — the banner actually shows on
   advisor + manager + bookkeeping.
 
 ## Where it lives in the code
 - Module: `shared/report-change.js` — `window.ReportChange.init({ db, endpoint, board?, getName,
   getRole?, getEmployeeId?, getRo?, triageMount? })`; submit button + two-tab modal
   (Report / My requests) with its own `change-requests-mine` realtime channel + the per-device
-  unread badge (`crisdata_seen_requests`), triage card with the `change-requests-live` channel,
-  injected `.rc-*` CSS.
+  unread badge (`crisdata_seen_requests`); the capture/annotate/flatten layer (`grabBoard`,
+  `openAnnotator`, arrow/bubble handlers, `flattenStage`, `ensureHtml2Canvas`); triage card with
+  the `change-requests-live` channel; injected `.rc-*` CSS.
+- Vendored lib: `vendor/html2canvas.min.js` (1.4.1, MIT — lazy-loaded; see `vendor/README.md`).
+  **No marker.js** (commercial; self-contained SVG annotator instead — §8).
 - Endpoint: `api/change-request.js` (+ `api/change-request.test.js`, 11 cases).
-- Schema: `migrations/20260731_change_requests.sql` (hand-run; no storage migration).
+- Schema: `migrations/20260731_change_requests.sql` (applied; no storage migration).
 - Hosts (submit): `advisor-board.html`, `gm-board.html`, `bookkeeping-board.html` — script +
   `ReportChange.init({ board })`. Host (triage): `owner-board.html` — `#requests-triage` in
   `#view-announce` (the "Team Comms" tab) + `ReportChange.init({ triageMount })`.
@@ -209,3 +245,12 @@ Prototype reference: `crisdata-annotate-report.html` (not in the repo).
   the tab clears the badge; unseen updates open the modal straight to it. **Entirely in
   `shared/report-change.js`** — no new table, migration, endpoint, or board wiring; triage side
   unchanged. Migration now applied / feature live. Phase 3 (annotation) not built.
+- 2026-07-31 — **Built Phase 3** (capture + annotate): **📸 Grab my board** (one-click viewport
+  capture via **html2canvas 1.4.1, MIT, vendored** at `vendor/html2canvas.min.js`, lazy-loaded) +
+  **⬆ Upload** both feed a **self-contained SVG annotator** (red arrows, draggable contenteditable
+  note bubbles, undo/clear, touch-friendly). On submit, annotated shots **flatten to one PNG** via
+  html2canvas and go through the **unchanged Phase 1 upload**; un-annotated shots upload untouched;
+  annotation stays optional. **marker.js was rejected** (v2/v3 commercial; Cris chose the
+  self-contained annotator). Verified capture + annotate + flatten on desktop and a phone viewport;
+  no board HTML / table / endpoint changes (html2canvas is lazy-loaded by the module). All three
+  phases now live.
