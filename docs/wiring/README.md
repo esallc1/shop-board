@@ -24,6 +24,7 @@ every claim against the real code before writing it.**
 | My Numbers (tech phone tool) | [my-numbers.md](my-numbers.md) | ✅ verified vs `be6cef7` (investigation) |
 | Flagged-hours / flat-rate data | [flat-rate-hours.md](flat-rate-hours.md) | ✅ verified vs `22e3a5a` (investigation — data not yet buildable) |
 | Settings hub (storage · roles · enforcement) | [settings.md](settings.md) | ✅ verified vs `0663cbd` (investigation + proposal — not built) |
+| Office auth (Supabase Auth adoption) | [office-auth.md](office-auth.md) | ⚠ investigation + plan vs `77bf5c5` (not built) |
 | To-Do list | [todo-list.md](todo-list.md) | ✅ verified vs the commit that adds it |
 | Requests & Feedback intake | [change-requests.md](change-requests.md) | ✅ Phase 1 + 2 + 3 built vs `4bf7eb0` (live) |
 | File Cabinet (this tab) | [file-cabinet.md](file-cabinet.md) | ✅ verified vs the commit that adds it |

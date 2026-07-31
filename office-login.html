@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CrisData · Office Login</title>
+<!--
+  ============================================================
+  office-login.html — Step 1 of the office-auth rollout (docs/wiring/office-auth.md).
+
+  A STANDALONE, additive test page for the new Supabase Auth office login. It is a
+  dead-end: it proves email/password login + set-password + session persistence for
+  the office users, and NOTHING ELSE. It does NOT redirect to a board, and the boards
+  do NOT read this session. Phone+PIN (crisdata.html) is completely untouched and
+  remains the way everyone logs in.
+
+  SECURITY:
+   • Uses CrisData's OWN publishable key (public by design, already in every board).
+     NO service-role key anywhere — user creation/invites happen in the Supabase
+     dashboard (service-role stays server-only).
+   • Reads only `name, role` from employees (never `pin`).
+   • Nothing is enforced: no RLS change, no gate. This is login-only.
+  ============================================================
+-->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+  :root {
+    --bg:#f5f6fa; --surface:#ffffff; --border:#e2e5ee; --text:#1a1f36;
+    --muted:#8c93a8; --accent:#5b5ef4; --green:#10b981; --red:#ef4444;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; min-height:100vh; background:var(--bg); color:var(--text);
+    font-family:'Segoe UI', system-ui, -apple-system, sans-serif;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  .card {
+    background:var(--surface); border:1px solid var(--border); border-radius:16px;
+    box-shadow:0 12px 40px rgba(20,30,60,0.08); width:400px; max-width:100%;
+    padding:28px 26px;
+  }
+  .brand { display:flex; align-items:center; gap:11px; margin-bottom:4px; }
+  .brand .ic {
+    width:38px; height:38px; border-radius:10px; background:#eef0ff; color:var(--accent);
+    display:flex; align-items:center; justify-content:center; font-size:19px; flex-shrink:0;
+  }
+  .brand h1 { font-size:1.1rem; margin:0; }
+  .brand .sub { font-size:0.76rem; color:var(--muted); margin-top:2px; }
+  .note {
+    font-size:0.74rem; color:var(--muted); background:#fbfcff; border:1px solid var(--border);
+    border-radius:9px; padding:9px 11px; margin:16px 0 18px; line-height:1.5;
+  }
+  label { display:block; font-size:0.68rem; font-weight:800; text-transform:uppercase;
+    letter-spacing:0.5px; color:var(--muted); margin:14px 0 6px; }
+  input {
+    width:100%; border:1px solid var(--border); border-radius:9px; padding:11px 12px;
+    font:inherit; font-size:0.92rem; color:var(--text); background:var(--surface);
+  }
+  input:focus { outline:none; border-color:var(--accent); }
+  .btn {
+    width:100%; border:1px solid var(--accent); background:var(--accent); color:#fff;
+    border-radius:10px; padding:12px; font:inherit; font-size:0.92rem; font-weight:700;
+    cursor:pointer; margin-top:18px;
+  }
+  .btn:hover { filter:brightness(0.96); }
+  .btn:disabled { opacity:0.6; cursor:default; }
+  .btn.sec {
+    background:var(--surface); color:var(--text); border-color:var(--border); font-weight:600;
+  }
+  .btn.sec:hover { border-color:var(--accent); color:var(--accent); filter:none; }
+  .msg { font-size:0.82rem; margin-top:14px; min-height:1.1em; line-height:1.45; }
+  .msg.ok { color:var(--green); } .msg.err { color:var(--red); } .msg.wait { color:var(--accent); }
+  .who { font-size:0.95rem; margin:6px 0 2px; }
+  .who b { font-weight:800; }
+  .who .role {
+    display:inline-block; font-size:0.7rem; font-weight:800; color:var(--accent);
+    background:#eef0ff; border-radius:20px; padding:2px 10px; margin-left:6px; vertical-align:middle;
+  }
+  .who .email { font-size:0.78rem; color:var(--muted); margin-top:3px; }
+  hr { border:none; border-top:1px solid var(--border); margin:20px 0 4px; }
+  .section-title { font-size:0.72rem; font-weight:800; text-transform:uppercase;
+    letter-spacing:0.5px; color:var(--muted); margin-top:16px; }
+  .hidden { display:none !important; }
+  .foot { font-size:0.68rem; color:var(--muted); text-align:center; margin-top:22px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <div class="ic">🔐</div>
+      <div>
+        <h1>CrisData · Office Login</h1>
+        <div class="sub">Supabase Auth — office team (test)</div>
+      </div>
+    </div>
+
+    <!-- ── Signed-out: email + password ── -->
+    <div id="viewLogin">
+      <div class="note">This is the new office login (test). Techs and everyone else keep using phone + PIN as usual — this page changes nothing there.</div>
+      <label for="email">Email</label>
+      <input type="email" id="email" autocomplete="username" placeholder="you@example.com">
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="current-password" placeholder="Your password">
+      <button type="button" class="btn" id="signInBtn">Sign in</button>
+      <div class="msg" id="loginMsg"></div>
+    </div>
+
+    <!-- ── Signed-in: who you are + set/change password + sign out ── -->
+    <div id="viewSession" class="hidden">
+      <div class="note" id="sessionHint">You're signed in.</div>
+      <div class="who">
+        Signed in as <b id="whoName">…</b><span class="role hidden" id="whoRole"></span>
+        <div class="email" id="whoEmail"></div>
+      </div>
+
+      <hr>
+      <div class="section-title">Set / change password</div>
+      <label for="newPassword">New password</label>
+      <input type="password" id="newPassword" autocomplete="new-password" placeholder="At least 8 characters">
+      <label for="confirmPassword">Confirm password</label>
+      <input type="password" id="confirmPassword" autocomplete="new-password" placeholder="Repeat it">
+      <button type="button" class="btn" id="savePasswordBtn">Save password</button>
+      <div class="msg" id="pwMsg"></div>
+
+      <button type="button" class="btn sec" id="signOutBtn">Sign out</button>
+    </div>
+
+    <div class="foot">Reading is safe · this page never touches the boards or phone/PIN login.</div>
+  </div>
+
+<script>
+  // ── CrisData's own project + PUBLISHABLE key (public by design; same as the boards).
+  //    No service-role key here — user creation happens in the Supabase dashboard.
+  const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: {
+      persistSession: true,       // session lives in localStorage → survives reloads
+      autoRefreshToken: true,     // keeps the session fresh
+      detectSessionInUrl: true,   // consume invite/recovery hash tokens if a link lands here
+    },
+  });
+
+  const ROLE_LABEL = { tech:'Technician', advisor:'Service Advisor', manager:'Manager', owner:'Owner', bookkeeping:'Bookkeeping' };
+
+  const $ = (id) => document.getElementById(id);
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function setMsg(el, text, cls) { el.textContent = text || ''; el.className = 'msg' + (cls ? ' ' + cls : ''); }
+
+  let recoveryMode = false;   // true when we arrived via an invite/recovery link
+
+  // Resolve the employee linked to this auth user — name + role ONLY (never pin).
+  async function resolveEmployee(userId) {
+    try {
+      const { data, error } = await db.from('employees').select('name, role').eq('auth_user_id', userId).maybeSingle();
+      if (error) { console.warn('[office-login] employee lookup failed', error.message); return null; }
+      return data || null;
+    } catch (e) { console.warn('[office-login] employee lookup threw', e); return null; }
+  }
+
+  async function render() {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) {
+      $('viewSession').classList.add('hidden');
+      $('viewLogin').classList.remove('hidden');
+      return;
+    }
+    const user = session.user;
+    $('viewLogin').classList.add('hidden');
+    $('viewSession').classList.remove('hidden');
+    $('whoEmail').textContent = user.email || '';
+
+    const emp = await resolveEmployee(user.id);
+    if (emp) {
+      $('whoName').textContent = emp.name || '(unnamed)';
+      const roleEl = $('whoRole');
+      if (emp.role) { roleEl.textContent = ROLE_LABEL[emp.role] || emp.role; roleEl.classList.remove('hidden'); }
+      else { roleEl.classList.add('hidden'); }
+    } else {
+      $('whoName').textContent = user.email || 'this account';
+      $('whoRole').classList.add('hidden');
+    }
+
+    $('sessionHint').textContent = recoveryMode
+      ? 'Welcome — set a password below to finish, then you can sign in with it.'
+      : (emp ? 'Signed in and linked to your employee record.'
+             : 'Signed in, but this auth user isn’t linked to an employee row yet (set employees.auth_user_id).');
+  }
+
+  // ── actions ──
+  async function signIn() {
+    const email = $('email').value.trim();
+    const password = $('password').value;
+    if (!email || !password) { setMsg($('loginMsg'), 'Enter your email and password.', 'err'); return; }
+    const btn = $('signInBtn'); btn.disabled = true; setMsg($('loginMsg'), 'Signing in…', 'wait');
+    const { error } = await db.auth.signInWithPassword({ email, password });
+    btn.disabled = false;
+    if (error) { setMsg($('loginMsg'), error.message || 'Could not sign in.', 'err'); return; }
+    setMsg($('loginMsg'), '', '');
+    recoveryMode = false;
+    render();   // onAuthStateChange also fires; render is idempotent
+  }
+
+  async function savePassword() {
+    const pw = $('newPassword').value, confirm = $('confirmPassword').value;
+    if (pw.length < 8) { setMsg($('pwMsg'), 'Use at least 8 characters.', 'err'); return; }
+    if (pw !== confirm) { setMsg($('pwMsg'), 'The two passwords don’t match.', 'err'); return; }
+    const btn = $('savePasswordBtn'); btn.disabled = true; setMsg($('pwMsg'), 'Saving…', 'wait');
+    const { error } = await db.auth.updateUser({ password: pw });
+    btn.disabled = false;
+    if (error) { setMsg($('pwMsg'), error.message || 'Could not save.', 'err'); return; }
+    $('newPassword').value = ''; $('confirmPassword').value = '';
+    recoveryMode = false;
+    setMsg($('pwMsg'), 'Password saved ✓ You can sign in with it next time.', 'ok');
+    render();
+  }
+
+  async function signOut() {
+    setMsg($('pwMsg'), '', '');
+    await db.auth.signOut();
+    $('email').value = ''; $('password').value = '';
+    setMsg($('loginMsg'), 'Signed out.', 'ok');
+    render();
+  }
+
+  $('signInBtn').addEventListener('click', signIn);
+  $('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') signIn(); });
+  $('savePasswordBtn').addEventListener('click', savePassword);
+  $('signOutBtn').addEventListener('click', signOut);
+
+  // Catch invite/recovery links landing here (detectSessionInUrl consumes the hash
+  // token → fires here) and normal sign-in/out.
+  db.auth.onAuthStateChange((event) => {
+    if (event === 'PASSWORD_RECOVERY') recoveryMode = true;
+    render();
+  });
+
+  render();   // show the persisted session (if any) on load
+</script>
+</body>
+</html>

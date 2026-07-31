@@ -43,6 +43,7 @@ window.FileCabinet = (function () {
     { id: 'mynumbers', file: 'my-numbers.md',       icon: '📱', title: 'My Numbers (tech phone tool)' },
     { id: 'flatrate',  file: 'flat-rate-hours.md',  icon: '📊', title: 'Flagged-hours / flat-rate data' },
     { id: 'settings',  file: 'settings.md',         icon: '⚙️', title: 'Settings hub (storage · roles · enforcement)' },
+    { id: 'officeauth', file: 'office-auth.md',      icon: '🔐', title: 'Office auth (Supabase Auth adoption)' },
     { id: 'todo',     file: 'todo-list.md',         icon: '✅', title: 'To-Do list' },
     { id: 'requests', file: 'change-requests.md',   icon: '🚩', title: 'Requests & Feedback intake' },
     { id: 'cabinet',  file: 'file-cabinet.md',      icon: '🗄️', title: 'File Cabinet tab (this screen)' },
