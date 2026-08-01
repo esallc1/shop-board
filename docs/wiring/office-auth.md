@@ -1,12 +1,13 @@
 # How office login could adopt Supabase Auth (investigation + lockout-safe plan)
 
 > Doc: `/docs/wiring/office-auth.md`
-> Last updated: 2026-08-01 — verified vs commit `80f3c59`
+> Last updated: 2026-08-01 — verified vs commit `9dd39b4`
 > Status: 🟢 STEP 1½ SHIPPED (anon→authenticated read+write widen applied & live-verified at the
 > DB layer, 2026-08-01 — see §7 / §7.8). Step 0–1 login foothold live @ `dc782b3` — **nothing
 > enforced**; owner (Cristian) linked via `auth_user_id` and signing in on `office-login.html`.
-> §5 Steps 2–5 still proposed; **Step 2 (dual-identity + single front door) is now scoped in §8**
-> (investigation only — no build). §1 (CrisData today) and §2 (KiKi's auth) are verified against
+> §5 Steps 2–5 still proposed; **Step 2 build STARTED — the `shared/office-identity.js` dual reader
+> is built and wired to the OWNER board (§8.6a); gm/advisor/bookkeeping are next (§8.6b).**
+> §1 (CrisData today) and §2 (KiKi's auth) are verified against
 > the live code (`crisdata.html`, the four boards, `api/*`, the embedded `kiki/` repo). Extends
 > [[settings]] §6 — which left two identity paths (an HMAC token OR "a Supabase Auth session if
 > we adopt GoTrue later"); this adopts the **Supabase Auth** path using KiKi's proven implementation.
@@ -432,11 +433,12 @@ no anon/public policy dropped or narrowed, no RLS enabled/forced, enforces nothi
 
 ---
 
-## 8. Step 2 investigation — dual-identity + single front door (proposed, NO build yet)
+## 8. Step 2 — dual-identity + single front door (8.6a SHIPPED 2026-08-01; rest proposed)
 Folds two findings from the Step 1½ live-verify into one theme: **a signed-in office user should be
 recognized on every board they open, and there should be one obvious way in and around the boards.**
 Both are **identity/routing = UX**; neither changes enforcement (that stays the future owner-gate +
-RLS, §4–5c). Investigation only — approve before any build.
+RLS, §4–5c). **8.6a is built** (the dual reader + owner-board pilot); 8.6b–8.6e remain proposed —
+approve before building each.
 
 ### 8.0 In one line
 One front door (`office-login.html`) that, on success, **routes by role** to the user's board; every
@@ -468,18 +470,25 @@ board resolves "who am I" from an **auth session OR the phone/PIN session**, so 
   `CHAT_IDENTITY` + `CURRENT_EMPLOYEE_ID` — they just need an auth branch prepended.
 - **Sign-out already wired:** every board's `initLogout()` calls `db.auth.signOut()` defensively.
 
-### 8.3 Design A — `shared/office-identity.js` (the dual reader)
-A single shared resolver each board calls first, returning `{ employeeId, name, role, via }`:
-1. **Auth branch:** `db.auth.getSession()`; if present, look up `employees` by
-   `auth_user_id = session.user.id` → `{id, name, role}`, `via:'auth'`.
-2. **Phone branch (today's path, unchanged):** else use `?u/p` passthrough or the persisted
-   `*BoardPhone` → lookup by phone → `via:'phone'`. Techs stay here permanently.
-3. **Neither:** return null → boards behave exactly as today (greeting hidden, per-viewer features
+### 8.3 Design A — `shared/office-identity.js` (the dual reader) ✅ BUILT
+`OfficeIdentity.resolve({ db, sessionPhoneKey, expectedRole })` — one shared resolver each board
+calls first, returning `{ employee_id, name, role, photo_url, via }` (via = `'auth' | 'phone'`) or
+`null`. Never throws (an auth failure quietly falls through to phone):
+1. **Auth branch:** `db.auth.getSession()`; if a session's `user.id` maps to an `employees` row via
+   `auth_user_id` → `{id, name, photo_url, role}`, `via:'auth'`. (Same lookup as `office-login.html`
+   `:193/:200`.) A session that isn't linked to an employee yet falls through to phone (no hard-fail).
+2. **Phone branch (today's path, unchanged):** else `resolvePhone()` mirrors the boards' existing
+   logic exactly — `?u=phone&p=pin` passthrough (pin [+ `expectedRole`] validated, persisted to
+   `sessionPhoneKey`, URL cleaned) → else the persisted `*BoardPhone` → lookup by phone, `via:'phone'`.
+   Techs stay here permanently.
+3. **Neither:** returns `null` → boards behave exactly as today (greeting hidden, per-viewer features
    show their existing "reopen from CrisData" message). No regression.
-- Boards set `CHAT_IDENTITY`/`CURRENT_EMPLOYEE_ID` from the result and then run unchanged. **Wire the
-  owner board first** (only Cristian is on auth), then gm/advisor/bookkeeping, then tech confirms
-  no-op. *Rollback:* helper falls back to phone; delete the auth branch.
-- **Permanent, not transitional** — the floor stays on PIN, so the dual reader is forever.
+- Boards set `CHAT_IDENTITY`/`CURRENT_EMPLOYEE_ID` from the result and then run unchanged.
+  **Permanent, not transitional** — the floor stays on PIN, so the dual reader is forever.
+- **Wired first on the owner board** (§8.6a): `captureSessionAndGreet()` now calls the resolver and
+  feeds an `applyIdentity(who)` applier (replacing the phone-only `renderGreeting(phone)`); the phone
+  path is preserved inside the resolver, not removed. *Rollback:* revert `owner-board.html` to the
+  phone-only capture and drop the `office-identity.js` include.
 
 ### 8.4 Design B — single front door (routing + cross-board nav + "who's viewing")
 - **Route on login:** on `office-login.html` success, resolve role and `location.assign(ROLE_DEST[role])`
@@ -503,9 +512,15 @@ later, the **owner-gate endpoint + `auth.uid()`→role RLS (§4, §5)**. Two gua
   enforcement (opening another board's URL is still possible until RLS lands).
 
 ### 8.6 Phased plan (each step reversible; nothing enforced)
-1. **8.6a — `office-identity.js` dual reader**, wired to the **owner board** only. Verify: signed-in
-   owner board shows greeting + working chat/to-do; PIN path unchanged. *Rollback:* remove auth branch.
-2. **8.6b — roll the reader to gm / advisor / bookkeeping**, one at a time, each a stopping point.
+1. **8.6a — `office-identity.js` dual reader**, wired to the **owner board** only. ✅ SHIPPED
+   2026-08-01 (`shared/office-identity.js` + `owner-board.html`). Locally verified: board loads with
+   no console errors, `OfficeIdentity.resolve` is callable, and with no session/phone it returns
+   `null` and leaves the greeting hidden (no regression to the no-identity path). **Auth branch
+   pending Cris's live owner sign-in** (can't be exercised without a real office-login session):
+   signed-in owner board should greet + load Team Chat + identify To-Do; PIN path unchanged.
+   *Rollback:* revert owner-board to phone-only capture, drop the include.
+2. **8.6b — roll the reader to gm / advisor / bookkeeping** (NEXT), one at a time, each a stopping
+   point. Each just swaps its `captureSessionAndGreet` phone tail for the resolver + `applyIdentity`.
 3. **8.6c — "who's viewing / back to my board" chip** on all four office boards (read-only UX).
 4. **8.6d — front-door routing:** office-login routes by role on success; add the board switcher.
 5. **8.6e — (depends on §4/§5c, off-hours)** owner-gate endpoint + `employees` lockdown **before**
@@ -526,9 +541,12 @@ later, the **owner-gate endpoint + `auth.uid()`→role RLS (§4, §5)**. Two gua
   in the File Cabinet via `shared/file-cabinet.js` DOCS.
 - **Step 1½ widen (shipped):** `migrations/20260801_office_auth_widen_step1_5.sql` (add-only
   anon→authenticated read+write widen; hand-run 2026-08-01) — see §7.8.
-- **Step 2 targets (not built — §8):** new `shared/office-identity.js` (dual reader); edits to
-  `office-login.html` (route by role on success), the four boards' `captureSessionAndGreet()` /
-  `gateAndBoot()` (prepend an auth branch), and a "who's viewing / back to my board" chip.
+- **Step 2 dual reader (§8.6a, BUILT):** `shared/office-identity.js` (`OfficeIdentity.resolve` —
+  auth session OR phone/PIN), wired into `owner-board.html` (`captureSessionAndGreet` → resolver +
+  `applyIdentity`). Loaded via a `<script src="shared/office-identity.js">` include.
+- **Step 2 remaining (not built — §8):** wire the reader into `gm-board.html` / `advisor-board.html`
+  (`captureSessionAndGreet`) + `bookkeeping-board.html` (`gateAndBoot`); `office-login.html` route by
+  role on success; a "who's viewing / back to my board" chip.
 - **Existing identity (unchanged):** login + role routing `crisdata.html`; per-board identity
   `captureSessionAndGreet()` (advisor/gm/owner), `gateAndBoot()` (bookkeeping), `my-numbers.html`
   (tech); logout `initLogout()` per board (already calls `db.auth.signOut()`).
@@ -597,3 +615,12 @@ later, the **owner-gate endpoint + `auth.uid()`→role RLS (§4, §5)**. Two gua
   via `ROLE_DEST` → cross-board nav + "who's viewing / back to my board" chip). Security posture
   unchanged (identity/routing = UX; enforcement stays the §4–5c owner-gate + RLS). Phased plan in
   §8.6, gated on the §5c lockout before Step 3 people-migration.
+- 2026-08-01 — **Built Step 2 §8.6a — dual-identity reader + owner-board pilot (additive).** New
+  `shared/office-identity.js` (`OfficeIdentity.resolve({db, sessionPhoneKey, expectedRole})` →
+  `{employee_id, name, role, photo_url, via}` or null; auth-session-first via `auth_user_id`, else
+  the unchanged phone/PIN path; never throws). Wired into `owner-board.html`: `captureSessionAndGreet`
+  now calls the resolver and feeds a new `applyIdentity(who)` applier in place of the phone-only
+  `renderGreeting(phone)` — phone path preserved inside the resolver, not removed. Locally verified
+  (no console errors; resolver callable; no-session/no-phone → null → greeting hidden = no
+  regression). **Auth branch pending Cris's live owner sign-in.** No enforcement, no RLS/employees
+  changes, nobody migrated; only the owner board touched. Next: §8.6b (gm/advisor/bookkeeping).
