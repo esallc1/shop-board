@@ -1,7 +1,7 @@
 # How office login could adopt Supabase Auth (investigation + lockout-safe plan)
 
 > Doc: `/docs/wiring/office-auth.md`
-> Last updated: 2026-08-01 — verified vs commit `f370962`
+> Last updated: 2026-08-01 — verified vs commit `67fc1eb`
 > Status: 🟢 STEP 1½ SHIPPED (anon→authenticated read+write widen applied & live-verified at the
 > DB layer, 2026-08-01 — see §7 / §7.8). Step 0–1 login foothold live @ `dc782b3` — **nothing
 > enforced**; owner (Cristian) linked via `auth_user_id` and signing in on `office-login.html`.
@@ -188,6 +188,10 @@ the anon key — tighten it only after login + all boards resolve identity from 
     anon PIN read (an auth login endpoint or the auth session) **and** every board's identity
     resolution onto the auth session; **only then** drop anon SELECT of `pin` + anon UPDATE. This
     closes the "anyone can read all PINs" hole. *Rollback:* re-add the anon SELECT policy.
+    **→ Full investigation + proposal (findings, SQL, PART 0, tests, rollback) in §9.** Key results:
+    the only safe-now step is locking `auth_user_id` writes (§9.5a); the real close needs the
+    `api/login` + `api/staff` endpoints first; a naive owner-only flip breaks manager staff-mgmt +
+    PIN login + self-service and is anon-key-bypassable.
 - **Never mid-day:** any `employees`/operational-table RLS tightening; toggling "confirm email";
   changing the Site URL / redirect allowlist (breaks in-flight sessions). Do §5 off-hours, team notified.
 
@@ -543,6 +547,169 @@ later, the **owner-gate endpoint + `auth.uid()`→role RLS (§4, §5)**. Two gua
 - Whether the "back to my board" chip should hard-gate non-owners later, or stay advisory until RLS.
 - Retire the `?u=phone&p=pin` URL passthrough (PIN-in-URL) as part of 8.6d, or leave for the floor.
 
+## 9. §5c employees lockdown — investigation & proposal (INVESTIGATE-ONLY, nothing applied)
+Scoped to the **`employees` table only**. Goal: close the employees hole **before** non-owner auth
+accounts exist (bookkeeper next, manager/advisor Mon) **without breaking** the reads/writes the
+boards depend on. Nothing here is applied — hand to Cris to review before touching the DB.
+
+### 9.0 The table (verified) — columns & the one sensitive field
+`employees` is an **ad-hoc base table** (only column *ALTERs* are in migrations). Columns actually
+used anywhere: `id, name, phone, pin, role, active, photo_url, background_photo_url, avatar_path,
+auth_user_id`. **No pay / wage / SSN / email / address / DOB columns exist** (swept — none referenced
+in any file or migration). The only **login-secret** column is **`pin`** (4-digit). `auth_user_id`
+is **security-relevant** (it's what an auth session resolves identity through). `phone` doubles as
+the login username. Everything else (name/role/active/photos) is non-sensitive board-display data.
+
+### 9.1 READS of employees — by file, columns, session
+- **PIN-matching login reads (anon):** `crisdata.html:148` `select('name,phone,pin,role')
+  .eq(phone).eq(pin).eq(active)`; `my-numbers.html:820` same. **These read `pin`** to validate login
+  client-side. `shared/office-identity.js:41` (`resolvePhone`) matches `pin` on the `?u/p` passthrough.
+- **Auth identity reads (authenticated, NO pin):** `office-login.html:193` `select('name,role')
+  .eq(auth_user_id)`; `shared/office-identity.js:71/88` `select('id,name,photo_url,role')` by
+  `auth_user_id` (auth branch) or `phone` (phone branch).
+- **Staff-mgmt read (manager, reads pin):** `gm-board.html:4156` `select('*')` — the Employee
+  Management list; `openEditEmployee` prefills the PIN field from it. Reads **all** columns incl `pin`.
+- **Non-pin board/roster reads (anon or auth):** `my-numbers.html:768/828`, `owner-board.html:332`,
+  `gm-board.html:2132/2413/2877/3615/3927`, `advisor-board.html:2519/2893/2920/4474`,
+  `bookkeeping-board.html:2930`, `crisdata-techboard.html:385`, `shared/board-settings.js:1026`,
+  `shared/adoption.js:149` — read only `id/name/phone/role/active/photo_url/background_photo_url`.
+
+### 9.2 WRITES of employees — by file, session, role
+- **Self-service (own row; any role; anon OR auth):** `shared/board-settings.js:811` `update{name}`,
+  `:858/:879` `update{background_photo_url}`, all `.eq('id', currentEmployeeId)` (the viewer's own
+  row). Plus `team-chat.js` `update{avatar_path}` (self). Runs on **every** office board.
+- **Staff management (MANAGER or owner; gm-board; anon OR auth):** `gm-board.html:4290`
+  `insert{id,name,phone,pin,role,active,photo_url}`, `:4293` `update{…same…}`, `:4328` `delete`.
+  **Sets PIN and role.** ⚠ This is done by the **manager** (Kevin, gm-board) — **not** owner-only.
+- **`auth_user_id`: NEVER written by any client** (verified — only read at office-login:193 /
+  office-identity:72; set by hand-SQL in Path A). This is the load-bearing fact for 9.5a.
+
+### 9.3 Sensitive vs board-needed
+| Column | Sensitive? | Who needs it |
+|---|---|---|
+| `pin` | **Yes — login secret** | anon login (crisdata/my-numbers) READ; manager staff-mgmt READ+WRITE |
+| `auth_user_id` | **Yes — identity linkage** | client READ only (auth resolve); write = hand-SQL / service-role |
+| `phone` | Semi (login username) | login + all boards |
+| `name, role, active, photo_url, background_photo_url, avatar_path` | No | boards (display, greeting, roster, self-service) |
+
+### 9.4 Real exposure vs legit access — and the HARD CONSTRAINT
+**Exposure today:** the live policy is `ALL {public}` → **every** session (anon *and* any
+authenticated account) has full read+write. So anyone can read all PINs, rewrite roles, reset PINs,
+insert/delete staff, or **re-point `auth_user_id`**.
+
+**The hard constraint:** the **publishable anon key is embedded in every page** → the `anon` role is
+available to anyone with devtools. So any RLS/grant that restricts only `authenticated` is
+**bypassable via the anon key** — it is *not* a real boundary. A true close therefore requires
+tightening **anon**, which we cannot do yet because **login + staff-mgmt + self-service run on anon**
+(crisdata/my-numbers validate `pin` via anon SELECT; board-settings & gm staff-mgmt write via anon).
+That is exactly §5c's precondition ("move login off the anon PIN read **first**").
+
+**Reframe for "close before non-owner accounts":** giving the bookkeeper an auth account does **not**
+widen DB exposure — they already have full `employees` access via the public anon key today. The
+**one genuinely new escalation** the auth rollout introduces is **`auth_user_id` re-linking**: a
+signed-in (or anon) actor could `update employees set auth_user_id = <their uid>` on the **owner's**
+row → their auth session then resolves as **owner**. That one is real, new, and **closable now**.
+
+### 9.5 Proposal
+**9.5a — DO NOW (safe, additive, zero breakage): lock `auth_user_id` writes to service-role only.**
+No client writes `auth_user_id` (§9.2), so revoking client insert/update of *that column* breaks
+nothing and kills the re-link-to-owner escalation. Column privileges require replacing the
+table-level insert/update grant with an explicit column list that omits `auth_user_id`
+(reconcile exact roles/columns against PART 0 first).
+
+**9.5b — PROPOSE, DON'T APPLY (the real close; endpoints-first, §5c order):**
+1. **`api/staff`** — service-role endpoint, **verifies the caller's JWT → re-checks role ∈ {owner,
+   manager}**, performs staff insert/update/delete + PIN/role changes. Migrate `gm-board`
+   staff-mgmt to it. (Self-service own-row name/bg can stay client-side, scoped to the caller.)
+2. **`api/login`** — service-role endpoint that verifies `phone+pin` **server-side** for
+   `crisdata.html` + `my-numbers.html`, removing the anon `SELECT(pin)` dependency.
+3. Finish moving **all** board identity onto auth/endpoint (advisor wiring + front door, §8.6b/d).
+4. **THEN the flip:** revoke anon/authenticated direct **writes**; revoke `SELECT(pin)` from
+   anon+authenticated (pin readable only by service-role / the endpoints); **keep** anon+auth
+   `SELECT` on the **non-pin** columns so board reads/greeting/roster keep working.
+
+**9.5c — DO NOT do a naive "owner-only employees" RLS flip now.** It would break: the **PIN login**
+(anon SELECT of pin), **self-rename + board background** (board-settings, every board), **manager
+staff-management** (Kevin is manager, not owner), and **greeting/roster reads** — *and* it would be
+**bypassable via the anon key** = false security. The manager-staff-mgmt write is the clearest trap
+a naive owner-only policy sets off.
+
+### 9.6 PART 0 — read-only verification (run FIRST, eyeball, like the widen)
+```sql
+-- 0a. Current employees RLS policies (name + cmd + roles — need the policy name for 9.5b):
+select policyname, cmd, roles, qual, with_check
+  from pg_policies where schemaname='public' and tablename='employees'
+ order by cmd, policyname;
+-- 0b. Table-level privileges on employees by role (what to convert to column grants):
+select grantee, privilege_type
+  from information_schema.role_table_grants
+ where table_schema='public' and table_name='employees'
+   and grantee in ('anon','authenticated','service_role','public')
+ order by grantee, privilege_type;
+-- 0c. Existing COLUMN-level privileges (see if any column grants already exist):
+select grantee, column_name, privilege_type
+  from information_schema.column_privileges
+ where table_schema='public' and table_name='employees'
+   and grantee in ('anon','authenticated','service_role','public')
+ order by grantee, column_name, privilege_type;
+-- 0d. Confirm the full live column list (so the 9.5a/9.5b grant lists are exact):
+select column_name, data_type, is_nullable
+  from information_schema.columns
+ where table_schema='public' and table_name='employees'
+ order by ordinal_position;
+```
+Confirm before applying 9.5a: (1) the exact column set (0d) so the re-grant list is complete;
+(2) whether privileges sit on `anon`/`authenticated` or on `public` (0b) — the revoke/grant must
+target whatever holds them; (3) no existing column grants that would re-open `auth_user_id` (0c).
+
+### 9.7 Proposed SQL
+**9.7a — safe now (auth_user_id write-lock). Reconcile column list vs PART 0 (0d) before running.**
+```sql
+-- Client never writes auth_user_id (verified). Restrict it to service_role by replacing the
+-- table-level insert/update grant with a column list that OMITS auth_user_id. Additive to the
+-- RLS policy (rows still governed by the existing policy); this only removes column privilege.
+revoke insert, update on public.employees from anon, authenticated;
+grant insert (id, name, phone, pin, role, active, photo_url, background_photo_url, avatar_path)
+  on public.employees to anon, authenticated;
+grant update (name, phone, pin, role, active, photo_url, background_photo_url, avatar_path)
+  on public.employees to anon, authenticated;
+-- service_role keeps full access (unchanged) → auth_user_id writable only by hand-SQL / endpoints.
+```
+**9.7b — the real close (DO NOT APPLY until api/login + api/staff exist and boards are off anon PIN).**
+```sql
+-- Illustrative target — finalize against PART 0. Replaces the blanket public policy.
+drop policy if exists "<public ALL policy name from 0a>" on public.employees;
+revoke select, insert, update, delete on public.employees from anon, authenticated;
+-- Board reads: every column EXCEPT pin (login now server-side via api/login).
+grant select (id, name, phone, role, active, photo_url, background_photo_url, avatar_path, auth_user_id)
+  on public.employees to anon, authenticated;
+-- All writes go through service-role endpoints (api/staff, self-service) → no direct client writes.
+create policy "employees board read" on public.employees
+  for select to anon, authenticated using (true);
+-- service_role retains full access.
+```
+
+### 9.8 Test checklist (prove nothing broke)
+**After 9.7a (auth_user_id lock) — expect NO behavior change:**
+- **Owner (auth + PIN):** greeting shows; self-rename saves; board background upload saves; to-do/chat OK.
+- **Manager (gm-board, PIN today):** Employee Management — **add** a test employee (name/phone/pin/role),
+  **edit** one (change role/PIN/active), **delete** the test row — all succeed.
+- **Bookkeeping (PIN):** gate boots; self-rename saves.
+- **Tech + login (anon):** `crisdata.html` phone+PIN login works (PIN validated); `my-numbers.html` loads.
+- **The lock itself:** via the anon key (devtools) attempt `update employees set auth_user_id='…'` →
+  **permission denied**. And confirm a normal staff `insert`/`update` (no auth_user_id) still works.
+
+**Additional after 9.7b (only once endpoints exist):** login via `api/login` (no anon pin read);
+staff-mgmt via `api/staff` (manager allowed, non-manager denied); a client `select pin` returns no
+pin column; all board reads/greeting/roster still populate.
+
+### 9.9 Rollback
+- **9.7a:** `revoke insert, update on public.employees from anon, authenticated;` then
+  `grant insert, update on public.employees to anon, authenticated;` (restores table-level write incl
+  auth_user_id — back to today's posture).
+- **9.7b:** drop the `employees board read` policy, re-grant `select, insert, update, delete … to
+  anon, authenticated`, and re-create the original `ALL {public}` policy (name from 0a).
+
 ## Where it lives in the code
 - **Office auth (new, Step 0–1):** `office-login.html` (standalone test page — login/set-password/
   sign-out + role display; **"shop front door" skin** — darkened shop photo background
@@ -647,3 +814,14 @@ later, the **owner-gate endpoint + `auth.uid()`→role RLS (§4, §5)**. Two gua
   hard-gate still bounces to `crisdata.html` with no identity. **Auth branch pending Cris's live
   sign-in (gm is the real test).** No enforcement / RLS / employees changes; the other in-flight
   files (board-settings, shop-board, teardown, tech-board) left untouched.
+- 2026-08-01 — **§5c employees lockdown — INVESTIGATE + PROPOSE only (§9), nothing applied.** Mapped
+  every employees read/write vs session: PIN validated by **anon** SELECT in `crisdata.html:148` +
+  `my-numbers.html:820`; staff-mgmt insert/update/delete (sets pin+role) is on `gm-board` = **manager**
+  (not owner-only); self-rename/bg via `board-settings.js`; `auth_user_id` is **never client-written**
+  (read-only). Only sensitive column = `pin`; no pay/PII columns exist. Key finding: the public anon
+  key means restricting only `authenticated` is bypassable, so a real close needs the login/staff
+  service-role endpoints first (§5c order); adding a non-owner account doesn't widen DB exposure —
+  the one genuinely new escalation is `auth_user_id` re-linking, which **is** closable now. Proposed:
+  §9.5a lock `auth_user_id` writes to service-role (safe, additive, zero breakage); §9.5b the real
+  endpoints-first close (don't apply); §9.5c why a naive owner-only flip is unsafe. Includes PART 0
+  verification queries, exact SQL, test checklist, and rollback. Doc-only — no DB/policy change.
