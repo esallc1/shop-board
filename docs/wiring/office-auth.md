@@ -1,7 +1,7 @@
 # How office login could adopt Supabase Auth (investigation + lockout-safe plan)
 
 > Doc: `/docs/wiring/office-auth.md`
-> Last updated: 2026-08-01 — verified vs commit `67fc1eb`
+> Last updated: 2026-08-01 — verified vs commit `6cb6be9`
 > Status: 🟢 STEP 1½ SHIPPED (anon→authenticated read+write widen applied & live-verified at the
 > DB layer, 2026-08-01 — see §7 / §7.8). Step 0–1 login foothold live @ `dc782b3` — **nothing
 > enforced**; owner (Cristian) linked via `auth_user_id` and signing in on `office-login.html`.
@@ -611,11 +611,16 @@ signed-in (or anon) actor could `update employees set auth_user_id = <their uid>
 row → their auth session then resolves as **owner**. That one is real, new, and **closable now**.
 
 ### 9.5 Proposal
-**9.5a — DO NOW (safe, additive, zero breakage): lock `auth_user_id` writes to service-role only.**
-No client writes `auth_user_id` (§9.2), so revoking client insert/update of *that column* breaks
-nothing and kills the re-link-to-owner escalation. Column privileges require replacing the
-table-level insert/update grant with an explicit column list that omits `auth_user_id`
-(reconcile exact roles/columns against PART 0 first).
+**9.5a — ✅ APPLIED 2026-08-01 (safe, additive, zero breakage): `auth_user_id` writes locked to
+service-role only.** No client writes `auth_user_id` (§9.2), so revoking client insert/update of
+*that column* broke nothing and killed the re-link-to-owner escalation. Applied via the column
+re-grant in §9.7a (reconciled vs PART 0: privileges on `anon`+`authenticated` directly; 11 live
+columns incl `created_at`). **Live-verified with the public anon key** (non-matching row filter, no
+data touched): `update employees set auth_user_id=…` → **HTTP 401 / `42501` permission denied**;
+control `update … set name=…` → **HTTP 204 success** (proves the lock is specific to `auth_user_id`,
+not a blanket break). `authenticated` carries the identical column grant → same denial. GM board
+hard-refreshed post-apply: greeting + to-do + chat all still work. **By-hand `auth_user_id` linking
+(as `postgres`, the noon bookkeeper link) unaffected.**
 
 **9.5b — PROPOSE, DON'T APPLY (the real close; endpoints-first, §5c order):**
 1. **`api/staff`** — service-role endpoint, **verifies the caller's JWT → re-checks role ∈ {owner,
@@ -663,17 +668,21 @@ Confirm before applying 9.5a: (1) the exact column set (0d) so the re-grant list
 target whatever holds them; (3) no existing column grants that would re-open `auth_user_id` (0c).
 
 ### 9.7 Proposed SQL
-**9.7a — safe now (auth_user_id write-lock). Reconcile column list vs PART 0 (0d) before running.**
+**9.7a — auth_user_id write-lock. ✅ APPLIED 2026-08-01** (reconciled vs PART 0: 0b confirmed
+insert/update held by `anon`+`authenticated` directly, not `public`; 0d confirmed 11 live columns
+including **`created_at`** at pos 8). The lists enumerate **every column except `auth_user_id`** — so
+the only change is the `auth_user_id` write lock. Applied clean ("Success, no rows returned") and
+live-verified (§9.5a).
 ```sql
--- Client never writes auth_user_id (verified). Restrict it to service_role by replacing the
--- table-level insert/update grant with a column list that OMITS auth_user_id. Additive to the
--- RLS policy (rows still governed by the existing policy); this only removes column privilege.
+-- Client never writes auth_user_id (verified §9.2). Lock it to service_role by replacing the
+-- table-level insert/update grant with a column list that OMITS auth_user_id only. Additive to the
+-- RLS policy (rows still governed by the existing policy); this changes COLUMN privileges only.
+-- service_role / postgres are untouched → by-hand auth_user_id linking (noon bookkeeper) still works.
 revoke insert, update on public.employees from anon, authenticated;
-grant insert (id, name, phone, pin, role, active, photo_url, background_photo_url, avatar_path)
+grant insert (id, name, phone, pin, role, active, photo_url, created_at, background_photo_url, avatar_path)
   on public.employees to anon, authenticated;
-grant update (name, phone, pin, role, active, photo_url, background_photo_url, avatar_path)
+grant update (name, phone, pin, role, active, photo_url, created_at, background_photo_url, avatar_path)
   on public.employees to anon, authenticated;
--- service_role keeps full access (unchanged) → auth_user_id writable only by hand-SQL / endpoints.
 ```
 **9.7b — the real close (DO NOT APPLY until api/login + api/staff exist and boards are off anon PIN).**
 ```sql
@@ -825,3 +834,12 @@ pin column; all board reads/greeting/roster still populate.
   §9.5a lock `auth_user_id` writes to service-role (safe, additive, zero breakage); §9.5b the real
   endpoints-first close (don't apply); §9.5c why a naive owner-only flip is unsafe. Includes PART 0
   verification queries, exact SQL, test checklist, and rollback. Doc-only — no DB/policy change.
+- 2026-08-01 — **APPLIED §9.5a — `employees.auth_user_id` write-lock (the one safe-now close).** Ran
+  PART 0: insert/update held by `anon`+`authenticated` directly (0b); 11 live columns incl `created_at`
+  at pos 8 (0d). Applied §9.7a (revoke insert/update from anon+authenticated; re-grant every column
+  **except `auth_user_id`**) — "Success, no rows returned". **Live-verified with the public anon key**
+  (non-matching row, no data touched): `update … auth_user_id` → 401/`42501` permission denied;
+  control `update … name` → 204 success (lock is `auth_user_id`-specific, not a blanket break). GM
+  board post-apply: greeting + to-do + chat intact; by-hand `postgres` linking unaffected. Closes the
+  re-link-to-owner escalation before non-owner accounts exist. §9.5b (endpoints-first close) stays
+  queued before any enforcement flip. Doc-only commit — no code/in-flight files touched.
