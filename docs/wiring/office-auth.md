@@ -1,7 +1,7 @@
 # How office login could adopt Supabase Auth (investigation + lockout-safe plan)
 
 > Doc: `/docs/wiring/office-auth.md`
-> Last updated: 2026-08-01 — verified vs commit `6cb6be9`
+> Last updated: 2026-08-01 — verified vs commit `25707e1`
 > Status: 🟢 STEP 1½ SHIPPED (anon→authenticated read+write widen applied & live-verified at the
 > DB layer, 2026-08-01 — see §7 / §7.8). Step 0–1 login foothold live @ `dc782b3` — **nothing
 > enforced**; owner (Cristian) linked via `auth_user_id` and signing in on `office-login.html`.
@@ -171,10 +171,19 @@ the anon key — tighten it only after login + all boards resolve identity from 
   user by an **auth session if present, else the phone session** (today's path). Wire the **owner
   board first** (only Cristian is on auth). Boards become auth-*aware* without dropping phone/PIN.
   *Rollback:* helper falls back to phone; remove the auth branch. **← comfortable stopping point.**
-- **Step 3 — Migrate people ONE BY ONE.** Invite Kevin (dashboard) → set his `auth_user_id` → he
-  logs in → gm-board recognizes him via auth. **If anything is off, he still has phone/PIN.** Verify,
-  then Josh, then Bookkeeping — one at a time, each a stopping point. *Rollback per person:* they
-  revert to phone/PIN (untouched).
+- **Step 3 — Migrate people ONE BY ONE.** Set each person's `auth_user_id` → they log in on
+  office-login → their board recognizes them via the §8.6b auth branch. **If anything is off, they
+  still have phone/PIN.** One at a time, each a stopping point. *Rollback per person:* null their
+  `auth_user_id` → they revert to phone/PIN (untouched).
+  - ✅ **Bookkeeper — Daiana Mendez — MIGRATED & verified 2026-08-01** (first person after the owner).
+    Linked her existing Supabase auth user (`midacri@live.com`) to her `employees` row via the noon
+    runbook (`RUNBOOK_bookkeeper_auth_link_2026-08-01.md`). Verified: office-login shows "Daiana
+    Mendez, bookkeeping"; the bookkeeping board boots signed in with greeting + working to-do + chat.
+    Phone/PIN retained as fallback. Guarded by the §9.5a `auth_user_id` write-lock (she can't re-link).
+  - ⏭ **Next:** Kevin (manager → gm-board) and Josh (advisor → advisor-board, after the advisor
+    dual-reader wiring lands). ⚠ Per §9.5a/§9.4, the `employees` **read** side is still `{public}`;
+    the real per-table lockdown (§9.5b endpoints-first) should precede widening auth accounts further
+    if owner-only enforcement matters before then.
 - **Step 4 — Build enforcement, DON'T enable.** Write (do not apply) the owner-only settings
   endpoint that **verifies the JWT** + re-checks `employees.role` ([[settings]] §8), and the
   `auth.uid()`→role RLS policies for owner-only tables. Nothing enforced. *Rollback:* don't apply.
@@ -843,3 +852,11 @@ pin column; all board reads/greeting/roster still populate.
   board post-apply: greeting + to-do + chat intact; by-hand `postgres` linking unaffected. Closes the
   re-link-to-owner escalation before non-owner accounts exist. §9.5b (endpoints-first close) stays
   queued before any enforcement flip. Doc-only commit — no code/in-flight files touched.
+- 2026-08-01 — **Step 3 — MIGRATED the bookkeeper (Daiana Mendez), first person after the owner.**
+  Linked her existing Supabase auth user (`midacri@live.com`, UID `5b5cee1c…`) to her `employees` row
+  via the reviewed runbook (`RUNBOOK_bookkeeper_auth_link_2026-08-01.md`; self-guarded
+  `update … set auth_user_id where role='bookkeeping' and auth_user_id is null`, run as `postgres`).
+  Verified live: office-login resolves "Daiana Mendez, bookkeeping"; the bookkeeping board boots
+  signed in (§8.6b dual reader auth branch → `role='bookkeeping'` gate passes) with greeting + working
+  to-do + chat. Phone/PIN retained as fallback; §9.5a lock prevents her re-linking. Next: Kevin
+  (manager), then Josh (advisor, after the advisor dual-reader wiring).
