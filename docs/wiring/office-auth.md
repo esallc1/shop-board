@@ -1,12 +1,13 @@
 # How office login could adopt Supabase Auth (investigation + lockout-safe plan)
 
 > Doc: `/docs/wiring/office-auth.md`
-> Last updated: 2026-07-31 — verified vs commit `77bf5c5`
-> Status: 🟡 STEP 0–1 BUILT (login-only foothold, live @ `dc782b3` — **nothing enforced**).
-> **Step 1½ (anon→authenticated read+write widen) is AUDITED with SQL ready but PARKED — NOT
-> applied** (§7); §5 Steps 2–5 still proposed. §1 (CrisData today) and §2 (KiKi's auth) are
-> verified against the live code (`crisdata.html`, the four boards, `api/*`, the embedded `kiki/`
-> repo). Step 0 migration is **hand-run — not yet applied** until Cris runs it. Extends
+> Last updated: 2026-08-01 — verified vs commit `80f3c59`
+> Status: 🟢 STEP 1½ SHIPPED (anon→authenticated read+write widen applied & live-verified at the
+> DB layer, 2026-08-01 — see §7 / §7.8). Step 0–1 login foothold live @ `dc782b3` — **nothing
+> enforced**; owner (Cristian) linked via `auth_user_id` and signing in on `office-login.html`.
+> §5 Steps 2–5 still proposed; **Step 2 (dual-identity + single front door) is now scoped in §8**
+> (investigation only — no build). §1 (CrisData today) and §2 (KiKi's auth) are verified against
+> the live code (`crisdata.html`, the four boards, `api/*`, the embedded `kiki/` repo). Extends
 > [[settings]] §6 — which left two identity paths (an HMAC token OR "a Supabase Auth session if
 > we adopt GoTrue later"); this adopts the **Supabase Auth** path using KiKi's proven implementation.
 
@@ -158,11 +159,13 @@ the anon key — tighten it only after login + all boards resolve identity from 
   redirect allowlist + Site URL — do it off-hours, only before Step 3. *Rollback:* delete the auth
   user, null the link, delete the page. **← FIRST SAFE STOPPING POINT** (working auth foothold,
   zero enforcement).
-- **Step 1½ — widen anon-only reads + writes (⏸ PARKED — audited, SQL ready, NOT applied).**
-  The moment a browser holds an office-login session it becomes the `authenticated` role for
-  *every* board tab on the origin, and the whole schema is **anon-only** — so reads (and direct
-  writes) go dark until sign-out. **Full audit + ready SQL + rollback live in §7.** Parked for a
-  calm off-hours window; **interim rule: sign out of office-login before using a board.**
+- **Step 1½ — widen anon-only reads + writes (✅ SHIPPED 2026-08-01).** Applied via
+  `migrations/20260801_office_auth_widen_step1_5.sql` and live-verified at the DB layer: an
+  office-login (`authenticated`) session now reads and writes every board object exactly like the
+  anon/PIN session. **Full audit, applied object list, reconciliations, and live-verify findings
+  in §7 / §7.8.** The interim "sign out before using a board" rule is **retired** for the
+  read/write layer — but per-viewer features (chat, to-do, "who's viewing") still need the Step 2
+  dual-identity reader (§8) when a board is opened directly under an auth session.
 - **Step 2 — Dual-identity reader (additive).** A shared `office-identity.js` that resolves the
   user by an **auth session if present, else the phone session** (today's path). Wire the **owner
   board first** (only Cristian is on auth). Boards become auth-*aware* without dropping phone/PIN.
@@ -203,9 +206,12 @@ the anon key — tighten it only after login + all boards resolve identity from 
   dual reader is permanent, not transitional, for the floor. (e) Rotate any keys that were ever
   committed (KiKi's lesson) — do not browser-expose the service-role key.
 
-## 7. Step 1½ — anon→authenticated read+write widen (⏸ PARKED — audited, SQL ready, NOT applied)
-**Nothing here has been applied.** This is the completed audit + ready SQL, held for a calm
-off-hours window. Do not run the widen mid-day.
+## 7. Step 1½ — anon→authenticated read+write widen (✅ SHIPPED 2026-08-01)
+**Applied and live-verified at the DB layer.** The authoritative applied SQL is
+`migrations/20260801_office_auth_widen_step1_5.sql`. §7.2–7.7 below are the **parked audit draft**,
+kept for history — a re-audit before apply caught objects §7.2 missed, and the live 0a/0b verify
+trimmed a few over-widens. **See §7.8 for the final applied object list, the reconciliations, and
+the live-verify findings.**
 
 ### 7.0 Why it exists, and why we widen reads AND writes together
 The schema was built **anon-only, no auth**. A browser that logs into `office-login.html` carries
@@ -382,6 +388,135 @@ revoke select on public.feature_adoption from authenticated;
    (to-dos, chat, settings, RO edits, triage + My requests, signed-URL screenshots) — **and**
    phone+PIN with no session still works. Then retire the interim sign-out rule.
 
+### 7.8 SHIPPED — final applied object list, reconciliations & live-verify (2026-08-01)
+**Applied by hand in Supabase from `migrations/20260801_office_auth_widen_step1_5.sql`** — add-only:
+no anon/public policy dropped or narrowed, no RLS enabled/forced, enforces nothing.
+
+**Final applied set:**
+- **Reads → authenticated (32 tables):** the §7.4 set **minus** `employees`, `chat_messages`,
+  `core_charges`, `transmissions` (already `{public}` or carrying their own authenticated policy),
+  **plus** `push_subscriptions`.
+- **Writes → authenticated:** 27 `for all` tables (§7.5 set + re-audit gaps `push_subscriptions`,
+  `tech_whiteboard`, `shopboard_tables`; minus `employees`, `chat_messages`, `core_charges`), plus
+  `repair_orders` (insert+update), `calls` (update), and `punches` (**insert only** — anon is
+  append-and-read for time-clock integrity).
+- **Storage reads → authenticated:** `crisdata-attachments`, `invoice-images`, `marketing-content`.
+- **Storage writes → authenticated** (mirroring anon's real 0b posture): `crisdata-attachments`
+  insert · `marketing-content` insert+delete · `invoice-images` insert+update+delete ·
+  `board-backgrounds` insert. (`employee-photos` bucket is `ALL {public}` → already open, skipped.)
+- **`feature_adoption`** view → grant select to authenticated.
+
+**Reconciliations vs the parked §7.2–7.5 draft (why they differ):**
+- `employees` is live-scoped **`{public}`**, so `authenticated` already has full read+write — the
+  migration touches it **zero**. ⚠ **Consequence:** the widen currently empowers only the OWNER
+  (only Cristian has an auth account). The **§5c `employees` RLS lockdown MUST land BEFORE
+  Kevin/Josh/Daiana get auth accounts in Step 3** — otherwise their auth sessions inherit `{public}`
+  employees read/write. Tracked as a hard sequencing constraint on §8's plan.
+- Storage: anon has **no delete** on `crisdata-attachments` and **no update** on `board-backgrounds`,
+  so those two were dropped from the widen (mirror-not-exceed).
+- `chat_messages` / `core_charges` / `transmissions` were already `{public}` / self-authenticated →
+  dropped as redundant.
+
+**Live-verify (task step 7 — signed in as `esallc1` / Owner, opening board URLs directly):**
+- **Owner board — full data + writes. ✅** Confirms authenticated read+write is live.
+- **Manager board — reads work** (announcement banner + nav load under `authenticated`), **but Team
+  Chat stalls at "Loading…" and To-Do shows "Could not identify you on this board yet."**
+  **Root cause = the viewer-identity layer, NOT an RLS trap.** `captureSessionAndGreet()`
+  (`gm-board.html:4375`) resolves the viewer **only** by phone (URL `?u/p` passthrough or
+  `localStorage['gmBoardPhone']`); a board opened directly under an auth session has neither, so
+  `CURRENT_EMPLOYEE_ID` / `CHAT_IDENTITY` stay null. To-Do gates on `!CURRENT_EMPLOYEE_ID`
+  (`gm-board.html:2472`); Team Chat renders `me.name ? '…' : 'Loading…'` (`team-chat.js:699`) and
+  bails at `if (!me.name) return` (`:749`). The `chat_*` / `todos` policies are authenticated-widened
+  (or `{public}`), so nothing is blocked at the DB. **This is the Step 2 dual-identity gap (§8), not
+  a Step 1½ regression.**
+
+---
+
+## 8. Step 2 investigation — dual-identity + single front door (proposed, NO build yet)
+Folds two findings from the Step 1½ live-verify into one theme: **a signed-in office user should be
+recognized on every board they open, and there should be one obvious way in and around the boards.**
+Both are **identity/routing = UX**; neither changes enforcement (that stays the future owner-gate +
+RLS, §4–5c). Investigation only — approve before any build.
+
+### 8.0 In one line
+One front door (`office-login.html`) that, on success, **routes by role** to the user's board; every
+board resolves "who am I" from an **auth session OR the phone/PIN session**, so per-viewer features
+(chat, to-do, planner, roadmap, "who's viewing") work whether you arrived by auth or by PIN.
+
+### 8.1 The two problems, and why they're one
+- **Dual-identity gap (functional):** boards resolve the viewer **only** by phone
+  (`captureSessionAndGreet` / `gateAndBoot`). An auth session isn't mapped to an `employees` row, so
+  `CURRENT_EMPLOYEE_ID` / `CHAT_IDENTITY` are null and every per-viewer feature degrades (verified on
+  gm-board: chat "Loading…", to-do "Could not identify you"). Consumers of that identity:
+  BoardSettings money-gate, To-Do (`created_by`/`assigned_to`), Team Chat (sender), Push
+  (`subscriber_*`), Marketing (`captured_by`), Planner/Roadmap (`owner_employee_id`), the greeting,
+  and dashboard-preferences layout (`employee_id`). (§1a.)
+- **Single-front-door gap (UX):** office-login is a **dead-end** (no redirect); the boards' own login
+  is still `crisdata.html` phone/PIN. An owner who opens another role's board directly gets **no
+  "who's viewing" indicator and no "back to my board" nav** — and, until dual-identity lands, a
+  half-working board. Same root: the board doesn't know who's looking or where they belong.
+
+### 8.2 What already exists to build on (verified)
+- **The link column + resolver:** `employees.auth_user_id` (migration `20260731_…`) is live and
+  Cristian is linked; `office-login.html` already resolves `auth.user → employees` and reads
+  `name, role` (never `pin`). That exact lookup is the seed of the dual reader.
+- **Role→board map:** `crisdata.html:93` `ROLE_DEST = { tech:'my-numbers.html',
+  advisor:'advisor-board.html', manager:'gm-board.html', owner:'owner-board.html',
+  bookkeeping:'bookkeeping-board.html' }` — the routing table a front door would reuse.
+- **Per-board resolvers to converge:** `captureSessionAndGreet()` (advisor/gm/owner),
+  `gateAndBoot()` (bookkeeping, the one hard gate), `my-numbers.html` (tech). Each already sets
+  `CHAT_IDENTITY` + `CURRENT_EMPLOYEE_ID` — they just need an auth branch prepended.
+- **Sign-out already wired:** every board's `initLogout()` calls `db.auth.signOut()` defensively.
+
+### 8.3 Design A — `shared/office-identity.js` (the dual reader)
+A single shared resolver each board calls first, returning `{ employeeId, name, role, via }`:
+1. **Auth branch:** `db.auth.getSession()`; if present, look up `employees` by
+   `auth_user_id = session.user.id` → `{id, name, role}`, `via:'auth'`.
+2. **Phone branch (today's path, unchanged):** else use `?u/p` passthrough or the persisted
+   `*BoardPhone` → lookup by phone → `via:'phone'`. Techs stay here permanently.
+3. **Neither:** return null → boards behave exactly as today (greeting hidden, per-viewer features
+   show their existing "reopen from CrisData" message). No regression.
+- Boards set `CHAT_IDENTITY`/`CURRENT_EMPLOYEE_ID` from the result and then run unchanged. **Wire the
+  owner board first** (only Cristian is on auth), then gm/advisor/bookkeeping, then tech confirms
+  no-op. *Rollback:* helper falls back to phone; delete the auth branch.
+- **Permanent, not transitional** — the floor stays on PIN, so the dual reader is forever.
+
+### 8.4 Design B — single front door (routing + cross-board nav + "who's viewing")
+- **Route on login:** on `office-login.html` success, resolve role and `location.assign(ROLE_DEST[role])`
+  instead of dead-ending. Retire the dead-end only once dual-identity (8.3) is live, so the landed
+  board recognizes the session. (crisdata.html phone/PIN stays the parallel front door for the floor.)
+- **"Who's viewing" affordance:** a small persistent chip (name · role · `via` auth/PIN) on each
+  board; when the viewer's role ≠ the board's native role, show **"Viewing the Manager board —
+  back to my board"** linking `ROLE_DEST[myRole]`.
+- **Cross-board nav:** for users who legitimately open multiple boards (owner), a compact board
+  switcher; scoped by role later when enforcement exists.
+- **One session, many tabs:** the auth session is already shared across board tabs on the origin —
+  the front door just makes arrival + navigation coherent.
+
+### 8.5 Security posture (unchanged by §8)
+Identity + routing here are **UX only**. Who-can-do-what is still governed by today's policies and,
+later, the **owner-gate endpoint + `auth.uid()`→role RLS (§4, §5)**. Two guardrails carried in:
+- **§5c sequencing (hard):** because `employees` is `{public}` (§7.8), the `employees` RLS lockdown
+  must precede giving anyone but the owner an auth account — otherwise a new auth user inherits
+  public employees access. So Step 3 (migrate people) is **gated on** the employees lockdown.
+- **No new trust from routing:** auto-routing by role is a convenience; it must not be mistaken for
+  enforcement (opening another board's URL is still possible until RLS lands).
+
+### 8.6 Phased plan (each step reversible; nothing enforced)
+1. **8.6a — `office-identity.js` dual reader**, wired to the **owner board** only. Verify: signed-in
+   owner board shows greeting + working chat/to-do; PIN path unchanged. *Rollback:* remove auth branch.
+2. **8.6b — roll the reader to gm / advisor / bookkeeping**, one at a time, each a stopping point.
+3. **8.6c — "who's viewing / back to my board" chip** on all four office boards (read-only UX).
+4. **8.6d — front-door routing:** office-login routes by role on success; add the board switcher.
+5. **8.6e — (depends on §4/§5c, off-hours)** owner-gate endpoint + `employees` lockdown **before**
+   Step 3 people-migration; only then invite Kevin/Josh/Daiana.
+
+### 8.7 Open questions
+- Persisted `*BoardPhone` vs auth session precedence when both exist on one browser (recommend: auth
+  wins, phone is fallback).
+- Whether the "back to my board" chip should hard-gate non-owners later, or stay advisory until RLS.
+- Retire the `?u=phone&p=pin` URL passthrough (PIN-in-URL) as part of 8.6d, or leave for the floor.
+
 ## Where it lives in the code
 - **Office auth (new, Step 0–1):** `office-login.html` (standalone test page — login/set-password/
   sign-out + role display; **"shop front door" skin** — darkened shop photo background
@@ -389,6 +524,11 @@ revoke select on public.feature_adoption from authenticated;
   password show/hide toggle, techs-use-phone+PIN note, secure footer);
   `migrations/20260731_employees_auth_user_id.sql` (the `auth_user_id` link, hand-run). Registered
   in the File Cabinet via `shared/file-cabinet.js` DOCS.
+- **Step 1½ widen (shipped):** `migrations/20260801_office_auth_widen_step1_5.sql` (add-only
+  anon→authenticated read+write widen; hand-run 2026-08-01) — see §7.8.
+- **Step 2 targets (not built — §8):** new `shared/office-identity.js` (dual reader); edits to
+  `office-login.html` (route by role on success), the four boards' `captureSessionAndGreet()` /
+  `gateAndBoot()` (prepend an auth branch), and a "who's viewing / back to my board" chip.
 - **Existing identity (unchanged):** login + role routing `crisdata.html`; per-board identity
   `captureSessionAndGreet()` (advisor/gm/owner), `gateAndBoot()` (bookkeeping), `my-numbers.html`
   (tech); logout `initLogout()` per board (already calls `db.auth.signOut()`).
@@ -437,3 +577,23 @@ revoke select on public.feature_adoption from authenticated;
   arrays (§7.3 verify, §7.4 reads, §7.5 writes, §7.6 rollback) — it's born `anon`-full-access like
   `customers`, so it must be widened to `authenticated` alongside the rest when Step 1½ runs.
   Doc-only — the widen is still PARKED / not applied.
+- 2026-08-01 — **SHIPPED Step 1½** (§7.8). Re-audited the parked §7.2 list against live code before
+  applying and caught omissions it missed: 5 board-WRITE gaps (`push_subscriptions`, `tech_whiteboard`,
+  `shopboard_tables` writes; `punches` INSERT) and ALL storage-object WRITES (4 buckets). Ran the
+  0a/0b live verify and reconciled: `employees`/`chat_messages`/`core_charges`/`transmissions` are
+  already `{public}`/self-authenticated (omitted); `punches` widened INSERT-only; anon lacks delete on
+  `crisdata-attachments` and update on `board-backgrounds` (dropped); `employee-photos` is `ALL
+  {public}` (skipped). Delivered + applied one add-only migration
+  `migrations/20260801_office_auth_widen_step1_5.sql` (no anon/public policy dropped/narrowed, no RLS
+  enabled/forced, enforces nothing). **Live-verify:** owner board full read+write ✅; manager board
+  reads ✅ but chat/to-do fail on **viewer-identity** (auth session not mapped to an employee when a
+  board is opened directly) — **NOT** an RLS trap and **NOT** a 1½ regression. Retired the interim
+  sign-out rule for the read/write layer. ⚠ Recorded the hard sequencing constraint: because
+  `employees` is `{public}`, the **§5c employees RLS lockdown must precede giving anyone but the owner
+  an auth account**.
+- 2026-08-01 — **Folded the two live-verify findings into one Step 2 investigation (§8), no build.**
+  Dual-identity (`shared/office-identity.js`: resolve viewer by auth session OR phone/PIN so
+  chat/to-do/planner/"who's viewing" work signed in) + single front door (one login → route by role
+  via `ROLE_DEST` → cross-board nav + "who's viewing / back to my board" chip). Security posture
+  unchanged (identity/routing = UX; enforcement stays the §4–5c owner-gate + RLS). Phased plan in
+  §8.6, gated on the §5c lockout before Step 3 people-migration.
