@@ -1,13 +1,13 @@
 # How office login could adopt Supabase Auth (investigation + lockout-safe plan)
 
 > Doc: `/docs/wiring/office-auth.md`
-> Last updated: 2026-08-01 — verified vs commit `9dd39b4`
+> Last updated: 2026-08-01 — verified vs commit `f370962`
 > Status: 🟢 STEP 1½ SHIPPED (anon→authenticated read+write widen applied & live-verified at the
 > DB layer, 2026-08-01 — see §7 / §7.8). Step 0–1 login foothold live @ `dc782b3` — **nothing
 > enforced**; owner (Cristian) linked via `auth_user_id` and signing in on `office-login.html`.
-> §5 Steps 2–5 still proposed; **Step 2 build STARTED — the `shared/office-identity.js` dual reader
-> is built and wired to the OWNER board (§8.6a); gm/advisor/bookkeeping are next (§8.6b).**
-> §1 (CrisData today) and §2 (KiKi's auth) are verified against
+> §5 Steps 2–5 still proposed; **Step 2 build in progress — the `shared/office-identity.js` dual
+> reader is wired into OWNER (§8.6a), plus MANAGER + BOOKKEEPING (§8.6b); ADVISOR is HELD behind
+> in-flight book-hours work.** §1 (CrisData today) and §2 (KiKi's auth) are verified against
 > the live code (`crisdata.html`, the four boards, `api/*`, the embedded `kiki/` repo). Extends
 > [[settings]] §6 — which left two identity paths (an HMAC token OR "a Supabase Auth session if
 > we adopt GoTrue later"); this adopts the **Supabase Auth** path using KiKi's proven implementation.
@@ -519,8 +519,19 @@ later, the **owner-gate endpoint + `auth.uid()`→role RLS (§4, §5)**. Two gua
    pending Cris's live owner sign-in** (can't be exercised without a real office-login session):
    signed-in owner board should greet + load Team Chat + identify To-Do; PIN path unchanged.
    *Rollback:* revert owner-board to phone-only capture, drop the include.
-2. **8.6b — roll the reader to gm / advisor / bookkeeping** (NEXT), one at a time, each a stopping
-   point. Each just swaps its `captureSessionAndGreet` phone tail for the resolver + `applyIdentity`.
+2. **8.6b — roll the reader to gm / advisor / bookkeeping.** ⏳ IN PROGRESS 2026-08-01:
+   - **gm-board.html** ✅ wired — `captureSessionAndGreet` now calls the resolver + `applyIdentity`
+     (no `expectedRole`, mirroring its role-less passthrough); `loadDashboardPreferences()` preserved.
+   - **bookkeeping-board.html** ✅ wired — `gateAndBoot` now resolves via the reader but keeps its
+     **hard gate**: no identity → clear phone + redirect `crisdata.html`; `role !== 'bookkeeping'`
+     (incl. an auth session for another role, e.g. owner) → bounce, exactly as before.
+   - **advisor-board.html** ⏸ HELD — has uncommitted in-flight book-hours edits (hunks at ~1453,
+     1944–1972, 3654, 4023, 4461, 4506, 4681, 5129, 5213, 5699; identity code is at 2888–2948, so
+     it's code-separable but NOT commit-separable — staging the file would sweep book-hours in).
+     Wire it in a clean standalone commit once book-hours lands.
+   Locally verified (no auth session): gm loads clean, `OfficeIdentity` callable, greeting hidden
+   (no regression); bookkeeping hard-gate still bounces to `crisdata.html`. **Auth branch pending
+   Cris's live sign-in** (gm is the real test — where "Could not identify you" happened).
 3. **8.6c — "who's viewing / back to my board" chip** on all four office boards (read-only UX).
 4. **8.6d — front-door routing:** office-login routes by role on success; add the board switcher.
 5. **8.6e — (depends on §4/§5c, off-hours)** owner-gate endpoint + `employees` lockdown **before**
@@ -541,12 +552,12 @@ later, the **owner-gate endpoint + `auth.uid()`→role RLS (§4, §5)**. Two gua
   in the File Cabinet via `shared/file-cabinet.js` DOCS.
 - **Step 1½ widen (shipped):** `migrations/20260801_office_auth_widen_step1_5.sql` (add-only
   anon→authenticated read+write widen; hand-run 2026-08-01) — see §7.8.
-- **Step 2 dual reader (§8.6a, BUILT):** `shared/office-identity.js` (`OfficeIdentity.resolve` —
-  auth session OR phone/PIN), wired into `owner-board.html` (`captureSessionAndGreet` → resolver +
-  `applyIdentity`). Loaded via a `<script src="shared/office-identity.js">` include.
-- **Step 2 remaining (not built — §8):** wire the reader into `gm-board.html` / `advisor-board.html`
-  (`captureSessionAndGreet`) + `bookkeeping-board.html` (`gateAndBoot`); `office-login.html` route by
-  role on success; a "who's viewing / back to my board" chip.
+- **Step 2 dual reader (§8.6a–b):** `shared/office-identity.js` (`OfficeIdentity.resolve` — auth
+  session OR phone/PIN), wired via a `<script src="shared/office-identity.js">` include into
+  `owner-board.html` + `gm-board.html` (`captureSessionAndGreet` → resolver + `applyIdentity`) and
+  `bookkeeping-board.html` (`gateAndBoot` → resolver, hard gate + role bounce preserved).
+- **Step 2 remaining (not built — §8):** `advisor-board.html` (HELD behind in-flight book-hours);
+  `office-login.html` route by role on success; a "who's viewing / back to my board" chip.
 - **Existing identity (unchanged):** login + role routing `crisdata.html`; per-board identity
   `captureSessionAndGreet()` (advisor/gm/owner), `gateAndBoot()` (bookkeeping), `my-numbers.html`
   (tech); logout `initLogout()` per board (already calls `db.auth.signOut()`).
@@ -624,3 +635,15 @@ later, the **owner-gate endpoint + `auth.uid()`→role RLS (§4, §5)**. Two gua
   (no console errors; resolver callable; no-session/no-phone → null → greeting hidden = no
   regression). **Auth branch pending Cris's live owner sign-in.** No enforcement, no RLS/employees
   changes, nobody migrated; only the owner board touched. Next: §8.6b (gm/advisor/bookkeeping).
+- 2026-08-01 — **Built Step 2 §8.6b — rolled the reader into MANAGER + BOOKKEEPING (additive).**
+  `gm-board.html`: `captureSessionAndGreet` → `OfficeIdentity.resolve` + new `applyIdentity(who)`
+  (no `expectedRole`, mirroring gm's role-less passthrough; `loadDashboardPreferences()` preserved).
+  `bookkeeping-board.html`: `gateAndBoot` now resolves via the reader but keeps its **hard gate** —
+  no identity → clear phone + redirect `crisdata.html`; `role !== 'bookkeeping'` (incl. an auth
+  session for another role) → bounce, unchanged. **`advisor-board.html` HELD** — its identity code
+  (2888–2948) is separable but the file carries uncommitted in-flight book-hours edits, so staging
+  it would sweep them; wire advisor in a clean commit after book-hours lands. Locally verified: gm
+  loads clean (no console errors, resolver callable, greeting hidden = no regression); bookkeeping
+  hard-gate still bounces to `crisdata.html` with no identity. **Auth branch pending Cris's live
+  sign-in (gm is the real test).** No enforcement / RLS / employees changes; the other in-flight
+  files (board-settings, shop-board, teardown, tech-board) left untouched.

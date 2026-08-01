@@ -412,6 +412,7 @@
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="shared/office-identity.js"></script>
 <script src="shared/board-settings.js"></script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
@@ -3351,60 +3352,39 @@
   // ══════════════════════════════════════════════════════════════
   (async function gateAndBoot() {
     const SESSION_PHONE_KEY = 'bookkeepingBoardPhone';
-    let phone = null;
 
-    const params = new URLSearchParams(window.location.search);
-    const passPhone = params.get('u');
-    const passPin = params.get('p');
-    if (passPhone && passPin) {
-      const { data: match } = await db
-        .from('employees').select('phone')
-        .eq('phone', passPhone).eq('pin', passPin).eq('active', true)
-        .maybeSingle();
-      if (match) {
-        phone = match.phone;
-        localStorage.setItem(SESSION_PHONE_KEY, phone);
-        window.history.replaceState({}, '', window.location.pathname);
-      }
-    }
+    // Resolve WHO is viewing: an office-login auth session first, else the
+    // existing phone/PIN path (?u/p passthrough or persisted phone) — additive,
+    // the phone path is unchanged. This board is a HARD GATE: only a resolved
+    // BOOKKEEPING identity boots; anyone else (an unresolved session OR an auth
+    // session for another role, e.g. owner) is bounced to crisdata.html, exactly
+    // as before.
+    const who = await OfficeIdentity.resolve({ db, sessionPhoneKey: SESSION_PHONE_KEY });
 
-    if (!phone) phone = localStorage.getItem(SESSION_PHONE_KEY);
-
-    if (!phone) {
-      window.location.href = 'crisdata.html';
-      return;
-    }
-
-    const { data: emp, error } = await db
-      .from('employees').select('id, name, photo_url, role')
-      .eq('phone', phone).eq('active', true)
-      .maybeSingle();
-
-    if (error || !emp) {
+    if (!who) {
       localStorage.removeItem(SESSION_PHONE_KEY);
       window.location.href = 'crisdata.html';
       return;
     }
 
-    // Second gate layer: a resolved, active employee session is not
-    // enough on its own — this board is for the Bookkeeping role only.
-    // Tech/advisor/manager/owner all pass the identity check above but
-    // must still be bounced here, same as an unresolved session.
-    if (emp.role !== 'bookkeeping') {
+    // Second gate layer: a resolved, active employee is not enough on its own —
+    // this board is for the Bookkeeping role only. Tech/advisor/manager/owner all
+    // resolve above but must still be bounced here, same as an unresolved session.
+    if (who.role !== 'bookkeeping') {
       localStorage.removeItem(SESSION_PHONE_KEY);
       window.location.href = 'crisdata.html';
       return;
     }
 
-    CHAT_IDENTITY = { name: emp.name, role: emp.role };
-    CURRENT_EMPLOYEE_ID = emp.id;
-    BoardSettings.refresh(emp.id);
+    CHAT_IDENTITY = { name: who.name, role: who.role };
+    CURRENT_EMPLOYEE_ID = who.employee_id;
+    BoardSettings.refresh(who.employee_id);
 
-    const avatar = emp.photo_url
-      ? `<img class="greeting-avatar" src="${esc(emp.photo_url)}" alt="">`
-      : `<div class="greeting-avatar-fallback">${esc((emp.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;
+    const avatar = who.photo_url
+      ? `<img class="greeting-avatar" src="${esc(who.photo_url)}" alt="">`
+      : `<div class="greeting-avatar-fallback">${esc((who.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;
     const wrap = document.getElementById('greetingWrap');
-    wrap.innerHTML = `${avatar}<span>Hi, ${esc(emp.name)}</span>`;
+    wrap.innerHTML = `${avatar}<span>Hi, ${esc(who.name)}</span>`;
     wrap.style.display = 'flex';
 
     document.getElementById('authGateOverlay').style.display = 'none';

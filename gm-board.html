@@ -16,6 +16,7 @@
 <script src="/shared/pwa-register.js"></script>
 <script src="/shared/version-check.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="shared/office-identity.js"></script>
 <script src="shared/board-settings.js"></script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/help-tips.js"></script>
@@ -2388,7 +2389,7 @@
   // deleted — completed_at just stops matching the window). Not
   // started here — every query is scoped to CURRENT_EMPLOYEE_ID,
   // which isn't known until captureSessionAndGreet() resolves below;
-  // actual init calls live inside that function's renderGreeting().
+  // actual init calls live inside that function's applyIdentity().
   // ══════════════════════════════════════════════════════════════
   function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
@@ -4376,18 +4377,18 @@
     const SESSION_PHONE_KEY = 'gmBoardPhone';
     function esc(s) { return (s || '').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
-    async function renderGreeting(phone) {
-      if (!phone) return;
-      const { data: emp } = await db.from('employees').select('id, name, photo_url, role').eq('phone', phone).maybeSingle();
-      if (!emp) return;
-      CHAT_IDENTITY = { name: emp.name, role: emp.role };
-      CURRENT_EMPLOYEE_ID = emp.id;
-      BoardSettings.refresh(emp.id);
-      const avatar = emp.photo_url
-        ? `<img class="greeting-avatar" src="${esc(emp.photo_url)}" alt="">`
-        : `<div class="greeting-avatar-fallback">${esc((emp.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;
+    // Apply a resolved viewer identity (from OfficeIdentity — an auth session OR
+    // the phone/PIN path). `who` = { employee_id, name, role, photo_url, via }.
+    async function applyIdentity(who) {
+      if (!who || !who.employee_id) return;
+      CHAT_IDENTITY = { name: who.name, role: who.role };
+      CURRENT_EMPLOYEE_ID = who.employee_id;
+      BoardSettings.refresh(who.employee_id);
+      const avatar = who.photo_url
+        ? `<img class="greeting-avatar" src="${esc(who.photo_url)}" alt="">`
+        : `<div class="greeting-avatar-fallback">${esc((who.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;
       const wrap = document.getElementById('greetingWrap');
-      wrap.innerHTML = `${avatar}<span>Hi, ${esc(emp.name)}</span>`;
+      wrap.innerHTML = `${avatar}<span>Hi, ${esc(who.name)}</span>`;
       wrap.style.display = 'flex';
 
       // To-Do queries are scoped to CURRENT_EMPLOYEE_ID, which just
@@ -4397,31 +4398,12 @@
       todoSubscribeRealtime();
     }
 
-    let phone = null;
-
-    // Fresh passthrough from CrisData: ?u=phone&p=pin
-    const params = new URLSearchParams(window.location.search);
-    const passPhone = params.get('u');
-    const passPin = params.get('p');
-    if (passPhone && passPin) {
-      const { data: match } = await db
-        .from('employees').select('phone')
-        .eq('phone', passPhone).eq('pin', passPin).eq('active', true)
-        .maybeSingle();
-      if (match) {
-        phone = match.phone;
-        localStorage.setItem(SESSION_PHONE_KEY, phone);
-        window.history.replaceState({}, '', window.location.pathname);
-      }
-    }
-
-    // Restore a persisted session if no fresh passthrough matched
-    if (!phone) {
-      phone = localStorage.getItem(SESSION_PHONE_KEY);
-    }
-
-    if (phone) {
-      await renderGreeting(phone);
+    // Resolve WHO is viewing: an office-login auth session first, else the
+    // existing phone/PIN path (?u/p passthrough or persisted phone) — additive,
+    // the phone path is unchanged. Null → board loads normally, greeting hidden.
+    const who = await OfficeIdentity.resolve({ db, sessionPhoneKey: SESSION_PHONE_KEY });
+    if (who) {
+      await applyIdentity(who);
       await loadDashboardPreferences();
     }
     // No match anywhere: board already loaded normally above, just no greeting.
