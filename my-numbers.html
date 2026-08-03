@@ -315,6 +315,7 @@
   .confirm-go{ background:var(--danger); color:#fff; }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="shared/office-identity.js"></script>
 <script src="shared/catch-moment.js"></script>
 </head>
 <body>
@@ -1885,6 +1886,16 @@ async function submitDiagnosis(){
   }
 
   render();
+
+  // Idle auto-logout — same 120-min guard as the office boards, centralized in
+  // shared/office-identity.js. A tech's "session" is a tech-id (myNumbersTechId),
+  // not a Supabase auth session, so signOut is a harmless no-op here; the guard
+  // clears that key and returns to the login door. Skip in AS_MODE: there this
+  // page is embedded in the manager board's iframe and the parent owns the frame,
+  // so redirecting would break the embed. Only arm once a tech is actually on.
+  if (!AS_MODE && STATE.currentTechId && window.OfficeIdentity) {
+    OfficeIdentity.armIdleLogout({ db, storageKey: SESSION_KEY });
+  }
 })();
 </script>
 </body>

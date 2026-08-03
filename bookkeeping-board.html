@@ -3316,13 +3316,12 @@
   }
 
   // ══════════════════════════════════════════════════════════════
-  // LOGOUT — manual button + 120-minute idle auto-logout.
+  // LOGOUT — manual button only. The 120-minute idle auto-logout is now
+  // centralized in shared/office-identity.js (armed by OfficeIdentity.resolve
+  // in gateAndBoot above), so there is no per-board idle timer here anymore.
   // ══════════════════════════════════════════════════════════════
   function initLogout() {
     const SESSION_PHONE_KEY = 'bookkeepingBoardPhone';
-    const IDLE_LIMIT_MS = 120 * 60 * 1000;
-    const CHECK_INTERVAL_MS = 30 * 1000;
-    let lastActivity = Date.now();
 
     async function logOut() {
       try { await db.auth.signOut(); } catch (e) {}
@@ -3331,14 +3330,6 @@
     }
 
     document.getElementById('logoutBtn').addEventListener('click', logOut);
-
-    ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => {
-      window.addEventListener(evt, () => { lastActivity = Date.now(); }, { passive: true });
-    });
-
-    setInterval(() => {
-      if (Date.now() - lastActivity >= IDLE_LIMIT_MS) logOut();
-    }, CHECK_INTERVAL_MS);
   }
 
   // ══════════════════════════════════════════════════════════════

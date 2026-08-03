@@ -63,6 +63,12 @@
     var db = opts.db;
     if (!db) return null;
 
+    // Arm the shared idle auto-logout the moment a board resolves identity — this
+    // is how owner/gm/advisor/bookkeeping get the 120-min timer with no per-board
+    // code. Idempotent (arms once per page); uses this board's phone key so the
+    // persisted phone is dropped alongside any auth session on timeout.
+    armIdleLogout({ db: db, storageKey: opts.sessionPhoneKey });
+
     // (a) AUTH branch — a live office-login session mapped to an employee row.
     try {
       var sess = await db.auth.getSession();
@@ -96,5 +102,55 @@
     return null;
   }
 
-  global.OfficeIdentity = { resolve: resolve, resolvePhone: resolvePhone };
+  // ── Idle auto-logout guard (office-auth §8) ──────────────────────────────
+  // The single, centralized 120-minute inactivity timer that used to be
+  // copy-pasted into each board. On timeout it ENDS the session only: signs out
+  // any Supabase auth session, drops the board's persisted phone key, and returns
+  // to the login door. It can never grant access — additive/safety only.
+  //
+  // resolve() auto-arms this for every board that includes this script (owner,
+  // gm, advisor, bookkeeping). Other pages (e.g. my-numbers, whose "session" is a
+  // tech-id, not an auth session) can arm it directly with their own storageKey.
+  var IDLE_LIMIT_MS = 120 * 60 * 1000;   // 120 minutes — identical to the old per-board value
+  var IDLE_CHECK_MS = 30 * 1000;         // poll cadence
+  var idleArmed = false;                 // module-level: arm once per page load
+
+  function armIdleLogout(opts) {
+    opts = opts || {};
+    if (idleArmed) return;                 // no duplicate listeners/timers on re-init
+    if (typeof window === 'undefined') return;
+    var db = opts.db;
+    if (!db || !db.auth) return;           // need a client that can signOut
+    idleArmed = true;
+
+    var storageKey = opts.storageKey || null;
+    var redirectTo = opts.redirectTo || 'crisdata.html';
+    var limitMs = opts.limitMs || IDLE_LIMIT_MS;
+    var checkMs = opts.checkMs || IDLE_CHECK_MS;
+    var lastActivity = Date.now();
+    var loggingOut = false;                // guard against a double redirect
+
+    function bump() { lastActivity = Date.now(); }
+    ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(function (evt) {
+      window.addEventListener(evt, bump, { passive: true });
+    });
+
+    async function logOut() {
+      if (loggingOut) return;
+      loggingOut = true;
+      try { await db.auth.signOut(); } catch (e) {}
+      try { if (storageKey) localStorage.removeItem(storageKey); } catch (e) {}
+      window.location.href = redirectTo;
+    }
+
+    setInterval(function () {
+      if (!loggingOut && Date.now() - lastActivity >= limitMs) logOut();
+    }, checkMs);
+  }
+
+  global.OfficeIdentity = {
+    resolve: resolve,
+    resolvePhone: resolvePhone,
+    armIdleLogout: armIdleLogout,
+  };
 })(window);

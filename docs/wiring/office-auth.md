@@ -565,6 +565,28 @@ later, the **owner-gate endpoint + `auth.uid()`→role RLS (§4, §5)**. Two gua
 - Whether the "back to my board" chip should hard-gate non-owners later, or stay advisory until RLS.
 - Retire the `?u=phone&p=pin` URL passthrough (PIN-in-URL) as part of 8.6d, or leave for the floor.
 
+### 8.8 Idle auto-logout — centralized (2026-08-03)
+The 120-minute inactivity auto-logout is now a **single implementation in
+`shared/office-identity.js`** (`OfficeIdentity.armIdleLogout`), replacing the copy-pasted
+per-board timers. It ends a session only — it can never grant access (additive/safety).
+
+- **What it does:** listens for `mousemove/mousedown/keydown/touchstart/scroll`, polls every 30s,
+  and after `IDLE_LIMIT_MS = 120*60*1000` of no activity calls `db.auth.signOut()` (guarded),
+  `localStorage.removeItem(storageKey)` for the board's persisted key, then redirects to
+  `crisdata.html`. Idempotent via a module-level `idleArmed` flag — no duplicate listeners/timers,
+  and a `loggingOut` flag prevents a double redirect.
+- **How each board gets it:**
+  - **owner / gm / advisor / bookkeeping** — `OfficeIdentity.resolve()` auto-arms it with the
+    board's `sessionPhoneKey`, so no per-board timer is needed. **owner-board gained the timer for
+    the first time this way** (it previously had none). gm-board and bookkeeping-board had their
+    redundant inline idle timers **removed** (manual logout buttons kept). advisor-board still has
+    its inline timer (harmless redundancy) because it carries uncommitted work and was left untouched.
+  - **my-numbers** — includes the script and calls `armIdleLogout({ db, storageKey: 'myNumbersTechId' })`
+    directly, but **only when `!AS_MODE`** (not embedded in the manager iframe) and a tech is on. A
+    tech's session is a tech-id, not an auth session, so `signOut()` is a harmless no-op there.
+- **Not covered:** `crisdata.html` (the login door — doesn't include the script, so no self-redirect
+  loop) and `shop-board.html` (separate `sessionStorage` password gate, unrelated).
+
 ## 9. §5c employees lockdown — investigation & proposal (INVESTIGATE-ONLY, nothing applied)
 Scoped to the **`employees` table only**. Goal: close the employees hole **before** non-owner auth
 accounts exist (bookkeeper next, manager/advisor Mon) **without breaking** the reads/writes the
@@ -877,3 +899,12 @@ pin column; all board reads/greeting/roster still populate.
   Committed standalone by staging just the two identity hunks with `git add -p`; the in-flight
   book-hours edits (hunks ~1453–5699) stayed unstaged and untouched. All four boards now resolve
   identity auth-first, phone-fallback. **Auth branch pending Josh's live advisor sign-in.**
+- 2026-08-03 — **Centralized the 120-min idle auto-logout into `shared/office-identity.js`** (§8.8).
+  Added `OfficeIdentity.armIdleLogout` (activity listeners + 30s poll → guarded `signOut` + drop the
+  board phone key + redirect to `crisdata.html`; idempotent). `resolve()` auto-arms it for every
+  board that includes the script, so **owner-board now idle-logs-out for the first time**. Removed the
+  now-redundant inline idle timers from `gm-board.html` and `bookkeeping-board.html` (manual logout
+  buttons kept); `advisor-board.html` left untouched (uncommitted work) so it keeps its harmless inline
+  timer. `my-numbers.html` includes the script and arms it for a logged-in tech when `!AS_MODE`
+  (clears `myNumbersTechId`). Additive/safety only — the guard can only end a session, never grant one.
+  No RLS, enforcement, or `employees` change.
