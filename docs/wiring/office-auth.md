@@ -589,6 +589,20 @@ per-board timers. It ends a session only — it can never grant access (additive
     tech's session is a tech-id, not an auth session, so `signOut()` is a harmless no-op there.
 - **Not covered:** `crisdata.html` (the login door — doesn't include the script, so no self-redirect
   loop) and `shop-board.html` (separate `sessionStorage` password gate, unrelated).
+- **Local-dev skip (2026-08-03):** `armIdleLogout` returns early when
+  `location.hostname` is `localhost` / `127.0.0.1` / `''` (file://) / `*.local`, so the door stays
+  open while working on a local copy. **Prod (`leetransmissionshop.com`) is unaffected** — the
+  120-min idle logout still applies there, owner board included.
+
+### 8.10 Owner master-key + room switcher (2026-08-03)
+The **owner** can view every office board (a "master key"), and the owner board has a switcher to
+open the others. Additive — adds access + nav, removes nothing; no RLS/enforcement change.
+- **gm-board / advisor-board** already render for the owner (passive greeting, no role gate).
+- **bookkeeping-board** hard-gates by role; its second gate now allows `bookkeeping` **or** `owner`
+  (`who.role !== 'bookkeeping' && who.role !== 'owner'` → bounce). Everyone else still bounces.
+- **owner-board** has a "Rooms" sidebar group with `<a target="_blank">` links to `gm-board.html`,
+  `advisor-board.html`, `bookkeeping-board.html` — new tabs, so several rooms can be open at once.
+  The links have no `data-view`, so the view-switch handler ignores them.
 
 ### 8.9 The single front door — `crisdata.html` (2026-08-03)
 `crisdata.html` is the one door: everyone signs in with **email + password**, then is auto-routed to
@@ -955,3 +969,10 @@ pin column; all board reads/greeting/roster still populate.
   timer against itself. Phone/PIN `doLogin()`/`ROLE_DEST` kept in the file but unsurfaced (tech door
   later); `office-login.html` unchanged. Additive only — no enforcement, RLS, or `employees` change.
   Only `crisdata.html` + this doc changed; boards routed to, not modified.
+- 2026-08-03 — **Owner "dev door" — three additive changes** (§8.8 local-dev skip, §8.10).
+  (1) `armIdleLogout` now returns early on local hosts (`localhost`/`127.0.0.1`/`''`/`*.local`) so the
+  idle timer never fires on a local copy; prod unaffected. (2) bookkeeping-board's role gate now allows
+  `owner` alongside `bookkeeping` (owner master key). (3) owner-board gained a "Rooms" sidebar group
+  linking to gm/advisor/bookkeeping boards in new tabs. Files: `shared/office-identity.js`,
+  `bookkeeping-board.html`, `owner-board.html` (+ this doc). advisor-board.html untouched. Additive
+  only — adds access + nav, no RLS/enforcement/`employees` change.

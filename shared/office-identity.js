@@ -119,6 +119,11 @@
     opts = opts || {};
     if (idleArmed) return;                 // no duplicate listeners/timers on re-init
     if (typeof window === 'undefined') return;
+    // Local dev: never arm the idle timer, so the door stays open while working on a
+    // local copy (localhost / 127.0.0.1 / file:// / *.local). Prod is unaffected —
+    // the 120-min idle logout still applies on leetransmissionshop.com.
+    var host = (window.location && window.location.hostname) || '';
+    if (host === 'localhost' || host === '127.0.0.1' || host === '' || /\.local$/.test(host)) return;
     var db = opts.db;
     if (!db || !db.auth) return;           // need a client that can signOut
     idleArmed = true;

@@ -3359,9 +3359,10 @@
     }
 
     // Second gate layer: a resolved, active employee is not enough on its own —
-    // this board is for the Bookkeeping role only. Tech/advisor/manager/owner all
-    // resolve above but must still be bounced here, same as an unresolved session.
-    if (who.role !== 'bookkeeping') {
+    // this board is for the Bookkeeping role, plus the OWNER as a master key (the
+    // owner can view every room; gm/advisor boards already render for the owner).
+    // Tech/advisor/manager all resolve above but are still bounced here.
+    if (who.role !== 'bookkeeping' && who.role !== 'owner') {
       localStorage.removeItem(SESSION_PHONE_KEY);
       window.location.href = 'crisdata.html';
       return;
