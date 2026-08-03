@@ -555,7 +555,10 @@ later, the **owner-gate endpoint + `auth.uid()`→role RLS (§4, §5)**. Two gua
    hidden (no regression); bookkeeping hard-gate still bounces to `crisdata.html`. **Auth branch
    pending Cris's live sign-in** (gm is the real test — where "Could not identify you" happened).
 3. **8.6c — "who's viewing / back to my board" chip** on all four office boards (read-only UX).
-4. **8.6d — front-door routing:** office-login routes by role on success; add the board switcher.
+4. **8.6d — front-door routing:** ⏳ IN PROGRESS 2026-08-03 — **`crisdata.html` is now the single
+   front door.** It signs users in with **email + password** (`db.auth.signInWithPassword`) and
+   auto-routes by role via the existing `ROLE_DEST` map. See §8.9 for the load-time flow. Still to do:
+   the tech (phone/PIN) door and a cross-board "switch board" chip.
 5. **8.6e — (depends on §4/§5c, off-hours)** owner-gate endpoint + `employees` lockdown **before**
    Step 3 people-migration; only then invite Kevin/Josh/Daiana.
 
@@ -586,6 +589,41 @@ per-board timers. It ends a session only — it can never grant access (additive
     tech's session is a tech-id, not an auth session, so `signOut()` is a harmless no-op there.
 - **Not covered:** `crisdata.html` (the login door — doesn't include the script, so no self-redirect
   loop) and `shop-board.html` (separate `sessionStorage` password gate, unrelated).
+
+### 8.9 The single front door — `crisdata.html` (2026-08-03)
+`crisdata.html` is the one door: everyone signs in with **email + password**, then is auto-routed to
+their board by role. Additive — the phone/PIN `render()`/`doLogin()` and `ROLE_DEST` are kept in the
+file for the tech door (later); the door just doesn't surface the phone/PIN form (on load it runs
+`bootDoor()` instead of `render()`).
+
+- **Supabase client:** now `createClient(..., { auth: { persistSession, autoRefreshToken,
+  detectSessionInUrl } })`, matching `office-login.html`, so the session persists and refreshes.
+- **No idle timer on the door:** the door calls `db.auth.getSession()` **directly** and never calls
+  `OfficeIdentity.resolve()` — `resolve()` auto-arms the §8.8 idle-logout, which redirects to
+  `crisdata.html`, and the door must never arm a timer that redirects to itself. `office-identity.js`
+  is included for parity but not invoked.
+- **Load-time control flow (`bootDoor`):**
+  1. Render a brief "Checking your session…".
+  2. `getSession()` → **no session** ⇒ show the email/password card.
+  3. **Session present** ⇒ look up `employees` by `auth_user_id`:
+     - linked + role in `ROLE_DEST` ⇒ interstitial **"Welcome back, <name> — taking you to your
+       board… / Not you? Sign out"**, then after ~3s `window.location.href = ROLE_DEST[role]` (no
+       `?u/p`; the board reads the auth session). "Not you?" cancels the timer, `signOut()`, back to login.
+     - linked but **role not in `ROLE_DEST`** ⇒ notice + Sign out (never redirect to undefined).
+     - **not linked** (no employees row) ⇒ "signed in but not linked — ask Cristian" + Sign out.
+- **Email submit (`doorSignIn`):** `signInWithPassword` → on error, inline message, stay on the door;
+  on success, the same route-or-explain logic runs (interstitial → board, or notice).
+- **No redirect loop:** board logout / idle-logout call `signOut()` **before** returning to
+  `crisdata.html`, so `getSession()` is null there and the door shows the login card.
+- **Left as-is:** `office-login.html` stays the place to set/change a password.
+- **Skin (2026-08-03):** the door wears a dark "photo-behind-glass" design — full-viewport
+  `assets/shop-bg.jpg` under a darkening gradient + inset vignette, a frosted royal-blue card
+  (`--accent:#2a4fe0` / `--accent-2:#3d6bff`, gold `#ffd21e` accents), `assets/lee-logo.png` hero,
+  a fixed "CrisData / Staff sign-in" top bar and "Lee Transmission · Staff Portal" footer, and a
+  "Keep me signed in" (cosmetic) + "Reset password" → `office-login.html` row. **Presentation only** —
+  every element ID, the `getSession` flow, interstitial, route-or-explain states, and `doorSignIn` are
+  unchanged. The logo PNG has a baked-in black backdrop, dropped to transparent via
+  `mix-blend-mode:screen`. Assets referenced by path (not inlined).
 
 ## 9. §5c employees lockdown — investigation & proposal (INVESTIGATE-ONLY, nothing applied)
 Scoped to the **`employees` table only**. Goal: close the employees hole **before** non-owner auth
@@ -908,3 +946,12 @@ pin column; all board reads/greeting/roster still populate.
   timer. `my-numbers.html` includes the script and arms it for a logged-in tech when `!AS_MODE`
   (clears `myNumbersTechId`). Additive/safety only — the guard can only end a session, never grant one.
   No RLS, enforcement, or `employees` change.
+- 2026-08-03 — **Built the single front door in `crisdata.html`** (§8.6d / §8.9). Added email+password
+  sign-in (`signInWithPassword`) with role auto-route via the existing `ROLE_DEST`; gave the client the
+  `persistSession/autoRefreshToken/detectSessionInUrl` auth options; added `bootDoor()` on-load session
+  check, a "Welcome back… / Not you? Sign out" interstitial (~3s, no `?u/p`), and notices for the
+  unlinked-account and no-board-for-role cases (never redirects to undefined). Deliberately uses
+  `getSession()` directly, **not** `OfficeIdentity.resolve()`, so the door never arms the §8.8 idle
+  timer against itself. Phone/PIN `doLogin()`/`ROLE_DEST` kept in the file but unsurfaced (tech door
+  later); `office-login.html` unchanged. Additive only — no enforcement, RLS, or `employees` change.
+  Only `crisdata.html` + this doc changed; boards routed to, not modified.
