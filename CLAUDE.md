@@ -65,3 +65,4 @@ Every file under `/docs/wiring/` follows this shape:
 | Flagged-hours / flat-rate data | `flat-rate-hours.md` | `ro_line_items`, `shopboard_*.flag_hours`, `completed_jobs`, `repair_orders.technician` |
 | Settings hub | `settings.md` | `shared/board-settings.js`, `shop_settings`, `employees`, `crisdata.html`, `api/announcement.js` |
 | File Cabinet tab | `file-cabinet.md` | `shared/file-cabinet.js`, `owner-board.html` |
+| Hosting & domains | `hosting-domains.md` | `vercel.json`, `api/send-push.js`, Vercel projects (shop-board/kiki), Namecheap DNS, Supabase `hygemiszxwmyrkmhbjub` |
