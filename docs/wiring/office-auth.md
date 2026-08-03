@@ -1,13 +1,14 @@
 # How office login could adopt Supabase Auth (investigation + lockout-safe plan)
 
 > Doc: `/docs/wiring/office-auth.md`
-> Last updated: 2026-08-01 — verified vs commit `25707e1`
+> Last updated: 2026-08-03 — verified vs commit `a235571`
 > Status: 🟢 STEP 1½ SHIPPED (anon→authenticated read+write widen applied & live-verified at the
 > DB layer, 2026-08-01 — see §7 / §7.8). Step 0–1 login foothold live @ `dc782b3` — **nothing
 > enforced**; owner (Cristian) linked via `auth_user_id` and signing in on `office-login.html`.
 > §5 Steps 2–5 still proposed; **Step 2 build in progress — the `shared/office-identity.js` dual
-> reader is wired into OWNER (§8.6a), plus MANAGER + BOOKKEEPING (§8.6b); ADVISOR is HELD behind
-> in-flight book-hours work.** §1 (CrisData today) and §2 (KiKi's auth) are verified against
+> reader is now wired into ALL FOUR office boards: OWNER (§8.6a), plus MANAGER + BOOKKEEPING +
+> ADVISOR (§8.6b, advisor wired 2026-08-03 — the last board).** §1 (CrisData today) and §2 (KiKi's
+> auth) are verified against
 > the live code (`crisdata.html`, the four boards, `api/*`, the embedded `kiki/` repo). Extends
 > [[settings]] §6 — which left two identity paths (an HMAC token OR "a Supabase Auth session if
 > we adopt GoTrue later"); this adopts the **Supabase Auth** path using KiKi's proven implementation.
@@ -525,6 +526,11 @@ later, the **owner-gate endpoint + `auth.uid()`→role RLS (§4, §5)**. Two gua
   enforcement (opening another board's URL is still possible until RLS lands).
 
 ### 8.6 Phased plan (each step reversible; nothing enforced)
+> **8.6b is now COMPLETE — all four office boards are wired to the dual reader** (owner, gm,
+> bookkeeping, advisor). advisor was the last, wired 2026-08-03 in a standalone identity-only commit
+> that staged just the two identity hunks via `git add -p`, leaving the in-flight book-hours edits
+> unstaged and untouched.
+
 1. **8.6a — `office-identity.js` dual reader**, wired to the **owner board** only. ✅ SHIPPED
    2026-08-01 (`shared/office-identity.js` + `owner-board.html`). Locally verified: board loads with
    no console errors, `OfficeIdentity.resolve` is callable, and with no session/phone it returns
@@ -538,13 +544,16 @@ later, the **owner-gate endpoint + `auth.uid()`→role RLS (§4, §5)**. Two gua
    - **bookkeeping-board.html** ✅ wired — `gateAndBoot` now resolves via the reader but keeps its
      **hard gate**: no identity → clear phone + redirect `crisdata.html`; `role !== 'bookkeeping'`
      (incl. an auth session for another role, e.g. owner) → bounce, exactly as before.
-   - **advisor-board.html** ⏸ HELD — has uncommitted in-flight book-hours edits (hunks at ~1453,
-     1944–1972, 3654, 4023, 4461, 4506, 4681, 5129, 5213, 5699; identity code is at 2888–2948, so
-     it's code-separable but NOT commit-separable — staging the file would sweep book-hours in).
-     Wire it in a clean standalone commit once book-hours lands.
-   Locally verified (no auth session): gm loads clean, `OfficeIdentity` callable, greeting hidden
-   (no regression); bookkeeping hard-gate still bounces to `crisdata.html`. **Auth branch pending
-   Cris's live sign-in** (gm is the real test — where "Could not identify you" happened).
+   - **advisor-board.html** ✅ wired 2026-08-03 — added the `shared/office-identity.js` include and
+     refactored `captureSessionAndGreet` (`:2888`) to call the resolver + `applyIdentity` (no
+     `expectedRole`, mirroring its role-less passthrough), exactly like gm-board. Additive only: the
+     phone/PIN path is preserved inside the resolver, not removed. Committed on its own by staging
+     just the two identity hunks (script include ~`:520`, `captureSessionAndGreet` ~`:2888`) with
+     `git add -p` — the in-flight book-hours edits (hunks at ~1453, 1944–1972, 3654, 4023, 4461,
+     4506, 4681, 5129, 5213, 5699) stayed unstaged and untouched.
+   Locally verified (no auth session): gm + advisor load clean, `OfficeIdentity` callable, greeting
+   hidden (no regression); bookkeeping hard-gate still bounces to `crisdata.html`. **Auth branch
+   pending Cris's live sign-in** (gm is the real test — where "Could not identify you" happened).
 3. **8.6c — "who's viewing / back to my board" chip** on all four office boards (read-only UX).
 4. **8.6d — front-door routing:** office-login routes by role on success; add the board switcher.
 5. **8.6e — (depends on §4/§5c, off-hours)** owner-gate endpoint + `employees` lockdown **before**
@@ -860,3 +869,11 @@ pin column; all board reads/greeting/roster still populate.
   signed in (§8.6b dual reader auth branch → `role='bookkeeping'` gate passes) with greeting + working
   to-do + chat. Phone/PIN retained as fallback; §9.5a lock prevents her re-linking. Next: Kevin
   (manager), then Josh (advisor, after the advisor dual-reader wiring).
+- 2026-08-03 — **§8.6b COMPLETE — wired the dual reader into `advisor-board.html`, the last office
+  board.** Added the `shared/office-identity.js` include (~`:520`) and refactored
+  `captureSessionAndGreet` (~`:2888`) to call `OfficeIdentity.resolve({ db, sessionPhoneKey:
+  'advisorBoardPhone' })` + a new `applyIdentity(who)`, exactly like gm-board. Additive only — the
+  phone/PIN path is preserved inside the resolver; no enforcement, RLS, or `employees` change.
+  Committed standalone by staging just the two identity hunks with `git add -p`; the in-flight
+  book-hours edits (hunks ~1453–5699) stayed unstaged and untouched. All four boards now resolve
+  identity auth-first, phone-fallback. **Auth branch pending Josh's live advisor sign-in.**
