@@ -285,6 +285,114 @@
   .ov-card-split > div { flex: 1; min-width: 0; }
   .ov-card-split .ov-card-value { font-size: 1.15rem; }
 
+  /* ══════════════════════════════════
+     FINANCIAL PULSE
+  ══════════════════════════════════ */
+  .fin-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 14px; flex-wrap: wrap; margin-bottom: 12px;
+  }
+  .fin-range { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .fin-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+  .fin-preset {
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 999px; padding: 5px 12px; font-size: 0.74rem; font-weight: 700;
+    cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .fin-preset:hover { border-color: var(--accent); color: var(--text); }
+  .fin-preset.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .fin-custom { display: flex; gap: 10px; flex-wrap: wrap; }
+  .fin-custom label { font-size: 0.7rem; color: var(--muted); font-weight: 700; display: flex; align-items: center; gap: 5px; }
+  .fin-custom input[type="date"] {
+    border: 1px solid var(--border); border-radius: 6px; padding: 4px 7px;
+    font-size: 0.78rem; color: var(--text); background: #fff;
+  }
+  .fin-range-label { font-size: 0.76rem; color: var(--muted); font-weight: 600; margin-bottom: 14px; }
+
+  .fin-scorecards {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 14px; margin-bottom: 18px;
+  }
+  .fin-score {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px; background: var(--surface-2);
+  }
+  .fin-score.income { background: #ecfdf5; border-color: #a7f3d0; }
+  .fin-score.pipeline { background: #eff6ff; border-color: #bfdbfe; }
+  .fin-score-label {
+    font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.8px;
+    font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+  }
+  .fin-score.income .fin-score-label { color: #047857; }
+  .fin-score.pipeline .fin-score-label { color: #1d4ed8; }
+  .fin-score-value { font-size: 1.7rem; font-weight: 800; color: var(--text); line-height: 1.05; }
+  .fin-score-sub { font-size: 0.72rem; color: var(--muted); margin-top: 5px; }
+  .fin-score-badge {
+    font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 2px 7px; border-radius: 999px;
+  }
+  .fin-score.income .fin-score-badge { background: #d1fae5; color: #065f46; }
+  .fin-score.pipeline .fin-score-badge { background: #dbeafe; color: #1e40af; }
+
+  .fin-visuals {
+    display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 14px; margin-bottom: 16px;
+  }
+  .fin-panel {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 16px; background: var(--surface); min-width: 0;
+  }
+  .fin-panel-title {
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.7px;
+    font-weight: 700; color: var(--muted); margin-bottom: 12px;
+    display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  }
+  .fin-panel-note { font-size: 0.64rem; letter-spacing: 0.3px; text-transform: none; font-weight: 600; color: var(--muted); opacity: 0.8; }
+  .fin-chart { width: 100%; }
+  .fin-chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .fin-empty { color: var(--muted); font-size: 0.8rem; text-align: center; padding: 28px 8px; }
+
+  /* Income-vs-Expenses net readout */
+  .fin-net { margin-top: 10px; display: flex; flex-direction: column; gap: 3px; }
+  .fin-net-row { display: flex; justify-content: space-between; font-size: 0.78rem; }
+  .fin-net-row .k { color: var(--muted); font-weight: 600; }
+  .fin-net-row .v { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+  .fin-net-row.total { border-top: 1px dashed var(--border); margin-top: 4px; padding-top: 6px; font-size: 0.9rem; }
+  .fin-net-row.total .k { color: var(--text); font-weight: 800; }
+  .fin-net-row.total .v.pos { color: var(--green); }
+  .fin-net-row.total .v.neg { color: var(--red); }
+
+  /* Donut legend */
+  .fin-legend { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .fin-legend-row { display: flex; align-items: center; gap: 8px; font-size: 0.74rem; }
+  .fin-legend-swatch { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+  .fin-legend-name { color: var(--text); font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fin-legend-val { color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* Aging list */
+  .fin-aging-panel { margin-top: 2px; }
+  .fin-aging-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  .fin-aging-table th {
+    text-align: left; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.6px;
+    color: var(--muted); font-weight: 700; padding: 6px 10px; border-bottom: 2px solid var(--border);
+  }
+  .fin-aging-table th.num, .fin-aging-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .fin-aging-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .fin-aging-table tr:last-child td { border-bottom: none; }
+  .fin-aging-po { font-weight: 800; color: var(--text); }
+  .fin-aging-status {
+    font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
+    padding: 2px 7px; border-radius: 999px; background: var(--surface-2); color: var(--muted);
+  }
+  .fin-aging-status.estimate { background: #fef3c7; color: #92400e; }
+  .fin-aging-status.ro { background: #dbeafe; color: #1e40af; }
+  .fin-aging-status.invoice { background: #ede9fe; color: #6d28d9; }
+  .fin-aging-age.old { color: var(--red); font-weight: 800; }
+  .fin-aging-scroll { overflow-x: auto; }
+
+  @media (max-width: 900px) {
+    .fin-visuals { grid-template-columns: 1fr; }
+  }
+
   .ov-core-hero { font-size: 1.35rem; font-weight: 800; color: var(--text); margin-bottom: 14px; }
   .ov-core-list, .ov-returned-list { display: flex; flex-direction: column; gap: 8px; }
   .ov-core-empty { color: var(--muted); font-size: 0.85rem; padding: 14px; text-align: center; }
@@ -503,6 +611,55 @@
   <div class="view" id="view-overview">
     <div class="ov-alert" id="ovAlert" style="display:none"></div>
     <div class="ov-cards" id="ovCards"></div>
+
+    <!-- ══ FINANCIAL PULSE — realized income + future-income pipeline over an
+         editable date range, plus supporting visuals. Additive section; data
+         comes from the board's own Supabase ledger (repair invoices in
+         invoice_queue for income; open repair_orders for the pipeline). ══ -->
+    <div class="card fin-pulse" id="finPulse">
+      <div class="fin-head">
+        <div class="card-title" style="margin-bottom:0"><div class="dot" style="background:var(--green)"></div>Financial Pulse</div>
+        <div class="fin-range" id="finRange">
+          <div class="fin-presets" id="finPresets">
+            <button type="button" class="fin-preset" data-preset="this_week">This week</button>
+            <button type="button" class="fin-preset" data-preset="last_week">Last week</button>
+            <button type="button" class="fin-preset" data-preset="this_month">This month</button>
+            <button type="button" class="fin-preset" data-preset="last_month">Last month</button>
+            <button type="button" class="fin-preset" data-preset="this_quarter">This quarter</button>
+            <button type="button" class="fin-preset" data-preset="last_quarter">Last quarter</button>
+            <button type="button" class="fin-preset" data-preset="custom">Custom</button>
+          </div>
+          <div class="fin-custom" id="finCustom" style="display:none">
+            <label>From <input type="date" id="finFrom"></label>
+            <label>To <input type="date" id="finTo"></label>
+          </div>
+        </div>
+      </div>
+      <div class="fin-range-label" id="finRangeLabel"></div>
+
+      <div class="fin-scorecards" id="finScorecards"></div>
+
+      <div class="fin-visuals">
+        <div class="fin-panel fin-panel-wide">
+          <div class="fin-panel-title">Income trend <span class="fin-panel-note" id="finTrendNote"></span></div>
+          <div class="fin-chart" id="finTrend"></div>
+        </div>
+        <div class="fin-panel">
+          <div class="fin-panel-title">Income vs Expenses</div>
+          <div class="fin-chart" id="finIncExp"></div>
+        </div>
+        <div class="fin-panel">
+          <div class="fin-panel-title">Income breakdown</div>
+          <div class="fin-chart" id="finDonut"></div>
+        </div>
+      </div>
+
+      <div class="fin-panel fin-aging-panel">
+        <div class="fin-panel-title">Open ROs — follow-up list <span class="fin-panel-note">as of now · oldest first</span></div>
+        <div class="fin-aging" id="finAging"></div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-title"><div class="dot" style="background:var(--amber)"></div>Core Bank</div>
       <div class="ov-core-hero" id="ovCoreHero">Outstanding Cores: $0.00</div>
@@ -2707,12 +2864,20 @@
   let returnedOpen = false;
 
   async function loadOverview() {
-    let unprocessedCount = 0, cores = [], processed = [];
+    let unprocessedCount = 0, cores = [], processed = [], openROs = [], jobCats = [];
     try {
-      const [countRes, coresRes, spendRes] = await Promise.all([
+      const [countRes, coresRes, spendRes, openRes, catRes] = await Promise.all([
         db.from('invoice_queue').select('id', { count: 'exact', head: true }).eq('status', 'unprocessed'),
         db.from('core_charges').select('*').order('charged_date', { ascending: true }),
-        db.from('invoice_queue').select('invoice_type,amount,invoice_date').eq('status', 'processed'),
+        // `po` added for the Financial Pulse donut (repair_invoice → job category).
+        db.from('invoice_queue').select('invoice_type,amount,invoice_date,po').eq('status', 'processed'),
+        // Financial Pulse — open-RO pipeline snapshot (as of now, ignores the range).
+        // Totals are computed client-side from ro_line_items to match the RO builder.
+        db.from('repair_orders')
+          .select('po,status,created_at,customers(name,tax_exempt),ro_line_items(quantity,unit_price,taxable)')
+          .neq('status', 'closed').order('created_at', { ascending: true }),
+        // Category map for the income-breakdown donut (repair_invoice.po → job_category).
+        db.from('completed_jobs').select('po,job_category'),
       ]);
       if (countRes.error) throw countRes.error;
       if (coresRes.error) throw coresRes.error;
@@ -2720,6 +2885,12 @@
       unprocessedCount = countRes.count || 0;
       cores = coresRes.data || [];
       processed = spendRes.data || [];
+      // Pipeline / donut reads are best-effort — a failure here must NOT break
+      // the rest of the Overview (cards, Core Bank, alert).
+      if (openRes.error) console.warn('[Financial Pulse] open-RO load failed', openRes.error);
+      else openROs = openRes.data || [];
+      if (catRes.error) console.warn('[Financial Pulse] job-category load failed', catRes.error);
+      else jobCats = catRes.data || [];
     } catch (err) {
       console.error('[Overview] load failed', err);
     }
@@ -2730,6 +2901,7 @@
     renderOverviewAlert(unprocessedCount, outstandingTotal, outstanding.length);
     renderOverviewCards(unprocessedCount, outstanding, outstandingTotal, processed);
     renderCoreBank(cores);
+    FinancialPulse.update({ processed, openROs, jobCats });
   }
 
   function renderOverviewAlert(unprocessedCount, outstandingTotal, outstandingCount) {
@@ -2900,6 +3072,304 @@
     returnedOpen = !returnedOpen;
     renderCoreBank(overviewCores);
   });
+
+  // ══════════════════════════════════════════════════════════════
+  // FINANCIAL PULSE — realized income + future-income pipeline over an
+  // editable date range, plus supporting visuals. All figures come from
+  // the board's own Supabase ledger; nothing here writes.
+  //
+  //  • Realized income  = invoice_queue rows (invoice_type='repair_invoice',
+  //    processed), bucketed by invoice_date. In a pay-and-take shop an
+  //    invoiced repair is a completed, paid sale. This is the SAME table the
+  //    expense cards read, so Income − Expenses reconciles in one ledger.
+  //  • Expenses         = the existing counts_as spend math (parts_vendor +
+  //    shop_expense + any custom cost/credit; repair_invoice is record_only
+  //    and excluded). Reused verbatim so numbers match the cards above.
+  //  • Open pipeline    = repair_orders not yet 'closed', each totalled from
+  //    ro_line_items (Σ qty×price + taxable×tax_rate, unless tax-exempt) to
+  //    match the RO builder's recalcTotals. This is a snapshot of NOW — it
+  //    deliberately ignores the date range (a pipeline is always "as of today").
+  //  • Donut            = realized income split by job category, mapped
+  //    repair_invoice.po → completed_jobs.job_category (unmatched → "Other").
+  // ══════════════════════════════════════════════════════════════
+  const FinancialPulse = (function () {
+    const REPAIR_INVOICE = 'repair_invoice';
+    const CAT_ORDER  = ['Rebuild', 'Gen Auto', 'Diag', 'Other'];
+    const CAT_COLOR  = { 'Rebuild': '#5b5ef4', 'Gen Auto': '#10b981', 'Diag': '#f59e0b', 'Other': '#94a3b8' };
+    const OLD_DAYS   = 14;   // open ROs at/over this age flagged in the aging list
+
+    let data = { processed: [], openROs: [], jobCats: [] };
+    let catByPo = {};
+    let preset = 'last_week';       // default per spec
+    let customFrom = '', customTo = '';
+    let wired = false;
+
+    // ── date helpers — LOCAL dates as 'YYYY-MM-DD' to match invoice_date ──
+    function ymd(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+    function parseYmd(s) { return s ? new Date(s + 'T00:00:00') : null; }
+    function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+    function startOfWeek(d) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - x.getDay()); return x; } // Sunday
+    function daysBetween(a, b) { return Math.round((b - a) / 86400000); }
+
+    // preset → [startDate, endDate] (inclusive, local Date objects)
+    function rangeFor(p) {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const q = Math.floor(today.getMonth() / 3);
+      switch (p) {
+        case 'this_week':  return [startOfWeek(today), today];
+        case 'last_week':  { const s = addDays(startOfWeek(today), -7); return [s, addDays(s, 6)]; }
+        case 'this_month': return [new Date(today.getFullYear(), today.getMonth(), 1), today];
+        case 'last_month': return [new Date(today.getFullYear(), today.getMonth() - 1, 1), new Date(today.getFullYear(), today.getMonth(), 0)];
+        case 'this_quarter': return [new Date(today.getFullYear(), q * 3, 1), today];
+        case 'last_quarter': { let y = today.getFullYear(), lq = q - 1; if (lq < 0) { lq = 3; y -= 1; } return [new Date(y, lq * 3, 1), new Date(y, lq * 3 + 3, 0)]; }
+        case 'custom': {
+          const f = parseYmd(customFrom) || addDays(today, -6);
+          const t = parseYmd(customTo) || today;
+          return f <= t ? [f, t] : [t, f];
+        }
+        default: { const s = addDays(startOfWeek(today), -7); return [s, addDays(s, 6)]; }
+      }
+    }
+    function currentRange() {
+      const [s, e] = rangeFor(preset);
+      return { start: s, end: e, fromStr: ymd(s), toStr: ymd(e) };
+    }
+
+    // ── formatting ──
+    function fmtK(n) {
+      n = Number(n) || 0; const a = Math.abs(n);
+      if (a >= 1000) return (n < 0 ? '-$' : '$') + (a / 1000).toFixed(a % 1000 < 50 ? 0 : 1) + 'k';
+      return (n < 0 ? '-$' : '$') + Math.round(a);
+    }
+    function fmtDay(d)  { return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }
+    function fmtRangeLabel(s, e) {
+      const y = new Date().getFullYear();
+      const yr = (s.getFullYear() !== y || e.getFullYear() !== y) ? `, ${e.getFullYear()}` : '';
+      return `${s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${e.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${yr}`;
+    }
+
+    // ── computations ──
+    function incomeRows(r) {
+      return data.processed.filter(x => x.invoice_type === REPAIR_INVOICE && x.invoice_date && x.invoice_date >= r.fromStr && x.invoice_date <= r.toStr);
+    }
+    function sumAmt(rows) { return rows.reduce((s, x) => s + (Number(x.amount) || 0), 0); }
+
+    function expenseTotals(r) {
+      let parts = 0, exp = 0;
+      data.processed.forEach(x => {
+        const d = x.invoice_date;
+        if (!d || d < r.fromStr || d > r.toStr) return;
+        const ca = countsAsFor(x.invoice_type);   // reuse the board's spend classification
+        if (ca === 'record_only') return;
+        const signed = (Number(x.amount) || 0) * (ca === 'credit' ? -1 : 1);
+        if (x.invoice_type === 'parts_vendor') parts += signed; else exp += signed;
+      });
+      return { parts, exp, total: parts + exp };
+    }
+
+    function roTotal(ro) {
+      const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : null;
+      const rate = cfg && Number.isFinite(Number(cfg.tax_rate)) ? Number(cfg.tax_rate) : 0.065;
+      let sub = 0, txbl = 0;
+      (ro.ro_line_items || []).forEach(l => {
+        const amt = (Number(l.quantity) || 0) * (Number(l.unit_price) || 0);
+        sub += amt; if (l.taxable) txbl += amt;
+      });
+      const exempt = ro.customers && ro.customers.tax_exempt;
+      return sub + (exempt ? 0 : txbl * rate);
+    }
+
+    // income buckets for the trend chart — granularity from the span
+    function trendBuckets(r) {
+      const span = daysBetween(r.start, r.end) + 1;
+      const gran = span <= 14 ? 'day' : (span <= 92 ? 'week' : 'month');
+      const keyOf = (d) => gran === 'day' ? ymd(d) : gran === 'week' ? ymd(startOfWeek(d)) : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const labelOf = (d) => gran === 'month' ? d.toLocaleDateString('en-US', { month: 'short' }) : fmtDay(gran === 'week' ? startOfWeek(d) : d);
+      // ordered bucket skeleton by walking the range day-by-day
+      const order = [], seen = new Map();
+      for (let d = new Date(r.start); d <= r.end; d = addDays(d, 1)) {
+        const k = keyOf(d);
+        if (!seen.has(k)) { seen.set(k, { key: k, label: labelOf(d), value: 0 }); order.push(seen.get(k)); }
+      }
+      incomeRows(r).forEach(x => {
+        const d = parseYmd(x.invoice_date); if (!d) return;
+        const b = seen.get(keyOf(d)); if (b) b.value += Number(x.amount) || 0;
+      });
+      return { buckets: order, gran };
+    }
+
+    function incomeByCategory(r) {
+      const acc = {};
+      incomeRows(r).forEach(x => {
+        let cat = catByPo[x.po];
+        if (!CAT_ORDER.includes(cat)) cat = 'Other';
+        acc[cat] = (acc[cat] || 0) + (Number(x.amount) || 0);
+      });
+      return CAT_ORDER.filter(c => acc[c] > 0).map(c => ({ name: c, value: acc[c], color: CAT_COLOR[c] }));
+    }
+
+    // ── SVG builders (hand-rolled, matching the app's inline-SVG approach) ──
+    function emptyBox(msg) { return `<div class="fin-empty">${esc(msg)}</div>`; }
+
+    function barChart(buckets) {
+      const max = Math.max(0, ...buckets.map(b => b.value));
+      if (!buckets.length || max <= 0) return emptyBox('No income in this range.');
+      const W = 560, H = 200, padL = 46, padR = 8, padT = 12, padB = 28;
+      const plotW = W - padL - padR, plotH = H - padT - padB, n = buckets.length;
+      const gap = n > 1 ? Math.min(14, plotW * 0.03) : 0;
+      const bw = (plotW - gap * (n - 1)) / n;
+      const step = Math.ceil(n / 10);
+      let bars = '', labels = '';
+      buckets.forEach((b, i) => {
+        const x = padL + i * (bw + gap);
+        const h = Math.max(0, (b.value / max) * plotH);
+        const y = padT + plotH - h;
+        bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="#10b981"><title>${esc(b.label)}: ${fmtMoney(b.value)}</title></rect>`;
+        if (i % step === 0 || i === n - 1) labels += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 8}" text-anchor="middle" font-size="10" fill="var(--muted)">${esc(b.label)}</text>`;
+      });
+      const grid = `<line x1="${padL}" y1="${padT}" x2="${W - padR}" y2="${padT}" stroke="var(--border)" stroke-dasharray="3 3"/>` +
+        `<line x1="${padL}" y1="${padT + plotH}" x2="${W - padR}" y2="${padT + plotH}" stroke="var(--border)"/>` +
+        `<text x="${padL - 6}" y="${padT + 4}" text-anchor="end" font-size="10" fill="var(--muted)">${fmtK(max)}</text>` +
+        `<text x="${padL - 6}" y="${padT + plotH}" text-anchor="end" font-size="10" fill="var(--muted)">$0</text>`;
+      return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Income trend">${grid}${bars}${labels}</svg>`;
+    }
+
+    function incExpChart(income, expenses) {
+      const max = Math.max(0, income, expenses);
+      if (max <= 0) return emptyBox('No activity in this range.');
+      const W = 280, H = 180, padT = 16, padB = 30, plotH = H - padT - padB;
+      const bw = 72, gap = 46, startX = (W - (bw * 2 + gap)) / 2;
+      const bar = (x, v, color, label) => {
+        const h = (v / max) * plotH, y = padT + plotH - h;
+        return `<rect x="${x}" y="${y.toFixed(1)}" width="${bw}" height="${h.toFixed(1)}" rx="4" fill="${color}"/>` +
+          `<text x="${x + bw / 2}" y="${(y - 6).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="700" fill="var(--text)">${fmtK(v)}</text>` +
+          `<text x="${x + bw / 2}" y="${H - 10}" text-anchor="middle" font-size="10" fill="var(--muted)">${label}</text>`;
+      };
+      return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Income versus expenses">` +
+        `<line x1="8" y1="${padT + plotH}" x2="${W - 8}" y2="${padT + plotH}" stroke="var(--border)"/>` +
+        bar(startX, income, '#10b981', 'Income') +
+        bar(startX + bw + gap, expenses, '#ef4444', 'Expenses') + `</svg>`;
+    }
+
+    function donutChart(slices, total) {
+      if (total <= 0) return emptyBox('No income to break down.');
+      const cx = 70, cy = 70, r = 52, sw = 22, C = 2 * Math.PI * r;
+      let off = 0, arcs = '';
+      slices.forEach(s => {
+        const len = C * (s.value / total);
+        arcs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${sw}" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"><title>${esc(s.name)}: ${fmtMoney(s.value)}</title></circle>`;
+        off += len;
+      });
+      const center = `<text x="${cx}" y="${cy - 1}" text-anchor="middle" font-size="14" font-weight="800" fill="var(--text)">${fmtK(total)}</text>` +
+        `<text x="${cx}" y="${cy + 13}" text-anchor="middle" font-size="7.5" letter-spacing="0.5" fill="var(--muted)">REALIZED</text>`;
+      return `<svg viewBox="0 0 140 140" style="max-width:160px;margin:0 auto" role="img" aria-label="Income by category">${arcs}${center}</svg>`;
+    }
+
+    // ── render ──
+    function render() {
+      if (!document.getElementById('finPulse')) return;
+      const r = currentRange();
+      const incRows = incomeRows(r);
+      const income = sumAmt(incRows);
+      const exp = expenseTotals(r);
+      const net = income - exp.total;
+
+      // pipeline snapshot (as of now, range-independent)
+      const pipeline = data.openROs.reduce((s, ro) => s + roTotal(ro), 0);
+      const openCount = data.openROs.length;
+
+      // range control state
+      document.querySelectorAll('#finPresets .fin-preset').forEach(b => b.classList.toggle('active', b.dataset.preset === preset));
+      document.getElementById('finCustom').style.display = preset === 'custom' ? 'flex' : 'none';
+      document.getElementById('finRangeLabel').textContent = `Showing ${fmtRangeLabel(r.start, r.end)}`;
+
+      // scorecards
+      const invCount = incRows.length;
+      document.getElementById('finScorecards').innerHTML = `
+        <div class="fin-score income">
+          <div class="fin-score-label">💵 Income (realized)</div>
+          <div class="fin-score-value">${fmtMoney(income)}</div>
+          <div class="fin-score-sub">${fmtRangeLabel(r.start, r.end)} · ${invCount} invoice${invCount === 1 ? '' : 's'}</div>
+        </div>
+        <div class="fin-score pipeline">
+          <div class="fin-score-label">🔮 Open ROs — future income <span class="fin-score-badge">as of now</span></div>
+          <div class="fin-score-value">${fmtMoney(pipeline)}</div>
+          <div class="fin-score-sub">${openCount} open RO${openCount === 1 ? '' : 's'} in the pipeline (not the date range)</div>
+        </div>`;
+
+      // trend
+      const tb = trendBuckets(r);
+      document.getElementById('finTrendNote').textContent = tb.gran === 'day' ? '· daily' : tb.gran === 'week' ? '· weekly' : '· monthly';
+      document.getElementById('finTrend').innerHTML = barChart(tb.buckets);
+
+      // income vs expenses + net readout
+      const netCls = net >= 0 ? 'pos' : 'neg';
+      document.getElementById('finIncExp').innerHTML = incExpChart(income, exp.total) +
+        `<div class="fin-net">
+          <div class="fin-net-row"><span class="k">Income</span><span class="v">${fmtMoney(income)}</span></div>
+          <div class="fin-net-row"><span class="k">Parts / Vendor</span><span class="v">−${fmtMoney(exp.parts)}</span></div>
+          <div class="fin-net-row"><span class="k">Shop Expenses</span><span class="v">−${fmtMoney(exp.exp)}</span></div>
+          <div class="fin-net-row total"><span class="k">Net</span><span class="v ${netCls}">${net < 0 ? '−' : ''}${fmtMoney(Math.abs(net))}</span></div>
+        </div>`;
+
+      // donut + legend
+      const slices = incomeByCategory(r);
+      const legend = slices.length
+        ? `<div class="fin-legend">${slices.map(s => {
+            const pct = income > 0 ? (s.value / income * 100) : 0;
+            return `<div class="fin-legend-row"><span class="fin-legend-swatch" style="background:${s.color}"></span><span class="fin-legend-name">${esc(s.name)}</span><span class="fin-legend-val">${fmtMoney(s.value)} · ${pct.toFixed(0)}%</span></div>`;
+          }).join('')}</div>`
+        : '';
+      document.getElementById('finDonut').innerHTML = donutChart(slices, income) + legend;
+
+      // open-RO aging list (oldest first — data.openROs already asc by created_at)
+      renderAging();
+    }
+
+    function renderAging() {
+      const el = document.getElementById('finAging');
+      if (!data.openROs.length) { el.innerHTML = emptyBox('No open ROs — pipeline is clear.'); return; }
+      const now = Date.now();
+      const rows = data.openROs.map(ro => {
+        const age = ro.created_at ? Math.max(0, Math.floor((now - new Date(ro.created_at).getTime()) / 86400000)) : null;
+        return { po: ro.po, status: ro.status, cust: (ro.customers && ro.customers.name) || '—', amount: roTotal(ro), age };
+      }).sort((a, b) => (b.age || 0) - (a.age || 0)); // oldest first
+      const body = rows.map(x => `
+        <tr>
+          <td class="fin-aging-po">${esc(x.po || '—')}</td>
+          <td>${esc(x.cust)}</td>
+          <td><span class="fin-aging-status ${esc(x.status)}">${esc(x.status)}</span></td>
+          <td class="num">${fmtMoney(x.amount)}</td>
+          <td class="num"><span class="fin-aging-age ${x.age != null && x.age >= OLD_DAYS ? 'old' : ''}">${x.age == null ? '—' : x.age + 'd'}</span></td>
+        </tr>`).join('');
+      el.innerHTML = `<div class="fin-aging-scroll"><table class="fin-aging-table">
+        <thead><tr><th>RO&nbsp;#</th><th>Customer</th><th>Stage</th><th class="num">Amount</th><th class="num">Age</th></tr></thead>
+        <tbody>${body}</tbody></table></div>`;
+    }
+
+    function wire() {
+      if (wired) return;
+      wired = true;
+      document.querySelectorAll('#finPresets .fin-preset').forEach(b => {
+        b.addEventListener('click', () => { preset = b.dataset.preset; render(); });
+      });
+      const from = document.getElementById('finFrom'), to = document.getElementById('finTo');
+      const onCustom = () => { customFrom = from.value; customTo = to.value; preset = 'custom'; render(); };
+      from.addEventListener('change', onCustom);
+      to.addEventListener('change', onCustom);
+    }
+
+    function update(next) {
+      data = { processed: next.processed || [], openROs: next.openROs || [], jobCats: next.jobCats || [] };
+      catByPo = {};
+      data.jobCats.forEach(j => { if (j.po && !(j.po in catByPo) && j.job_category) catByPo[j.po] = j.job_category; });
+      wire();
+      render();
+    }
+
+    return { update };
+  })();
 
   // ══════════════════════════════════════════════════════════════
   // TO-DO — personal + assignable to-do list. Visible items: anything
