@@ -3111,14 +3111,21 @@
     function startOfWeek(d) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - x.getDay()); return x; } // Sunday
     function daysBetween(a, b) { return Math.round((b - a) / 86400000); }
 
-    // preset → [startDate, endDate] (inclusive, local Date objects)
+    // preset → [startDate, endDate] (inclusive, local Date objects).
+    // Windows MATCH the existing top Overview cards (renderOverviewCards) so the
+    // two "this week" / "this month" figures never disagree on screen:
+    //   • WEEK  = ROLLING last 7 days  (card: invoice_date >= today − 6)
+    //   • MONTH = CALENDAR month       (card: invoice_date's YYYY-MM === now)
+    // "This month"/"This quarter" are month/quarter-to-date; the top card has no
+    // upper bound but real invoice_date values never exceed today, so the sums
+    // are identical to the penny. Quarters follow the same calendar convention.
     function rangeFor(p) {
       const now = new Date();
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const q = Math.floor(today.getMonth() / 3);
       switch (p) {
-        case 'this_week':  return [startOfWeek(today), today];
-        case 'last_week':  { const s = addDays(startOfWeek(today), -7); return [s, addDays(s, 6)]; }
+        case 'this_week':  return [addDays(today, -6), today];            // rolling 7 days incl. today
+        case 'last_week':  return [addDays(today, -13), addDays(today, -7)]; // the prior rolling-7 block
         case 'this_month': return [new Date(today.getFullYear(), today.getMonth(), 1), today];
         case 'last_month': return [new Date(today.getFullYear(), today.getMonth() - 1, 1), new Date(today.getFullYear(), today.getMonth(), 0)];
         case 'this_quarter': return [new Date(today.getFullYear(), q * 3, 1), today];
@@ -3128,7 +3135,7 @@
           const t = parseYmd(customTo) || today;
           return f <= t ? [f, t] : [t, f];
         }
-        default: { const s = addDays(startOfWeek(today), -7); return [s, addDays(s, 6)]; }
+        default: return [addDays(today, -6), today];
       }
     }
     function currentRange() {
