@@ -1,9 +1,10 @@
 # How the Financial Pulse is wired
 
 > Doc: `/docs/wiring/financial-pulse.md`
-> Last updated: 2026-08-05 — verified vs commit `fcb739c`
+> Last updated: 2026-08-05 — verified vs commit `0d1f703`
 > Status: ✅ Verified vs the code shipped this session (`bookkeeping-board.html`) and
-> spot-checked against live rows via the anon REST API (read-only).
+> spot-checked against live rows via the anon REST API (read-only). §4 windows re-verified
+> against the top Overview cards to the penny (this-week $1,275.49/$354.85, this-month $0/$0).
 
 ## 0. In one line
 A read-only dashboard section on the Bookkeeping Board's **Overview** tab that shows
@@ -56,8 +57,20 @@ writes**, and it is **not** QuickBooks.
 
 ## 4. The date-range control
 - Presets: This week, Last week (**default**), This month, Last month, This quarter,
-  Last quarter, Custom (two date pickers). Weeks are **Sunday-start**; quarters are
-  calendar quarters. Custom parses the two `YYYY-MM-DD` inputs.
+  Last quarter, Custom (two date pickers).
+- **Windows MATCH the top Overview cards** (`renderOverviewCards`) so the two "this week" /
+  "this month" figures never disagree on screen:
+  - **Week = rolling last 7 days.** "This week" = `[today − 6 .. today]` (the same
+    `invoice_date >= today − 6` the top card uses — a rolling window that reaches back into
+    the prior month, **not** a Sunday-start calendar week). "Last week" = the prior 7-day
+    block, `[today − 13 .. today − 7]`.
+  - **Month / quarter = calendar, to-date.** "This month" = `[1st of this month .. today]`;
+    "This quarter" = `[1st of this quarter .. today]` (the top card matches on `YYYY-MM`; with
+    no future-dated invoices the sums are identical to the penny). "Last month" / "Last
+    quarter" = the full previous calendar month / quarter.
+  - **Custom** parses the two `YYYY-MM-DD` inputs (swapped if from > to).
+- The "Showing X – Y" subtitle reflects the **actual** window each preset produces (so
+  "This week" honestly shows e.g. *Jul 30 – Aug 5*, reaching into the prior month).
 - Changing the range **re-renders only the range-driven pieces** (Income scorecard, trend,
   income-vs-expenses, donut) from already-cached data — **no refetch**. The pipeline card
   and aging list never change with the range.
@@ -113,3 +126,9 @@ writes**, and it is **not** QuickBooks.
   aging list, all driven by an editable date range (pipeline + aging stay as-of-now).
   Additive only; no schema changes; expenses reuse the existing `countsAsFor` math so the
   numbers reconcile with the existing cards.
+- 2026-08-05 — Reworked the range presets to MATCH the top Overview cards: week is a
+  **rolling** last-7-days window (`[today−6 .. today]`, "last week" = the prior 7-day block),
+  month/quarter are **calendar** to-date. Previously the section used Sunday-start calendar
+  weeks, so its "this week" / "this month" disagreed with the top cards; now they reconcile
+  to the penny. Updated §4 to describe the shipped windows. `bookkeeping-board.html` +
+  this doc only.
