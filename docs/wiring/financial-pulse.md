@@ -1,7 +1,7 @@
 # How the Financial Pulse is wired
 
 > Doc: `/docs/wiring/financial-pulse.md`
-> Last updated: 2026-08-06 — verified vs commit `e28cbf5`
+> Last updated: 2026-08-06 — verified vs commit `8ea9dd6`
 > Status: ✅ Verified vs the code shipped to main (`bookkeeping-board.html`). §4 week
 > windows changed from rolling-7-day to **calendar Sun–Sat** weeks (top "THIS WEEK" card +
 > Financial Pulse "This week"/"Last week" presets, still matched to the penny). The income
