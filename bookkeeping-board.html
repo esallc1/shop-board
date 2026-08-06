@@ -327,6 +327,52 @@
   .fin-score.pipeline .fin-score-label { color: #1d4ed8; }
   .fin-score-value { font-size: 1.7rem; font-weight: 800; color: var(--text); line-height: 1.05; }
   .fin-score-sub { font-size: 0.72rem; color: var(--muted); margin-top: 5px; }
+  /* Income scorecard → clickable drill-down affordance */
+  .fin-score.income.clickable { cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; }
+  .fin-score.income.clickable:hover { box-shadow: 0 6px 18px rgba(16,185,129,0.18); transform: translateY(-2px); }
+  .fin-score.income.clickable:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+  .fin-score-hint { font-size: 0.68rem; font-weight: 800; color: #047857; margin-top: 8px; letter-spacing: 0.2px; }
+
+  /* Income drill-down modal */
+  .fin-drill-overlay {
+    position: fixed; inset: 0; z-index: 1200; background: rgba(15,23,42,0.55);
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .fin-drill {
+    background: var(--surface); border-radius: var(--radius); width: 100%; max-width: 760px;
+    max-height: 85vh; display: flex; flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.35); overflow: hidden;
+  }
+  .fin-drill-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    padding: 16px 18px; border-bottom: 1px solid var(--border);
+  }
+  .fin-drill-title { font-size: 0.95rem; font-weight: 800; color: var(--text); }
+  .fin-drill-sub { font-size: 0.76rem; color: var(--muted); font-weight: 600; margin-top: 3px; }
+  .fin-drill-close {
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--muted);
+    width: 30px; height: 30px; border-radius: 8px; font-size: 0.9rem; cursor: pointer; flex-shrink: 0;
+  }
+  .fin-drill-close:hover { color: var(--text); border-color: var(--accent); }
+  .fin-drill-body { padding: 6px 18px 18px; overflow-y: auto; }
+  .fin-drill-scroll { overflow-x: auto; }
+  .fin-drill-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+  .fin-drill-table th {
+    position: sticky; top: 0; background: var(--surface); text-align: left;
+    font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted);
+    font-weight: 700; padding: 8px 10px; border-bottom: 2px solid var(--border);
+  }
+  .fin-drill-table th.num, .fin-drill-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .fin-drill-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .fin-drill-po { font-weight: 800; color: var(--text); white-space: nowrap; }
+  .fin-drill-date { white-space: nowrap; color: var(--muted); }
+  .fin-drill-unknown { color: var(--muted); font-style: italic; }
+  .fin-drill-total td {
+    border-top: 2px solid var(--border); border-bottom: none;
+    font-weight: 800; color: var(--text); padding-top: 11px;
+  }
+  .fin-drill-reconcile.ok  { color: var(--green); font-weight: 800; }
+  .fin-drill-reconcile.bad { color: var(--red); font-weight: 800; }
   .fin-score-badge {
     font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;
     padding: 2px 7px; border-radius: 999px;
@@ -657,6 +703,21 @@
       <div class="fin-panel fin-aging-panel">
         <div class="fin-panel-title">Open ROs — follow-up list <span class="fin-panel-note">as of now · oldest first</span></div>
         <div class="fin-aging" id="finAging"></div>
+      </div>
+    </div>
+
+    <!-- Income drill-down modal — the paid-in-full ROs behind the Income
+         (realized) number for the selected range, for hand-keying into QuickBooks. -->
+    <div class="fin-drill-overlay" id="finDrillModal" style="display:none">
+      <div class="fin-drill" role="dialog" aria-modal="true" aria-label="Paid ROs for QuickBooks">
+        <div class="fin-drill-head">
+          <div>
+            <div class="fin-drill-title">💵 Income — paid ROs for QuickBooks entry</div>
+            <div class="fin-drill-sub" id="finDrillSub"></div>
+          </div>
+          <button type="button" class="fin-drill-close" id="finDrillClose" aria-label="Close">✕</button>
+        </div>
+        <div class="fin-drill-body" id="finDrillBody"></div>
       </div>
     </div>
 
@@ -2864,20 +2925,26 @@
   let returnedOpen = false;
 
   async function loadOverview() {
-    let unprocessedCount = 0, cores = [], processed = [], openROs = [], jobCats = [];
+    let unprocessedCount = 0, cores = [], processed = [], openROs = [], jobCats = [], payments = [];
     try {
-      const [countRes, coresRes, spendRes, openRes, catRes] = await Promise.all([
+      const [countRes, coresRes, spendRes, openRes, catRes, payRes] = await Promise.all([
         db.from('invoice_queue').select('id', { count: 'exact', head: true }).eq('status', 'unprocessed'),
         db.from('core_charges').select('*').order('charged_date', { ascending: true }),
-        // `po` added for the Financial Pulse donut (repair_invoice → job category).
+        // Processed invoices — EXPENSES only now (parts_vendor / shop_expense).
+        // Income no longer comes from here; see the ro_payments read below.
         db.from('invoice_queue').select('invoice_type,amount,invoice_date,po').eq('status', 'processed'),
         // Financial Pulse — open-RO pipeline snapshot (as of now, ignores the range).
         // Totals are computed client-side from ro_line_items to match the RO builder.
         db.from('repair_orders')
           .select('po,status,created_at,customers(name,tax_exempt),ro_line_items(quantity,unit_price,taxable)')
           .neq('status', 'closed').order('created_at', { ascending: true }),
-        // Category map for the income-breakdown donut (repair_invoice.po → job_category).
+        // Category map for the income-breakdown donut (RO.po → job_category).
         db.from('completed_jobs').select('po,job_category'),
+        // Financial Pulse INCOME — the Payments ledger. Each payment carries its
+        // RO (via the repair_order_id FK) so we can compute the true invoice
+        // total (ro_line_items + tax) and the customer, and gate on paid-in-full.
+        db.from('ro_payments')
+          .select('repair_order_id,amount,method,paid_at,po,repair_orders(po,status,customers(name,tax_exempt),ro_line_items(quantity,unit_price,taxable))'),
       ]);
       if (countRes.error) throw countRes.error;
       if (coresRes.error) throw coresRes.error;
@@ -2885,12 +2952,14 @@
       unprocessedCount = countRes.count || 0;
       cores = coresRes.data || [];
       processed = spendRes.data || [];
-      // Pipeline / donut reads are best-effort — a failure here must NOT break
-      // the rest of the Overview (cards, Core Bank, alert).
+      // Pipeline / donut / income reads are best-effort — a failure here must NOT
+      // break the rest of the Overview (cards, Core Bank, alert).
       if (openRes.error) console.warn('[Financial Pulse] open-RO load failed', openRes.error);
       else openROs = openRes.data || [];
       if (catRes.error) console.warn('[Financial Pulse] job-category load failed', catRes.error);
       else jobCats = catRes.data || [];
+      if (payRes.error) console.warn('[Financial Pulse] payments load failed', payRes.error);
+      else payments = payRes.data || [];
     } catch (err) {
       console.error('[Overview] load failed', err);
     }
@@ -2901,7 +2970,7 @@
     renderOverviewAlert(unprocessedCount, outstandingTotal, outstanding.length);
     renderOverviewCards(unprocessedCount, outstanding, outstandingTotal, processed);
     renderCoreBank(cores);
-    FinancialPulse.update({ processed, openROs, jobCats });
+    FinancialPulse.update({ processed, openROs, jobCats, payments });
   }
 
   function renderOverviewAlert(unprocessedCount, outstandingTotal, outstandingCount) {
@@ -3097,16 +3166,18 @@
   //    repair_invoice.po → completed_jobs.job_category (unmatched → "Other").
   // ══════════════════════════════════════════════════════════════
   const FinancialPulse = (function () {
-    const REPAIR_INVOICE = 'repair_invoice';
     const CAT_ORDER  = ['Rebuild', 'Gen Auto', 'Diag', 'Other'];
     const CAT_COLOR  = { 'Rebuild': '#5b5ef4', 'Gen Auto': '#10b981', 'Diag': '#f59e0b', 'Other': '#94a3b8' };
     const OLD_DAYS   = 14;   // open ROs at/over this age flagged in the aging list
 
-    let data = { processed: [], openROs: [], jobCats: [] };
+    let data = { processed: [], openROs: [], jobCats: [], payments: [] };
     let catByPo = {};
+    let paidIncome = [];            // one record per PAID-IN-FULL RO (see buildPaidIncome)
     let preset = 'last_week';       // default per spec
     let customFrom = '', customTo = '';
     let wired = false;
+    let drillOpen = false;          // income drill-down modal open?
+    let cur = { r: null, incRows: [], income: 0 };   // last render's range + income records
 
     // ── date helpers — LOCAL dates as 'YYYY-MM-DD' to match invoice_date ──
     function ymd(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
@@ -3163,9 +3234,56 @@
       return `${s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${e.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${yr}`;
     }
 
+    // ── INCOME (realized) — the Payments ledger, gated on paid-in-full ──
+    // Income is recognized for an RO only when it is fully paid off:
+    //   Σ(ro_payments.amount for the RO) >= ro_total − 0.005.
+    // The recognized amount is the RO's TRUE invoice total (ro_total), never the
+    // cash tendered, so any change / overpayment can never book as revenue
+    // (e.g. $200 tendered on a $192.75 invoice counts $192.75). Each paid RO is
+    // bucketed by the paid_at date (America/New_York) of its CLOSING (latest)
+    // payment. Legacy ALLDATA jobs have no ro_payments row, so they never appear.
+    function nyDate(ts) {
+      if (!ts) return null;
+      // 'en-CA' formats as YYYY-MM-DD; the tz option resolves the shop's date.
+      try { return new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); }
+      catch (e) { return ymd(new Date(ts)); }
+    }
+    function buildPaidIncome() {
+      const byRo = new Map();   // repair_order_id → { ro, pays: [] }
+      (data.payments || []).forEach(p => {
+        const ro = p.repair_orders;
+        const id = p.repair_order_id;
+        if (!ro || !id) return;                       // orphan payment — skip
+        if (!byRo.has(id)) byRo.set(id, { ro, pays: [] });
+        byRo.get(id).pays.push(p);
+      });
+      const out = [];
+      byRo.forEach(({ ro, pays }) => {
+        const total = roTotal(ro);                    // capped income amount
+        if (!(total > 0)) return;                     // no invoice value → nothing to recognize
+        const tendered = pays.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        if (tendered < total - 0.005) return;         // NOT paid in full → excluded (no partials/deposits)
+        const sorted = pays.slice().sort((a, b) => new Date(a.paid_at) - new Date(b.paid_at));
+        const closing = sorted[sorted.length - 1];    // the payment that closes it out
+        const po = ro.po || closing.po || '—';
+        let cat = catByPo[po];
+        if (!CAT_ORDER.includes(cat)) cat = 'Other';
+        out.push({
+          po,
+          customer: (ro.customers && ro.customers.name) || '—',
+          category: cat,
+          date: nyDate(closing.paid_at),              // 'YYYY-MM-DD' (NY) — the bucket date
+          amount: total,                              // true invoice total, change already excluded
+          methods: [...new Set(sorted.map(p => p.method).filter(Boolean))],
+        });
+      });
+      return out;
+    }
+
     // ── computations ──
+    // Income records (paid-in-full ROs) whose closing paid_at falls in the range.
     function incomeRows(r) {
-      return data.processed.filter(x => x.invoice_type === REPAIR_INVOICE && x.invoice_date && x.invoice_date >= r.fromStr && x.invoice_date <= r.toStr);
+      return paidIncome.filter(x => x.date && x.date >= r.fromStr && x.date <= r.toStr);
     }
     function sumAmt(rows) { return rows.reduce((s, x) => s + (Number(x.amount) || 0), 0); }
 
@@ -3207,7 +3325,7 @@
         if (!seen.has(k)) { seen.set(k, { key: k, label: labelOf(d), value: 0 }); order.push(seen.get(k)); }
       }
       incomeRows(r).forEach(x => {
-        const d = parseYmd(x.invoice_date); if (!d) return;
+        const d = parseYmd(x.date); if (!d) return;
         const b = seen.get(keyOf(d)); if (b) b.value += Number(x.amount) || 0;
       });
       return { buckets: order, gran };
@@ -3216,8 +3334,7 @@
     function incomeByCategory(r) {
       const acc = {};
       incomeRows(r).forEach(x => {
-        let cat = catByPo[x.po];
-        if (!CAT_ORDER.includes(cat)) cat = 'Other';
+        const cat = CAT_ORDER.includes(x.category) ? x.category : 'Other';
         acc[cat] = (acc[cat] || 0) + (Number(x.amount) || 0);
       });
       return CAT_ORDER.filter(c => acc[c] > 0).map(c => ({ name: c, value: acc[c], color: CAT_COLOR[c] }));
@@ -3298,13 +3415,18 @@
       document.getElementById('finCustom').style.display = preset === 'custom' ? 'flex' : 'none';
       document.getElementById('finRangeLabel').textContent = `Showing ${fmtRangeLabel(r.start, r.end)}`;
 
-      // scorecards
-      const invCount = incRows.length;
+      // remember what the Income card currently represents so the drill-down
+      // (opened on click, or refreshed while open) always matches the card.
+      cur = { r, incRows, income };
+
+      // scorecards — Income is clickable → drill-down of the paid ROs behind it.
+      const roCount = incRows.length;
       document.getElementById('finScorecards').innerHTML = `
-        <div class="fin-score income">
+        <div class="fin-score income clickable" role="button" tabindex="0" aria-haspopup="dialog" title="List the paid ROs behind this number">
           <div class="fin-score-label">💵 Income (realized)</div>
           <div class="fin-score-value">${fmtMoney(income)}</div>
-          <div class="fin-score-sub">${fmtRangeLabel(r.start, r.end)} · ${invCount} invoice${invCount === 1 ? '' : 's'}</div>
+          <div class="fin-score-sub">${fmtRangeLabel(r.start, r.end)} · ${roCount} paid RO${roCount === 1 ? '' : 's'}</div>
+          <div class="fin-score-hint">Tap to list paid ROs →</div>
         </div>
         <div class="fin-score pipeline">
           <div class="fin-score-label">🔮 Open ROs — future income <span class="fin-score-badge">as of now</span></div>
@@ -3339,6 +3461,67 @@
 
       // open-RO aging list (oldest first — data.openROs already asc by created_at)
       renderAging();
+
+      // Income card → drill-down. Re-attach each render (the node is recreated);
+      // if the drill is open, refresh it so a range change updates the list live.
+      // Always clickable — an empty range opens to an empty list + $0.00 total,
+      // so "total equals the card" holds for every range.
+      const incCard = document.querySelector('#finScorecards .fin-score.income');
+      if (incCard) {
+        incCard.addEventListener('click', openDrill);
+        incCard.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrill(); } });
+      }
+      if (drillOpen) renderDrill();
+    }
+
+    // ── Income drill-down — the paid-in-full ROs behind the Income (realized)
+    // number for the current range, for hand-keying into QuickBooks. Uses the
+    // SAME incomeRows(currentRange) the card uses, so the list and its total
+    // always reconcile to the scorecard. ──
+    function openDrill() {
+      drillOpen = true;
+      renderDrill();
+      const m = document.getElementById('finDrillModal');
+      if (m) m.style.display = 'flex';
+    }
+    function closeDrill() {
+      drillOpen = false;
+      const m = document.getElementById('finDrillModal');
+      if (m) m.style.display = 'none';
+    }
+    function renderDrill() {
+      const body = document.getElementById('finDrillBody');
+      if (!body || !cur.r) return;
+      const rows = cur.incRows.slice().sort((a, b) =>
+        (a.date || '').localeCompare(b.date || '') || (a.po || '').localeCompare(b.po || ''));
+      const total = sumAmt(rows);
+      const matches = Math.abs(total - cur.income) < 0.005;
+      document.getElementById('finDrillSub').textContent =
+        `${fmtRangeLabel(cur.r.start, cur.r.end)} · ${rows.length} paid RO${rows.length === 1 ? '' : 's'}`;
+      const trs = rows.length ? rows.map(x => {
+        const method = x.methods && x.methods.length ? x.methods.join(' + ') : '—';
+        const methodCls = x.methods && x.methods.length ? '' : 'fin-drill-unknown';
+        return `<tr>
+          <td class="fin-drill-po">${esc(x.po || '—')}</td>
+          <td>${esc(x.customer || '—')}</td>
+          <td class="fin-drill-date">${esc(fmtDrillDate(x.date))}</td>
+          <td class="num">${fmtMoney(x.amount)}</td>
+          <td class="${methodCls}">${esc(method)}</td>
+        </tr>`;
+      }).join('')
+        : `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:22px">No paid ROs in this range.</td></tr>`;
+      body.innerHTML = `<div class="fin-drill-scroll"><table class="fin-drill-table">
+        <thead><tr><th>RO #</th><th>Customer</th><th>Date paid</th><th class="num">Amount</th><th>Paid</th></tr></thead>
+        <tbody>${trs}</tbody>
+        <tfoot><tr class="fin-drill-total">
+          <td colspan="3">Total — ${rows.length} paid RO${rows.length === 1 ? '' : 's'}</td>
+          <td class="num">${fmtMoney(total)}</td>
+          <td class="fin-drill-reconcile ${matches ? 'ok' : 'bad'}">${matches ? '✓ matches card' : '⚠ mismatch'}</td>
+        </tr></tfoot>
+      </table></div>`;
+    }
+    function fmtDrillDate(s) {
+      const d = parseYmd(s); return d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : (s || '—');
     }
 
     function renderAging() {
@@ -3372,12 +3555,19 @@
       const onCustom = () => { customFrom = from.value; customTo = to.value; preset = 'custom'; render(); };
       from.addEventListener('change', onCustom);
       to.addEventListener('change', onCustom);
+      // income drill-down modal — close on ✕, backdrop click, or Esc
+      const modal = document.getElementById('finDrillModal');
+      const closeBtn = document.getElementById('finDrillClose');
+      if (closeBtn) closeBtn.addEventListener('click', closeDrill);
+      if (modal) modal.addEventListener('click', e => { if (e.target === modal) closeDrill(); });
+      document.addEventListener('keydown', e => { if (e.key === 'Escape' && drillOpen) closeDrill(); });
     }
 
     function update(next) {
-      data = { processed: next.processed || [], openROs: next.openROs || [], jobCats: next.jobCats || [] };
+      data = { processed: next.processed || [], openROs: next.openROs || [], jobCats: next.jobCats || [], payments: next.payments || [] };
       catByPo = {};
       data.jobCats.forEach(j => { if (j.po && !(j.po in catByPo) && j.job_category) catByPo[j.po] = j.job_category; });
+      paidIncome = buildPaidIncome();   // rebuild the paid-in-full income records (needs catByPo)
       wire();
       render();
     }
