@@ -1454,6 +1454,23 @@
                 <select id="cdRoStatusFloor"></select>
                 <span id="cdRoStatusHint" style="font-size:0.72rem;color:var(--muted)"></span>
               </div>
+              <!-- BOOK HOURS — a PAY field (tech flat-rate), NOT a price. Never
+                   enters the money math; write-through mirrors onto the floor
+                   row's flag_hours. Three distinct states: a number (captured),
+                   N/A (no labor), or blank (not captured — blocks leaving
+                   Estimate). Rebuilds auto-fill from the shop-set
+                   rebuild_book_hours table (resolve-and-store; editable after). -->
+              <div class="intake-field" id="cdRoBookHoursField">
+                <label>Book Hours <span style="font-weight:600;color:var(--muted);font-size:0.72rem">· tech pay — not the price</span></label>
+                <select id="cdRoRebuildType" style="margin-bottom:6px"><option value="">— Not a rebuild —</option></select>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <input type="number" id="cdRoBookHours" min="0" step="0.5" placeholder="hrs" style="flex:0 0 90px">
+                  <label style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--muted);white-space:nowrap">
+                    <input type="checkbox" id="cdRoBookHoursNA"> N/A (no labor)
+                  </label>
+                </div>
+                <span id="cdRoBookHoursHint" style="font-size:0.72rem;color:var(--muted)"></span>
+              </div>
             </div>
           </div>
 
@@ -1945,7 +1962,7 @@
     }
 
     grid.innerHTML = cdCards + all.map(job => `
-      <div class="job-card" data-id="${esc(String(job.id))}" data-table="${esc(job._table)}">
+      <div class="job-card" data-id="${esc(String(job.id))}" data-table="${esc(job._table)}" data-po="${esc(String(job.po || ''))}">
         <div class="job-card-header">
           <div>
             <div class="job-vehicle">${esc(job.vehicle)} — PO #${esc(job.po)}</div>
@@ -1973,6 +1990,34 @@
         </div>
         <div class="flag-hours-hint" style="display:none;color:var(--danger,#c0392b);font-size:12px;padding:0 16px 8px;">Enter Flag Hours before approving.</div>
       </div>`).join('');
+
+    // Pre-fill each card's Flag Hours from the RO's captured book_hours (the
+    // pay number set on the estimate) so the advisor CONFIRMS rather than
+    // re-types. Fire-and-forget; degrades silently pre-migration.
+    prefillFlagHoursFromBookHours(all);
+  }
+
+  // Look up book_hours per po and prefill the matching queue card's Flag Hours
+  // input (enabling Approve via the existing >0 gate). N/A / blank stay blank.
+  async function prefillFlagHoursFromBookHours(jobs) {
+    const pos = [...new Set((jobs || []).map(j => j.po).filter(Boolean).map(String))];
+    if (!pos.length) return;
+    let rows = [];
+    try {
+      const { data, error } = await db.from('repair_orders')
+        .select('po, book_hours, book_hours_na').in('po', pos);
+      if (error) throw error;
+      rows = data || [];
+    } catch (e) { return; }   // pre-migration / error → leave inputs blank
+    const byPo = {};
+    rows.forEach(r => { byPo[String(r.po)] = r; });
+    document.querySelectorAll('#queue-grid .job-card[data-po]').forEach(card => {
+      const r = byPo[card.dataset.po];
+      const input = card.querySelector('.flag-hours-input');
+      if (!input || !r || r.book_hours == null) return;
+      input.value = r.book_hours;
+      onFlagHoursInput(input);   // enables Approve, mirrors the >0 gate
+    });
   }
 
   function onFlagHoursInput(input) {
@@ -3636,6 +3681,8 @@
     let allRos = [];          // cached list rows (with embeds) for client-side search
     let declinedColsAvailable = true;  // false until the declined_* migration is run (resilient load)
     let currentRo = null;     // the open RO (with embedded customer/vehicle)
+    let rebuildHoursList = [];    // active rebuild_book_hours rows (loaded per RO open) for the rebuild-type selector
+    let currentJobCategory = null; // the open RO's floor job_category — drives the "Rebuild requires a type" gate
     let currentLines = [];    // ro_line_items for the open RO
     let currentPayments = [];  // ro_payments for the open RO (Phase 5)
 
@@ -4005,6 +4052,18 @@
       if (!ro || !STAGES.includes(nextStage) || nextStage === 'closed') return;
       if (ro.status === nextStage) return;
       const prev = ro.status;
+      // PAY-DATA GATE — leaving Estimate needs book hours captured (or N/A).
+      // Same gate as the RO-detail Stage select, so a drag can't bypass it.
+      if (prev === 'estimate' && nextStage !== 'estimate') {
+        const g = await bookHoursGateForAdvance(ro.id, ro.po || ro.ro_number);
+        if (!g.ok) {
+          renderKanban();   // snap the dragged card back to Estimate
+          alert(g.reason === 'rebuild'
+            ? 'RO #' + (ro.po || ro.ro_number) + ' is tagged Rebuild — open it and pick a Rebuild type (it sets the standard book hours) before moving it out of Estimate.'
+            : 'RO #' + (ro.po || ro.ro_number) + ' needs Book Hours before leaving Estimate. Open it to enter the hours (or tick “N/A — no labor”). Book hours are the tech-pay number, separate from the customer price.');
+          return;
+        }
+      }
       ro.status = nextStage;                 // optimistic
       renderKanban();
       const { error } = await db.from('repair_orders').update({ status: nextStage }).eq('id', ro.id);
@@ -4443,6 +4502,8 @@
       // Work-status dropdown — mirror of the shop-floor Status dropdown. Same
       // floor-row-by-po rules; disabled on pickup (no status column) or off-floor.
       await populateStatusFloor();
+      // Book Hours (PAY field) — capture control + rebuild auto-fill options.
+      await populateBookHours();
     }
 
     // Resolved floor row for the open RO's work-status dropdown (null = off floor).
@@ -4486,6 +4547,87 @@
           ? 'Ready for pickup — status is set by moving the car off pickup.'
           : 'Check the car in first to set a work status.';
       }
+    }
+
+    // ── Book Hours (PAY field) — capture + rebuild auto-fill ──────────────
+    // book_hours is the tech-pay number, DECOUPLED from the line-item price
+    // (see docs/wiring/flat-rate-hours.md §8). Three states kept distinct:
+    // a number (captured), N/A (book_hours_na=true, no labor), or blank (not
+    // captured). Rebuilds RESOLVE-AND-STORE the shop's standard hours from
+    // rebuild_book_hours ONTO the RO — a default copied at capture time, never
+    // a live lookup at read/report time. Everything here degrades quietly
+    // pre-migration (missing columns / missing table).
+    async function loadRebuildHoursList() {
+      try {
+        const { data, error } = await db.from('rebuild_book_hours')
+          .select('transmission_code, label, book_hours, active').eq('active', true)
+          .order('transmission_code');
+        if (error) throw error;
+        rebuildHoursList = data || [];
+      } catch (e) {
+        rebuildHoursList = [];   // table missing (pre-migration) → typed hours still work
+        console.warn('[CdRO] rebuild_book_hours not loaded (pre-migration is fine):', e.message || e);
+      }
+    }
+
+    // Light floor read (by po) for job_category ONLY — the "Rebuild" tag lives on
+    // the floor row, not repair_orders. Null if off-floor / pre-migration.
+    async function loadJobCategory(po) {
+      const key = String(po == null ? '' : po);
+      if (!key) return null;
+      for (const t of ['shopboard_parking', 'shopboard_lifts', 'shopboard_pickup']) {
+        try {
+          const { data, error } = await db.from(t).select('job_category').eq('po', key).limit(1);
+          if (error) continue;
+          if (data && data.length) return data[0].job_category || null;
+        } catch (e) { /* try next table */ }
+      }
+      return null;
+    }
+
+    function isRebuildTagged() { return (currentJobCategory || '').trim().toLowerCase() === 'rebuild'; }
+    function bookHoursCaptured() {
+      return !!(currentRo && (currentRo.book_hours != null || currentRo.book_hours_na === true));
+    }
+    function paintBookHoursHint() {
+      const hint = $('cdRoBookHoursHint');
+      if (!hint) return;
+      if (isRebuildTagged() && !(currentRo && currentRo.rebuild_type)) {
+        hint.textContent = 'Rebuild — pick a rebuild type to set the standard hours.';
+        hint.style.color = 'var(--danger, #c0392b)';
+      } else if (!bookHoursCaptured()) {
+        hint.textContent = 'Enter book hours (or tick N/A) before leaving Estimate.';
+        hint.style.color = 'var(--muted)';
+      } else {
+        hint.textContent = (currentRo && currentRo.book_hours_na) ? 'N/A — no labor on this RO.' : '';
+        hint.style.color = 'var(--muted)';
+      }
+    }
+
+    async function populateBookHours() {
+      const numEl = $('cdRoBookHours'), naEl = $('cdRoBookHoursNA'), selEl = $('cdRoRebuildType');
+      if (!numEl || !naEl || !selEl) return;
+      await loadRebuildHoursList();
+      // rebuild-type options: active codes + the stored one (in case it was since deactivated)
+      const stored = currentRo.rebuild_type || '';
+      const codes = rebuildHoursList.map(r => r.transmission_code);
+      if (stored && !codes.includes(stored)) codes.push(stored);
+      selEl.innerHTML = '<option value="">— Not a rebuild —</option>';
+      codes.forEach(code => {
+        const row = rebuildHoursList.find(r => r.transmission_code === code);
+        const opt = document.createElement('option');
+        opt.value = code;
+        opt.textContent = (row && row.label) ? (code + ' — ' + row.label) : code;
+        if (code === stored) opt.selected = true;
+        selEl.appendChild(opt);
+      });
+      // hydrate the three-way state from the stored RO
+      naEl.checked = !!currentRo.book_hours_na;
+      numEl.value = currentRo.book_hours != null ? currentRo.book_hours : '';
+      numEl.disabled = naEl.checked;
+      // floor job_category → drives the Rebuild-requires-a-type requirement
+      currentJobCategory = await loadJobCategory(currentRo.po || currentRo.ro_number);
+      paintBookHoursHint();
     }
 
     // Resolved floor row for the open RO's warranty toggle (null = not on floor).
@@ -4661,6 +4803,41 @@
       const { error } = await db.from(floor.table).update({ status: statusValue }).eq('id', floor.id);
       if (error) return { ok: false, error };
       return { ok: true, table: floor.table, id: floor.id, status: statusValue };
+    }
+
+    // ── Book-hours floor mirror ───────────────────────────────────────────
+    // Write-through mirror: book_hours (repair_orders, the source of truth) →
+    // the floor row's EXISTING flag_hours column, by po. A number when captured;
+    // NULL for blank or N/A. Never creates a floor row, never writes the pickup
+    // zone, degrades quietly off-floor / pre-migration. This is why no new floor
+    // column is needed and the pickup archive keeps working unchanged.
+    async function mirrorBookHoursToFloor(po, hours) {
+      let floor;
+      try { floor = await findStatusFloorRow(po); } catch (e) { return; }
+      if (!floor || floor.isPickup) return;
+      const { error } = await db.from(floor.table).update({ flag_hours: hours }).eq('id', floor.id);
+      if (error && !isMissingColumn(error)) console.warn('[CdRO] book-hours floor mirror failed', error);
+    }
+
+    // ── PAY-DATA GATE for advancing a job OUT of Estimate ─────────────────
+    // Shared by the RO-detail Stage select AND the kanban drag, so neither can
+    // bypass the other. Book hours must be CAPTURED — a number OR explicit N/A;
+    // a Rebuild-tagged job must also have a rebuild_type chosen (so standard
+    // hours were resolved). Fetches fresh so it's correct regardless of caller
+    // cache; returns { ok:true } pre-migration so it never blocks before the
+    // book-hours columns exist. NEVER touches the customer price.
+    async function bookHoursGateForAdvance(roId, po) {
+      let bh = null, na = false, rt = null;
+      try {
+        const { data, error } = await db.from('repair_orders')
+          .select('book_hours, book_hours_na, rebuild_type').eq('id', roId).maybeSingle();
+        if (error) { if (isMissingColumn(error)) return { ok: true }; }   // pre-migration → don't block
+        else if (data) { bh = data.book_hours; na = !!data.book_hours_na; rt = data.rebuild_type || null; }
+      } catch (e) { return { ok: true }; }   // never block on an unexpected read error
+      const cat = await loadJobCategory(po);
+      if ((cat || '').trim().toLowerCase() === 'rebuild' && !rt) return { ok: false, reason: 'rebuild' };
+      if (bh == null && na !== true) return { ok: false, reason: 'blank' };
+      return { ok: true };
     }
 
     async function updateRoField(field, value) {
@@ -5111,6 +5288,25 @@
         }
       }
 
+      // BOOK-HOURS GATE — moving OUT of Estimate (approving the job into a real
+      // RO / invoice / close) requires the pay-side book hours to be CAPTURED:
+      // a number, or an explicit N/A. Blank is blocked. A Rebuild-tagged job
+      // must also have a rebuild_type chosen. This is the pay-data choke point;
+      // it never touches the customer price. Runs BEFORE the optimistic update.
+      if (prev === 'estimate' && next !== 'estimate') {
+        const g = await bookHoursGateForAdvance(currentRo.id, currentRo.po || currentRo.ro_number);
+        if (!g.ok) {
+          if (g.reason === 'rebuild') {
+            alert('This job is tagged Rebuild — pick a Rebuild type (it sets the standard book hours) before moving it out of Estimate.');
+          } else {
+            alert('Enter Book Hours before moving this RO out of Estimate.\n\nBook hours are the tech-pay number (separate from the customer price). If this RO has no labor, tick “N/A — no labor”.');
+          }
+          const sel = $('cdRoStage'); if (sel) sel.value = STAGES.includes(currentRo.status) ? currentRo.status : 'estimate';
+          const f = $('cdRoBookHoursField'); if (f) f.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          return;
+        }
+      }
+
       // optimistic local update so the UI feels instant
       currentRo.status = next;
       renderHeader();
@@ -5195,6 +5391,10 @@
         work: ro.complaint || null,
         notes: ro.advisory_notes || null,
         assigned_tech: ro.technician || null,
+        // PAY hours → the archive's flag_hours (the report source). Book hours
+        // is the source of truth on the RO; N/A or blank archive as NULL. The
+        // pickup-archive path already copies flag_hours via the floor mirror.
+        flag_hours: (ro.book_hours != null ? ro.book_hours : null),
         arrival_date: ro.created_at ? ro.created_at.slice(0, 10) : null,
         status: 'closed',
         labor_subtotal: laborSub,
@@ -5689,6 +5889,54 @@
         return;
       }
       if (currentStatusFloor) currentStatusFloor.status = value;   // keep cache in sync
+    });
+    // ── Book Hours (PAY field) wiring — persists to repair_orders + mirrors to
+    // the floor flag_hours. NEVER touches ro_line_items / the money math.
+    async function saveBookHours(hours, na) {
+      currentRo.book_hours = hours;
+      currentRo.book_hours_na = na;
+      const { error } = await db.from('repair_orders')
+        .update({ book_hours: hours, book_hours_na: na }).eq('id', currentRo.id);
+      if (error && !isMissingColumn(error)) console.error('[CdRO] book_hours save failed', error);
+      else if (error) console.warn('[CdRO] book_hours not saved — run the book-hours migration first.');
+      await mirrorBookHoursToFloor(currentRo.po || currentRo.ro_number, na ? null : hours);
+      paintBookHoursHint();
+    }
+    function readBookHoursInput() {
+      const v = parseFloat($('cdRoBookHours').value);
+      return (Number.isFinite(v) && v >= 0) ? v : null;
+    }
+    $('cdRoBookHours').addEventListener('change', () => {
+      if (!currentRo) return;
+      $('cdRoBookHoursNA').checked = false;   // a typed number clears N/A
+      $('cdRoBookHours').disabled = false;
+      saveBookHours(readBookHoursInput(), false);
+    });
+    $('cdRoBookHoursNA').addEventListener('change', () => {
+      if (!currentRo) return;
+      const na = $('cdRoBookHoursNA').checked;
+      $('cdRoBookHours').disabled = na;
+      if (na) $('cdRoBookHours').value = '';
+      saveBookHours(na ? null : readBookHoursInput(), na);
+    });
+    // Rebuild type = RESOLVE-AND-STORE: picking a type copies that row's standard
+    // hours onto the RO (advisor may then override the number).
+    $('cdRoRebuildType').addEventListener('change', async () => {
+      if (!currentRo) return;
+      const code = $('cdRoRebuildType').value || null;
+      currentRo.rebuild_type = code;
+      const { error } = await db.from('repair_orders').update({ rebuild_type: code }).eq('id', currentRo.id);
+      if (error && !isMissingColumn(error)) console.error('[CdRO] rebuild_type save failed', error);
+      if (code) {
+        const row = rebuildHoursList.find(r => r.transmission_code === code);
+        if (row && row.book_hours != null) {
+          $('cdRoBookHoursNA').checked = false;
+          $('cdRoBookHours').disabled = false;
+          $('cdRoBookHours').value = row.book_hours;
+          await saveBookHours(Number(row.book_hours), false);
+        }
+      }
+      paintBookHoursHint();
     });
     $('cdRoComplaint').addEventListener('change', () => updateRoField('complaint', $('cdRoComplaint').value.trim() || null));
     $('cdRoWorkDescription').addEventListener('change', () => updateRoField('work_description', $('cdRoWorkDescription').value.trim() || null));
