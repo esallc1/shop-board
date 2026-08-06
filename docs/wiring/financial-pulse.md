@@ -152,6 +152,41 @@ ledger — **it never writes**, and it is **not** QuickBooks.
   payments link by `repair_order_id`, so a duplicated customer only risks a name label, never
   a doubled amount.
 
+## 8. Clover vs board reconciliation (month-end)
+> **reconciliation model — example verified 2026-08-06 against Clover Sales Overview.**
+> The dollar figures below are transcribed verbatim from the owner's Clover Sales Overview
+> screenshots; they are NOT derived from or checked against the database.
+
+Clover and the board answer **two different questions on purpose** — they are meant to differ,
+and the difference is the month-end reconciliation, not a bug to fix.
+
+- **Clover = money COLLECTED at the terminal.** Cash **and** card, and it **includes
+  deposits / partial payments on open (not-yet-closed) ROs**.
+- **Board "Income (realized)" = recognized REVENUE only** — paid-in-full / closed ROs, capped
+  at the RO invoice total, bucketed by `paid_at` (see §2). **Deposits on open jobs are NOT
+  income yet** — they sit in the **"Open ROs — future income" pipeline** (§3) until the RO
+  closes.
+- **The bridge:** for any day/week,
+  `(Clover total collected, cash+card) − (board income for the same window)` should equal the
+  **deposits / partial payments made on ROs that haven't closed yet**.
+
+### Worked example — Tuesday Aug 4, 2026
+- **Clover collected $12,313.21** → Cash **$5,879.85** (1 txn) + Card **$6,433.36**
+  (3 txns: MasterCard **$4,060.30**, Visa **$2,373.06**).
+- **Board income $6,252.91** → #5511 Khaled cash **$5,879.85** + #6022 Les Cross card
+  **$373.06** (the two closed jobs).
+- **Gap = $6,060.30 in card = deposits on open jobs:** the ~$4,060 MasterCard engine-swap
+  deposit + a $2,000 open-job card payment. **Cash matched to the penny.**
+
+### Nuance to remember
+- **Clover is the source of truth for the actual amount collected.** The shop app's
+  `ro_payments` may hold a **rounded / tendered** figure (e.g. #5511 recorded **$5,880** in-app
+  vs Clover's exact **$5,879.85**). The **income cap at the invoice total absorbs this**, so
+  recognized revenue stays correct.
+- **Takeaway:** this **confirms the design** (income = paid off + closed); it is **not a
+  discrepancy to fix**. A true monthly reconciliation compares **total collected vs recognized
+  income**, with **open-job deposits as the bridge**.
+
 ## Known gaps & open questions (as of 2026-08-06)
 - **Income is CrisData-only, by design.** `ro_payments` only exists for in-app ROs, and the
   team started recording payments in-app the week of 2026-08-02. **Weeks before that read
