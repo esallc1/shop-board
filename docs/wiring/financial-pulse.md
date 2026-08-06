@@ -1,7 +1,7 @@
 # How the Financial Pulse is wired
 
 > Doc: `/docs/wiring/financial-pulse.md`
-> Last updated: 2026-08-06 — verified vs commit `PENDING_HASH`
+> Last updated: 2026-08-06 — verified vs commit `0168264`
 > Status: ✅ Verified vs the code on branch `feat/bookkeeping-income-from-payments`
 > (`bookkeeping-board.html`). **Realized income was repointed from `invoice_queue` to the
 > `ro_payments` ledger** (paid-in-full gate, capped at the true invoice total, bucketed by
