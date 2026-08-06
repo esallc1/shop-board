@@ -5442,7 +5442,10 @@
       <span>Contact: ______________________</span>
       <span>Authorized by: ______________________</span>
     </div>
-    <div class="sig">X — Customer signature</div>
+    <div class="sigblock">
+      <div class="sigline"></div>
+      <div class="siglabel">X — Customer signature</div>
+    </div>
   </div>`;
 
       const receiptBody = `
@@ -5491,10 +5494,16 @@
   .totals table { width: 100%; border-collapse: collapse; }
   .totals td { padding: 2px 5px; } .totals tr:last-child td { border-top: 2px solid #111; font-weight: 800; font-size: 12px; }
   .foot-note { font-size: 8px; color: #777; margin-top: 3px; }
-  .auth { border: 1px solid #bbb; border-radius: 4px; padding: 8px; margin-top: 10px; font-size: 9px; }
+  .auth { border: 1px solid #bbb; border-radius: 4px; padding: 8px; margin-top: 10px; font-size: 9px; break-inside: avoid; page-break-inside: avoid; }
   .auth .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: baseline; }
   .auth .box { border: 1px solid #666; width: 10px; height: 10px; display: inline-block; margin-right: 3px; vertical-align: middle; }
-  .sig { margin-top: 10px; border-top: 1px solid #111; width: 260px; padding-top: 2px; }
+  /* Customer signature — its own full-width row with a genuinely tall signing
+     area (physical inches so the height holds in the actual Print / Save-PDF
+     output, not just on screen); the "X — Customer signature" label sits
+     beneath the line. break-inside:avoid keeps the block off a second page. */
+  .sigblock { margin-top: 16px; width: 100%; break-inside: avoid; page-break-inside: avoid; }
+  .sigline { height: 0.6in; border-bottom: 1px solid #111; }
+  .siglabel { margin-top: 3px; font-size: 9px; color: #333; }
   .legal { font-size: 7px; color: #555; line-height: 1.3; margin-top: 10px; border-top: 1px solid #ccc; padding-top: 5px; }
   .mv { font-size: 8px; color: #333; margin-top: 3px; font-weight: 700; }
 </style></head><body onload="window.focus();window.print();">
