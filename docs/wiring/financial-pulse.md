@@ -1,10 +1,11 @@
 # How the Financial Pulse is wired
 
 > Doc: `/docs/wiring/financial-pulse.md`
-> Last updated: 2026-08-05 — verified vs commit `0d1f703`
-> Status: ✅ Verified vs the code shipped this session (`bookkeeping-board.html`) and
-> spot-checked against live rows via the anon REST API (read-only). §4 windows re-verified
-> against the top Overview cards to the penny (this-week $1,275.49/$354.85, this-month $0/$0).
+> Last updated: 2026-08-06 — verified vs commit `e28cbf5`
+> Status: ✅ Verified vs the code shipped to main (`bookkeeping-board.html`). §4 week
+> windows changed from rolling-7-day to **calendar Sun–Sat** weeks (top "THIS WEEK" card +
+> Financial Pulse "This week"/"Last week" presets, still matched to the penny). The income
+> drill-down is NOT on main yet — it stays on its own branch pending the ro_payments rebuild.
 
 ## 0. In one line
 A read-only dashboard section on the Bookkeeping Board's **Overview** tab that shows
@@ -60,17 +61,20 @@ writes**, and it is **not** QuickBooks.
   Last quarter, Custom (two date pickers).
 - **Windows MATCH the top Overview cards** (`renderOverviewCards`) so the two "this week" /
   "this month" figures never disagree on screen:
-  - **Week = rolling last 7 days.** "This week" = `[today − 6 .. today]` (the same
-    `invoice_date >= today − 6` the top card uses — a rolling window that reaches back into
-    the prior month, **not** a Sunday-start calendar week). "Last week" = the prior 7-day
-    block, `[today − 13 .. today − 7]`.
+  - **Week = calendar week, Sunday → Saturday.** "This week" = the calendar week that
+    **contains today**, `[Sunday .. Saturday]`, and is **not clipped to today** — e.g. viewed
+    on Thu Aug 6 it is `Sun Aug 2 .. Sat Aug 8` no matter which weekday it's opened on. "Last
+    week" = the prior calendar week, `[Sunday .. Saturday]` (e.g. `Sun Jul 26 .. Sat Aug 1`).
+    The top "THIS WEEK" card uses the **same** `[Sunday .. Saturday]` window (via
+    `weekStart`/`weekEnd` in `renderOverviewCards`), so the card and the Pulse "This week"
+    Parts/Vendor + Shop Expenses agree to the penny.
   - **Month / quarter = calendar, to-date.** "This month" = `[1st of this month .. today]`;
     "This quarter" = `[1st of this quarter .. today]` (the top card matches on `YYYY-MM`; with
     no future-dated invoices the sums are identical to the penny). "Last month" / "Last
     quarter" = the full previous calendar month / quarter.
   - **Custom** parses the two `YYYY-MM-DD` inputs (swapped if from > to).
 - The "Showing X – Y" subtitle reflects the **actual** window each preset produces (so
-  "This week" honestly shows e.g. *Jul 30 – Aug 5*, reaching into the prior month).
+  "This week" shows the full calendar week, e.g. *Aug 2 – Aug 8*, including days after today).
 - Changing the range **re-renders only the range-driven pieces** (Income scorecard, trend,
   income-vs-expenses, donut) from already-cached data — **no refetch**. The pipeline card
   and aging list never change with the range.
@@ -120,6 +124,12 @@ writes**, and it is **not** QuickBooks.
   unreliable), `settings.md` (`shop_settings` / `BoardSettings`).
 
 ## Session change log
+- 2026-08-06 — Reverted the week presets from rolling-7-day back to **calendar Sunday–Saturday**
+  weeks, in BOTH the top "THIS WEEK" card (`renderOverviewCards`) and the Financial Pulse
+  "This week"/"Last week" presets (`rangeFor`). "This week" = the calendar week containing
+  today, `[Sunday .. Saturday]`, not clipped to today; "Last week" = the prior calendar week.
+  Month/quarter presets unchanged. Both windows still matched to the penny. §4 reworded.
+  `bookkeeping-board.html` + this doc only.
 - 2026-08-05 — Created with the Financial Pulse section on the Bookkeeping Board Overview
   tab. Realized income from `repair_invoice` rows (bucketed by `invoice_date`), open-RO
   pipeline computed from `ro_line_items`, trend / income-vs-expenses / category donut /

@@ -2925,13 +2925,17 @@
   }
 
   function renderOverviewCards(unprocessedCount, outstanding, outstandingTotal, processed) {
-    // "This week" = last 7 days by invoice_date (today + prior 6).
-    // "This month" = current calendar month by invoice_date. Local dates
-    // throughout to match how the app stamps invoice_date.
+    // "This week" = the CALENDAR week containing today, Sunday → Saturday
+    // (not clipped to today). "This month" = current calendar month by
+    // invoice_date. Local dates throughout to match how the app stamps
+    // invoice_date. This [Sunday .. Saturday] window is the same one the
+    // Financial Pulse "This week" preset uses, so the two never disagree.
     const now = new Date();
-    const cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay()); // Sunday 00:00
+    const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);          // Saturday
     const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const inWeek = d => { if (!d) return false; const dt = new Date(d + 'T00:00:00'); return dt >= cutoff; };
+    const inWeek = d => { if (!d) return false; const dt = new Date(d + 'T00:00:00'); return dt >= weekStart && dt <= weekEnd; };
     const inMonth = d => !!d && d.slice(0, 7) === ym;
 
     // Spend math respects each type's counts_as (from invoice_types):
@@ -3114,7 +3118,10 @@
     // preset → [startDate, endDate] (inclusive, local Date objects).
     // Windows MATCH the existing top Overview cards (renderOverviewCards) so the
     // two "this week" / "this month" figures never disagree on screen:
-    //   • WEEK  = ROLLING last 7 days  (card: invoice_date >= today − 6)
+    //   • WEEK  = CALENDAR week, Sunday 00:00 → Saturday 23:59 (card: same
+    //     [Sunday .. Saturday] window). "This week" is the calendar week that
+    //     CONTAINS today and does NOT clip its end to today — e.g. viewed on
+    //     Thu Aug 6 it is Sun Aug 2 – Sat Aug 8.
     //   • MONTH = CALENDAR month       (card: invoice_date's YYYY-MM === now)
     // "This month"/"This quarter" are month/quarter-to-date; the top card has no
     // upper bound but real invoice_date values never exceed today, so the sums
@@ -3124,8 +3131,8 @@
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const q = Math.floor(today.getMonth() / 3);
       switch (p) {
-        case 'this_week':  return [addDays(today, -6), today];            // rolling 7 days incl. today
-        case 'last_week':  return [addDays(today, -13), addDays(today, -7)]; // the prior rolling-7 block
+        case 'this_week':  { const s = startOfWeek(today); return [s, addDays(s, 6)]; }        // Sun–Sat calendar week containing today
+        case 'last_week':  { const s = addDays(startOfWeek(today), -7); return [s, addDays(s, 6)]; } // the prior Sun–Sat calendar week
         case 'this_month': return [new Date(today.getFullYear(), today.getMonth(), 1), today];
         case 'last_month': return [new Date(today.getFullYear(), today.getMonth() - 1, 1), new Date(today.getFullYear(), today.getMonth(), 0)];
         case 'this_quarter': return [new Date(today.getFullYear(), q * 3, 1), today];
