@@ -1,13 +1,13 @@
 # How Packages (unit prices + the Package RO line) is wired
 
 > Doc: `/docs/wiring/packages.md`
-> Last updated: 2026-08-07 — verified vs commit `0deddaa`
-> Status: ✅ BUILT this session, verified vs code. Behind an owner switch
-> (`feature_packages`), **default OFF**. Migration `20260807_packages.sql` is
-> written but **NOT yet applied** (Cris runs it by hand), so the feature reads
-> OFF everywhere until then. Full ON behavior (the Package line dropdown, price/
-> hours resolve, print) is verified live after the migration; default-OFF safety,
-> the owner toggle, and the settings gating were verified in-browser this session.
+> Last updated: 2026-08-07 — verified vs commit `01d9f63`
+> Status: ✅ BUILT, behind an owner switch (`feature_packages`, default OFF).
+> Migration `20260807_packages.sql` has since been **applied** and the switch turned
+> **ON** — confirmed live 2026-08-07: `feature_packages` true, the `package` line
+> type present, and **50 real units across 8 groups** resolving their set price in
+> the RO line pop-up. (The default-OFF safety + owner gating were verified when it
+> was still off in prior sessions.)
 
 ## 0. In one line
 A shop-set list of **package units** (e.g. `6L80` = $4950 set price, 6.5 default
@@ -58,28 +58,26 @@ default OFF — when off, the RO builder and settings look exactly like before.
   is simply empty, never an error).
 
 ## 3. RO builder — the Package line type
+> As of 2026-08-07 the RO line editor is an **Add/Edit-Line pop-up** (see
+> [[ro-line-items]]); the Package fields now live in that window, not inline. The
+> mechanics below are unchanged — only the surface moved.
 - **Line type:** `ro_line_type` enum gains **`package`** (additive
-  `alter type ... add value`). The type `<select>` includes Package only when the
-  feature is on — `lineTypeOptions()` appends it (or when the line is already a
-  package, so an existing package line keeps a valid option even if the switch is
-  later turned off).
-- **The row (package line):** in `renderLines()` a `line_type==='package'` row is
-  special-cased:
-  - **Description cell → a unit dropdown** (`data-field="package_unit_id"`) of the
-    active units, **grouped into `<optgroup>`s by `group_label`** (named groups
-    alpha-first, ungrouped units as plain options at the bottom) so the advisor
-    scans by group but still picks an individual unit. Plus the stored unit if it
-    was since deleted, so the name still shows.
-  - **Qty → a static `1`** (no spinner). **Unit $ → editable** (the effective
-    price). **Tax → a checkbox**, default on.
-  - When Book Hours is ON, an **"R&R hrs · tech pay"** input
-    (`data-field="rr_hours"`) renders under the dropdown. Hidden when Book Hours
-    is off.
-- **Picking a unit (resolve-and-store)** — `onFieldChange` on `package_unit_id`
-  copies the unit onto the line: `description = unit_code`, `unit_price =
-  set_price` (editable after — bump it for one job without touching settings),
-  `quantity = 1`, `taxable = true`, and (only when Book Hours is on) `rr_hours =
-  default_rr_hours`. Deselecting clears `package_unit_id` (price/desc stay).
+  `alter type ... add value`). The type `<select>` in the pop-up includes Package
+  only when the feature is on — `lineTypeOptions()` appends it (or when the line
+  being edited is already a package).
+- **The Package fields (in the pop-up):**
+  - **Unit** → a dropdown of the active units, **grouped into `<optgroup>`s by
+    `group_label`** (named groups alpha-first, ungrouped last) so the advisor scans
+    by group but still picks an individual unit (`packageUnitOptions()`). A
+    stored-but-deleted unit stays selectable so the name still shows.
+  - **Price** → editable (the effective price). **Qty** is fixed at 1 on save.
+    **Taxable** → a checkbox, default on.
+  - When Book Hours is ON, an **"R&R hrs · tech pay"** field shows; hidden when off.
+- **Picking a unit (resolve-and-store)** — the pop-up's unit-change handler copies
+  the unit onto the fields: `unit_price = set_price` (editable after — bump it for
+  one job without touching settings) and, when Book Hours is on, `rr_hours =
+  default_rr_hours`. On save the line stores `package_unit_id`,
+  `description = unit_code`, `quantity = 1`, `taxable`.
 
 ## 4. Price vs pay — the one rule that keeps it safe
 - **Customer price** = `Σ(quantity × unit_price)` over `ro_line_items`, unchanged.
@@ -126,13 +124,13 @@ default OFF — when off, the RO builder and settings look exactly like before.
   Prices" category (:480), `renderPackagesPane` (grouped view, :703), `setGroupPrice`
   (bulk group price, :784), `addPackageUnit`/`savePackageUnit`/`deletePackageUnit`
   (:795+, all carry `group_label`). Exposed via `BoardSettings.getPackageUnits`.
-- **RO builder:** `advisor-board.html` — `packagesFeatureOn`/`packageUnits`
-  (:3645/:3647), `lineTypeOptions` (:3664), package row in `renderLines` with the
-  optgroup-by-group_label dropdown (:4907), resolve-and-store in `onFieldChange`
-  (:5180), print fold-in (:5621).
-- **Related docs:** [[settings]] (the Features switchboard + money gate),
-  [[flat-rate-hours]] (Book Hours — the other tech-pay hours source, and the gate
-  that shows the R&R-hours field).
+- **RO builder (now in the Add/Edit-Line pop-up — see [[ro-line-items]]):**
+  `advisor-board.html` — `packagesFeatureOn`/`packageUnits`, `lineTypeOptions`, the
+  grouped `packageUnitOptions()` dropdown, and resolve-and-store + save in
+  `renderLineFields`/`wireLineFields`/`saveLineModal`; print fold-in in `printRo`.
+- **Related docs:** [[ro-line-items]] (the line-item pop-up this lives in),
+  [[settings]] (the Features switchboard + money gate), [[flat-rate-hours]] (Book
+  Hours — the other tech-pay hours source, and the gate that shows the R&R field).
 
 ## Session change log
 - 2026-08-07 — Created. Built Packages behind a `feature_packages` owner switch
@@ -157,3 +155,9 @@ default OFF — when off, the RO builder and settings look exactly like before.
   individual unit). Verified in-browser: no errors, grouping/order logic (named
   alpha-first, ungrouped last), Features toggle description updated. Grouped
   settings pane + optgroup dropdown verified live after the migration.
+- 2026-08-07 — The RO line editor became an **Add/Edit-Line pop-up** ([[ro-line-items]]);
+  the Package fields moved into that window (§3 updated). Mechanics unchanged — the
+  grouped unit dropdown (`packageUnitOptions`), resolve-and-store, and print fold-in
+  all still hold. Verified live: package type in the pop-up shows the 8-optgroup / 50-unit
+  dropdown and resolves the set price on select. `renderLines`/`onFieldChange` refs in
+  this doc replaced with the pop-up functions.
