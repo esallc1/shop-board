@@ -1,11 +1,12 @@
 # How Settings is wired (and the proposed role-gated hub)
 
 > Doc: `/docs/wiring/settings.md`
-> Last updated: 2026-07-30 — verified vs commit `0663cbd`
-> Status: ✅ §0–§4 (today's wiring) verified vs `0663cbd` — read against
+> Last updated: 2026-08-07 — verified vs commit `33829b1`
+> Status: ✅ §0–§4 (today's wiring) verified vs code this session — read against
 > `shared/board-settings.js`, `migrations/20260716_shop_settings.sql`, `crisdata.html`, the four
-> board `BoardSettings.init` calls, and `api/announcement.js`. **§5–§10 are a PROPOSED
-> architecture — NOT built, pending approval.** Investigation only; no feature code changed.
+> board `BoardSettings.init` calls, and `api/announcement.js`. **§4.1 (the owner Features
+> switchboard) is BUILT** this session — the first real owner-only, role-gated category.
+> **§5–§10 remain a PROPOSED architecture — NOT built, pending approval.**
 
 ## 0. In one line
 Settings today is **one shared modal** (`shared/board-settings.js`) that reads/writes a **single
@@ -26,6 +27,9 @@ gate and no server-side enforcement**, so "hidden" today means "removed from the
     `default_diag_fee` ($, nullable), `card_fee_pct` (fraction, default 0.03 — the shop's live
     value is **4%**, set in-app), `shop_supplies_default` ($ flat), `hazmat_default` ($ flat),
     `show_tech_on_ro` (bool).
+  - **Feature switches** (added `20260807_feature_book_hours_flag.sql`): `feature_book_hours`
+    (bool, `not null default false`) — the master on/off for the Book Hours feature (§4.1). One
+    boolean column per feature switch; additive, no new table, no RLS change.
   - **Shop Profile** (added by `20260716_phase3_print_fields.sql`): `shop_name`, `address_line`,
     `city_state_zip`, `phone`, `email`, `website`, `logo_url`, `mv_number`, `legal_terms`.
 - **My Profile → `public.employees`**: display `name`, `photo_url` / `background_photo_url`
@@ -85,6 +89,29 @@ gate and no server-side enforcement**, so "hidden" today means "removed from the
 - **The missing piece for owner-only:** **none of those endpoints verify WHO is calling.** They
   are protected by "anon can't write the table", not by "the caller is the owner." There is no
   auth token to check. **True owner-only enforcement needs a server-verifiable identity first.**
+
+## 4.1 The Features switchboard — first owner-only, role-gated category (BUILT 2026-08-07)
+A new **"Features"** category in the shared modal holds **master on/off switches** for optional
+parts of the app. It is the first category gated on **who you are**, not which board you opened —
+a small, forward-compatible step toward the role-gated hub in PART B.
+- **Registry-driven & extensible:** `shared/board-settings.js` defines a `FEATURE_FLAGS` array —
+  each entry maps a stable `key` to its **boolean column on `shop_settings`** + the toggle's
+  label/description. `renderFeaturesPane()` renders one iOS-style toggle per entry from
+  `getShopSettings()`; `saveFeatureFlag(column, enabled)` writes the column on the single
+  `shop_settings` row (same anon write path as every setting). Adding a future switch (e.g. the
+  Phase 3 manager-approval toggle) is **one registry line + one additive boolean column** — no
+  schema redesign. Today the only entry is `book_hours` → `feature_book_hours` (see
+  [[flat-rate-hours]] §9 for what it gates).
+- **Owner-only gate:** the category's `visible` is `viewerRole === 'owner'`. `viewerRole` is a
+  new module variable set by **`BoardSettings.refresh(employeeId, role)`** — each board now passes
+  `who.role` from `captureSessionAndGreet()` (owner/gm/advisor/bookkeeping boards all updated). If
+  the modal is open when the role resolves, it repaints so the category appears/disappears. A
+  manager/advisor never sees Features even on a board with `canEditShopMoney` (gm-board).
+- **Same caveat as §4:** this is a **UI-level gate only** — `shop_settings` is still
+  anon-writable, so the switch is not server-enforced. It matches the current posture of every
+  setting; real enforcement waits on the identity work in §6. The flag is **default OFF** and the
+  reader **fails safe to OFF** (missing column / failed read → false), so the app degrades to
+  pre-feature behavior, never to an accidental ON.
 
 ---
 
@@ -188,11 +215,15 @@ mechanism, in preference order:
 ## Where it lives in the code
 - Settings modal: `shared/board-settings.js` (`getCategories`, `renderPanes`, `renderRoPricingPane`,
   `saveShopSettings`, `getShopSettings`/`loadShopSettings`).
+- **Features switchboard (§4.1):** `shared/board-settings.js` — `FEATURE_FLAGS` registry,
+  `renderFeaturesPane`, `saveFeatureFlag`; category `visible: viewerRole === 'owner'`; `viewerRole`
+  set via `refresh(employeeId, role)`.
 - Board wiring: `BoardSettings.init(...)` in `owner-board.html`, `gm-board.html`,
-  `advisor-board.html`, `bookkeeping-board.html`; `BoardSettings.refresh(emp.id)` after
-  `captureSessionAndGreet()`.
+  `advisor-board.html`, `bookkeeping-board.html`; `BoardSettings.refresh(emp.id, role)` after
+  `captureSessionAndGreet()` (now passes the viewer role).
 - Storage: `migrations/20260716_shop_settings.sql` (+ `20260716_phase3_print_fields.sql` for the
-  profile columns); `employees` for My Profile.
+  profile columns; `20260807_feature_book_hours_flag.sql` for the `feature_book_hours` switch);
+  `employees` for My Profile.
 - Identity: `crisdata.html` (PIN login + role routing); `captureSessionAndGreet()` on each board.
 - Enforcement pattern to mirror: `api/announcement.js`, `api/desk-appointment.js`
   (service-role + test-locked `parse*`).
@@ -207,3 +238,12 @@ mechanism, in preference order:
   no role-checking endpoints). Proposed the role-gated, DB-backed hub with **identity-first** as
   the prerequisite, new `rebuild_units` / `role_access` / `integrations` tables, a service-role
   `api/settings.js`, and a 6-phase build order. **Investigation only — no app code changed.**
+- 2026-08-07 — **Built the owner Features switchboard (§4.1)** — the first role-gated, owner-only
+  category. Added a `FEATURE_FLAGS` registry + `renderFeaturesPane`/`saveFeatureFlag` over boolean
+  columns on `shop_settings`, a `viewerRole` module var set via `refresh(employeeId, role)` (all
+  four boards now pass `who.role`), and the category gated on `viewerRole==='owner'`. First flag:
+  `feature_book_hours` (default OFF) — the Book Hours master switch (see [[flat-rate-hours]] §9).
+  Storage is additive (`20260807_feature_book_hours_flag.sql`, reuses the anon `shop_settings`
+  row — no new table/RLS). Gate is **UI-level only** (still anon-writable), same posture as §4;
+  migration written, not yet applied. Verified in-browser (owner sees Features, manager doesn't;
+  toggle default OFF; save fails safe pre-migration).

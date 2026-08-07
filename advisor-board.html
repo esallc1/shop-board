@@ -1458,8 +1458,10 @@
                    enters the money math; write-through mirrors onto the floor
                    row's flag_hours. Three distinct states: a number (captured),
                    N/A (no labor), or blank (not captured — blocks leaving
-                   Estimate). Hours come from ALLDATA per vehicle, typed by hand. -->
-              <div class="intake-field" id="cdRoBookHoursField">
+                   Estimate). Hours come from ALLDATA per vehicle, typed by hand.
+                   Hidden by default — revealed only when the owner's Book Hours
+                   master switch is ON (populateBookHours reads the flag). -->
+              <div class="intake-field" id="cdRoBookHoursField" style="display:none">
                 <label>Book Hours <span style="font-weight:600;color:var(--muted);font-size:0.72rem">· tech pay — not the price</span></label>
                 <div style="display:flex;align-items:center;gap:10px">
                   <input type="number" id="cdRoBookHours" min="0" step="0.5" placeholder="hrs" style="flex:0 0 90px">
@@ -2893,7 +2895,7 @@
       if (!who || !who.employee_id) return;
       CHAT_IDENTITY = { name: who.name, role: who.role };
       CURRENT_EMPLOYEE_ID = who.employee_id;
-      BoardSettings.refresh(who.employee_id);
+      BoardSettings.refresh(who.employee_id, who.role);
       const avatar = who.photo_url
         ? `<img class="greeting-avatar" src="${esc(who.photo_url)}" alt="">`
         : `<div class="greeting-avatar-fallback">${esc((who.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;
@@ -3625,6 +3627,12 @@
       const r = shopCfg().tax_rate;
       return (r != null && Number.isFinite(Number(r))) ? Number(r) : CD_TAX_FALLBACK;
     }
+    // ── BOOK HOURS master switch (owner-controlled, shop_settings.feature_book_hours).
+    // Default OFF and FAIL-SAFE: shopCfg() returns feature_book_hours=false when the
+    // settings read fails / the column is missing (pre-migration), so OFF = exactly the
+    // pre-feature behavior (field hidden, gate never blocks). Read on every check so an
+    // owner flip is picked up on the next board load. ──
+    function bookHoursFeatureOn() { return !!shopCfg().feature_book_hours; }
 
     const money = (n) => '$' + (Number(n) || 0).toFixed(2);
     const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
@@ -4567,6 +4575,11 @@
     async function populateBookHours() {
       const numEl = $('cdRoBookHours'), naEl = $('cdRoBookHoursNA');
       if (!numEl || !naEl) return;
+      // MASTER SWITCH: feature OFF → keep the whole field hidden and do nothing
+      // else (no read, no paint), so the board looks/acts like pre-feature main.
+      const field = $('cdRoBookHoursField');
+      if (!bookHoursFeatureOn()) { if (field) field.style.display = 'none'; return; }
+      if (field) field.style.display = '';
       // hydrate the three-way state from the stored RO
       naEl.checked = !!currentRo.book_hours_na;
       numEl.value = currentRo.book_hours != null ? currentRo.book_hours : '';
@@ -4770,6 +4783,9 @@
     // { ok:true } pre-migration so it never blocks before the book-hours columns
     // exist. NEVER touches the customer price.
     async function bookHoursGateForAdvance(roId, po) {
+      // MASTER SWITCH: feature OFF → never block leaving Estimate (pre-feature
+      // behavior). Checked first so nothing else runs when the feature is off.
+      if (!bookHoursFeatureOn()) return { ok: true };
       let bh = null, na = false;
       try {
         const { data, error } = await db.from('repair_orders')

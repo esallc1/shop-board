@@ -1,16 +1,17 @@
 # How the flagged-hours / book-hours (tech-pay) data is wired
 
 > Doc: `/docs/wiring/flat-rate-hours.md`
-> Last updated: 2026-08-07 — verified vs commit `151cba9`
+> Last updated: 2026-08-07 — verified vs commit `33829b1`
 > Status: ✅ verified vs code AND live schema this session. **`book_hours` capture is
-> BUILT** in `advisor-board.html` + `shared/board-settings.js`; its migration
+> BUILT** in `advisor-board.html` + `shared/board-settings.js`, and now sits behind an
+> **owner-controlled master switch, defaulted OFF** (§9). Its migration
 > `migrations/20260730_ro_book_hours.sql` **has been applied** — `repair_orders.book_hours`
 > / `book_hours_na` confirmed live via the anon REST API. §1–§7 remain the original
 > data-feasibility findings (the "why we needed a real hours number"). **The flat-rate /
 > rebuild-lookup idea was dropped** — hours come from ALLDATA per vehicle, typed by hand;
 > there is no hours-per-rebuild table. The now-unused `rebuild_book_hours` table and
 > `repair_orders.rebuild_type` column (both confirmed empty live) are staged for a manual
-> DROP. §8 documents the shipped capture.
+> DROP. §8 documents the shipped capture; §9 documents the on/off switch.
 
 ## 0. In one line
 A per-tech per-week **flagged book-hours** report needs three fields — **who**
@@ -185,6 +186,38 @@ customer price.**
 - **Still unsolved by this slice:** multi-tech / per-phase split, reassignment history, the
   comeback/warranty credit rule, and ALLDATA-parallel jobs that never become CrisData ROs.
 
+## 9. The master on/off switch (owner-controlled, default OFF)
+The entire Book Hours feature sits behind **one owner switch**, so the shop can adopt it when
+ready and, until then, the advisor board looks and behaves exactly as it did before the feature.
+
+- **Where the flag lives:** `shop_settings.feature_book_hours boolean not null default false`
+  (migration `20260807_feature_book_hours_flag.sql`). It rides the existing single-row
+  `shop_settings` table — same anon-full-access RLS, no new table, no RLS change (see
+  [[settings]] §1). One boolean per feature; adding a future switch is one more column.
+- **Who can flip it:** an **owner-only "Features" pane** in the shared Settings modal
+  (`shared/board-settings.js`, `renderFeaturesPane`), driven by a `FEATURE_FLAGS` registry so
+  the same switchboard hosts future toggles (e.g. a Phase 3 manager-approval switch) — only
+  Book Hours is wired to behavior today. The pane is gated on the **viewer's resolved role**
+  (`viewerRole === 'owner'`), passed in via `BoardSettings.refresh(employeeId, role)` from each
+  board's `captureSessionAndGreet()`. This is a **UI-level gate only** (the anon key can still
+  write `shop_settings` directly) — same posture as every setting today; real enforcement waits
+  on server identity (see [[settings]] §3/§4/§6).
+- **How the advisor board reads it:** `bookHoursFeatureOn()` returns
+  `!!BoardSettings.getShopSettings().feature_book_hours`, read on every check (so an owner flip is
+  picked up on the **next board load**). It **fails safe to OFF** — when the settings read fails
+  or the column is missing (pre-migration), `getShopSettings()` returns `feature_book_hours=false`.
+- **What the switch gates (only two behaviors — everything else is already null-safe):**
+  1. **The field.** `#cdRoBookHoursField` is `display:none` by default in the markup;
+     `populateBookHours()` reveals it only when the flag is ON, and returns early (leaving it
+     hidden, no read/paint) when OFF.
+  2. **The gate.** `bookHoursGateForAdvance()` returns `{ ok:true }` immediately when the flag is
+     OFF, so leaving Estimate is never blocked — the exact pre-feature behavior.
+  With the field hidden, `book_hours` is never set, so the floor mirror, the Approval-Queue
+  prefill, and the RO-close archive write all see `null` and degrade to today's behavior — they
+  needed no extra gating.
+- **ON** → the field shows and the "enter hours (or tick N/A) before leaving Estimate" gate
+  enforces, exactly as §8 describes.
+
 ## Known gaps & open questions (as of 2026-08-07)
 - **Per-tech / per-phase attribution is the next design slice** — one `book_hours` per RO can't be
   split between the diag tech and the repair tech, and tech names are last-write-wins with no
@@ -196,11 +229,18 @@ customer price.**
 ## Where it lives in the code / schema
 - **Book hours (pay):** `repair_orders.book_hours` / `book_hours_na`
   (`migrations/20260730_ro_book_hours.sql`, **applied**). Capture + gate + mirror in
-  `advisor-board.html`: field `#cdRoBookHoursField` (:1462), `populateBookHours` (:4567),
-  `bookHoursCaptured`/`paintBookHoursHint` (:4552/:4555), `saveBookHours` (:5832),
-  `mirrorBookHoursToFloor` (:4758), `bookHoursGateForAdvance` (:4772), RO-close archive write
-  (:5334), Approval-Queue prefill `prefillFlagHoursFromBookHours` (:2000). Settings **RO & Pricing**
-  pane `renderRoPricingPane` (`shared/board-settings.js:494`) has **no** rebuild editor.
+  `advisor-board.html`: field `#cdRoBookHoursField` (:1464, `display:none` by default),
+  `populateBookHours` (:4575), `bookHoursCaptured`/`paintBookHoursHint` (:4560/:4563),
+  `saveBookHours` (:5848), `mirrorBookHoursToFloor` (:4771), `bookHoursGateForAdvance` (:4785),
+  RO-close archive write (:5350), Approval-Queue prefill `prefillFlagHoursFromBookHours` (:2002).
+  Settings **RO & Pricing** pane `renderRoPricingPane` (`shared/board-settings.js:541`) has **no**
+  rebuild editor.
+- **Master switch:** `shop_settings.feature_book_hours`
+  (`migrations/20260807_feature_book_hours_flag.sql`). Owner "Features" pane
+  `renderFeaturesPane` / `saveFeatureFlag` + the `FEATURE_FLAGS` registry
+  (`shared/board-settings.js:79/949/975`), gated on `viewerRole==='owner'` (set via
+  `refresh(employeeId, role)` from each board's `captureSessionAndGreet()`). Advisor read:
+  `bookHoursFeatureOn()` (`advisor-board.html:3635`) → `getShopSettings().feature_book_hours`.
 - **Quoted labor (price, separate):** `ro_line_items` (`line_type`, `quantity`, `unit_price`) —
   `migrations/20260716_ro_foundation.sql`.
 - **Flagged hours + approval (floor):** `advisor-board.html` `approveJob()` →
@@ -232,3 +272,15 @@ customer price.**
   migration file and app; both already existed in the DB from the earlier apply but are **empty**
   (0 rows / 0 non-null, confirmed live), so a manual DROP is staged for review. Per-tech / per-phase
   attribution remains the open next slice.
+- 2026-08-07 — **Added the owner master on/off switch (§9), default OFF.** New
+  `shop_settings.feature_book_hours` boolean (`migrations/20260807_feature_book_hours_flag.sql`,
+  additive, reuses the anon-full-access `shop_settings` row — no new table/RLS). New owner-only
+  **Features** pane in `shared/board-settings.js` (`renderFeaturesPane`/`saveFeatureFlag` +
+  `FEATURE_FLAGS` registry, extensible for future switches), gated on the viewer's role via
+  `BoardSettings.refresh(employeeId, role)` (wired on all four boards). Advisor board gates the
+  Book Hours field visibility (`populateBookHours`, field now `display:none` by default) and
+  `bookHoursGateForAdvance` on `bookHoursFeatureOn()`, which fails safe to OFF. OFF = pre-feature
+  behavior (field hidden, gate never blocks); the mirror/prefill/archive stay null-safe. Verified in
+  the browser: default OFF + field hidden, owner-only pane visibility (manager sees 4 panes, owner
+  5), toggle defaults OFF, save fails safe pre-migration. Migration is written but **not yet
+  applied** (Cris runs it by hand).

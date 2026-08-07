@@ -65,10 +65,33 @@ window.BoardSettings = (function () {
     tax_rate: 0.07, default_labor_rate: null, show_tech_on_ro: false,
     card_fee_pct: 0.03, shop_supplies_default: 0, hazmat_default: 0,
     default_diag_fee: null,
+    // Feature switches — default OFF so the app fails safe to pre-feature
+    // behavior when the column/row is missing (pre-migration) or unreadable.
+    feature_book_hours: false,
   };
+
+  // ── FEATURE FLAGS registry — the owner "Features" switchboard ─────
+  // One entry per master on/off switch. Each maps a stable key to its
+  // boolean column on shop_settings + the UI copy for the toggle. Adding a
+  // future switch (e.g. the Phase 3 manager-approval toggle) is ONE line here
+  // + one additive boolean column — no schema redesign. Only Book Hours is
+  // wired to app behavior today. Owner-only (see the 'features' category).
+  const FEATURE_FLAGS = [
+    {
+      key: 'book_hours',
+      column: 'feature_book_hours',
+      label: 'Book Hours',
+      desc: 'Show the Book Hours (tech-pay) field on the RO and require hours (or N/A) before a job leaves Estimate. Off = hidden and never blocks — exactly like before the feature.',
+    },
+  ];
   let shopSettingsRow = null;   // raw row, or null if table/row missing
   let canEditShopMoney = false;
   let canEditShopOps = false;
+  // Viewer's resolved employees.role (owner/manager/advisor/tech/bookkeeping),
+  // set once the session resolves. Owner-only categories (Features) gate on
+  // this. UI-level gate only — same posture as canEditShopMoney (see
+  // docs/wiring/settings.md §3/§4); real enforcement needs server identity.
+  let viewerRole = null;
   let onShopSettingsChanged = null;
   let shopLogoFile = null;      // pending logo upload (Owner/GM only)
   let onOpenExtra = null;       // board-specific extra Settings category
@@ -94,6 +117,9 @@ window.BoardSettings = (function () {
       // Quick diag-fee receipt default. Nullable + present only post-migration;
       // stays null (no prefill) until the column exists and is set.
       default_diag_fee: shopSettingsRow.default_diag_fee != null ? Number(shopSettingsRow.default_diag_fee) : null,
+      // Feature switches — default OFF (fail-safe). Present only once the
+      // feature-flag migration adds the column; missing column → false.
+      feature_book_hours: !!shopSettingsRow.feature_book_hours,
       // shop profile (Phase 3) — nulls until the migration seeds them
       shop_name: shopSettingsRow.shop_name || null,
       address_line: shopSettingsRow.address_line || null,
@@ -183,6 +209,7 @@ window.BoardSettings = (function () {
     receipt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v18l2-1 2 1 2-1 2 1 2-1 2 1V3z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
     grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
     card: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>',
+    toggle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="7" width="22" height="10" rx="5"/><circle cx="16" cy="12" r="3"/></svg>',
   };
 
   function injectStyles() {
@@ -369,6 +396,22 @@ window.BoardSettings = (function () {
         .stgfeat-box.stgfeat-solo .stgfeat-nav { display: none; }
         .stgfeat-content { padding-left: 0; }
       }
+
+      /* iOS-style toggle for the owner Features switchboard */
+      .stgfeat-switch { position: relative; display: inline-block; width: 44px; height: 26px; }
+      .stgfeat-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+      .stgfeat-switch-slider {
+        position: absolute; inset: 0; cursor: pointer; border-radius: 26px;
+        background: #cfd3de; transition: background .18s ease;
+      }
+      .stgfeat-switch-slider::before {
+        content: ''; position: absolute; height: 20px; width: 20px; left: 3px; top: 3px;
+        background: #fff; border-radius: 50%; transition: transform .18s ease;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+      }
+      .stgfeat-switch input:checked + .stgfeat-switch-slider { background: #10b981; }
+      .stgfeat-switch input:checked + .stgfeat-switch-slider::before { transform: translateX(18px); }
+      .stgfeat-switch input:focus-visible + .stgfeat-switch-slider { outline: 2px solid #5b5ef4; outline-offset: 2px; }
     `;
     document.head.appendChild(style);
   }
@@ -400,6 +443,10 @@ window.BoardSettings = (function () {
       { id: 'shopprofile', label: 'Shop Profile',  icon: ICONS.shop,    visible: canEditShopMoney, render: renderShopProfilePane },
       { id: 'ropricing',   label: 'RO & Pricing',  icon: ICONS.receipt, visible: canEditShopMoney, render: renderRoPricingPane },
       { id: 'payments',    label: 'Payments',      icon: ICONS.card,    visible: canEditShopMoney, render: renderPaymentsPane },
+      // Features — owner-only master switchboard (default-OFF flags on
+      // shop_settings). Gated on the viewer's role, not the board, so a
+      // manager/advisor never sees it even on a board with money rights.
+      { id: 'features',    label: 'Features',      icon: ICONS.toggle,  visible: viewerRole === 'owner', render: renderFeaturesPane },
     ];
     if (typeof onOpenExtra === 'function') {
       cats.push({
@@ -893,6 +940,54 @@ window.BoardSettings = (function () {
     flashSavedThenClose(saveBtn, 'Save');
   }
 
+  // ── Pane: Features — owner-only master switchboard ────────────
+  // Renders one toggle per FEATURE_FLAGS entry, reading the current value from
+  // getShopSettings() and writing the boolean column on the single shop_settings
+  // row. Additive + extensible: new switches appear here automatically once
+  // added to FEATURE_FLAGS (+ their column). Same anon write path as every other
+  // setting today — the owner-only gate is UI-level (see settings.md §4).
+  function renderFeaturesPane(content) {
+    const head = catHeader('Features', 'Master on/off switches for optional parts of the app. Owner-only. Changes take effect on each board the next time it loads.');
+    const s = getShopSettings();
+    if (!s._exists) {
+      content.innerHTML = head + migrationPlaceholder();
+      return;
+    }
+    const rows = FEATURE_FLAGS.map(f => {
+      const on = !!s[f.column];
+      return `
+        <div class="stgfeat-section" style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
+          <div style="flex:1 1 auto">
+            <div style="font-weight:700;margin-bottom:2px">${esc(f.label)}</div>
+            <div style="font-size:0.75rem;color:var(--muted)">${esc(f.desc)}</div>
+          </div>
+          <label class="stgfeat-switch" style="flex:0 0 auto;margin-top:2px">
+            <input type="checkbox" data-flag-col="${esc(f.column)}"${on ? ' checked' : ''}>
+            <span class="stgfeat-switch-slider"></span>
+          </label>
+        </div>`;
+    }).join('');
+    content.innerHTML = head + rows + '<div class="stgfeat-error" id="stgFeatFlagError"></div>';
+    content.querySelectorAll('input[data-flag-col]').forEach(inp =>
+      inp.addEventListener('change', () => saveFeatureFlag(inp.dataset.flagCol, inp.checked, inp)));
+  }
+
+  async function saveFeatureFlag(column, enabled, inputEl) {
+    const err = modalEl && modalEl.querySelector('#stgFeatFlagError');
+    if (err) err.textContent = '';
+    const id = (shopSettingsRow && shopSettingsRow.id) || SHOP_SETTINGS_ID;
+    const { error } = await db.from('shop_settings').update({ [column]: !!enabled }).eq('id', id);
+    if (error) {
+      if (inputEl) inputEl.checked = !enabled;   // revert the UI on failure
+      const missing = error.code === 'PGRST204' || /column/i.test(error.message || '');
+      if (err) err.textContent = missing
+        ? 'This feature needs its migration applied first (the ' + column + ' column is missing).'
+        : 'Could not save: ' + (error.message || error);
+      return;
+    }
+    await loadShopSettings();   // refresh cache (+ fires onShopSettingsChanged)
+  }
+
   function mountTrigger(mountSelector) {
     const container = document.querySelector(mountSelector);
     if (!container) return;
@@ -919,6 +1014,7 @@ window.BoardSettings = (function () {
     onNameSaved = config.onNameSaved || null;
     canEditShopMoney = !!config.canEditShopMoney;
     canEditShopOps = !!config.canEditShopOps;
+    if (config.viewerRole != null) viewerRole = config.viewerRole;   // may also arrive later via refresh()
     onShopSettingsChanged = config.onShopSettingsChanged || null;
     onOpenExtra = config.onOpenExtra || null;
     extraLabel = config.extraLabel || 'More';
@@ -928,8 +1024,16 @@ window.BoardSettings = (function () {
     loadPaymentMethods();     // warm the payment-method cache for the RO picker
   }
 
-  async function refresh(employeeId) {
+  async function refresh(employeeId, role) {
     currentEmployeeId = employeeId || null;
+    // Viewer role resolves in captureSessionAndGreet(), after init() — capture
+    // it here so the owner-only Features category gates correctly. If the modal
+    // is already open, repaint so the category appears/disappears immediately.
+    if (role !== undefined) {
+      const changed = role !== viewerRole;
+      viewerRole = role || null;
+      if (changed && modalEl && modalEl.classList.contains('open')) renderPanes();
+    }
     if (!currentEmployeeId) { applyBackground(null); return; }
     const { data, error } = await db.from('employees').select('name, background_photo_url').eq('id', currentEmployeeId).maybeSingle();
     if (error) {

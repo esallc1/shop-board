@@ -4044,7 +4044,7 @@
 
     CHAT_IDENTITY = { name: who.name, role: who.role };
     CURRENT_EMPLOYEE_ID = who.employee_id;
-    BoardSettings.refresh(who.employee_id);
+    BoardSettings.refresh(who.employee_id, who.role);
 
     const avatar = who.photo_url
       ? `<img class="greeting-avatar" src="${esc(who.photo_url)}" alt="">`
