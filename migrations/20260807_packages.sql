@@ -46,6 +46,13 @@ create table if not exists public.package_units (
 
 create index if not exists idx_package_units_active on public.package_units (active);
 
+-- group_label: an optional organizing tag (units that share a label are shown
+-- together and can be bulk-priced in Settings). Additive so this file stays
+-- one migration even though the column was added after the table was drafted;
+-- each unit keeps its own set_price — group_label is just a grouping key.
+alter table public.package_units
+  add column if not exists group_label text;
+
 -- keep updated_at honest (reuses the shared helper)
 create or replace function public.crisdata_set_updated_at()
 returns trigger language plpgsql as $$
@@ -101,8 +108,11 @@ alter table public.shop_settings
 --    where t.typname='ro_line_type' order by e.enumsortorder;
 --   -- expect: labor, parts, fee, shop_supply, hazmat, package
 --
--- (b) package_units exists + is EMPTY, with RLS + realtime:
+-- (b) package_units exists + is EMPTY, with RLS + realtime + group_label:
 --   select count(*) from public.package_units;   -- expect 0
+--   select column_name from information_schema.columns
+--    where table_schema='public' and table_name='package_units'
+--      and column_name='group_label';            -- expect: group_label
 --   select policyname from pg_policies where tablename='package_units';
 --   select tablename from pg_publication_tables
 --    where pubname='supabase_realtime' and tablename='package_units';

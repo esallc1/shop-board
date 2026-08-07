@@ -88,7 +88,7 @@ window.BoardSettings = (function () {
       key: 'packages',
       column: 'feature_packages',
       label: 'Packages',
-      desc: 'Turn on package unit prices (a Packages settings section) and the "Package" RO line type. Off = neither shows — the RO builder and settings look exactly like before.',
+      desc: 'Turn on package unit prices (a "Rebuild Units & Prices" settings section) and the "Package" RO line type. Off = neither shows — the RO builder and settings look exactly like before.',
     },
   ];
   let shopSettingsRow = null;   // raw row, or null if table/row missing
@@ -477,7 +477,7 @@ window.BoardSettings = (function () {
       { id: 'ropricing',   label: 'RO & Pricing',  icon: ICONS.receipt, visible: canEditShopMoney, render: renderRoPricingPane },
       // Packages — package unit prices (money-gated like RO & Pricing) AND only
       // when the owner's Packages feature switch is ON.
-      { id: 'packages',    label: 'Packages',      icon: ICONS.grid,    visible: canEditShopMoney && !!getShopSettings().feature_packages, render: renderPackagesPane },
+      { id: 'packages',    label: 'Rebuild Units & Prices', icon: ICONS.grid, visible: canEditShopMoney && !!getShopSettings().feature_packages, render: renderPackagesPane },
       { id: 'payments',    label: 'Payments',      icon: ICONS.card,    visible: canEditShopMoney, render: renderPaymentsPane },
       // Features — owner-only master switchboard (default-OFF flags on
       // shop_settings). Gated on the viewer's role, not the board, so a
@@ -693,42 +693,73 @@ window.BoardSettings = (function () {
     });
   }
 
-  // ── Pane: Packages (package unit prices) — Owner/GM, feature-gated ─
-  // Add/edit/delete package units. Each: Unit (code shown in the RO dropdown),
-  // Set Price (customer price), Default R&R Hours (tech-pay default). The RO
-  // RESOLVE-AND-STORES a unit's price + hours onto the line at pick time, so
-  // editing/deleting here never rewrites a job already built.
+  // ── Pane: Rebuild Units & Prices (package units) — Owner/GM, feature-gated ─
+  // Add/edit/delete package units. Each: Group (optional organizing tag), Unit
+  // (code shown in the RO dropdown), Set Price (customer price), Default R&R
+  // Hours (tech-pay default). Units are shown grouped by group_label with a
+  // "set price for the whole group" shortcut; each unit still keeps its own
+  // price. The RO RESOLVE-AND-STORES a unit's price + hours onto the line at
+  // pick time, so editing/deleting here never rewrites a job already built.
   async function renderPackagesPane(content) {
-    const head = catHeader('Packages', 'Package unit prices for the RO "Package" line. Set Price is the customer price; Default R&R Hours is the tech-pay credit (never added to the price). The RO copies these onto a line when a unit is picked — editing here never changes jobs already saved.');
+    const head = catHeader('Rebuild Units & Prices', 'Package unit prices for the RO "Package" line. Group is an optional organizing tag — units that share a group can be bulk-priced, but each keeps its own price. Set Price is the customer price; Default R&R Hours is the tech-pay credit (never added to the price). The RO copies these onto a line when a unit is picked — editing here never changes jobs already saved.');
     content.innerHTML = head + '<div class="stgfeat-placeholder">Loading…</div>';
     await loadPackageUnits();
     if (packageUnitsRows === null) {
-      content.innerHTML = head + '<div class="stgfeat-placeholder">Run the <code>packages</code> migration (creates <code>package_units</code>) to manage package prices here.</div>';
+      content.innerHTML = head + '<div class="stgfeat-placeholder">Run the <code>packages</code> migration (creates <code>package_units</code>) to manage these here.</div>';
       return;
     }
-    const rows = packageUnitsRows.slice().sort((a, b) => String(a.unit_code).localeCompare(String(b.unit_code)));
-    const rowsHtml = rows.length ? rows.map(u => `
+    // group units by group_label: named groups first (alpha), ungrouped last.
+    const byGroup = new Map();
+    packageUnitsRows.forEach(u => {
+      const g = (u.group_label || '').trim();
+      if (!byGroup.has(g)) byGroup.set(g, []);
+      byGroup.get(g).push(u);
+    });
+    const order = [...byGroup.keys()].filter(g => g !== '').sort((a, b) => a.localeCompare(b));
+    if (byGroup.has('')) order.push('');   // ungrouped cluster at the bottom
+
+    const unitRow = (u) => `
       <tr data-id="${esc(String(u.id))}" style="border-top:1px solid var(--border)">
+        <td style="padding:6px 6px"><input type="text" data-f="group_label" value="${esc(u.group_label || '')}" placeholder="—" style="width:100%"></td>
         <td style="padding:6px 6px"><input type="text" data-f="unit_code" value="${esc(u.unit_code || '')}" style="width:100%"></td>
-        <td style="padding:6px 6px"><input type="number" data-f="set_price" value="${u.set_price != null ? esc(String(u.set_price)) : ''}" min="0" step="0.01" style="width:90px"></td>
-        <td style="padding:6px 6px"><input type="number" data-f="default_rr_hours" value="${u.default_rr_hours != null ? esc(String(u.default_rr_hours)) : ''}" min="0" step="0.5" placeholder="—" style="width:72px"></td>
+        <td style="padding:6px 6px"><input type="number" data-f="set_price" value="${u.set_price != null ? esc(String(u.set_price)) : ''}" min="0" step="0.01" style="width:88px"></td>
+        <td style="padding:6px 6px"><input type="number" data-f="default_rr_hours" value="${u.default_rr_hours != null ? esc(String(u.default_rr_hours)) : ''}" min="0" step="0.5" placeholder="—" style="width:64px"></td>
         <td style="padding:6px 6px;white-space:nowrap">
           <button type="button" class="stgfeat-btn" data-act="save" style="padding:3px 8px;font-size:0.72rem">Save</button>
           <button type="button" class="stgfeat-btn" data-act="del" style="padding:3px 8px;font-size:0.72rem">✕</button>
         </td>
-      </tr>`).join('') : '<tr><td colspan="4" style="padding:8px 6px;color:var(--muted)">No package units yet — add one below.</td></tr>';
+      </tr>`;
+
+    let bodyHtml = '';
+    if (packageUnitsRows.length === 0) {
+      bodyHtml = '<tr><td colspan="5" style="padding:8px 6px;color:var(--muted)">No units yet — add one below.</td></tr>';
+    } else {
+      order.forEach((g, gi) => {
+        const units = byGroup.get(g).slice().sort((a, b) => String(a.unit_code).localeCompare(String(b.unit_code)));
+        const isUngrouped = g === '';
+        const shortcut = isUngrouped ? '' :
+          `<span style="float:right;font-weight:400;font-size:0.72rem;color:var(--muted)">Set price for whole group
+             <input type="number" class="stgPkgGroupPrice" data-gidx="${gi}" min="0" step="0.01" placeholder="$" style="width:78px;margin:0 4px">
+             <button type="button" class="stgfeat-btn" data-group-apply data-gidx="${gi}" style="padding:2px 8px;font-size:0.72rem">Apply</button>
+           </span>`;
+        bodyHtml += `<tr class="stgPkgGroupHead"><td colspan="5" style="padding:9px 6px 5px;font-weight:700;border-top:2px solid var(--border)">${isUngrouped ? '<span style="color:var(--muted)">Ungrouped</span>' : esc(g)}${shortcut}</td></tr>`;
+        bodyHtml += units.map(unitRow).join('');
+      });
+    }
+
     content.innerHTML = head +
       `<div class="stgfeat-section">
         <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
           <thead><tr style="text-align:left;color:var(--muted);font-size:0.72rem">
-            <th style="padding:2px 6px">Unit</th><th style="padding:2px 6px">Set Price ($)</th>
-            <th style="padding:2px 6px">Default R&amp;R Hours</th><th style="padding:2px 6px"></th>
+            <th style="padding:2px 6px">Group</th><th style="padding:2px 6px">Unit</th><th style="padding:2px 6px">Set Price ($)</th>
+            <th style="padding:2px 6px">R&amp;R Hrs</th><th style="padding:2px 6px"></th>
           </tr></thead>
-          <tbody>${rowsHtml}</tbody>
+          <tbody>${bodyHtml}</tbody>
           <tfoot><tr style="border-top:2px solid var(--border)">
+            <td style="padding:6px 6px"><input type="text" id="stgPkgNewGroup" placeholder="group" style="width:100%"></td>
             <td style="padding:6px 6px"><input type="text" id="stgPkgNewCode" placeholder="e.g. 6L80" style="width:100%"></td>
-            <td style="padding:6px 6px"><input type="number" id="stgPkgNewPrice" min="0" step="0.01" placeholder="price" style="width:90px"></td>
-            <td style="padding:6px 6px"><input type="number" id="stgPkgNewHours" min="0" step="0.5" placeholder="hrs" style="width:72px"></td>
+            <td style="padding:6px 6px"><input type="number" id="stgPkgNewPrice" min="0" step="0.01" placeholder="price" style="width:88px"></td>
+            <td style="padding:6px 6px"><input type="number" id="stgPkgNewHours" min="0" step="0.5" placeholder="hrs" style="width:64px"></td>
             <td style="padding:6px 6px"><button type="button" class="stgfeat-btn" id="stgPkgAddBtn" style="padding:3px 8px;font-size:0.72rem">Add</button></td>
           </tr></tfoot>
         </table>
@@ -739,10 +770,31 @@ window.BoardSettings = (function () {
       tr.querySelector('[data-act="save"]').addEventListener('click', () => savePackageUnit(tr, content));
       tr.querySelector('[data-act="del"]').addEventListener('click', () => deletePackageUnit(tr, content));
     });
+    content.querySelectorAll('[data-group-apply]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const gi = Number(btn.dataset.gidx);
+        const inp = content.querySelector(`.stgPkgGroupPrice[data-gidx="${gi}"]`);
+        setGroupPrice(order[gi], inp ? inp.value : '', content);
+      });
+    });
+  }
+
+  // Bulk shortcut: write one price to EVERY unit in a group. Convenience only —
+  // per-unit edits still work; each unit's set_price is independent afterward.
+  async function setGroupPrice(groupLabel, rawPrice, content) {
+    const err = content.querySelector('#stgPkgError'); if (err) err.textContent = '';
+    const price = parseFloat(rawPrice);
+    if (!Number.isFinite(price) || price < 0) { if (err) err.textContent = 'Enter a valid group price.'; return; }
+    if (!confirm(`Set every unit in "${groupLabel}" to $${price.toFixed(2)}?`)) return;
+    const { error } = await db.from('package_units').update({ set_price: price }).eq('group_label', groupLabel);
+    if (error) { if (err) err.textContent = 'Group price failed: ' + error.message; return; }
+    await loadPackageUnits();
+    renderPackagesPane(content);
   }
 
   async function addPackageUnit(content) {
     const err = content.querySelector('#stgPkgError'); if (err) err.textContent = '';
+    const group = (content.querySelector('#stgPkgNewGroup').value || '').trim() || null;
     const code = (content.querySelector('#stgPkgNewCode').value || '').trim();
     const price = parseFloat(content.querySelector('#stgPkgNewPrice').value);
     const hoursRaw = content.querySelector('#stgPkgNewHours').value;
@@ -751,12 +803,13 @@ window.BoardSettings = (function () {
     if (!Number.isFinite(price) || price < 0) { if (err) err.textContent = 'Enter a valid set price.'; return; }
     if (hours != null && (!Number.isFinite(hours) || hours < 0)) { if (err) err.textContent = 'Enter valid R&R hours (or leave blank).'; return; }
     const { error } = await db.from('package_units')
-      .insert({ unit_code: code, set_price: price, default_rr_hours: hours, active: true });
+      .insert({ group_label: group, unit_code: code, set_price: price, default_rr_hours: hours, active: true });
     if (error) { if (err) err.textContent = 'Add failed: ' + error.message; return; }
     renderPackagesPane(content);
   }
   async function savePackageUnit(tr, content) {
     const err = content.querySelector('#stgPkgError'); if (err) err.textContent = '';
+    const group = (tr.querySelector('[data-f="group_label"]').value || '').trim() || null;
     const code = (tr.querySelector('[data-f="unit_code"]').value || '').trim();
     const price = parseFloat(tr.querySelector('[data-f="set_price"]').value);
     const hoursRaw = tr.querySelector('[data-f="default_rr_hours"]').value;
@@ -765,11 +818,13 @@ window.BoardSettings = (function () {
     if (!Number.isFinite(price) || price < 0) { if (err) err.textContent = 'Enter a valid set price.'; return; }
     if (hours != null && (!Number.isFinite(hours) || hours < 0)) { if (err) err.textContent = 'Enter valid R&R hours (or leave blank).'; return; }
     const { error } = await db.from('package_units')
-      .update({ unit_code: code, set_price: price, default_rr_hours: hours }).eq('id', tr.dataset.id);
+      .update({ group_label: group, unit_code: code, set_price: price, default_rr_hours: hours }).eq('id', tr.dataset.id);
     if (error) { if (err) err.textContent = 'Save failed: ' + error.message; return; }
     const btn = tr.querySelector('[data-act="save"]');
     if (btn) { const o = btn.textContent; btn.textContent = 'Saved'; setTimeout(() => { btn.textContent = o; }, 1200); }
+    // group may have changed → re-render so it moves under the right heading.
     await loadPackageUnits();
+    renderPackagesPane(content);
   }
   async function deletePackageUnit(tr, content) {
     const err = content.querySelector('#stgPkgError'); if (err) err.textContent = '';

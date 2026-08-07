@@ -1,11 +1,11 @@
 # How Settings is wired (and the proposed role-gated hub)
 
 > Doc: `/docs/wiring/settings.md`
-> Last updated: 2026-08-07 — verified vs commit `54f3683`
+> Last updated: 2026-08-07 — verified vs commit `0deddaa`
 > Status: ✅ §0–§4 (today's wiring) verified vs code this session — read against
 > `shared/board-settings.js`, `migrations/20260716_shop_settings.sql`, `crisdata.html`, the four
 > board `BoardSettings.init` calls, and `api/announcement.js`. **§4.1 (the owner Features
-> switchboard, now two flags) and §4.2 (the money+feature-gated Packages category) are BUILT.**
+> switchboard, now two flags) and §4.2 (the money+feature-gated "Rebuild Units & Prices" category) are BUILT.**
 > **§5–§10 remain a PROPOSED architecture — NOT built, pending approval.**
 
 ## 0. In one line
@@ -32,10 +32,11 @@ gate and no server-side enforcement**, so "hidden" today means "removed from the
     on/off switches for the Book Hours and Packages features (§4.1). One boolean column per switch;
     additive, no new table, no RLS change.
 - **Package unit prices → `public.package_units`** (migration `20260807_packages.sql`): the
-  shop-set list backing the RO "Package" line — `unit_code`, `set_price`, `default_rr_hours`,
-  `active`, timestamps. Anon-full-access RLS + realtime, same pattern as `payment_methods`. Edited
-  in the §4.2 Packages pane; read by the RO via `BoardSettings.getPackageUnits()`. See
-  [[packages]].
+  shop-set list backing the RO "Package" line — `group_label` (nullable organizing tag),
+  `unit_code`, `set_price`, `default_rr_hours`, `active`, timestamps. Anon-full-access RLS +
+  realtime, same pattern as `payment_methods`. Edited in the §4.2 "Rebuild Units & Prices" pane
+  (grouped by `group_label`, with a bulk "set price for whole group" shortcut); read by the RO via
+  `BoardSettings.getPackageUnits()`. See [[packages]].
   - **Shop Profile** (added by `20260716_phase3_print_fields.sql`): `shop_name`, `address_line`,
     `city_state_zip`, `phone`, `email`, `website`, `logo_url`, `mv_number`, `legal_terms`.
 - **My Profile → `public.employees`**: display `name`, `photo_url` / `background_photo_url`
@@ -119,14 +120,16 @@ a small, forward-compatible step toward the role-gated hub in PART B.
   reader **fails safe to OFF** (missing column / failed read → false), so the app degrades to
   pre-feature behavior, never to an accidental ON.
 
-## 4.2 The Packages category — money-gated AND feature-gated (BUILT 2026-08-07)
-A **Packages** pane (`renderPackagesPane`) manages the `package_units` list (Unit / Set Price /
-Default R&R Hours; add / edit / delete). Unlike Features (owner-only), it uses the **existing money
-gate**: `visible = canEditShopMoney && getShopSettings().feature_packages`. So it shows for
-**owner/GM** (the money-editing boards) **only when the Packages switch is on**, and is hidden for
-advisor and while the feature is off. It's the first category whose visibility combines the money
-gate with a feature flag. The RO builder reads the list via `BoardSettings.getPackageUnits()`. Full
-wiring (the Package RO line type, price-vs-pay separation, print fold-in) lives in [[packages]].
+## 4.2 The "Rebuild Units & Prices" category — money-gated AND feature-gated (BUILT 2026-08-07)
+A **Rebuild Units & Prices** pane (`renderPackagesPane`; category id `packages`) manages the
+`package_units` list (Group / Unit / Set Price / Default R&R Hours; add / edit / delete). Unlike
+Features (owner-only), it uses the **existing money gate**:
+`visible = canEditShopMoney && getShopSettings().feature_packages`. So it shows for **owner/GM** (the
+money-editing boards) **only when the Packages switch is on**, and is hidden for advisor and while
+the feature is off. It's the first category whose visibility combines the money gate with a feature
+flag. The list is **grouped by `group_label`** with a per-group "set price for whole group" bulk
+shortcut (`setGroupPrice`). The RO builder reads the list via `BoardSettings.getPackageUnits()`.
+Full wiring (the Package RO line type, price-vs-pay separation, print fold-in) lives in [[packages]].
 
 ---
 
@@ -233,9 +236,10 @@ mechanism, in preference order:
 - **Features switchboard (§4.1):** `shared/board-settings.js` — `FEATURE_FLAGS` registry
   (`book_hours`, `packages`), `renderFeaturesPane`, `saveFeatureFlag`; category
   `visible: viewerRole === 'owner'`; `viewerRole` set via `refresh(employeeId, role)`.
-- **Packages category (§4.2):** `shared/board-settings.js` — `renderPackagesPane` +
-  `addPackageUnit`/`savePackageUnit`/`deletePackageUnit`, `loadPackageUnits`/`getPackageUnits`;
-  `package_units` (`migrations/20260807_packages.sql`). See [[packages]].
+- **"Rebuild Units & Prices" category (§4.2):** `shared/board-settings.js` — `renderPackagesPane`
+  (grouped) + `setGroupPrice`, `addPackageUnit`/`savePackageUnit`/`deletePackageUnit`,
+  `loadPackageUnits`/`getPackageUnits`; `package_units` (`migrations/20260807_packages.sql`). See
+  [[packages]].
 - Board wiring: `BoardSettings.init(...)` in `owner-board.html`, `gm-board.html`,
   `advisor-board.html`, `bookkeeping-board.html`; `BoardSettings.refresh(emp.id, role)` after
   `captureSessionAndGreet()` (now passes the viewer role).
@@ -273,3 +277,7 @@ mechanism, in preference order:
   feature (the Package RO line type) documented in [[packages]]. Verified in-browser: both Features
   toggles present, Packages category hidden while OFF, getPackageUnits fail-safe. Migration not yet
   applied.
+- 2026-08-07 — Renamed the pane to **"Rebuild Units & Prices"**, added
+  `package_units.group_label` (same migration, additive), a **grouped list** with a per-group "set
+  price for whole group" bulk shortcut (`setGroupPrice`), and a per-row Group field. Storage line +
+  §4.2 updated. Verified in-browser: grouping/order logic + toggle copy. Migration still not applied.

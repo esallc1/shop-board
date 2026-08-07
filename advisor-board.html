@@ -4910,8 +4910,18 @@
             // per job; taxable default on. R&R hrs (tech pay) shows only when the
             // Book Hours feature is ON, and NEVER enters the price math.
             const units = packageUnits();
-            let unitOpts = '<option value="">— Select unit —</option>' +
-              units.map(u => `<option value="${esc(String(u.id))}"${l.package_unit_id === u.id ? ' selected' : ''}>${esc(u.unit_code)}</option>`).join('');
+            // group the dropdown by group_label (optgroups): named groups first
+            // (alpha), ungrouped units as plain options at the bottom. Picking is
+            // still by individual unit id — grouping is scan-only.
+            const optFor = (u) => `<option value="${esc(String(u.id))}"${l.package_unit_id === u.id ? ' selected' : ''}>${esc(u.unit_code)}</option>`;
+            const grp = new Map();
+            units.forEach(u => { const g = (u.group_label || '').trim(); if (!grp.has(g)) grp.set(g, []); grp.get(g).push(u); });
+            const byCode = (a, b) => String(a.unit_code).localeCompare(String(b.unit_code));
+            let unitOpts = '<option value="">— Select unit —</option>';
+            [...grp.keys()].filter(g => g !== '').sort((a, b) => a.localeCompare(b)).forEach(g => {
+              unitOpts += `<optgroup label="${esc(g)}">` + grp.get(g).slice().sort(byCode).map(optFor).join('') + '</optgroup>';
+            });
+            if (grp.has('')) unitOpts += grp.get('').slice().sort(byCode).map(optFor).join('');
             // keep a stored-but-now-inactive/deleted unit selectable so the line
             // still shows its name
             if (l.package_unit_id && !units.some(u => u.id === l.package_unit_id)) {
