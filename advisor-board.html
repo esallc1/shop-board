@@ -4934,17 +4934,13 @@
         tb.innerHTML = currentLines.map(l => {
           const lineTotal = num(l.quantity) * num(l.unit_price);
           const typeLabel = LINE_TYPE_LABEL[l.line_type] || l.line_type;
-          // description cell: unit name for package; description + muted part #
-          // for parts; description otherwise.
+          // description cell: description + muted part # for parts; description
+          // otherwise. (No tech-pay / R&R annotations on the advisor's rows —
+          // hours live in the Qty/Hrs column; R&R is the manager's, set in
+          // Rebuild Units & Prices and carried silently on the line.)
           let descHtml = esc(l.description || '') || '<span style="color:var(--muted)">—</span>';
           if (l.line_type === 'parts' && l.part_number) {
             descHtml += ` <span style="color:var(--muted);font-size:0.72rem">#${esc(l.part_number)}</span>`;
-          }
-          if (l.line_type === 'package' && bookHoursFeatureOn() && l.rr_hours != null) {
-            descHtml += ` <span style="color:var(--muted);font-size:0.72rem">· R&amp;R ${esc(String(l.rr_hours))}h</span>`;
-          }
-          if (l.line_type === 'labor' && bookHoursFeatureOn() && l.quantity != null) {
-            descHtml += ` <span style="color:var(--muted);font-size:0.72rem">· ${esc(String(num(l.quantity)))}h tech pay</span>`;
           }
           return `
           <tr data-id="${esc(l.id)}">
@@ -5210,7 +5206,7 @@
         const bookOn = bookHoursFeatureOn();
         const rate = seedMatches ? (seed.unit_price != null ? seed.unit_price : '') : (defaultUnitFor('labor') != null ? defaultUnitFor('labor') : '');
         const qty = seedMatches ? (seed.quantity != null ? seed.quantity : 1) : 1;
-        const qtyField = lfField((bookOn ? 'Hours' + TECHPAY_HINT : 'Qty'),
+        const qtyField = lfField((bookOn ? 'Hours' : 'Qty'),
           `<input type="number" id="cdLf_qty" value="${nv(qty)}" min="0" step="${bookOn ? '0.5' : '0.01'}">`);
         const rateField = lfField('Rate ($/hr)', `<input type="number" id="cdLf_rate" value="${nv(rate)}" min="0" step="0.01">`);
         html = descField
@@ -5232,13 +5228,14 @@
           + '<div class="cd-lf-margin" id="cdLf_margin"></div>'
           + taxField;
       } else if (type === 'package') {
-        const bookOn = bookHoursFeatureOn();
+        // Advisor's Package window shows only Unit, Price, Taxable. R&R hrs is NOT
+        // shown/edited here — it's the manager's (set in Rebuild Units & Prices) —
+        // but the line still silently carries the unit's default_rr_hours (see
+        // saveLineModal), preserving any manager-adjusted value on edit.
         const selUnit = seedMatches ? (seed.package_unit_id || '') : '';
         const price = seedMatches ? (seed.unit_price != null ? seed.unit_price : '') : '';
-        const rr = seedMatches ? (seed.rr_hours != null ? seed.rr_hours : '') : '';
         html = lfField('Unit', `<select id="cdLf_unit">${packageUnitOptions(selUnit)}</select>`)
           + lfField('Price ($)', `<input type="number" id="cdLf_price" value="${nv(price)}" min="0" step="0.01">`)
-          + (bookOn ? lfField('R&amp;R hrs' + TECHPAY_HINT, `<input type="number" id="cdLf_rr" value="${nv(rr)}" min="0" step="0.5">`) : '')
           + taxField;
       } else {
         // fee / shop_supply / hazmat — flat amount, qty fixed at 1
@@ -5267,13 +5264,11 @@
         $('cdLf_sell').addEventListener('input', calc);
         calc();
       } else if (type === 'package') {
-        const bookOn = bookHoursFeatureOn();
+        // picking a unit fills the (visible) Price; R&R hrs is carried silently
+        // at save time (no advisor field), see saveLineModal.
         $('cdLf_unit').addEventListener('change', () => {
           const u = packageUnits().find(x => x.id === $('cdLf_unit').value);
-          if (u) {
-            $('cdLf_price').value = Number(u.set_price) || 0;
-            if (bookOn && $('cdLf_rr')) $('cdLf_rr').value = (u.default_rr_hours != null ? u.default_rr_hours : '');
-          }
+          if (u) $('cdLf_price').value = Number(u.set_price) || 0;
         });
       }
     }
@@ -5323,10 +5318,15 @@
         payload.description = u ? u.unit_code : ((lineModalSeed && lineModalSeed.description) || null);
         payload.quantity = 1;
         payload.unit_price = num($('cdLf_price').value);
-        // R&R hrs captured only when Book Hours is on; else preserve the seed's.
-        payload.rr_hours = (bookHoursFeatureOn() && document.getElementById('cdLf_rr'))
-          ? numOrNull($('cdLf_rr').value)
-          : ((lineModalSeed && lineModalSeed.line_type === 'package') ? (lineModalSeed.rr_hours != null ? lineModalSeed.rr_hours : null) : null);
+        // R&R hrs is not shown/edited by the advisor — carried silently. On the
+        // SAME unit keep the line's current value (a manager may have adjusted it
+        // in Rebuild Units & Prices / on the manager side); on a new/changed unit
+        // take that unit's default_rr_hours. Never null-clobbers a manager value.
+        const sameUnit = lineModalSeed && lineModalSeed.line_type === 'package' && lineModalSeed.package_unit_id === uid;
+        const unitDefault = (u && u.default_rr_hours != null) ? Number(u.default_rr_hours) : null;
+        payload.rr_hours = sameUnit
+          ? (lineModalSeed.rr_hours != null ? lineModalSeed.rr_hours : unitDefault)
+          : unitDefault;
       } else {
         payload.description = ($('cdLf_desc').value || '').trim() || null;
         payload.quantity = 1;

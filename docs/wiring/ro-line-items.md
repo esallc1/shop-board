@@ -1,7 +1,7 @@
 # How RO line items (the Add/Edit-Line pop-up) are wired
 
 > Doc: `/docs/wiring/ro-line-items.md`
-> Last updated: 2026-08-07 — verified vs commit `01d9f63`
+> Last updated: 2026-08-07 — verified vs commit `ba3fcf0`
 > Status: ✅ BUILT + verified live this session. The line editor is a pop-up
 > window (no inline row editing). Verified end-to-end on real ROs: read-only rows,
 > add/edit/delete round-trip, labor auto-Sell, parts margin, package resolve,
@@ -21,11 +21,11 @@ changed.
   (`advisor-board.html`). Columns: Type · Description · Qty/Hrs · Unit $ · Tax ·
   Line · (actions).
 - `renderLines()` (`advisor-board.html:4929`) renders each `currentLines` row as
-  **static cells** — no inputs. Type shows as a chip (`LINE_TYPE_LABEL`), the
-  description cell appends muted context: `#part_number` for parts, `· Nh tech pay`
-  for labor and `· R&R Nh` for package **only when the Book Hours feature is ON**.
-  Each row wires a **pencil** → `openLineModal(line)` and a **×** → `deleteLine(id)`
-  (now with a confirm).
+  **static cells** — no inputs. Type shows as a chip (`LINE_TYPE_LABEL`); the
+  description cell appends only `#part_number` for parts. **No tech-pay / R&R
+  annotations on the advisor's rows** — hours already show in the Qty/Hrs column,
+  and R&R is the manager's (see §2). Each row wires a **pencil** →
+  `openLineModal(line)` and a **×** → `deleteLine(id)` (now with a confirm).
 - Everything downstream still reads the **data model** (`currentLines`), not the
   DOM, so `recalcTotals()` / `roTotalNum()` / the print fold-in are untouched.
 
@@ -46,17 +46,22 @@ into `quantity` / `unit_price`; type-specific extras use their own columns.
 
 | Type | Fields shown | → `quantity` | → `unit_price` | Other columns |
 |---|---|---|---|---|
-| **Labor** | Description, **Hours** (tech-pay hint; "Qty" when Book Hours OFF), Rate ($/hr, default = RO&Pricing labor rate), **Sell (auto = Hours×Rate, read-only)**, Taxable | hours | rate | — |
+| **Labor** | Description, **Hours** (labelled "Qty" when Book Hours OFF), Rate ($/hr, default = RO&Pricing labor rate), **Sell (auto = Hours×Rate, read-only)**, Taxable | hours | rate | — |
 | **Parts** | Part #, Description, **Cost** (internal), **Sell**, Qty, Taxable | qty | sell | **`unit_cost` = cost** |
-| **Package** | Unit (grouped `<optgroup>` dropdown), Price (editable), **R&R hrs** (tech pay; only when Book Hours ON), Taxable | 1 | price | `package_unit_id`, `description`=unit_code, `rr_hours` |
+| **Package** | Unit (grouped `<optgroup>` dropdown), Price (editable), Taxable — **no R&R field** | 1 | price | `package_unit_id`, `description`=unit_code, `rr_hours` (silent) |
 | **Fee / Shop Supply / Hazmat** | Description, Amount (Shop Supply/Hazmat prefill their RO&Pricing default), Taxable | 1 | amount | — |
 
-- **Labor** shows the **Hours** field (with a "tech pay" hint) only when the Book
-  Hours feature is ON; when OFF it's a plain "Qty" — same storage either way
-  (`quantity`), so labor still works exactly as before the feature.
+- **Labor** field is labelled **"Hours"** when the Book Hours feature is ON and
+  **"Qty"** when OFF — same storage either way (`quantity`), so labor works exactly
+  as before the feature. The hours still feed the tech-hours count under the hood;
+  there's no "tech pay" wording on the advisor's labor field or row.
 - **Package** type appears in the selector only when the **Packages** feature is ON
-  (or the line is already a package). Picking a unit **resolve-and-stores** its
-  `set_price` → Price and `default_rr_hours` → R&R hrs (editable after).
+  (or the line is already a package). Picking a unit fills **Price** from
+  `set_price`. **The advisor does NOT see or edit R&R hrs** — the line still
+  **silently carries `rr_hours`** (see §3): on a new/changed unit it takes that
+  unit's `default_rr_hours`; on a same-unit edit it **preserves the line's current
+  value** (a manager may have adjusted it). R&R is the manager's, set in the
+  **Rebuild Units & Prices** R&R Hrs column (see [[packages]]).
 - **Parts margin** (`Sell − Cost`, and %) renders **live** in the window
   (`#cdLf_margin`). It is **INTERNAL** — never shown to the customer and never
   printed (see §4).
@@ -124,3 +129,12 @@ So cost/margin never reaches the customer estimate / RO / invoice.
   Verified live on real ROs: read-only rows, add/edit/delete round-trip, labor
   auto-Sell, parts margin ($135 / 42.2%), package resolve (price 5720), totals
   intact, no JS errors.
+- 2026-08-07 — Dropped "tech pay" wording from the advisor's LABOR line (pop-up
+  label "Hours · tech pay" → "Hours"; removed the "· Nh tech pay" row annotation)
+  and **removed the R&R hrs field from the advisor's PACKAGE pop-up** (now Unit /
+  Price / Taxable only; also removed the "· R&R Nh" row annotation). The line still
+  **silently carries `rr_hours`** — new/changed unit → unit's `default_rr_hours`,
+  same-unit edit → preserves the line's current value (manager-owned). Data model +
+  the settings R&R Hrs column unchanged. Verified live on a real RO: labor label
+  "Hours", package pop-up has no R&R field, and a saved package line stored
+  `rr_hours = 7.5` (the unit default) via DB read-back; test line cleaned up.

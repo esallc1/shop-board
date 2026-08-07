@@ -1,7 +1,7 @@
 # How Packages (unit prices + the Package RO line) is wired
 
 > Doc: `/docs/wiring/packages.md`
-> Last updated: 2026-08-07 — verified vs commit `01d9f63`
+> Last updated: 2026-08-07 — verified vs commit `ba3fcf0`
 > Status: ✅ BUILT, behind an owner switch (`feature_packages`, default OFF).
 > Migration `20260807_packages.sql` has since been **applied** and the switch turned
 > **ON** — confirmed live 2026-08-07: `feature_packages` true, the `package` line
@@ -13,9 +13,10 @@
 A shop-set list of **package units** (e.g. `6L80` = $4950 set price, 6.5 default
 R&R hours) that the RO builder drops onto a new **"Package"** line type: the set
 price is the **customer price** (qty 1, taxable, editable per job); the R&R hours
-are **tech-pay only** (never added to the price) and only appear when the Book
-Hours feature is on. The whole thing is gated by an owner **Packages** switch,
-default OFF — when off, the RO builder and settings look exactly like before.
+are **tech-pay only** (never added to the price) and are **manager-owned** — set in
+the Rebuild Units & Prices R&R Hrs column and carried silently on the line; the
+advisor never sees or edits them. The whole thing is gated by an owner **Packages**
+switch, default OFF — when off, the RO builder and settings look exactly like before.
 
 ## 1. The master switch (owner-controlled, default OFF)
 - **Flag:** `shop_settings.feature_packages boolean not null default false`
@@ -65,19 +66,23 @@ default OFF — when off, the RO builder and settings look exactly like before.
   `alter type ... add value`). The type `<select>` in the pop-up includes Package
   only when the feature is on — `lineTypeOptions()` appends it (or when the line
   being edited is already a package).
-- **The Package fields (in the pop-up):**
+- **The Package fields (in the pop-up)** — **Unit, Price, Taxable only**:
   - **Unit** → a dropdown of the active units, **grouped into `<optgroup>`s by
     `group_label`** (named groups alpha-first, ungrouped last) so the advisor scans
     by group but still picks an individual unit (`packageUnitOptions()`). A
     stored-but-deleted unit stays selectable so the name still shows.
   - **Price** → editable (the effective price). **Qty** is fixed at 1 on save.
     **Taxable** → a checkbox, default on.
-  - When Book Hours is ON, an **"R&R hrs · tech pay"** field shows; hidden when off.
-- **Picking a unit (resolve-and-store)** — the pop-up's unit-change handler copies
-  the unit onto the fields: `unit_price = set_price` (editable after — bump it for
-  one job without touching settings) and, when Book Hours is on, `rr_hours =
-  default_rr_hours`. On save the line stores `package_unit_id`,
-  `description = unit_code`, `quantity = 1`, `taxable`.
+  - **No R&R hrs field** — the advisor does not see or edit R&R hours (as of
+    2026-08-07). R&R is the **manager's**, set in the Rebuild Units & Prices
+    **R&R Hrs** column (§2) and adjustable on the manager side later.
+- **Picking a unit** copies `set_price` → the Price field (editable after — bump it
+  for one job without touching settings). On save the line stores
+  `package_unit_id`, `description = unit_code`, `quantity = 1`, `taxable`, and
+  **silently carries `rr_hours`**: a new/changed unit takes that unit's
+  `default_rr_hours`; a same-unit edit **preserves the line's current** `rr_hours`
+  so a manager-adjusted value is never clobbered. `rr_hours` still never enters the
+  price math (§4).
 
 ## 4. Price vs pay — the one rule that keeps it safe
 - **Customer price** = `Σ(quantity × unit_price)` over `ro_line_items`, unchanged.
@@ -161,3 +166,9 @@ default OFF — when off, the RO builder and settings look exactly like before.
   all still hold. Verified live: package type in the pop-up shows the 8-optgroup / 50-unit
   dropdown and resolves the set price on select. `renderLines`/`onFieldChange` refs in
   this doc replaced with the pop-up functions.
+- 2026-08-07 — **Removed the R&R hrs field from the advisor's Package pop-up** (now
+  Unit / Price / Taxable only) — R&R is now the manager's (Rebuild Units & Prices
+  R&R Hrs column). The line still **silently carries `rr_hours`** (unit default on
+  new/changed unit; preserves the current value on same-unit edit). Data model +
+  settings pane unchanged. §3 updated; verified live (saved package line stored
+  `rr_hours = 7.5` from the unit default, DB read-back).
