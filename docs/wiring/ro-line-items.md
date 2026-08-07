@@ -1,7 +1,7 @@
 # How RO line items (the Add/Edit-Line pop-up) are wired
 
 > Doc: `/docs/wiring/ro-line-items.md`
-> Last updated: 2026-08-07 — verified vs commit `ba3fcf0`
+> Last updated: 2026-08-07 — verified vs commit `661b8f0`
 > Status: ✅ BUILT + verified live this session. The line editor is a pop-up
 > window (no inline row editing). Verified end-to-end on real ROs: read-only rows,
 > add/edit/delete round-trip, labor auto-Sell, parts margin, package resolve,
@@ -46,7 +46,7 @@ into `quantity` / `unit_price`; type-specific extras use their own columns.
 
 | Type | Fields shown | → `quantity` | → `unit_price` | Other columns |
 |---|---|---|---|---|
-| **Labor** | Description, **Hours** (labelled "Qty" when Book Hours OFF), Rate ($/hr, default = RO&Pricing labor rate), **Sell (auto = Hours×Rate, read-only)**, Taxable | hours | rate | — |
+| **Labor** | Description, **Hours** (labelled "Qty" when Book Hours OFF), Rate ($/hr, default = RO&Pricing labor rate), **Sell (auto = Hours×Rate, read-only)**, **Tech credit** (Book Hours ON only — defaults to the RO tech), Taxable | hours | rate | **`line_tech_id`** (null = RO tech) |
 | **Parts** | Part #, Description, **Cost** (internal), **Sell**, Qty, Taxable | qty | sell | **`unit_cost` = cost** |
 | **Package** | Unit (grouped `<optgroup>` dropdown), Price (editable), Taxable — **no R&R field** | 1 | price | `package_unit_id`, `description`=unit_code, `rr_hours` (silent) |
 | **Fee / Shop Supply / Hazmat** | Description, Amount (Shop Supply/Hazmat prefill their RO&Pricing default), Taxable | 1 | amount | — |
@@ -65,13 +65,28 @@ into `quantity` / `unit_price`; type-specific extras use their own columns.
 - **Parts margin** (`Sell − Cost`, and %) renders **live** in the window
   (`#cdLf_margin`). It is **INTERNAL** — never shown to the customer and never
   printed (see §4).
+- **Tech credit (labor, Book Hours ON):** a `Tech credit` picker
+  (`lineTechPickerHtml`, `advisor-board.html:5245`) whose value `""` = **inherit the
+  RO's assigned tech** (stored as `line_tech_id = null`), or an employee id =
+  **credit that tech** for this line's hours (the 2nd-tech-did-one-piece case).
+  A labor row shows a muted `→ Name` when it's credited to a non-default tech.
+  This feeds the weekly per-tech **Billed Hrs** rollup (see [[flat-rate-hours]] §10).
 
-## 3. Saving — resilient write
-`writeLineRow(payload, id)` (`advisor-board.html:5284`) inserts (add) or updates
+### Book Hours is a READ-ONLY auto-total (not typed)
+The RO-level **Book Hours** field is no longer hand-typed — it's the **auto-total**
+`Σ labor-line hours + Σ package R&R hours`, recomputed live as lines change and
+persisted to `repair_orders.book_hours` (see [[flat-rate-hours]] §8). Kevin adjusts
+on the **line** (a Labor line's Hours, or a Package line's R&R via settings) and the
+total follows. So the line editor is where all hours are entered.
+
+## 3. Saving — resilient write (surgical strip)
+`writeLineRow(payload, id)` (`advisor-board.html:5347`) inserts (add) or updates
 (edit) `ro_line_items`, then updates `currentLines` in place and re-renders. If a
-**new column isn't migrated yet** (`unit_cost`, `package_unit_id`, `rr_hours`,
-`part_number`), the write catches the missing-column error, **strips those optional
-columns, and retries once** so the core line still saves. New lines get
+not-yet-migrated OPTIONAL column (`unit_cost`, `package_unit_id`, `rr_hours`,
+`part_number`, `line_tech_id`) makes the write fail, it strips **only the column the
+error names** (`missingColumnName`, `advisor-board.html:4708`) and retries — so an
+unmigrated `line_tech_id` never clobbers an already-migrated `unit_cost` /
+`package_unit_id` / etc. (the earlier blanket-strip would have). New lines get
 `sort_order = currentLines.length`. The old inline `onFieldChange` /
 per-field auto-save is gone.
 
@@ -86,32 +101,35 @@ So cost/margin never reaches the customer estimate / RO / invoice.
   + tax on taxable lines (customer-exempt aware).
 - **Print package fold-in:** package lines still print under Parts and fold into the
   Parts subtotal (see [[packages]] §4).
-- **RO-level Book Hours field + the leaving-Estimate gate:** unchanged (see
-  [[flat-rate-hours]] §8/§9). Reconciling the RO `book_hours` with per-line labor
-  hours + package R&R hours into a tech-pay report is the **next** step.
 - **`+ Card fee`** button still adds a non-taxable fee line directly (`addCardFee`).
 
+**Now CHANGED (Hours Engine Part 1):** the RO-level Book Hours field is a read-only
+**auto-total** from the lines (above / [[flat-rate-hours]] §8), the leaving-Estimate
+gate blocks on a **0 total** (not a blank input), labor lines carry a per-line
+**`line_tech_id`**, and the weekly per-tech **Billed Hrs** rollup is now live on the
+Manager board ([[flat-rate-hours]] §10).
+
 ## Known gaps & open questions (as of 2026-08-07)
-- **`unit_cost` migration not yet applied** — parts cost/margin can be entered and
-  shown live, but the cost won't persist until `20260807_ro_line_unit_cost.sql` is
-  run (the line saves without it meanwhile).
-- **Hours reconciliation is not built** — labor Hours (stored in `quantity`) and
-  package `rr_hours` are captured but not yet summed against the RO's `book_hours`
-  or rolled into a per-tech report (see [[flat-rate-hours]] §6).
+- **`unit_cost` + `line_tech_id` migrations not yet applied** — parts cost/margin and
+  the per-line tech override can be entered and shown live, but won't persist until
+  `20260807_ro_line_unit_cost.sql` / `20260807_ro_line_tech.sql` are run (the line
+  saves without them meanwhile, via the surgical strip §3).
 - **Shop Supply / Hazmat** kept in the type selector (flat, like Fee) so nothing
   regresses from the old inline type dropdown; they prefill their RO&Pricing default.
 
 ## Where it lives in the code / schema
 - **Schema:** `ro_line_items` (`migrations/20260716_ro_foundation.sql`) +
   `part_number` (`20260716_phase3_print_fields.sql`) + `package_unit_id`/`rr_hours`
-  (`20260807_packages.sql`) + **`unit_cost`** (`20260807_ro_line_unit_cost.sql`,
-  additive, unapplied). Anon + authenticated RLS via
-  `20260801_office_auth_widen_step1_5.sql` (no policy change needed for the column).
-- **Row render:** `advisor-board.html` `renderLines` (:4929), `LINE_TYPE_LABEL`
-  (:4925).
-- **Pop-up:** markup `#cdLineModal` (:1655); `openLineModal` (:5168),
-  `renderLineFields` (:5197), `wireLineFields`, `packageUnitOptions` (:5150),
-  `saveLineModal` (:5301), `writeLineRow` (:5284), `deleteLine` (:5401).
+  (`20260807_packages.sql`) + **`unit_cost`** (`20260807_ro_line_unit_cost.sql`) +
+  **`line_tech_id`** (`20260807_ro_line_tech.sql`, uuid → `employees(id)`
+  `on delete set null`; null = inherit RO tech) — the last two **additive, unapplied**.
+  Anon + authenticated RLS via `20260801_office_auth_widen_step1_5.sql` (no policy
+  change needed for the columns).
+- **Row render:** `advisor-board.html` `renderLines` (:4966), `LINE_TYPE_LABEL`.
+- **Pop-up:** markup `#cdLineModal` (:1655); `openLineModal` (:5207),
+  `renderLineFields` (:5258), `wireLineFields`, `packageUnitOptions` (:5189),
+  `lineTechPickerHtml` (:5245), `saveLineModal` (:5366),
+  `writeLineRow`/`missingColumnName` (:5347/:4708), `deleteLine` (:5476).
 - **Totals / print (unchanged):** `recalcTotals` / `roTotalNum`; `printRo`
   labor/parts rows + fold-in.
 - **Related docs:** [[packages]] (Package line + unit prices), [[flat-rate-hours]]
@@ -138,3 +156,12 @@ So cost/margin never reaches the customer estimate / RO / invoice.
   the settings R&R Hrs column unchanged. Verified live on a real RO: labor label
   "Hours", package pop-up has no R&R field, and a saved package line stored
   `rr_hours = 7.5` (the unit default) via DB read-back; test line cleaned up.
+- 2026-08-07 — **Hours Engine Part 1.** Book Hours became a read-only auto-total (§
+  "Book Hours is a READ-ONLY auto-total"); added the labor **Tech credit** picker +
+  `ro_line_items.line_tech_id` (`20260807_ro_line_tech.sql`, unapplied); made
+  `writeLineRow` strip **only** the named missing column (`missingColumnName`), so an
+  unmigrated `line_tech_id` no longer clobbers migrated columns. Verified live on real
+  ROs: auto-total = labor + package-R&R hours (14h; 14→16→14 on an hours edit,
+  reverted), `book_hours` persisted, tech picker defaults to the RO tech, and the
+  surgical strip preserved `package_unit_id` on a package save. Per-tech Billed Hrs
+  rollup on the Manager board is in [[flat-rate-hours]] §10.

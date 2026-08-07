@@ -1,27 +1,26 @@
 # How the flagged-hours / book-hours (tech-pay) data is wired
 
 > Doc: `/docs/wiring/flat-rate-hours.md`
-> Last updated: 2026-08-07 — verified vs commit `54f3683`
+> Last updated: 2026-08-07 — verified vs commit `661b8f0`
 > Status: ✅ verified vs code AND live schema this session. **`book_hours` capture is
-> BUILT** in `advisor-board.html` + `shared/board-settings.js`, and now sits behind an
-> **owner-controlled master switch, defaulted OFF** (§9). Its migration
-> `migrations/20260730_ro_book_hours.sql` **has been applied** — `repair_orders.book_hours`
-> / `book_hours_na` confirmed live via the anon REST API. §1–§7 remain the original
-> data-feasibility findings (the "why we needed a real hours number"). **The flat-rate /
-> rebuild-lookup idea was dropped** — hours come from ALLDATA per vehicle, typed by hand;
-> there is no hours-per-rebuild table. The now-unused `rebuild_book_hours` table and
-> `repair_orders.rebuild_type` column (both confirmed empty live) are staged for a manual
-> DROP. §8 documents the shipped capture; §9 documents the on/off switch.
+> BUILT** and, as of the **Hours Engine Part 1**, is a **read-only auto-total from the
+> lines** (§8) — not hand-typed. Per-line **tech credit** (`ro_line_items.line_tech_id`)
+> and a live **weekly per-tech Billed Hrs rollup on the Manager board** (§10) now exist;
+> all behind the owner Book Hours switch, default OFF (§9). §1–§7 remain the original
+> data-feasibility findings (the "why"). **The flat-rate / rebuild-lookup idea was
+> dropped** — the `rebuild_book_hours` table + `repair_orders.rebuild_type` column are
+> staged for a manual DROP. §8 = capture (now auto-total), §9 = the switch, §10 = the
+> rollup.
 
 ## 0. In one line
-A per-tech per-week **flagged book-hours** report needs three fields — **who**
-(`assigned_tech`/`technician`), **how many book hours** (now `repair_orders.book_hours`),
-and **when finished** (a completion `*_at`). The **hours** field is now captured at the
-estimate: the advisor types the **ALLDATA book time** he looks up per vehicle into a
-**Book Hours** field on the RO, gated so a job can't leave Estimate until it's a number
-or an explicit N/A. **Tech attribution and a reliable completion timestamp are still the
-open gaps** (§3, §4, §6) — so the number is captured, but a clean weekly *per-tech* report
-still can't be built from these tables alone.
+A per-tech per-week **billed book-hours** report needs three fields — **who**
+(`technician` + per-line `line_tech_id`), **how many book hours**
+(`repair_orders.book_hours`, now an **auto-total** of the labor + package-R&R lines), and
+**when finished** (a completion date). As of Hours Engine Part 1 the **hours auto-total
+from the RO lines** (no hand-typing), each labor line can **credit a specific tech**, and
+the Manager board shows a real **Billed Hrs** column per tech for the current week (§10).
+The remaining soft spot is the **completion timestamp** — `repair_orders` has no
+`closed_at`, so the rollup buckets by `updated_at` of invoiced/closed ROs (§10, disclosed).
 
 ## 1. The two parallel worlds this data lives in
 There are **two separate systems**, linked only by the shared text key **`po`** (a CrisData RO
@@ -116,66 +115,47 @@ are the remaining prerequisites for a trustworthy weekly per-tech report.
   job's hours across the diag tech and the repair tech** (per-phase attribution — not built).
 - A **comeback/warranty rule** for how rework hours count.
 
-## 8. Book-hours capture — how it's wired now (BUILT; migration pending)
-**Decision:** the advisor records **book hours on every RO/estimate**, typing the **ALLDATA book
-time for that specific vehicle**. There is **no hours-per-rebuild lookup table** — an early
-"flat-rate rebuild" design (a shop-set `rebuild_book_hours` table + a `rebuild_type` selector that
-auto-filled hours) was **removed**, because at this shop hours come from ALLDATA per vehicle, not a
-fixed number per transmission.
+## 8. Book-hours capture — now a READ-ONLY AUTO-TOTAL from the lines
+**As of Hours Engine Part 1** the advisor no longer types book hours. The RO-level Book Hours field
+is a **read-only auto-total** = `Σ (each Labor line's hours) + Σ (each Package line's R&R hours)`,
+recomputed live as lines change. Kevin adjusts on the **line** (a Labor line's Hours, or a Package
+line's R&R via Rebuild Units & Prices) and the total follows. (Where the hours come from — ALLDATA
+per vehicle — is unchanged; they're just entered on the labor line now, which is also the billed
+`quantity`.)
 
 ### 8.1 The one principle that makes it safe: book-hours is a PAY field, not a PRICE field
 Customer **price** stays exactly as today — `Σ(quantity × unit_price)` over `ro_line_items`
-(`recalcTotals`). **`book_hours` is a separate per-job number that never enters the money math.**
-Price (line math) and pay (`book_hours`) are different columns with different consumers
-(invoice/totals vs. tech-pay/report), so they cannot fight. A flat-priced job keeps its
-`qty 1 × $flat` labor line (price unchanged) **and** carries, say, 12.0 book hours for pay.
+(`recalcTotals`). **`book_hours` never enters the money math.** For a **labor** line the hours ARE
+the `quantity` (so they also bill at `quantity × rate`); for a **package** line the R&R hours
+(`rr_hours`) are pay-only and never touch price. The auto-total is a pay number; the invoice totals
+are the price number.
 
-### 8.2 The three-way state (why there are two columns)
-A lone nullable numeric only expresses "null vs a number", but capture needs **three** states:
-- `book_hours IS NULL` **and** `book_hours_na = false` → **NOT captured** (blank — blocks leaving
-  Estimate);
-- `book_hours = <n>` → **captured hours** (`n = 0` is a real, allowed value, distinct from blank);
-- `book_hours IS NULL` **and** `book_hours_na = true` → **explicit N/A** (a diagnostic-only /
-  no-labor RO — never trapped into a fake number).
-
-Hence the extra `book_hours_na` boolean. The floor mirror writes `flag_hours` = the number when
-captured, and NULL for both blank and N/A.
+### 8.2 The number + the N/A flag
+- **`repair_orders.book_hours`** holds the **auto-total** (kept in sync from the lines; `0` when
+  there are no labor/package hours yet).
+- **`repair_orders.book_hours_na`** is the one **manual RO-level control** left — ticking it marks a
+  genuine **parts-only** job (`book_hours` → null, no hours required). Unticking restores the
+  auto-total.
+- The floor mirror writes `flag_hours` = the total when present, NULL when N/A.
 
 ### 8.3 Where the number lives and flows
 - **System of record:** `repair_orders.book_hours` / `book_hours_na`
-  (`migrations/20260730_ro_book_hours.sql` — **applied**, confirmed live; additive, nullable; the
-  app still carries `isMissingColumn` fallbacks so it degraded quietly in the pre-apply window).
-- **Capture UI:** the **Book Hours** field on the RO detail (`#cdRoBookHoursField`,
-  `advisor-board.html:1462`) — a number input `#cdRoBookHours` + an `#cdRoBookHoursNA` "N/A (no
-  labor)" checkbox. Ticking N/A disables and clears the number; typing a number clears N/A.
-  `populateBookHours()` hydrates it from the stored RO; `saveBookHours()` persists and mirrors;
-  `paintBookHoursHint()` shows the "enter hours (or N/A) before leaving Estimate" / "N/A — no
-  labor" hint.
-- **Write-through mirror to the floor:** `mirrorBookHoursToFloor(po, hours)`
-  (`advisor-board.html:4758`) copies the captured number onto the floor row's **existing**
-  `flag_hours` column by `po` (number when captured; NULL for blank or N/A). It never creates a
-  floor row, never writes the pickup zone, and degrades quietly off-floor / pre-migration — which
-  is why **no new floor column is needed and the pickup archive keeps working unchanged**.
-- **Archive on close:** the RO-close archiver (`advisor-board.html:5334`) writes
-  `flag_hours: ro.book_hours` into `completed_jobs`, so closed CrisData ROs land the pay number in
-  the archive.
-- **Pickup archive:** `gm-board.html sfArchivePickup()` (~3354) already copies `flag_hours` from
-  the floor row / `undo_car` snapshot — works unchanged because the mirror kept the floor
-  `flag_hours` current.
-- **Approval-Queue prefill:** `prefillFlagHoursFromBookHours()` (`advisor-board.html:2000`) reads
-  each queued job's `book_hours` and pre-fills the queue card's Flag Hours input, so the advisor
-  **confirms** the number instead of re-typing (blank / N/A stay blank).
+  (`migrations/20260730_ro_book_hours.sql`, applied). The **line hours** that feed it live in
+  `ro_line_items` (`quantity` on labor, `rr_hours` on package).
+- **UI:** the **Book Hours** field on the RO detail (`#cdRoBookHoursField`) — a **read-only total**
+  `#cdRoBookHoursTotal` + the `#cdRoBookHoursNA` checkbox. `bookHoursAutoTotal()` sums the lines;
+  `updateBookHoursAuto()` (`advisor-board.html:4646`, called from `renderLines()` on every line
+  change) paints the total and **persists it** to `repair_orders.book_hours` (+ mirrors to floor)
+  when it differs; `populateBookHours()` shows the field only when the switch is on.
+- **Write-through mirror / archive-on-close / Approval-Queue prefill:** unchanged — they still read
+  `repair_orders.book_hours`, which is now the auto-total instead of a typed value.
 
-### 8.4 The gate — book hours must be captured to leave Estimate
-`bookHoursGateForAdvance(roId, po)` (`advisor-board.html:4772`) is the single choke point, **shared
-by both ways a job can advance** so neither bypasses the other:
-- the RO-detail **Stage select** (`~advisor-board.html:5237`), and
-- the **kanban drag** (`~advisor-board.html:4053`).
-
-Moving **out of Estimate** requires `book_hours` **captured** — a number OR explicit N/A; blank is
-blocked with a message pointing at the Book Hours field. It fetches fresh, and returns `{ ok:true }`
-pre-migration (missing column) so it never blocks before the columns exist. **It never touches the
-customer price.**
+### 8.4 The gate — a light guardrail on 0
+`bookHoursGateForAdvance(roId, po)` (`advisor-board.html:4875`), shared by the RO-detail **Stage
+select** and the **kanban drag**, blocks leaving Estimate when the **auto-total is 0 AND N/A is not
+set** (`(book_hours == null || <= 0) && !book_hours_na`). A genuine parts-only RO ticks N/A. It
+reads the persisted total fresh (so the kanban drag works without the lines in memory), returns
+`{ ok:true }` pre-migration / feature-off, and never touches price.
 
 ### 8.5 What still makes the captured hours imperfect (carry-over from §6)
 - **Divergent copies** — `book_hours` (RO, source of truth) vs `flag_hours` (floor / archive). Kept
@@ -221,27 +201,55 @@ ready and, until then, the advisor board looks and behaves exactly as it did bef
   adds a **"Package" RO line** carrying `ro_line_items.rr_hours` — the pull/install tech-pay credit.
   That R&R-hours field is shown/captured **only when this Book Hours switch is ON** (packages still
   price normally when it's off, just without R&R hours). So a job's tech-pay hours can now come from
-  two places — the RO's `book_hours` and each package line's `rr_hours` — both captured, neither yet
-  summed into a per-tech report (§6, the next slice). Like `book_hours`, `rr_hours` never enters the
-  customer price.
+  two places — the RO's `book_hours` and each package line's `rr_hours` — both feed the §10 rollup.
+  Like `book_hours`, `rr_hours` never enters the customer price.
+
+## 10. Per-tech BILLED HOURS rollup — Manager board (BUILT, Hours Engine Part 1)
+The Manager board **Technicians** table now shows a **real "Billed Hrs"** column per tech for the
+current week — behind the Book Hours switch (OFF → the old sample values, so the board looks exactly
+like before). Clocked Hrs / Efficiency / time-punches stay **sample** (no time-clock source yet);
+the header tags and the banner say which is live vs sample.
+
+- **Where:** `gm-board.html` `computeBilledHours()` (:2171) → `renderTechnicians(..., billedHrs)`
+  (:2213). `computeBilledHours` returns **null when the feature is off** (→ sample), else
+  `{ techName: hours }`.
+- **Per-tech billed hrs** = `Σ` labor-line hours credited to that tech (`line_tech_id` → the
+  employee's name, else the RO's `technician`) `+ Σ` package `rr_hours` on ROs where they're the
+  RO's assigned tech. Package R&R always credits the RO tech (the rebuilder is counted by units
+  later, not here). Hours on ROs with **no** assigned tech are credited to no one.
+- **Week:** **Sunday–Saturday, America/New_York** — the SAME convention as the bookkeeping board's
+  Financial Pulse. `nyWeekSunSat()` (:2159) computes the Sun–Sat window; `nyDateOf(ts)` (:2154)
+  folds a timestamp to its NY calendar date.
+- **⚠ Completion timestamp used — `repair_orders.updated_at`.** `repair_orders` has **no
+  `closed_at`**, so the rollup buckets each RO by `updated_at` (folded to a NY date) within the
+  week, scoped to `status IN ('invoice','closed')` ("billed or closed"). **Limitation:** editing a
+  closed RO later moves its `updated_at`, shifting its hours to that later week. A dedicated
+  `closed_at`/`invoiced_at` (or joining `completed_jobs.picked_up_at`) would be more precise — the
+  natural next step. This choice is disclosed to Cris.
+- **Resilience:** the line query asks for `line_tech_id`; if that column isn't migrated yet it
+  **re-queries without it** (all labor credits the RO tech). Verified live: week Aug 2–8, billed
+  `{Cory: 9, Alex: 3}`, matching an independent DB sum; OFF → sample.
 
 ## Known gaps & open questions (as of 2026-08-07)
-- **Per-tech / per-phase attribution is the next design slice** — one `book_hours` per RO can't be
-  split between the diag tech and the repair tech, and tech names are last-write-wins with no
-  history.
-- Should the week be bucketed on work-finished or on pickup? Only `picked_up_at` is currently
-  timestamped.
-- Confirm whether lift `assigned_tech` is ever a per-job value or always the bay's station tech.
+- **No dedicated RO `closed_at`** — the §10 rollup buckets by `updated_at` of invoiced/closed ROs
+  (disclosed); a real completion timestamp is the next refinement.
+- **Multi-tech / per-phase** is now *partly* addressed: a labor line can credit a specific tech
+  (`line_tech_id`), but a single line still can't split across techs, and diag-vs-repair phase
+  isn't modeled.
+- Package R&R always credits the RO's assigned tech (the rebuilder-by-units count is a later step).
 
 ## Where it lives in the code / schema
-- **Book hours (pay):** `repair_orders.book_hours` / `book_hours_na`
-  (`migrations/20260730_ro_book_hours.sql`, **applied**). Capture + gate + mirror in
-  `advisor-board.html`: field `#cdRoBookHoursField` (:1464, `display:none` by default),
-  `populateBookHours` (:4575), `bookHoursCaptured`/`paintBookHoursHint` (:4560/:4563),
-  `saveBookHours` (:5848), `mirrorBookHoursToFloor` (:4771), `bookHoursGateForAdvance` (:4785),
-  RO-close archive write (:5350), Approval-Queue prefill `prefillFlagHoursFromBookHours` (:2002).
-  Settings **RO & Pricing** pane `renderRoPricingPane` (`shared/board-settings.js:541`) has **no**
-  rebuild editor.
+- **Book hours (pay), now auto-totaled:** `repair_orders.book_hours` / `book_hours_na`
+  (`migrations/20260730_ro_book_hours.sql`, applied). In `advisor-board.html`: read-only field
+  `#cdRoBookHoursField` / `#cdRoBookHoursTotal`, `bookHoursAutoTotal` (:4616),
+  `updateBookHoursAuto` (:4646, called from `renderLines`), `paintBookHoursDisplay` (:4634),
+  `populateBookHours` (:4659), the N/A toggle handler, `mirrorBookHoursToFloor`,
+  `bookHoursGateForAdvance` (:4875, blocks on 0), RO-close archive write, Approval-Queue prefill.
+- **Per-line tech credit:** `ro_line_items.line_tech_id` (`migrations/20260807_ro_line_tech.sql`,
+  unapplied). Labor pop-up picker `lineTechPickerHtml` (:5245), saved in `saveLineModal`; see
+  [[ro-line-items]] §5.
+- **Weekly Billed Hrs rollup:** `gm-board.html` `computeBilledHours` (:2171), `nyWeekSunSat`
+  (:2159) / `nyDateOf` (:2154), `renderTechnicians` (:2213), `bookHoursFeatureOnGm` (:2167).
 - **Master switch:** `shop_settings.feature_book_hours`
   (`migrations/20260807_feature_book_hours_flag.sql`). Owner "Features" pane
   `renderFeaturesPane` / `saveFeatureFlag` + the `FEATURE_FLAGS` registry
@@ -263,6 +271,15 @@ ready and, until then, the advisor board looks and behaves exactly as it did bef
   `settings.md`.
 
 ## Session change log
+- 2026-08-07 — **Hours Engine Part 1.** Book Hours became a **read-only auto-total** of the RO's
+  labor hours + package R&R hours (rewrote §8; `bookHoursAutoTotal`/`updateBookHoursAuto`, persisted
+  to `repair_orders.book_hours` on every line change); the leaving-Estimate **gate now blocks on a
+  0 total** (N/A escape unchanged). Added a **per-line tech credit** picker + `line_tech_id`
+  (`20260807_ro_line_tech.sql`, unapplied). Built the **weekly per-tech Billed Hrs rollup** on the
+  Manager board (§10) — Sunday–Saturday NY week, bucketed by `repair_orders.updated_at` of
+  invoiced/closed ROs (disclosed proxy; no `closed_at` exists). Verified live: auto-total 14h
+  (14→16→14 on an edit, reverted); billed `{Cory:9, Alex:3}` matched an independent DB sum; OFF →
+  sample. Migrations `20260807_ro_line_tech.sql` (+ the earlier `unit_cost`) unapplied.
 - 2026-07-30 — Created during the "shadow flat-rate" data-feasibility investigation. Mapped the
   three report inputs to real tables/columns, spot-checked 5 live ROs, found the report not yet
   buildable. Added a PROPOSED §8 capture design (book hours on every job) with a

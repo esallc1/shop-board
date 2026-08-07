@@ -1468,17 +1468,17 @@
               </div>
               <!-- BOOK HOURS — a PAY field (tech flat-rate), NOT a price. Never
                    enters the money math; write-through mirrors onto the floor
-                   row's flag_hours. Three distinct states: a number (captured),
-                   N/A (no labor), or blank (not captured — blocks leaving
-                   Estimate). Hours come from ALLDATA per vehicle, typed by hand.
-                   Hidden by default — revealed only when the owner's Book Hours
-                   master switch is ON (populateBookHours reads the flag). -->
+                   row's flag_hours. Now a READ-ONLY auto-total = Σ labor-line
+                   hours + Σ package R&R hours on this RO (recomputed live as lines
+                   change). Kevin adjusts on the LINE. N/A stays a manual RO control
+                   for genuine parts-only jobs. Hidden by default — revealed only
+                   when the owner's Book Hours master switch is ON. -->
               <div class="intake-field" id="cdRoBookHoursField" style="display:none">
-                <label>Book Hours <span style="font-weight:600;color:var(--muted);font-size:0.72rem">· tech pay — not the price</span></label>
-                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                  <input type="number" id="cdRoBookHours" min="0" step="0.5" placeholder="hrs" style="flex:0 0 90px">
+                <label>Book Hours <span style="font-weight:600;color:var(--muted);font-size:0.72rem">· auto-total from lines · tech pay</span></label>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                  <span id="cdRoBookHoursTotal" style="font-weight:800;font-size:1rem">0 hrs</span>
                   <label style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--muted);white-space:nowrap;min-width:0">
-                    <input type="checkbox" id="cdRoBookHoursNA" style="flex:0 0 auto"> N/A (no labor)
+                    <input type="checkbox" id="cdRoBookHoursNA" style="flex:0 0 auto"> N/A · no labor
                   </label>
                 </div>
                 <span id="cdRoBookHoursHint" style="font-size:0.72rem;color:var(--muted)"></span>
@@ -3740,6 +3740,7 @@
     let currentRo = null;     // the open RO (with embedded customer/vehicle)
     let currentLines = [];    // ro_line_items for the open RO
     let currentPayments = [];  // ro_payments for the open RO (Phase 5)
+    let techRoster = [];      // [{id,name}] active techs, for the per-line tech-credit picker
 
     // ── PIPELINE KANBAN: load + render ────────────────────────
     async function loadRecentList() {
@@ -4113,7 +4114,7 @@
         const g = await bookHoursGateForAdvance(ro.id, ro.po || ro.ro_number);
         if (!g.ok) {
           renderKanban();   // snap the dragged card back to Estimate
-          alert('RO #' + (ro.po || ro.ro_number) + ' needs Book Hours before leaving Estimate. Open it to enter the hours (or tick “N/A — no labor”). Book hours are the tech-pay number, separate from the customer price.');
+          alert('RO #' + (ro.po || ro.ro_number) + ' has 0 book hours. Open it and add a labor or package line (the total auto-fills), or tick “N/A · no labor” for a parts-only job, before leaving Estimate.');
           return;
         }
       }
@@ -4506,8 +4507,10 @@
       sel.innerHTML = '<option value="">— Unassigned —</option>';
       let techs = [];
       try {
-        const { data } = await db.from('employees').select('name').eq('role', 'tech').eq('active', true).order('name');
-        techs = (data || []).map(t => t.name);
+        // id+name so the per-line tech-credit picker can store an employee id
+        const { data } = await db.from('employees').select('id, name').eq('role', 'tech').eq('active', true).order('name');
+        techRoster = data || [];
+        techs = techRoster.map(t => t.name);
       } catch (e) { /* non-fatal */ }
       const cur = currentRo.technician;
       if (cur && !techs.includes(cur)) techs.push(cur);
@@ -4602,40 +4605,64 @@
       }
     }
 
-    // ── Book Hours (PAY field) — manual ALLDATA hours per job ─────────────
+    // ── Book Hours (PAY field) — READ-ONLY auto-total from the lines ──────
     // book_hours is the tech-pay number, DECOUPLED from the line-item price
-    // (see docs/wiring/flat-rate-hours.md). Hours come from ALLDATA per vehicle,
-    // typed by hand — there is no fixed lookup. Three states kept distinct:
-    // a number (captured), N/A (book_hours_na=true, no labor), or blank (not
-    // captured). Everything here degrades quietly pre-migration (missing columns).
-    function bookHoursCaptured() {
-      return !!(currentRo && (currentRo.book_hours != null || currentRo.book_hours_na === true));
+    // (see docs/wiring/flat-rate-hours.md). It is now AUTO-TOTALED:
+    //   Σ (each Labor line's hours = quantity) + Σ (each Package line's rr_hours).
+    // Advisors don't type it — Kevin adjusts on the LINE and the total follows.
+    // Stored on repair_orders.book_hours (kept in sync) so the gate / floor
+    // mirror / close-archive keep reading one value. N/A (book_hours_na) stays a
+    // manual RO control for genuine parts-only jobs. Degrades quietly pre-migration.
+    function bookHoursAutoTotal() {
+      const t = currentLines.reduce((s, l) => {
+        if (l.line_type === 'labor') return s + num(l.quantity);
+        if (l.line_type === 'package') return s + num(l.rr_hours);
+        return s;
+      }, 0);
+      return Math.round(t * 100) / 100;
     }
-    function paintBookHoursHint() {
+    const fmtHrs = (n) => String(Math.round(num(n) * 100) / 100);
+
+    function paintBookHoursHint(total, na) {
       const hint = $('cdRoBookHoursHint');
       if (!hint) return;
-      if (!bookHoursCaptured()) {
-        hint.textContent = 'Enter book hours (or tick N/A) before leaving Estimate.';
-        hint.style.color = 'var(--muted)';
-      } else {
-        hint.textContent = (currentRo && currentRo.book_hours_na) ? 'N/A — no labor on this RO.' : '';
-        hint.style.color = 'var(--muted)';
+      hint.style.color = 'var(--muted)';
+      if (na) hint.textContent = 'Marked no-labor — hours not required to leave Estimate.';
+      else if (total <= 0) hint.textContent = 'Add a labor or package line (or tick “N/A · no labor”) before leaving Estimate.';
+      else hint.textContent = 'Auto-totaled from labor hours + package R&R hours — adjust on the line.';
+    }
+    function paintBookHoursDisplay(total, na) {
+      const totalEl = $('cdRoBookHoursTotal'), naEl = $('cdRoBookHoursNA');
+      if (naEl) naEl.checked = na;
+      if (totalEl) {
+        totalEl.textContent = na ? 'N/A · no labor' : (fmtHrs(total) + ' hrs');
+        totalEl.style.color = na ? 'var(--muted)' : 'var(--text)';
       }
+      paintBookHoursHint(total, na);
+    }
+    // Recompute the auto-total from the lines, paint it, and persist to the RO
+    // (unless N/A). Called from renderLines() on every line change + on RO open.
+    // Feature-gated; a no-change total skips the write.
+    function updateBookHoursAuto() {
+      if (!bookHoursFeatureOn() || !currentRo) return;
+      const na = !!currentRo.book_hours_na;
+      const total = bookHoursAutoTotal();
+      paintBookHoursDisplay(total, na);
+      if (na) return;                                   // N/A → book_hours stays null
+      if (num(currentRo.book_hours) === total && currentRo.book_hours != null) return;  // unchanged
+      currentRo.book_hours = total;
+      db.from('repair_orders').update({ book_hours: total }).eq('id', currentRo.id)
+        .then(({ error }) => { if (error && !isMissingColumn(error)) console.warn('[CdRO] book_hours autosave failed', error); });
+      mirrorBookHoursToFloor(currentRo.po || currentRo.ro_number, total);
     }
 
     async function populateBookHours() {
-      const numEl = $('cdRoBookHours'), naEl = $('cdRoBookHoursNA');
-      if (!numEl || !naEl) return;
       // MASTER SWITCH: feature OFF → keep the whole field hidden and do nothing
-      // else (no read, no paint), so the board looks/acts like pre-feature main.
+      // else, so the board looks/acts like pre-feature main.
       const field = $('cdRoBookHoursField');
       if (!bookHoursFeatureOn()) { if (field) field.style.display = 'none'; return; }
       if (field) field.style.display = '';
-      // hydrate the three-way state from the stored RO
-      naEl.checked = !!currentRo.book_hours_na;
-      numEl.value = currentRo.book_hours != null ? currentRo.book_hours : '';
-      numEl.disabled = naEl.checked;
-      paintBookHoursHint();
+      updateBookHoursAuto();   // paint from the (already-loaded) lines + reconcile
     }
 
     // Resolved floor row for the open RO's warranty toggle (null = not on floor).
@@ -4675,6 +4702,16 @@
       // (what a write to a not-yet-migrated column actually returns).
       return code === '42703' || code === 'PGRST204' ||
         /column .* does not exist/i.test(msg) || /could not find the .* column/i.test(msg);
+    }
+    // The specific column a missing-column write error names, or null. Lets a
+    // resilient write strip ONLY the not-yet-migrated column (not every optional).
+    function missingColumnName(error) {
+      const msg = (error && error.message) || '';
+      let m = msg.match(/column\s+(?:[\w]+\.)?["']?([a-z_][a-z0-9_]*)["']?\s+does not exist/i);
+      if (m) return m[1];
+      m = msg.match(/could not find the ['"]?([a-z_][a-z0-9_]*)['"]? column/i);
+      if (m) return m[1];
+      return null;
     }
 
     // Pre-work floor statuses — a fresh/blank row a car sits in before a tech
@@ -4829,13 +4866,13 @@
 
     // ── PAY-DATA GATE for advancing a job OUT of Estimate ─────────────────
     // Shared by the RO-detail Stage select AND the kanban drag, so neither can
-    // bypass the other. Book hours must be CAPTURED — a number OR explicit N/A.
-    // Fetches fresh so it's correct regardless of caller cache; returns
-    // { ok:true } pre-migration so it never blocks before the book-hours columns
-    // exist. NEVER touches the customer price.
+    // bypass the other. LIGHT guardrail: a job can't leave Estimate if the
+    // auto-total book hours are 0 AND N/A isn't set (a genuine parts-only RO
+    // ticks N/A). Reads the persisted auto-total (repair_orders.book_hours, kept
+    // in sync from the lines) so it's correct even for the kanban drag where the
+    // lines aren't in memory. Returns { ok:true } pre-migration + when the feature
+    // is off. NEVER touches the customer price.
     async function bookHoursGateForAdvance(roId, po) {
-      // MASTER SWITCH: feature OFF → never block leaving Estimate (pre-feature
-      // behavior). Checked first so nothing else runs when the feature is off.
       if (!bookHoursFeatureOn()) return { ok: true };
       let bh = null, na = false;
       try {
@@ -4844,7 +4881,7 @@
         if (error) { if (isMissingColumn(error)) return { ok: true }; }   // pre-migration → don't block
         else if (data) { bh = data.book_hours; na = !!data.book_hours_na; }
       } catch (e) { return { ok: true }; }   // never block on an unexpected read error
-      if (bh == null && na !== true) return { ok: false, reason: 'blank' };
+      if ((bh == null || Number(bh) <= 0) && na !== true) return { ok: false, reason: 'blank' };
       return { ok: true };
     }
 
@@ -4942,6 +4979,11 @@
           if (l.line_type === 'parts' && l.part_number) {
             descHtml += ` <span style="color:var(--muted);font-size:0.72rem">#${esc(l.part_number)}</span>`;
           }
+          // labor line credited to a NON-default tech → show whose hours these are
+          if (l.line_type === 'labor' && l.line_tech_id && bookHoursFeatureOn()) {
+            const tn = techNameById(l.line_tech_id);
+            if (tn) descHtml += ` <span style="color:var(--accent);font-size:0.72rem">→ ${esc(tn)}</span>`;
+          }
           return `
           <tr data-id="${esc(l.id)}">
             <td><span class="cd-line-type">${esc(typeLabel)}</span></td>
@@ -4966,6 +5008,7 @@
         });
       }
       recalcTotals();
+      updateBookHoursAuto();   // Book Hours auto-total follows the lines
     }
 
     // RO total (subtotal + tax) as a number — the single source both the
@@ -5190,6 +5233,28 @@
     const lfField = (labelHtml, inputHtml) => '<div class="intake-field"><label>' + labelHtml + '</label>' + inputHtml + '</div>';
     const TECHPAY_HINT = ' <span style="color:var(--muted);text-transform:none;letter-spacing:0;font-weight:600">· tech pay</span>';
 
+    // Per-line line_tech_id defaults to null = "inherit the RO's assigned tech"
+    // (repair_orders.technician, a NAME). The rollup resolves inherit → RO tech.
+    function techNameById(id) {
+      const hit = techRoster.find(t => String(t.id) === String(id));
+      return hit ? hit.name : null;
+    }
+    // The per-labor-line "Tech credit" picker. Value "" = inherit the RO's tech;
+    // an id = credit that tech for this line's hours (2nd-tech case). Only shown
+    // when Book Hours is ON. `selId` = the line's stored line_tech_id (or '').
+    function lineTechPickerHtml(selId) {
+      const roName = (currentRo && currentRo.technician) || null;
+      let opts = `<option value="">${roName ? esc(roName) + ' (RO tech)' : '— RO tech —'}</option>`;
+      techRoster.forEach(t => {
+        opts += `<option value="${esc(String(t.id))}"${String(selId) === String(t.id) ? ' selected' : ''}>${esc(t.name)}</option>`;
+      });
+      if (selId && !techRoster.some(t => String(t.id) === String(selId))) {
+        opts += `<option value="${esc(String(selId))}" selected>${esc(techNameById(selId) || 'tech')}</option>`;
+      }
+      return lfField('Tech credit <span style="color:var(--muted);text-transform:none;letter-spacing:0;font-weight:600">· defaults to RO tech</span>',
+        `<select id="cdLf_tech">${opts}</select>`);
+    }
+
     function renderLineFields() {
       const type = $('cdLineType').value;
       const seed = lineModalSeed;
@@ -5209,9 +5274,11 @@
         const qtyField = lfField((bookOn ? 'Hours' : 'Qty'),
           `<input type="number" id="cdLf_qty" value="${nv(qty)}" min="0" step="${bookOn ? '0.5' : '0.01'}">`);
         const rateField = lfField('Rate ($/hr)', `<input type="number" id="cdLf_rate" value="${nv(rate)}" min="0" step="0.01">`);
+        const techField = bookOn ? lineTechPickerHtml(seedMatches ? (seed.line_tech_id || '') : '') : '';
         html = descField
           + '<div class="cd-lf-2col">' + qtyField + rateField + '</div>'
           + lfField('Sell (auto)', '<input type="text" id="cdLf_sell" readonly>')
+          + techField
           + taxField;
       } else if (type === 'parts') {
         const partno = seedMatches ? (seed.part_number || '') : '';
@@ -5273,24 +5340,27 @@
       }
     }
 
-    // Resilient insert/update: if a new column (unit_cost / package_unit_id /
-    // rr_hours / part_number) isn't migrated yet, strip the optionals and retry
-    // once so the core line still saves.
+    // Resilient insert/update: if a not-yet-migrated OPTIONAL column
+    // (unit_cost / package_unit_id / rr_hours / part_number / line_tech_id) makes
+    // the write fail, strip ONLY the column the error names and retry — so an
+    // unmigrated line_tech_id never clobbers an already-migrated unit_cost etc.
     async function writeLineRow(payload, id) {
-      const OPTIONAL = ['unit_cost', 'package_unit_id', 'rr_hours', 'part_number'];
+      const OPTIONAL = new Set(['unit_cost', 'package_unit_id', 'rr_hours', 'part_number', 'line_tech_id']);
       let attempt = Object.assign({}, payload);
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < 6; i++) {
         const resp = id
           ? await db.from('ro_line_items').update(attempt).eq('id', id).select('*').single()
           : await db.from('ro_line_items').insert(attempt).select('*').single();
         if (!resp.error) return { data: resp.data };
-        if (isMissingColumn(resp.error) && i === 0) {
-          let stripped = false;
-          OPTIONAL.forEach(k => { if (k in attempt) { delete attempt[k]; stripped = true; } });
-          if (stripped) { console.warn('[CdRO] line saved without new columns — run the latest migration first.'); continue; }
+        const col = missingColumnName(resp.error);
+        if (col && OPTIONAL.has(col) && (col in attempt)) {
+          delete attempt[col];
+          console.warn('[CdRO] line saved without ' + col + ' — run the latest migration first.');
+          continue;
         }
         return { error: resp.error };
       }
+      return { error: { message: 'ro_line_items: too many missing columns' } };
     }
 
     async function saveLineModal() {
@@ -5298,12 +5368,17 @@
       const type = $('cdLineType').value;
       const errEl = $('cdLineError'); errEl.textContent = '';
       const taxable = !!(document.getElementById('cdLf_tax') && document.getElementById('cdLf_tax').checked);
-      let payload = { line_type: type, taxable, unit_cost: null, package_unit_id: null, rr_hours: null, part_number: null };
+      let payload = { line_type: type, taxable, unit_cost: null, package_unit_id: null, rr_hours: null, part_number: null, line_tech_id: null };
 
       if (type === 'labor') {
         payload.description = ($('cdLf_desc').value || '').trim() || null;
         payload.quantity = num($('cdLf_qty').value);
         payload.unit_price = num($('cdLf_rate').value);
+        // Per-line tech credit: "" = inherit the RO tech (null); an id = override.
+        // Only when the picker is shown (Book Hours ON); else preserve the seed's.
+        payload.line_tech_id = document.getElementById('cdLf_tech')
+          ? ($('cdLf_tech').value || null)
+          : ((lineModalSeed && lineModalSeed.line_type === 'labor') ? (lineModalSeed.line_tech_id || null) : null);
       } else if (type === 'parts') {
         payload.part_number = ($('cdLf_partno').value || '').trim() || null;
         payload.description = ($('cdLf_desc').value || '').trim() || null;
@@ -5478,7 +5553,7 @@
       if (prev === 'estimate' && next !== 'estimate') {
         const g = await bookHoursGateForAdvance(currentRo.id, currentRo.po || currentRo.ro_number);
         if (!g.ok) {
-          alert('Enter Book Hours before moving this RO out of Estimate.\n\nBook hours are the tech-pay number (separate from the customer price). If this RO has no labor, tick “N/A — no labor”.');
+          alert('This RO has 0 book hours.\n\nBook hours auto-total from the labor + package lines — add a labor or package line, or tick “N/A · no labor” for a parts-only job, before moving it out of Estimate.');
           const sel = $('cdRoStage'); if (sel) sel.value = STAGES.includes(currentRo.status) ? currentRo.status : 'estimate';
           const f = $('cdRoBookHoursField'); if (f) f.scrollIntoView({ block: 'center', behavior: 'smooth' });
           return;
@@ -6079,34 +6154,21 @@
       }
       if (currentStatusFloor) currentStatusFloor.status = value;   // keep cache in sync
     });
-    // ── Book Hours (PAY field) wiring — persists to repair_orders + mirrors to
-    // the floor flag_hours. NEVER touches ro_line_items / the money math.
-    async function saveBookHours(hours, na) {
-      currentRo.book_hours = hours;
-      currentRo.book_hours_na = na;
-      const { error } = await db.from('repair_orders')
-        .update({ book_hours: hours, book_hours_na: na }).eq('id', currentRo.id);
-      if (error && !isMissingColumn(error)) console.error('[CdRO] book_hours save failed', error);
-      else if (error) console.warn('[CdRO] book_hours not saved — run the book-hours migration first.');
-      await mirrorBookHoursToFloor(currentRo.po || currentRo.ro_number, na ? null : hours);
-      paintBookHoursHint();
-    }
-    function readBookHoursInput() {
-      const v = parseFloat($('cdRoBookHours').value);
-      return (Number.isFinite(v) && v >= 0) ? v : null;
-    }
-    $('cdRoBookHours').addEventListener('change', () => {
-      if (!currentRo) return;
-      $('cdRoBookHoursNA').checked = false;   // a typed number clears N/A
-      $('cdRoBookHours').disabled = false;
-      saveBookHours(readBookHoursInput(), false);
-    });
-    $('cdRoBookHoursNA').addEventListener('change', () => {
+    // ── Book Hours N/A toggle — the only manual RO-level control now (the hours
+    // themselves auto-total from the lines, see updateBookHoursAuto). Ticking N/A
+    // stores book_hours_na=true + clears book_hours (parts-only job); unticking
+    // restores the auto-total. Persists to repair_orders + mirrors to floor.
+    $('cdRoBookHoursNA').addEventListener('change', async () => {
       if (!currentRo) return;
       const na = $('cdRoBookHoursNA').checked;
-      $('cdRoBookHours').disabled = na;
-      if (na) $('cdRoBookHours').value = '';
-      saveBookHours(na ? null : readBookHoursInput(), na);
+      currentRo.book_hours_na = na;
+      const hours = na ? null : bookHoursAutoTotal();
+      currentRo.book_hours = hours;
+      const { error } = await db.from('repair_orders')
+        .update({ book_hours: hours, book_hours_na: na }).eq('id', currentRo.id);
+      if (error && !isMissingColumn(error)) console.error('[CdRO] book_hours N/A save failed', error);
+      await mirrorBookHoursToFloor(currentRo.po || currentRo.ro_number, hours);
+      paintBookHoursDisplay(na ? 0 : hours, na);
     });
     $('cdRoComplaint').addEventListener('change', () => updateRoField('complaint', $('cdRoComplaint').value.trim() || null));
     $('cdRoWorkDescription').addEventListener('change', () => updateRoField('work_description', $('cdRoWorkDescription').value.trim() || null));

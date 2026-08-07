@@ -279,6 +279,11 @@
     letter-spacing: 0.5px; margin-left: 3px; vertical-align: middle;
     font-style: italic; text-transform: none;
   }
+  .tech-table th .live-tag {
+    font-size: 0.55rem; font-weight: 700; color: #059669;
+    letter-spacing: 0.5px; margin-left: 3px; vertical-align: middle;
+    text-transform: none;
+  }
   .tech-sample-banner {
     display: flex; align-items: center; gap: 8px;
     background: rgba(245,158,11,0.08);
@@ -1948,8 +1953,9 @@
       }
     }
 
-    // ── Technicians tab
-    renderTechnicians(allActive, pickup);
+    // ── Technicians tab (real weekly Billed Hrs when Book Hours is ON)
+    const billedHrs = await computeBilledHours();
+    renderTechnicians(allActive, pickup, billedHrs);
 
     // ── Comebacks tab
     renderComebacks(lifts, parking, pickup);
@@ -2134,7 +2140,85 @@
     techPageTechs = (data || []).map(t => t.name);
   }
 
-  function renderTechnicians(allActive, pickupData) {
+  // ── Weekly BILLED HOURS rollup (Book Hours feature) ───────────────────
+  // Real per-tech billed hours for the current week, behind the Book Hours
+  // switch (OFF → returns null → the table shows the old sample values, so the
+  // board looks exactly like before). Week = Sunday–Saturday, America/New_York
+  // (the SAME convention as the bookkeeping board's Financial Pulse). We bucket
+  // an RO by its updated_at folded to a NY date, scoped to status in
+  // (invoice, closed) — repair_orders has no dedicated closed_at, so updated_at
+  // of a billed/closed RO is the available completion proxy (documented).
+  // Per-tech hours = Σ labor-line hours credited to that tech (line_tech_id when
+  // set, else the RO's assigned tech) + Σ package R&R hours on ROs where they're
+  // the assigned tech.
+  function nyDateOf(ts) {
+    if (!ts) return null;
+    try { return new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); } // YYYY-MM-DD in NY
+    catch (e) { return null; }
+  }
+  function nyWeekSunSat() {
+    const todayNy = nyDateOf(new Date().toISOString());
+    const [y, m, d] = todayNy.split('-').map(Number);
+    const base = new Date(Date.UTC(y, m - 1, d));        // NY calendar date as a UTC date for day math
+    const start = new Date(base); start.setUTCDate(base.getUTCDate() - base.getUTCDay());   // Sunday
+    const end = new Date(start); end.setUTCDate(start.getUTCDate() + 6);                     // Saturday
+    return { startYmd: start.toISOString().slice(0, 10), endYmd: end.toISOString().slice(0, 10) };
+  }
+  function bookHoursFeatureOnGm() {
+    const cfg = (window.BoardSettings && window.BoardSettings.getShopSettings) ? window.BoardSettings.getShopSettings() : {};
+    return !!cfg.feature_book_hours;
+  }
+  // Cache whether ro_line_items.line_tech_id is migrated yet, so we only probe
+  // (and only 400) once per session instead of every refresh cycle.
+  let lineTechColAvailable = true;
+  async function computeBilledHours() {
+    if (!bookHoursFeatureOnGm()) return null;   // feature OFF → sample values
+    const { startYmd, endYmd } = nyWeekSunSat();
+    // ROs billed/closed, bucketed by updated_at (NY date) into the week
+    let ros = [];
+    try {
+      const { data, error } = await db.from('repair_orders')
+        .select('id, technician, updated_at, status').in('status', ['invoice', 'closed']);
+      if (error) throw error;
+      ros = (data || []).filter(r => { const d = nyDateOf(r.updated_at); return d && d >= startYmd && d <= endYmd; });
+    } catch (e) { console.warn('[Technicians] billed-hours RO load failed', e); return null; }
+    if (!ros.length) return {};
+    const roById = {}; ros.forEach(r => { roById[r.id] = r; });
+    const ids = ros.map(r => r.id);
+    // line items — labor quantity + package rr_hours + (optional) line_tech_id
+    let lines = [];
+    try {
+      const cols = lineTechColAvailable
+        ? 'repair_order_id, line_type, quantity, rr_hours, line_tech_id'
+        : 'repair_order_id, line_type, quantity, rr_hours';
+      let resp = await db.from('ro_line_items').select(cols).in('repair_order_id', ids);
+      if (resp.error && lineTechColAvailable && /line_tech_id/i.test(resp.error.message || '')) {
+        lineTechColAvailable = false;   // not migrated yet — stop probing it this session
+        resp = await db.from('ro_line_items')
+          .select('repair_order_id, line_type, quantity, rr_hours').in('repair_order_id', ids);
+      }
+      if (resp.error) throw resp.error;
+      lines = resp.data || [];
+    } catch (e) { console.warn('[Technicians] billed-hours line load failed', e); return {}; }
+    // employees id→name to resolve a per-line tech override
+    const empName = {};
+    try { const { data } = await db.from('employees').select('id, name'); (data || []).forEach(e => { empName[e.id] = e.name; }); }
+    catch (e) { /* non-fatal */ }
+    const byTech = {};
+    const add = (name, hrs) => { const n = (name || '').trim(); if (!n || !hrs) return; byTech[n] = (byTech[n] || 0) + hrs; };
+    lines.forEach(l => {
+      const ro = roById[l.repair_order_id]; if (!ro) return;
+      const roTech = (ro.technician || '').trim();
+      if (l.line_type === 'labor') add(l.line_tech_id ? (empName[l.line_tech_id] || roTech) : roTech, Number(l.quantity) || 0);
+      else if (l.line_type === 'package') add(roTech, Number(l.rr_hours) || 0);
+    });
+    Object.keys(byTech).forEach(k => { byTech[k] = Math.round(byTech[k] * 100) / 100; });
+    return byTech;
+  }
+
+  function renderTechnicians(allActive, pickupData, billedHrs) {
+    // billedHrs: null → feature OFF, use sample; object → live per-tech hours.
+    const billedLive = billedHrs && typeof billedHrs === 'object';
     const techMap = {};
     techPageTechs.forEach(name => { techMap[name] = { jobs: [], pickup: [] }; });
     allActive.forEach(r => {
@@ -2152,6 +2236,19 @@
 
     const techNames = Object.keys(techMap).sort();
     const wrap = document.getElementById('tech-grid-wrap');
+
+    // Banner reflects what's live vs sample: with Book Hours ON, Billed Hrs is
+    // real (this week); Clocked / Efficiency / punches are still sample.
+    const banner = document.querySelector('.tech-sample-banner');
+    if (banner) {
+      banner.innerHTML = billedLive
+        ? '📊 <span><strong>Billed Hrs</strong> is live — real book hours billed this week (Sun–Sat). <strong>Clocked Hrs</strong>, <strong>Efficiency</strong>, and the time-punch details are still <strong>sample data</strong> (time-clock is a later step).</span>'
+        : '⚠️ <span>Billed Hrs, Clocked Hrs, Efficiency, and the time-punch details below are <strong>sample data</strong> for preview only — they aren\'t connected to real records yet. Only Active Jobs reflects what\'s actually on the board.</span>';
+      banner.style.background = billedLive ? 'rgba(5,150,105,0.08)' : '';
+      banner.style.borderColor = billedLive ? 'rgba(5,150,105,0.3)' : '';
+      banner.style.borderLeftColor = billedLive ? '#059669' : '';
+      banner.style.color = billedLive ? '#065f46' : '';
+    }
 
     if (!techNames.length) {
       wrap.innerHTML = '<div class="stub-view"><h2>No Active Technicians</h2><p>Add an active technician from Employees to see them here.</p></div>';
@@ -2178,8 +2275,12 @@
           return `<span class="tech-status-item"><span class="tech-status-dot" style="background:${col}"></span>${s.replace(/-/g,' ')}: ${n}</span>`;
         }).join('');
 
-      const { billed, clocked } = dummyHours(name);
-      const eff = Math.round((billed / clocked) * 100);
+      // Clocked + Efficiency stay SAMPLE (no time-clock source yet). Billed Hrs
+      // is LIVE when the Book Hours feature is on (this week's real hours),
+      // otherwise the sample value — so OFF looks exactly like before.
+      const { billed: sampleBilled, clocked } = dummyHours(name);
+      const billed = billedLive ? (billedHrs[name] || 0) : sampleBilled;
+      const eff = Math.round((sampleBilled / clocked) * 100);   // sample (uses sample billed)
       const effClass = eff >= 100 ? 'eff-high' : eff >= 85 ? 'eff-mid' : 'eff-low';
 
       // Build punch detail sub-row
@@ -2226,7 +2327,7 @@
           <thead><tr>
             <th>Technician</th>
             <th>Active Jobs</th>
-            <th>Billed Hrs <span class="sample-tag">sample</span></th>
+            <th>Billed Hrs ${billedLive ? '<span class="live-tag">live · this wk</span>' : '<span class="sample-tag">sample</span>'}</th>
             <th>Clocked Hrs <span class="sample-tag">sample</span></th>
             <th>Efficiency <span class="sample-tag">sample</span></th>
             <th>Ready for Pickup</th>
