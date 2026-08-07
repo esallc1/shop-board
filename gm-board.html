@@ -2168,19 +2168,32 @@
     const cfg = (window.BoardSettings && window.BoardSettings.getShopSettings) ? window.BoardSettings.getShopSettings() : {};
     return !!cfg.feature_book_hours;
   }
-  // Cache whether ro_line_items.line_tech_id is migrated yet, so we only probe
-  // (and only 400) once per session instead of every refresh cycle.
-  let lineTechColAvailable = true;
+  // Cache whether the not-yet-migrated columns exist, so we only probe (and only
+  // 400) once per session instead of every refresh cycle.
+  let lineTechColAvailable = true;   // ro_line_items.line_tech_id
+  let closedAtColAvailable = true;   // repair_orders.closed_at (stable pay stamp)
   async function computeBilledHours() {
     if (!bookHoursFeatureOnGm()) return null;   // feature OFF → sample values
     const { startYmd, endYmd } = nyWeekSunSat();
-    // ROs billed/closed, bucketed by updated_at (NY date) into the week
+    // ROs billed/closed, bucketed by the STABLE completion stamp closed_at (set
+    // once the first time an RO hits invoice/closed; never moves). Falls back to
+    // updated_at only pre-migration or for a row missing the stamp.
     let ros = [];
     try {
-      const { data, error } = await db.from('repair_orders')
-        .select('id, technician, updated_at, status').in('status', ['invoice', 'closed']);
-      if (error) throw error;
-      ros = (data || []).filter(r => { const d = nyDateOf(r.updated_at); return d && d >= startYmd && d <= endYmd; });
+      const cols = closedAtColAvailable
+        ? 'id, technician, status, closed_at, updated_at'
+        : 'id, technician, status, updated_at';
+      let resp = await db.from('repair_orders').select(cols).in('status', ['invoice', 'closed']);
+      if (resp.error && closedAtColAvailable && /closed_at/i.test(resp.error.message || '')) {
+        closedAtColAvailable = false;   // not migrated yet — stop probing; use updated_at
+        resp = await db.from('repair_orders').select('id, technician, status, updated_at').in('status', ['invoice', 'closed']);
+      }
+      if (resp.error) throw resp.error;
+      ros = (resp.data || []).filter(r => {
+        const stamp = r.closed_at || r.updated_at;   // stable stamp preferred
+        const d = nyDateOf(stamp);
+        return d && d >= startYmd && d <= endYmd;
+      });
     } catch (e) { console.warn('[Technicians] billed-hours RO load failed', e); return null; }
     if (!ros.length) return {};
     const roById = {}; ros.forEach(r => { roById[r.id] = r; });

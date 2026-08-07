@@ -1,7 +1,7 @@
 # How the flagged-hours / book-hours (tech-pay) data is wired
 
 > Doc: `/docs/wiring/flat-rate-hours.md`
-> Last updated: 2026-08-07 — verified vs commit `661b8f0`
+> Last updated: 2026-08-07 — verified vs commit `3535697`
 > Status: ✅ verified vs code AND live schema this session. **`book_hours` capture is
 > BUILT** and, as of the **Hours Engine Part 1**, is a **read-only auto-total from the
 > lines** (§8) — not hand-typed. Per-line **tech credit** (`ro_line_items.line_tech_id`)
@@ -18,9 +18,9 @@ A per-tech per-week **billed book-hours** report needs three fields — **who**
 (`repair_orders.book_hours`, now an **auto-total** of the labor + package-R&R lines), and
 **when finished** (a completion date). As of Hours Engine Part 1 the **hours auto-total
 from the RO lines** (no hand-typing), each labor line can **credit a specific tech**, and
-the Manager board shows a real **Billed Hrs** column per tech for the current week (§10).
-The remaining soft spot is the **completion timestamp** — `repair_orders` has no
-`closed_at`, so the rollup buckets by `updated_at` of invoiced/closed ROs (§10, disclosed).
+the Manager board shows a real **Billed Hrs** column per tech for the current week (§10),
+bucketed by a **stable set-once `repair_orders.closed_at`** (stamped the first time an RO is
+invoiced/closed and never moved). (§4/§6 below describe the *original* pre-Part-1 state.)
 
 ## 1. The two parallel worlds this data lives in
 There are **two separate systems**, linked only by the shared text key **`po`** (a CrisData RO
@@ -70,6 +70,8 @@ mints `ro_number` from 6000 and `po` mirrors it):
   this job."
 
 ## 4. Input #3 — completion (the moment to credit a week). **No reliable timestamp.**
+> **Superseded by §10 (Hours Engine Part 1):** `repair_orders.closed_at` now provides a
+> set-once completion stamp for the Billed-Hrs week. §4 records the *original* findings.
 - **`repair_orders` has NO completion timestamp** — its `status` enum reaches `closed`
   (`estimate → ro → invoice → closed`) but there is **no `closed_at`/`invoiced_at`/`completed_at`**
   column. So "closed" carries no *when*.
@@ -220,19 +222,21 @@ the header tags and the banner say which is live vs sample.
 - **Week:** **Sunday–Saturday, America/New_York** — the SAME convention as the bookkeeping board's
   Financial Pulse. `nyWeekSunSat()` (:2159) computes the Sun–Sat window; `nyDateOf(ts)` (:2154)
   folds a timestamp to its NY calendar date.
-- **⚠ Completion timestamp used — `repair_orders.updated_at`.** `repair_orders` has **no
-  `closed_at`**, so the rollup buckets each RO by `updated_at` (folded to a NY date) within the
-  week, scoped to `status IN ('invoice','closed')` ("billed or closed"). **Limitation:** editing a
-  closed RO later moves its `updated_at`, shifting its hours to that later week. A dedicated
-  `closed_at`/`invoiced_at` (or joining `completed_jobs.picked_up_at`) would be more precise — the
-  natural next step. This choice is disclosed to Cris.
-- **Resilience:** the line query asks for `line_tech_id`; if that column isn't migrated yet it
-  **re-queries without it** (all labor credits the RO tech). Verified live: week Aug 2–8, billed
-  `{Cory: 9, Alex: 3}`, matching an independent DB sum; OFF → sample.
+- **Completion timestamp — the STABLE, set-once `repair_orders.closed_at`.** The rollup buckets
+  each RO by `closed_at` (folded to a NY date), scoped to `status IN ('invoice','closed')` ("billed
+  or closed", regardless of customer payment). `closed_at` is **stamped once the first time an RO
+  enters invoice/closed and never overwritten** — enforced by a DB trigger
+  (`crisdata_stamp_ro_closed_at`, `migrations/20260807_ro_closed_at.sql`), so editing a closed RO
+  later does **not** move its hours to another week (the pay-driving number is fixed).
+  `completed_jobs.picked_up_at` was rejected: it only exists for picked-up jobs (invoice-status ROs
+  aren't picked up) and links by `po` with possible duplicate rows. A one-time backfill seeds
+  existing invoice/closed rows from `updated_at`.
+- **Resilience:** the RO query asks for `closed_at` and the line query for `line_tech_id`; each
+  **re-queries without the column** if it isn't migrated yet (bucketing falls back to `updated_at`;
+  labor all credits the RO tech), caching the probe result per session. Verified live: week Aug 2–8,
+  billed `{Cory: 9, Alex: 3}`, matching an independent DB sum; OFF → sample.
 
 ## Known gaps & open questions (as of 2026-08-07)
-- **No dedicated RO `closed_at`** — the §10 rollup buckets by `updated_at` of invoiced/closed ROs
-  (disclosed); a real completion timestamp is the next refinement.
 - **Multi-tech / per-phase** is now *partly* addressed: a labor line can credit a specific tech
   (`line_tech_id`), but a single line still can't split across techs, and diag-vs-repair phase
   isn't modeled.
@@ -246,10 +250,13 @@ the header tags and the banner say which is live vs sample.
   `populateBookHours` (:4659), the N/A toggle handler, `mirrorBookHoursToFloor`,
   `bookHoursGateForAdvance` (:4875, blocks on 0), RO-close archive write, Approval-Queue prefill.
 - **Per-line tech credit:** `ro_line_items.line_tech_id` (`migrations/20260807_ro_line_tech.sql`,
-  unapplied). Labor pop-up picker `lineTechPickerHtml` (:5245), saved in `saveLineModal`; see
+  **applied**). Labor pop-up picker `lineTechPickerHtml` (:5245), saved in `saveLineModal`; see
   [[ro-line-items]] §5.
-- **Weekly Billed Hrs rollup:** `gm-board.html` `computeBilledHours` (:2171), `nyWeekSunSat`
-  (:2159) / `nyDateOf` (:2154), `renderTechnicians` (:2213), `bookHoursFeatureOnGm` (:2167).
+- **Stable completion stamp:** `repair_orders.closed_at` + trigger `crisdata_stamp_ro_closed_at`
+  (`migrations/20260807_ro_closed_at.sql`, **unapplied**) — set once on first invoice/closed.
+- **Weekly Billed Hrs rollup:** `gm-board.html` `computeBilledHours` (:2174, buckets by
+  `closed_at`), `nyWeekSunSat` / `nyDateOf`, `renderTechnicians`, `bookHoursFeatureOnGm`; column
+  probes cached via `lineTechColAvailable` / `closedAtColAvailable`.
 - **Master switch:** `shop_settings.feature_book_hours`
   (`migrations/20260807_feature_book_hours_flag.sql`). Owner "Features" pane
   `renderFeaturesPane` / `saveFeatureFlag` + the `FEATURE_FLAGS` registry
@@ -271,6 +278,13 @@ the header tags and the banner say which is live vs sample.
   `settings.md`.
 
 ## Session change log
+- 2026-08-07 — **Stable Billed-Hrs bucketing.** Switched the §10 rollup from `updated_at` (drifts on
+  edit) to a **set-once `repair_orders.closed_at`** — stamped the first time an RO hits
+  invoice/closed by a DB trigger, never overwritten (`migrations/20260807_ro_closed_at.sql`, additive
+  column + backfill + trigger; **unapplied**). Rejected `completed_jobs.picked_up_at` (misses
+  invoice-status ROs; links by `po` with dups). `gm-board` buckets by `closed_at` with a cached
+  fallback to `updated_at` pre-migration. Verified live: pre-migration fallback returns the same
+  `{Cory:9, Alex:3}`, closed_at probe caches after one miss. (`line_tech_id` was applied since Part 1.)
 - 2026-08-07 — **Hours Engine Part 1.** Book Hours became a **read-only auto-total** of the RO's
   labor hours + package R&R hours (rewrote §8; `bookHoursAutoTotal`/`updateBookHoursAuto`, persisted
   to `repair_orders.book_hours` on every line change); the leaving-Estimate **gate now blocks on a
