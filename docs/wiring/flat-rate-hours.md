@@ -1,7 +1,7 @@
 # How the flagged-hours / book-hours (tech-pay) data is wired
 
 > Doc: `/docs/wiring/flat-rate-hours.md`
-> Last updated: 2026-08-07 — verified vs commit `33829b1`
+> Last updated: 2026-08-07 — verified vs commit `54f3683`
 > Status: ✅ verified vs code AND live schema this session. **`book_hours` capture is
 > BUILT** in `advisor-board.html` + `shared/board-settings.js`, and now sits behind an
 > **owner-controlled master switch, defaulted OFF** (§9). Its migration
@@ -217,6 +217,13 @@ ready and, until then, the advisor board looks and behaves exactly as it did bef
   needed no extra gating.
 - **ON** → the field shows and the "enter hours (or tick N/A) before leaving Estimate" gate
   enforces, exactly as §8 describes.
+- **Second pay-hours source when ON — package R&R hours.** The Packages feature (see [[packages]])
+  adds a **"Package" RO line** carrying `ro_line_items.rr_hours` — the pull/install tech-pay credit.
+  That R&R-hours field is shown/captured **only when this Book Hours switch is ON** (packages still
+  price normally when it's off, just without R&R hours). So a job's tech-pay hours can now come from
+  two places — the RO's `book_hours` and each package line's `rr_hours` — both captured, neither yet
+  summed into a per-tech report (§6, the next slice). Like `book_hours`, `rr_hours` never enters the
+  customer price.
 
 ## Known gaps & open questions (as of 2026-08-07)
 - **Per-tech / per-phase attribution is the next design slice** — one `book_hours` per RO can't be
@@ -284,3 +291,8 @@ ready and, until then, the advisor board looks and behaves exactly as it did bef
   the browser: default OFF + field hidden, owner-only pane visibility (manager sees 4 panes, owner
   5), toggle defaults OFF, save fails safe pre-migration. Migration is written but **not yet
   applied** (Cris runs it by hand).
+- 2026-08-07 — Cross-referenced the **Packages** feature ([[packages]]): its "Package" RO line adds
+  `ro_line_items.rr_hours` (pull/install tech-pay), shown/captured only when this Book Hours switch
+  is ON — a second pay-hours source alongside `book_hours`, neither yet summed into a report (§9).
+  Also fixed the "N/A (no labor)" label overflow on the Book Hours field. No book-hours capture
+  logic changed.

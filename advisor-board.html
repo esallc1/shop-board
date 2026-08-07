@@ -367,6 +367,12 @@
     cursor: pointer; line-height: 1; padding: 2px 4px;
   }
   .cd-line-del:hover { color: var(--red); }
+  /* R&R hrs (tech pay) sub-field under a Package line's unit dropdown */
+  .cd-rr-field {
+    margin-top: 6px; font-size: 0.72rem; color: var(--muted);
+    display: flex; align-items: center; gap: 6px; white-space: nowrap;
+  }
+  .cd-rr-field input { width: 64px; flex: 0 0 64px; }
   .cd-totals {
     margin-top: 16px; margin-left: auto; max-width: 300px;
     border-top: 1px solid var(--border); padding-top: 12px;
@@ -1463,10 +1469,10 @@
                    master switch is ON (populateBookHours reads the flag). -->
               <div class="intake-field" id="cdRoBookHoursField" style="display:none">
                 <label>Book Hours <span style="font-weight:600;color:var(--muted);font-size:0.72rem">· tech pay — not the price</span></label>
-                <div style="display:flex;align-items:center;gap:10px">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
                   <input type="number" id="cdRoBookHours" min="0" step="0.5" placeholder="hrs" style="flex:0 0 90px">
-                  <label style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--muted);white-space:nowrap">
-                    <input type="checkbox" id="cdRoBookHoursNA"> N/A (no labor)
+                  <label style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--muted);white-space:nowrap;min-width:0">
+                    <input type="checkbox" id="cdRoBookHoursNA" style="flex:0 0 auto"> N/A (no labor)
                   </label>
                 </div>
                 <span id="cdRoBookHoursHint" style="font-size:0.72rem;color:var(--muted)"></span>
@@ -3633,14 +3639,34 @@
     // pre-feature behavior (field hidden, gate never blocks). Read on every check so an
     // owner flip is picked up on the next board load. ──
     function bookHoursFeatureOn() { return !!shopCfg().feature_book_hours; }
+    // ── PACKAGES master switch (owner-controlled, shop_settings.feature_packages).
+    // Default OFF and FAIL-SAFE (same as book hours): when OFF the "Package" line
+    // type never appears and the RO builder looks exactly like before. ──
+    function packagesFeatureOn() { return !!shopCfg().feature_packages; }
+    // Active package units for the "Package" line dropdown (resolve-and-store).
+    function packageUnits() {
+      return (window.BoardSettings && window.BoardSettings.getPackageUnits)
+        ? window.BoardSettings.getPackageUnits() : [];
+    }
 
     const money = (n) => '$' + (Number(n) || 0).toFixed(2);
     const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 
+    // Base line types always available. "Package" is appended only when the
+    // Packages feature is ON (see lineTypeOptions).
     const LINE_TYPES = [
       ['labor', 'Labor'], ['parts', 'Parts'], ['fee', 'Fee'],
       ['shop_supply', 'Shop Supply'], ['hazmat', 'Hazmat'],
     ];
+    // The type <select> options, with Package folded in when the feature is on
+    // (or when the line is ALREADY a package, so an existing package line keeps
+    // a valid selected option even if the switch is later turned off).
+    function lineTypeOptions(selectedType) {
+      const types = LINE_TYPES.slice();
+      if (packagesFeatureOn() || selectedType === 'package') types.push(['package', 'Package']);
+      return types.map(([v, lab]) =>
+        `<option value="${v}"${selectedType === v ? ' selected' : ''}>${lab}</option>`).join('');
+    }
     // ── RO STATUS LIFECYCLE (Phase 4, Slice 1) ────────────────
     // The MONEY/DOCUMENT axis (quote -> job -> paid), NOT the car's
     // physical shop-floor location. Free movement in any direction, no
@@ -4876,9 +4902,37 @@
         tb.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px">No lines yet — add one.</td></tr>';
       } else {
         tb.innerHTML = currentLines.map(l => {
-          const opts = LINE_TYPES.map(([v, lab]) =>
-            `<option value="${v}"${l.line_type === v ? ' selected' : ''}>${lab}</option>`).join('');
+          const opts = lineTypeOptions(l.line_type);
           const lineTotal = num(l.quantity) * num(l.unit_price);
+          if (l.line_type === 'package') {
+            // PACKAGE line: unit dropdown (resolve-and-store) in place of the
+            // free-text description; qty fixed at 1 (no spinner); price editable
+            // per job; taxable default on. R&R hrs (tech pay) shows only when the
+            // Book Hours feature is ON, and NEVER enters the price math.
+            const units = packageUnits();
+            let unitOpts = '<option value="">— Select unit —</option>' +
+              units.map(u => `<option value="${esc(String(u.id))}"${l.package_unit_id === u.id ? ' selected' : ''}>${esc(u.unit_code)}</option>`).join('');
+            // keep a stored-but-now-inactive/deleted unit selectable so the line
+            // still shows its name
+            if (l.package_unit_id && !units.some(u => u.id === l.package_unit_id)) {
+              unitOpts += `<option value="${esc(String(l.package_unit_id))}" selected>${esc(l.description || 'unit')}</option>`;
+            }
+            const rrField = bookHoursFeatureOn()
+              ? `<div class="cd-rr-field">R&amp;R hrs <span style="color:var(--muted)">· tech pay</span>
+                   <input type="number" data-field="rr_hours" value="${l.rr_hours != null ? l.rr_hours : ''}" min="0" step="0.5" placeholder="hrs"></div>`
+              : '';
+            return `
+          <tr data-id="${esc(l.id)}">
+            <td><select data-field="line_type">${opts}</select></td>
+            <td><select data-field="package_unit_id">${unitOpts}</select>${rrField}</td>
+            <td><span style="color:var(--muted)">—</span></td>
+            <td style="text-align:center"><span style="color:var(--muted)">1</span></td>
+            <td><input type="number" data-field="unit_price" value="${l.unit_price != null ? l.unit_price : ''}" min="0" step="0.01"></td>
+            <td style="text-align:center"><input type="checkbox" data-field="taxable"${l.taxable ? ' checked' : ''}></td>
+            <td class="cd-line-total">${money(lineTotal)}</td>
+            <td><button class="cd-line-del" title="Delete line">×</button></td>
+          </tr>`;
+          }
           // Part No is only meaningful on parts lines
           const partCell = l.line_type === 'parts'
             ? `<input type="text" data-field="part_number" value="${esc(l.part_number || '')}" placeholder="Part #">`
@@ -5100,13 +5154,35 @@
 
     async function onFieldChange(id, inp) {
       const field = inp.dataset.field;
+      const line = currentLines.find(l => l.id === id);
       let value;
       if (field === 'taxable') value = inp.checked;
       else if (field === 'quantity' || field === 'unit_price') value = num(inp.value);
+      else if (field === 'rr_hours') value = (inp.value === '' ? null : num(inp.value));
       else value = inp.value;
 
-      const line = currentLines.find(l => l.id === id);
-      const update = { [field]: value };
+      let update = { [field]: value };
+
+      // PACKAGE unit picked → RESOLVE-AND-STORE the unit onto the line:
+      // description = unit code, price = the unit's Set Price (editable after),
+      // qty fixed at 1, taxable on. R&R hrs (tech pay) fills from the unit's
+      // default ONLY when Book Hours is ON, and never enters the price math.
+      if (field === 'package_unit_id') {
+        const uid = value || null;
+        if (uid) {
+          const u = packageUnits().find(x => x.id === uid);
+          update = { package_unit_id: uid };
+          if (u) {
+            update.description = u.unit_code;
+            update.unit_price = Number(u.set_price) || 0;
+            update.quantity = 1;
+            update.taxable = true;
+            if (bookHoursFeatureOn()) update.rr_hours = (u.default_rr_hours != null ? Number(u.default_rr_hours) : null);
+          }
+        } else {
+          update = { package_unit_id: null };
+        }
+      }
 
       // Switching a line to labor / shop_supply / hazmat prefills its unit
       // price from the shop default — but only when the price is still 0
@@ -5131,16 +5207,18 @@
       const { error } = await db.from('ro_line_items').update(update).eq('id', id);
       if (error) {
         if (isMissingColumn(error)) {
-          // part_number before the Phase-3 migration — degrade quietly
-          console.warn('[CdRO] part_number not saved — run the Phase-3 migration first.');
+          // a column not present yet (part_number, or package_unit_id/rr_hours
+          // before the packages migration) — degrade quietly.
+          console.warn('[CdRO] line field not saved — run the latest migration first.', field);
         } else {
           console.error('[CdRO] update line failed', error); alert('Save failed: ' + error.message); return;
         }
       }
       refreshListCacheFor(currentRo.id);
 
-      // a type change flips whether the Part No cell is shown → re-render
-      if (field === 'line_type') renderLines();
+      // a type change flips the row layout (Part No / package cells); a package
+      // unit pick fills price/qty/desc → re-render either way.
+      if (field === 'line_type' || field === 'package_unit_id') renderLines();
     }
 
     // Card processing fee = card_fee_pct × the RO total (subtotal + tax,
@@ -5525,7 +5603,12 @@
       // category totals
       const catSum = (t) => currentLines.filter(l => l.line_type === t)
         .reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
-      const laborTotal = catSum('labor'), partsTotal = catSum('parts');
+      const laborTotal = catSum('labor');
+      // Package lines are customer priced (qty 1 × set price); print them in the
+      // Parts section and fold them into the Parts subtotal, so the Parts rows
+      // and the Parts total agree and the invoice total adds up. Their R&R hours
+      // are tech-pay only — never printed, never added to the price.
+      const partsTotal = catSum('parts') + catSum('package');
       const hazmatTotal = catSum('hazmat'), suppliesTotal = catSum('shop_supply'), feesTotal = catSum('fee');
       const taxableBase = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
       const exempt = !!c.tax_exempt;
@@ -5534,7 +5617,7 @@
       const invoiceTotal = laborTotal + partsTotal + hazmatTotal + suppliesTotal + feesTotal + taxTotal;
 
       const laborLines = currentLines.filter(l => l.line_type === 'labor');
-      const partsLines = currentLines.filter(l => l.line_type === 'parts');
+      const partsLines = currentLines.filter(l => l.line_type === 'parts' || l.line_type === 'package');
 
       const laborRows = laborLines.length ? laborLines.map(l => `
         <tr><td>${P(l.description)}</td><td class="tc">${showTech ? P(ro.technician) : ''}</td>

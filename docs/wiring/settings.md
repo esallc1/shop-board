@@ -1,11 +1,11 @@
 # How Settings is wired (and the proposed role-gated hub)
 
 > Doc: `/docs/wiring/settings.md`
-> Last updated: 2026-08-07 — verified vs commit `33829b1`
+> Last updated: 2026-08-07 — verified vs commit `54f3683`
 > Status: ✅ §0–§4 (today's wiring) verified vs code this session — read against
 > `shared/board-settings.js`, `migrations/20260716_shop_settings.sql`, `crisdata.html`, the four
 > board `BoardSettings.init` calls, and `api/announcement.js`. **§4.1 (the owner Features
-> switchboard) is BUILT** this session — the first real owner-only, role-gated category.
+> switchboard, now two flags) and §4.2 (the money+feature-gated Packages category) are BUILT.**
 > **§5–§10 remain a PROPOSED architecture — NOT built, pending approval.**
 
 ## 0. In one line
@@ -27,9 +27,15 @@ gate and no server-side enforcement**, so "hidden" today means "removed from the
     `default_diag_fee` ($, nullable), `card_fee_pct` (fraction, default 0.03 — the shop's live
     value is **4%**, set in-app), `shop_supplies_default` ($ flat), `hazmat_default` ($ flat),
     `show_tech_on_ro` (bool).
-  - **Feature switches** (added `20260807_feature_book_hours_flag.sql`): `feature_book_hours`
-    (bool, `not null default false`) — the master on/off for the Book Hours feature (§4.1). One
-    boolean column per feature switch; additive, no new table, no RLS change.
+  - **Feature switches** (`20260807_feature_book_hours_flag.sql`, `20260807_packages.sql`):
+    `feature_book_hours` and `feature_packages` (both bool, `not null default false`) — the master
+    on/off switches for the Book Hours and Packages features (§4.1). One boolean column per switch;
+    additive, no new table, no RLS change.
+- **Package unit prices → `public.package_units`** (migration `20260807_packages.sql`): the
+  shop-set list backing the RO "Package" line — `unit_code`, `set_price`, `default_rr_hours`,
+  `active`, timestamps. Anon-full-access RLS + realtime, same pattern as `payment_methods`. Edited
+  in the §4.2 Packages pane; read by the RO via `BoardSettings.getPackageUnits()`. See
+  [[packages]].
   - **Shop Profile** (added by `20260716_phase3_print_fields.sql`): `shop_name`, `address_line`,
     `city_state_zip`, `phone`, `email`, `website`, `logo_url`, `mv_number`, `legal_terms`.
 - **My Profile → `public.employees`**: display `name`, `photo_url` / `background_photo_url`
@@ -100,8 +106,8 @@ a small, forward-compatible step toward the role-gated hub in PART B.
   `getShopSettings()`; `saveFeatureFlag(column, enabled)` writes the column on the single
   `shop_settings` row (same anon write path as every setting). Adding a future switch (e.g. the
   Phase 3 manager-approval toggle) is **one registry line + one additive boolean column** — no
-  schema redesign. Today the only entry is `book_hours` → `feature_book_hours` (see
-  [[flat-rate-hours]] §9 for what it gates).
+  schema redesign. Two entries today: `book_hours` → `feature_book_hours` (see
+  [[flat-rate-hours]] §9) and `packages` → `feature_packages` (see [[packages]] / §4.2).
 - **Owner-only gate:** the category's `visible` is `viewerRole === 'owner'`. `viewerRole` is a
   new module variable set by **`BoardSettings.refresh(employeeId, role)`** — each board now passes
   `who.role` from `captureSessionAndGreet()` (owner/gm/advisor/bookkeeping boards all updated). If
@@ -112,6 +118,15 @@ a small, forward-compatible step toward the role-gated hub in PART B.
   setting; real enforcement waits on the identity work in §6. The flag is **default OFF** and the
   reader **fails safe to OFF** (missing column / failed read → false), so the app degrades to
   pre-feature behavior, never to an accidental ON.
+
+## 4.2 The Packages category — money-gated AND feature-gated (BUILT 2026-08-07)
+A **Packages** pane (`renderPackagesPane`) manages the `package_units` list (Unit / Set Price /
+Default R&R Hours; add / edit / delete). Unlike Features (owner-only), it uses the **existing money
+gate**: `visible = canEditShopMoney && getShopSettings().feature_packages`. So it shows for
+**owner/GM** (the money-editing boards) **only when the Packages switch is on**, and is hidden for
+advisor and while the feature is off. It's the first category whose visibility combines the money
+gate with a feature flag. The RO builder reads the list via `BoardSettings.getPackageUnits()`. Full
+wiring (the Package RO line type, price-vs-pay separation, print fold-in) lives in [[packages]].
 
 ---
 
@@ -215,9 +230,12 @@ mechanism, in preference order:
 ## Where it lives in the code
 - Settings modal: `shared/board-settings.js` (`getCategories`, `renderPanes`, `renderRoPricingPane`,
   `saveShopSettings`, `getShopSettings`/`loadShopSettings`).
-- **Features switchboard (§4.1):** `shared/board-settings.js` — `FEATURE_FLAGS` registry,
-  `renderFeaturesPane`, `saveFeatureFlag`; category `visible: viewerRole === 'owner'`; `viewerRole`
-  set via `refresh(employeeId, role)`.
+- **Features switchboard (§4.1):** `shared/board-settings.js` — `FEATURE_FLAGS` registry
+  (`book_hours`, `packages`), `renderFeaturesPane`, `saveFeatureFlag`; category
+  `visible: viewerRole === 'owner'`; `viewerRole` set via `refresh(employeeId, role)`.
+- **Packages category (§4.2):** `shared/board-settings.js` — `renderPackagesPane` +
+  `addPackageUnit`/`savePackageUnit`/`deletePackageUnit`, `loadPackageUnits`/`getPackageUnits`;
+  `package_units` (`migrations/20260807_packages.sql`). See [[packages]].
 - Board wiring: `BoardSettings.init(...)` in `owner-board.html`, `gm-board.html`,
   `advisor-board.html`, `bookkeeping-board.html`; `BoardSettings.refresh(emp.id, role)` after
   `captureSessionAndGreet()` (now passes the viewer role).
@@ -247,3 +265,11 @@ mechanism, in preference order:
   row — no new table/RLS). Gate is **UI-level only** (still anon-writable), same posture as §4;
   migration written, not yet applied. Verified in-browser (owner sees Features, manager doesn't;
   toggle default OFF; save fails safe pre-migration).
+- 2026-08-07 — **Added the second feature flag (`packages`) + the money+feature-gated Packages
+  category (§4.2).** New `shop_settings.feature_packages` (default OFF) and a `package_units`
+  settings list (`migrations/20260807_packages.sql`, anon RLS + realtime like `payment_methods`).
+  `renderPackagesPane` (add/edit/delete Unit / Set Price / Default R&R Hours) shows only when
+  `canEditShopMoney && feature_packages`. RO reads units via `BoardSettings.getPackageUnits()`. Full
+  feature (the Package RO line type) documented in [[packages]]. Verified in-browser: both Features
+  toggles present, Packages category hidden while OFF, getPackageUnits fail-safe. Migration not yet
+  applied.
