@@ -70,6 +70,7 @@ window.BoardSettings = (function () {
     feature_book_hours: false,
     feature_packages: false,
     feature_advisor_commission: false,
+    feature_bk_ro_detail: false,
     // Assumed-margin fallbacks for the commission engine (used only when a
     // parts/package line has no real cost). Null → the engine's code default.
     parts_margin_pct: null,
@@ -100,6 +101,12 @@ window.BoardSettings = (function () {
       column: 'feature_advisor_commission',
       label: 'Advisor Commission',
       desc: 'Show the advisor gross-profit + commission widgets (advisor "My Commission" card; owner & bookkeeping "Commission & Payout" card) and an "Advisor Commission" settings section for per-advisor base/%. Off = nothing shows — the boards look exactly like before.',
+    },
+    {
+      key: 'bk_ro_detail',
+      column: 'feature_bk_ro_detail',
+      label: 'Bookkeeping RO Detail',
+      desc: 'On the Bookkeeping Overview, make the Income and Open-RO lists open a per-RO detail — the original RO on the left, its matched parts receipts (with photos) + "profit over parts" on the right. Read-only. Off = the lists behave exactly like before.',
     },
   ];
   let shopSettingsRow = null;   // raw row, or null if table/row missing
@@ -140,6 +147,7 @@ window.BoardSettings = (function () {
       feature_book_hours: !!shopSettingsRow.feature_book_hours,
       feature_packages: !!shopSettingsRow.feature_packages,
       feature_advisor_commission: !!shopSettingsRow.feature_advisor_commission,
+      feature_bk_ro_detail: !!shopSettingsRow.feature_bk_ro_detail,
       // Assumed-margin fallbacks (fractions) for the commission engine. Present
       // only post-migration; null → the engine uses its code default.
       parts_margin_pct: shopSettingsRow.parts_margin_pct != null ? Number(shopSettingsRow.parts_margin_pct) : null,

@@ -1,12 +1,14 @@
 # How the Financial Pulse is wired
 
 > Doc: `/docs/wiring/financial-pulse.md`
-> Last updated: 2026-08-06 — verified vs commit `0168264`
-> Status: ✅ Verified vs the code on branch `feat/bookkeeping-income-from-payments`
-> (`bookkeeping-board.html`). **Realized income was repointed from `invoice_queue` to the
-> `ro_payments` ledger** (paid-in-full gate, capped at the true invoice total, bucketed by
-> `paid_at`); every income view + the income drill-down now read that one source. Expenses
-> are unchanged. Not yet on main — pending owner sign-off.
+> Last updated: 2026-08-08 — verified vs commit `<pending>` (branch `feat/bookkeeping-ro-detail`)
+> Status: ✅ Verified vs `bookkeeping-board.html`. Realized income reads the `ro_payments`
+> ledger (paid-in-full gate, capped at the true invoice total, bucketed by `paid_at`); every
+> income view + the income drill-down read that one source. **NEW (Hours-Engine-adjacent, this
+> session): a per-RO drill-down (§9)** — the Income / Open-RO lists open a split RO detail with
+> the original RO on the left and its matched parts receipts + "profit over parts" on the right,
+> behind an owner **Bookkeeping RO Detail** switch (`feature_bk_ro_detail`, default OFF). Expenses
+> unchanged. Preview only (not merged).
 
 ## 0. In one line
 A read-only dashboard section on the Bookkeeping Board's **Overview** tab that shows
@@ -187,7 +189,74 @@ and the difference is the month-end reconciliation, not a bug to fix.
   discrepancy to fix**. A true monthly reconciliation compares **total collected vs recognized
   income**, with **open-job deposits as the bridge**.
 
-## Known gaps & open questions (as of 2026-08-06)
+## 9. Per-RO drill-down (`feature_bk_ro_detail`, default OFF) — the parts-cost / profit view
+A read-only split view that answers "what did we spend on parts for this job, and what's the
+profit over those parts." Behind an owner **Bookkeeping RO Detail** feature switch (4th
+`FEATURE_FLAGS` entry; see [[settings]] §4.1). **OFF → the Income / Open-RO lists behave exactly
+as before** (no row clicks, no detail); the gate is `bkRoDetailOn()` reading
+`getShopSettings().feature_bk_ro_detail` (fails safe to false).
+
+### 9.1 Three entry points → one detail
+- **Income (realized) modal rows** (`renderDrill`) → open the detail for that paid RO (**final**).
+- **"Open ROs — future income" tile** → clickable → a new **open-ROs list modal** (`#finOpenModal`,
+  `openOpenList`/`renderOpenList`, same style as the paid list) → rows open the detail
+  (**provisional**).
+- **Open-RO follow-up list rows** (`renderAging`, `#finAging`) → open the detail (**provisional**).
+Row clicks are **delegated** on the stable containers (`finDrillBody` / `finOpenBody` / `finAging`)
+so they survive each re-render; each row carries `data-po` and the `fin-rowlink` class only when
+the feature is on.
+
+### 9.2 The split detail (`#finRoDetail`, `openRoDetail(po, provisional)` → `renderRoDetail`)
+- **LEFT — the original RO.** Fetched fresh by `po` from `repair_orders` (+ `customers`,
+  `vehicles`, `ro_line_items`). Renders customer/vehicle/stage + a read-only line-item table and
+  Subtotal / Tax / **Ticket total**, reproducing `roTotal` (so a paid RO's ticket equals its
+  recognized income). If no `repair_orders` row matches the PO (an ALLDATA-only job) the left
+  shows a note and the right still lists receipts.
+- **RIGHT — matched parts receipts + profit.** See §9.3. Each receipt row = photo thumbnail
+  (signed URL) + description/vendor/date + amount; the thumbnail opens a **lightbox** (`#finPhoto`).
+- **Profit line:** `Ticket total − Parts cost`, shown as **$ and %**, labelled **"Profit over
+  parts (excludes labor & overhead) — NOT net profit."** For a **provisional** (open) RO it adds a
+  `provisional · so far` badge and says parts are partial. Negative profit (a mistagged/oversized
+  receipt, or an under-billed ticket) renders in red — surfaced, not hidden.
+- **Read-only**: the view only READs; it never writes.
+
+### 9.3 Receipt → RO matching (the linkage, verified live 2026-08-08)
+Receipts are the **`invoice_queue`** rows (the bookkeeper's processed parts/expense photos; the
+photo is `image_path` in the private **`invoice-images`** bucket, read via `createSignedUrls`).
+- **Match key = `invoice_queue.po` (text) == `repair_orders.po`.** PLUS **`invoice_po_lines`**
+  rows where `po == RO.po` (a single Parts/Vendor invoice split across multiple jobs; each line's
+  `amount` is a cost for its PO, carrying the parent invoice's photo/date). `invoice_po_lines` is
+  empty in the data today but supported.
+- **What counts toward parts cost:** `counts_as` direction via `countsAsFor()` — **cost adds**
+  (`parts_vendor`), **credit subtracts** (`vendor_credit`). **EXCLUDED:** `record_only`
+  (`repair_invoice` = the RO's own invoice — it also matches `po=RO.po` but is not a parts cost)
+  and **`shop_expense`** (general shop supplies — brake cleaner / ATF, `po` is null anyway).
+  `parts_cost = Σ (cost:+amount, credit:−amount)`.
+- **⚠ `invoice_queue.po` is FREE TEXT and used inconsistently** (verified live): most
+  `parts_vendor` rows carry the **vendor's own invoice number** (`4151833`, `1-812887`, `23056`)
+  or a tag (`STOCK`, `KEVIN`, `WC PAID`), and only a subset carry the real shop **RO#** (`5511`,
+  `6022`, `6017`, …). This is fine for the design — a receipt whose `po` isn't a real RO# simply
+  **doesn't map** (the intended shop-general exclusion) — but it means **coverage is partial**: a
+  parts receipt the bookkeeper tagged with the vendor's number won't appear under its RO. The
+  detail says so in its empty state rather than implying completeness.
+
+### 9.4 Verified live (2026-08-08, anon read)
+PO 6022 (LES CROSS, closed): 2 duplicate `repair_invoice` rows excluded, 1 `parts_vendor` NAPA
+$11.25 matched → ticket $373.06, **profit over parts $361.81 · 97%**, photo signed. PO 5474: two
+Advance Auto $74.05 receipts both summed **as-is** (visible individually so a dup is spottable) =
+$148.10 → 96%. PO 5413: $22.35 ticket vs a $381.74 mistagged receipt → **−$359.39** (red,
+surfaced). PO 6009 (open) → provisional. Unmatched PO → "no receipts" empty state.
+
+## Known gaps & open questions (as of 2026-08-08)
+- **Per-RO parts matching is only as good as the free-text `po`** (§9.3): receipts tagged with a
+  vendor's invoice number (or `STOCK`/tags) don't map to their RO, so a job's parts view can be
+  incomplete. A structured RO-link on the receipt (or normalizing `po` at capture) would fix it —
+  a later step, flagged not hidden.
+- **Core deposits inflate parts cost until the core credit posts** (v1 sums matched receipts as-is;
+  cores live in `core_charges` but a core amount baked into a parts invoice counts until its
+  `vendor_credit` posts). Core-netting is a later refinement — the detail note says so.
+- **Duplicate receipts are summed as-is** — `invoice_queue` has known dupes; the detail lists each
+  receipt individually (with date + photo) so a double-scan is visible rather than silently doubled.
 - **Income is CrisData-only, by design.** `ro_payments` only exists for in-app ROs, and the
   team started recording payments in-app the week of 2026-08-02. **Weeks before that read
   low on purpose** — this is the accepted trade-off of the clean switch (no `invoice_queue`
@@ -219,10 +288,37 @@ and the difference is the month-end reconciliation, not a bug to fix.
   `migrations/20260716_ro_foundation.sql`, `20260717_ro_status_closed.sql`.
 - **Donut category map:** `completed_jobs` (`po`, `job_category`) —
   `migrations/20260711_completed_jobs.sql`.
-- **Related docs:** `settings.md` (`shop_settings` / `BoardSettings`), `flat-rate-hours.md`
-  (`completed_jobs` archive caveats).
+- **Per-RO drill-down (§9):** `bookkeeping-board.html` — the `#finOpenModal` / `#finRoDetail` /
+  `#finPhoto` markup, the `.fin-ro-*` / `.fin-rc-*` / `.fin-rowlink` / `.fin-photo-*` CSS, and in
+  the `FinancialPulse` IIFE: `bkRoDetailOn`, `openOpenList`/`renderOpenList`,
+  `openRoDetail`/`renderRoDetail`, `openPhoto`/`closePhoto`, the delegated row-click wiring in
+  `wire()`, and the clickable pipeline scorecard + `fin-rowlink` rows in `render`/`renderDrill`/
+  `renderAging`. Reuses `roTotal`, `countsAsFor`, `createSignedUrls`.
+- **Receipts (the match target):** `invoice_queue` (`po`, `invoice_type`, `amount`, `invoice_date`,
+  `vendor`, `description`, `image_path`) — `migrations/20260713_invoice_queue.sql`; multi-PO split
+  `invoice_po_lines` (`po`, `label`, `amount`, `invoice_queue_id`) + `invoice_types.counts_as` —
+  `migrations/20260716_bookkeeping_multiPO_categories_types.sql`; photos in the private
+  `invoice-images` bucket.
+- **Feature flag:** `shop_settings.feature_bk_ro_detail`
+  (`migrations/20260808_bk_ro_detail_flag.sql`, additive, **unapplied**); owner Features toggle via
+  the `FEATURE_FLAGS` `bk_ro_detail` entry in `shared/board-settings.js` (see [[settings]] §4.1).
+- **Related docs:** `settings.md` (`shop_settings` / `BoardSettings` / the Features switchboard),
+  `flat-rate-hours.md` (`completed_jobs` archive caveats), `advisor-commission.md` (the other
+  GP-vs-cost view — labor+parts-markup per advisor).
 
 ## Session change log
+- 2026-08-08 — **Added the per-RO drill-down (§9), behind `feature_bk_ro_detail` (default OFF).**
+  The Income modal rows, a new Open-ROs list modal (from the pipeline tile), and the follow-up
+  rows all open a split RO detail: the original RO (left, from `repair_orders` + `ro_line_items`,
+  ticket = `roTotal`) and its matched **parts receipts** (right, from `invoice_queue` +
+  `invoice_po_lines` where `po == RO.po`, `counts_as` direction, excluding `shop_expense` +
+  `record_only`), with photo thumbnails/lightbox from the `invoice-images` bucket and a **"profit
+  over parts (excludes labor & overhead)"** line (provisional for open ROs). Read-only; no writes.
+  Confirmed the receipt↔RO linkage is the free-text `invoice_queue.po` (partial coverage — vendor
+  invoice numbers / tags don't map, the intended shop-general exclusion). Verified live (6022 →
+  $361.81 · 97%; 5413 → −$359 surfaced; 5474 dup receipts summed as-is; 6009 open → provisional).
+  New migration `20260808_bk_ro_detail_flag.sql` (additive boolean, **unapplied**); 4th
+  `FEATURE_FLAGS` entry. `bookkeeping-board.html` + `shared/board-settings.js` + this doc.
 - 2026-08-06 — **Repointed realized income from `invoice_queue` to the `ro_payments` ledger**
   (clean switch, no hybrid). Income is now recognized per **paid-in-full RO**
   (`Σ payments ≥ ro_total − 0.005`), booked at the **capped `ro_total`** (never the tendered
