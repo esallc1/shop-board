@@ -1,11 +1,12 @@
 # How Settings is wired (and the proposed role-gated hub)
 
 > Doc: `/docs/wiring/settings.md`
-> Last updated: 2026-07-30 — verified vs commit `0663cbd`
-> Status: ✅ §0–§4 (today's wiring) verified vs `0663cbd` — read against
+> Last updated: 2026-08-07 — verified vs commit `0deddaa`
+> Status: ✅ §0–§4 (today's wiring) verified vs code this session — read against
 > `shared/board-settings.js`, `migrations/20260716_shop_settings.sql`, `crisdata.html`, the four
-> board `BoardSettings.init` calls, and `api/announcement.js`. **§5–§10 are a PROPOSED
-> architecture — NOT built, pending approval.** Investigation only; no feature code changed.
+> board `BoardSettings.init` calls, and `api/announcement.js`. **§4.1 (the owner Features
+> switchboard, now two flags) and §4.2 (the money+feature-gated "Rebuild Units & Prices" category) are BUILT.**
+> **§5–§10 remain a PROPOSED architecture — NOT built, pending approval.**
 
 ## 0. In one line
 Settings today is **one shared modal** (`shared/board-settings.js`) that reads/writes a **single
@@ -26,6 +27,18 @@ gate and no server-side enforcement**, so "hidden" today means "removed from the
     `default_diag_fee` ($, nullable), `card_fee_pct` (fraction, default 0.03 — the shop's live
     value is **4%**, set in-app), `shop_supplies_default` ($ flat), `hazmat_default` ($ flat),
     `show_tech_on_ro` (bool).
+  - **Feature switches** (`20260807_feature_book_hours_flag.sql`, `20260807_packages.sql`,
+    `20260808_advisor_commission.sql`): `feature_book_hours`, `feature_packages`, and
+    `feature_advisor_commission` (all bool, `not null default false`) — the master on/off switches
+    for the Book Hours, Packages, and Advisor Commission features (§4.1). One boolean column per
+    switch; additive, no new table, no RLS change. The commission migration also adds the
+    assumed-margin fallbacks `parts_margin_pct` / `package_margin_pct` (nullable; see §4.3).
+- **Package unit prices → `public.package_units`** (migration `20260807_packages.sql`): the
+  shop-set list backing the RO "Package" line — `group_label` (nullable organizing tag),
+  `unit_code`, `set_price`, `default_rr_hours`, `active`, timestamps. Anon-full-access RLS +
+  realtime, same pattern as `payment_methods`. Edited in the §4.2 "Rebuild Units & Prices" pane
+  (grouped by `group_label`, with a bulk "set price for whole group" shortcut); read by the RO via
+  `BoardSettings.getPackageUnits()`. See [[packages]].
   - **Shop Profile** (added by `20260716_phase3_print_fields.sql`): `shop_name`, `address_line`,
     `city_state_zip`, `phone`, `email`, `website`, `logo_url`, `mv_number`, `legal_terms`.
 - **My Profile → `public.employees`**: display `name`, `photo_url` / `background_photo_url`
@@ -85,6 +98,55 @@ gate and no server-side enforcement**, so "hidden" today means "removed from the
 - **The missing piece for owner-only:** **none of those endpoints verify WHO is calling.** They
   are protected by "anon can't write the table", not by "the caller is the owner." There is no
   auth token to check. **True owner-only enforcement needs a server-verifiable identity first.**
+
+## 4.1 The Features switchboard — first owner-only, role-gated category (BUILT 2026-08-07)
+A new **"Features"** category in the shared modal holds **master on/off switches** for optional
+parts of the app. It is the first category gated on **who you are**, not which board you opened —
+a small, forward-compatible step toward the role-gated hub in PART B.
+- **Registry-driven & extensible:** `shared/board-settings.js` defines a `FEATURE_FLAGS` array —
+  each entry maps a stable `key` to its **boolean column on `shop_settings`** + the toggle's
+  label/description. `renderFeaturesPane()` renders one iOS-style toggle per entry from
+  `getShopSettings()`; `saveFeatureFlag(column, enabled)` writes the column on the single
+  `shop_settings` row (same anon write path as every setting). Adding a future switch (e.g. the
+  Phase 3 manager-approval toggle) is **one registry line + one additive boolean column** — no
+  schema redesign. **Three entries today:** `book_hours` → `feature_book_hours` (see
+  [[flat-rate-hours]] §9), `packages` → `feature_packages` (see [[packages]] / §4.2), and
+  `advisor_commission` → `feature_advisor_commission` (see [[advisor-commission]] / §4.3).
+- **Owner-only gate:** the category's `visible` is `viewerRole === 'owner'`. `viewerRole` is a
+  new module variable set by **`BoardSettings.refresh(employeeId, role)`** — each board now passes
+  `who.role` from `captureSessionAndGreet()` (owner/gm/advisor/bookkeeping boards all updated). If
+  the modal is open when the role resolves, it repaints so the category appears/disappears. A
+  manager/advisor never sees Features even on a board with `canEditShopMoney` (gm-board).
+- **Same caveat as §4:** this is a **UI-level gate only** — `shop_settings` is still
+  anon-writable, so the switch is not server-enforced. It matches the current posture of every
+  setting; real enforcement waits on the identity work in §6. The flag is **default OFF** and the
+  reader **fails safe to OFF** (missing column / failed read → false), so the app degrades to
+  pre-feature behavior, never to an accidental ON.
+
+## 4.2 The "Rebuild Units & Prices" category — money-gated AND feature-gated (BUILT 2026-08-07)
+A **Rebuild Units & Prices** pane (`renderPackagesPane`; category id `packages`) manages the
+`package_units` list (Group / Unit / Set Price / Default R&R Hours; add / edit / delete). Unlike
+Features (owner-only), it uses the **existing money gate**:
+`visible = canEditShopMoney && getShopSettings().feature_packages`. So it shows for **owner/GM** (the
+money-editing boards) **only when the Packages switch is on**, and is hidden for advisor and while
+the feature is off. It's the first category whose visibility combines the money gate with a feature
+flag. The list is **grouped by `group_label`** with a per-group "set price for whole group" bulk
+shortcut (`setGroupPrice`). The RO builder reads the list via `BoardSettings.getPackageUnits()`.
+Full wiring (the Package RO line type, price-vs-pay separation, print fold-in) lives in [[packages]].
+
+## 4.3 The "Advisor Commission" category — owner-only AND feature-gated (BUILT 2026-08-08)
+An **Advisor Commission** pane (`renderCommissionPane`; category id `commission`) sets the
+per-advisor pay plan behind the commission widgets. Because it sets **pay**, its `visible` is
+`viewerRole === 'owner' && getShopSettings().feature_advisor_commission` — owner-only, and only
+when the Advisor Commission switch is on (advisor/GM/bookkeeping never see it). Two sections:
+- **Per-advisor base + %** — one row per active `role='advisor'` employee: `commission_base_weekly`
+  ($/full week) and `commission_gp_pct` (% of that week's GP). Blank → the engine's code default
+  ($1,000 / 2.5%). Written to `employees` (`saveAdvisorPay`).
+- **Assumed-margin fallbacks** — `shop_settings.parts_margin_pct` / `package_margin_pct` (stored
+  as fractions; shown as %), used by the engine only when a parts/package line has no real cost;
+  a real cost always overrides (`saveCommissionMargins`). Defaults 40% / 55%.
+Same anon write path + UI-level gate as every setting (§4). Full feature (the GP engine + the
+two cards) is documented in [[advisor-commission]].
 
 ---
 
@@ -188,11 +250,19 @@ mechanism, in preference order:
 ## Where it lives in the code
 - Settings modal: `shared/board-settings.js` (`getCategories`, `renderPanes`, `renderRoPricingPane`,
   `saveShopSettings`, `getShopSettings`/`loadShopSettings`).
+- **Features switchboard (§4.1):** `shared/board-settings.js` — `FEATURE_FLAGS` registry
+  (`book_hours`, `packages`), `renderFeaturesPane`, `saveFeatureFlag`; category
+  `visible: viewerRole === 'owner'`; `viewerRole` set via `refresh(employeeId, role)`.
+- **"Rebuild Units & Prices" category (§4.2):** `shared/board-settings.js` — `renderPackagesPane`
+  (grouped) + `setGroupPrice`, `addPackageUnit`/`savePackageUnit`/`deletePackageUnit`,
+  `loadPackageUnits`/`getPackageUnits`; `package_units` (`migrations/20260807_packages.sql`). See
+  [[packages]].
 - Board wiring: `BoardSettings.init(...)` in `owner-board.html`, `gm-board.html`,
-  `advisor-board.html`, `bookkeeping-board.html`; `BoardSettings.refresh(emp.id)` after
-  `captureSessionAndGreet()`.
+  `advisor-board.html`, `bookkeeping-board.html`; `BoardSettings.refresh(emp.id, role)` after
+  `captureSessionAndGreet()` (now passes the viewer role).
 - Storage: `migrations/20260716_shop_settings.sql` (+ `20260716_phase3_print_fields.sql` for the
-  profile columns); `employees` for My Profile.
+  profile columns; `20260807_feature_book_hours_flag.sql` for the `feature_book_hours` switch);
+  `employees` for My Profile.
 - Identity: `crisdata.html` (PIN login + role routing); `captureSessionAndGreet()` on each board.
 - Enforcement pattern to mirror: `api/announcement.js`, `api/desk-appointment.js`
   (service-role + test-locked `parse*`).
@@ -200,6 +270,14 @@ mechanism, in preference order:
   [[my-numbers]] (no viewer role today), [[announcements]] (a live service-role write path).
 
 ## Session change log
+- 2026-08-08 — **Added the third feature flag (`advisor_commission`) + the owner-only,
+  feature-gated "Advisor Commission" category (§4.3).** New
+  `shop_settings.feature_advisor_commission` + `parts_margin_pct` / `package_margin_pct`
+  and `employees.commission_base_weekly` / `commission_gp_pct`
+  (`migrations/20260808_advisor_commission.sql`, additive, **not yet applied**).
+  `renderCommissionPane` (`viewerRole==='owner' && feature_advisor_commission`) sets per-advisor
+  base/% + the assumed-margin fallbacks. Full feature in [[advisor-commission]] (Hours Engine
+  Part 2). UI-level gate, same posture as §4.
 - 2026-07-30 — Created during the "CrisData Settings hub" investigation. Mapped today's storage
   (`shop_settings` fixed row + `employees`, all anon), the shared `board-settings.js` modal and
   its per-board hardcoded `canEditShopMoney` gate, and the identity model (real PIN login +
@@ -207,3 +285,24 @@ mechanism, in preference order:
   no role-checking endpoints). Proposed the role-gated, DB-backed hub with **identity-first** as
   the prerequisite, new `rebuild_units` / `role_access` / `integrations` tables, a service-role
   `api/settings.js`, and a 6-phase build order. **Investigation only — no app code changed.**
+- 2026-08-07 — **Built the owner Features switchboard (§4.1)** — the first role-gated, owner-only
+  category. Added a `FEATURE_FLAGS` registry + `renderFeaturesPane`/`saveFeatureFlag` over boolean
+  columns on `shop_settings`, a `viewerRole` module var set via `refresh(employeeId, role)` (all
+  four boards now pass `who.role`), and the category gated on `viewerRole==='owner'`. First flag:
+  `feature_book_hours` (default OFF) — the Book Hours master switch (see [[flat-rate-hours]] §9).
+  Storage is additive (`20260807_feature_book_hours_flag.sql`, reuses the anon `shop_settings`
+  row — no new table/RLS). Gate is **UI-level only** (still anon-writable), same posture as §4;
+  migration written, not yet applied. Verified in-browser (owner sees Features, manager doesn't;
+  toggle default OFF; save fails safe pre-migration).
+- 2026-08-07 — **Added the second feature flag (`packages`) + the money+feature-gated Packages
+  category (§4.2).** New `shop_settings.feature_packages` (default OFF) and a `package_units`
+  settings list (`migrations/20260807_packages.sql`, anon RLS + realtime like `payment_methods`).
+  `renderPackagesPane` (add/edit/delete Unit / Set Price / Default R&R Hours) shows only when
+  `canEditShopMoney && feature_packages`. RO reads units via `BoardSettings.getPackageUnits()`. Full
+  feature (the Package RO line type) documented in [[packages]]. Verified in-browser: both Features
+  toggles present, Packages category hidden while OFF, getPackageUnits fail-safe. Migration not yet
+  applied.
+- 2026-08-07 — Renamed the pane to **"Rebuild Units & Prices"**, added
+  `package_units.group_label` (same migration, additive), a **grouped list** with a per-group "set
+  price for whole group" bulk shortcut (`setGroupPrice`), and a per-row Group field. Storage line +
+  §4.2 updated. Verified in-browser: grouping/order logic + toggle copy. Migration still not applied.

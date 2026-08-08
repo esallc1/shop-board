@@ -65,10 +65,51 @@ window.BoardSettings = (function () {
     tax_rate: 0.07, default_labor_rate: null, show_tech_on_ro: false,
     card_fee_pct: 0.03, shop_supplies_default: 0, hazmat_default: 0,
     default_diag_fee: null,
+    // Feature switches — default OFF so the app fails safe to pre-feature
+    // behavior when the column/row is missing (pre-migration) or unreadable.
+    feature_book_hours: false,
+    feature_packages: false,
+    feature_advisor_commission: false,
+    // Assumed-margin fallbacks for the commission engine (used only when a
+    // parts/package line has no real cost). Null → the engine's code default.
+    parts_margin_pct: null,
+    package_margin_pct: null,
   };
+
+  // ── FEATURE FLAGS registry — the owner "Features" switchboard ─────
+  // One entry per master on/off switch. Each maps a stable key to its
+  // boolean column on shop_settings + the UI copy for the toggle. Adding a
+  // future switch (e.g. the Phase 3 manager-approval toggle) is ONE line here
+  // + one additive boolean column — no schema redesign. Only Book Hours is
+  // wired to app behavior today. Owner-only (see the 'features' category).
+  const FEATURE_FLAGS = [
+    {
+      key: 'book_hours',
+      column: 'feature_book_hours',
+      label: 'Book Hours',
+      desc: 'Show the Book Hours (tech-pay) field on the RO and require hours (or N/A) before a job leaves Estimate. Off = hidden and never blocks — exactly like before the feature.',
+    },
+    {
+      key: 'packages',
+      column: 'feature_packages',
+      label: 'Packages',
+      desc: 'Turn on package unit prices (a "Rebuild Units & Prices" settings section) and the "Package" RO line type. Off = neither shows — the RO builder and settings look exactly like before.',
+    },
+    {
+      key: 'advisor_commission',
+      column: 'feature_advisor_commission',
+      label: 'Advisor Commission',
+      desc: 'Show the advisor gross-profit + commission widgets (advisor "My Commission" card; owner & bookkeeping "Commission & Payout" card) and an "Advisor Commission" settings section for per-advisor base/%. Off = nothing shows — the boards look exactly like before.',
+    },
+  ];
   let shopSettingsRow = null;   // raw row, or null if table/row missing
   let canEditShopMoney = false;
   let canEditShopOps = false;
+  // Viewer's resolved employees.role (owner/manager/advisor/tech/bookkeeping),
+  // set once the session resolves. Owner-only categories (Features) gate on
+  // this. UI-level gate only — same posture as canEditShopMoney (see
+  // docs/wiring/settings.md §3/§4); real enforcement needs server identity.
+  let viewerRole = null;
   let onShopSettingsChanged = null;
   let shopLogoFile = null;      // pending logo upload (Owner/GM only)
   let onOpenExtra = null;       // board-specific extra Settings category
@@ -94,6 +135,15 @@ window.BoardSettings = (function () {
       // Quick diag-fee receipt default. Nullable + present only post-migration;
       // stays null (no prefill) until the column exists and is set.
       default_diag_fee: shopSettingsRow.default_diag_fee != null ? Number(shopSettingsRow.default_diag_fee) : null,
+      // Feature switches — default OFF (fail-safe). Present only once the
+      // feature-flag migration adds the column; missing column → false.
+      feature_book_hours: !!shopSettingsRow.feature_book_hours,
+      feature_packages: !!shopSettingsRow.feature_packages,
+      feature_advisor_commission: !!shopSettingsRow.feature_advisor_commission,
+      // Assumed-margin fallbacks (fractions) for the commission engine. Present
+      // only post-migration; null → the engine uses its code default.
+      parts_margin_pct: shopSettingsRow.parts_margin_pct != null ? Number(shopSettingsRow.parts_margin_pct) : null,
+      package_margin_pct: shopSettingsRow.package_margin_pct != null ? Number(shopSettingsRow.package_margin_pct) : null,
       // shop profile (Phase 3) — nulls until the migration seeds them
       shop_name: shopSettingsRow.shop_name || null,
       address_line: shopSettingsRow.address_line || null,
@@ -176,6 +226,31 @@ window.BoardSettings = (function () {
     return (label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
   }
 
+  // ── PACKAGE UNITS (Packages feature) — the shop-set list the RO "Package"
+  // line type reads. Warmed on init like payment_methods; the RO Board reads
+  // active units via getPackageUnits(). null (not []) means the table is
+  // missing (pre-migration) so the RO Board can tell "no units yet" from
+  // "feature not migrated". Same anon read/write path as every settings list.
+  let packageUnitsRows = null;   // all rows, or null if the table is missing
+
+  async function loadPackageUnits() {
+    try {
+      const { data, error } = await db.from('package_units').select('*').order('unit_code');
+      if (error) throw error;
+      packageUnitsRows = data || [];
+    } catch (err) {
+      packageUnitsRows = null;
+      console.warn('[BoardSettings] package_units not loaded (pre-migration is fine):', err.message || err);
+    }
+  }
+
+  // Active units for the RO dropdown. Empty array when the table is missing or
+  // has no active rows — the caller shows its own "no units" hint.
+  function getPackageUnits() {
+    if (!packageUnitsRows) return [];
+    return packageUnitsRows.filter(u => u.active);
+  }
+
   // ── Category nav icons ────────────────────────────────────────
   const ICONS = {
     user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>',
@@ -183,6 +258,7 @@ window.BoardSettings = (function () {
     receipt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v18l2-1 2 1 2-1 2 1 2-1 2 1V3z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
     grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
     card: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>',
+    toggle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="7" width="22" height="10" rx="5"/><circle cx="16" cy="12" r="3"/></svg>',
   };
 
   function injectStyles() {
@@ -369,6 +445,22 @@ window.BoardSettings = (function () {
         .stgfeat-box.stgfeat-solo .stgfeat-nav { display: none; }
         .stgfeat-content { padding-left: 0; }
       }
+
+      /* iOS-style toggle for the owner Features switchboard */
+      .stgfeat-switch { position: relative; display: inline-block; width: 44px; height: 26px; }
+      .stgfeat-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+      .stgfeat-switch-slider {
+        position: absolute; inset: 0; cursor: pointer; border-radius: 26px;
+        background: #cfd3de; transition: background .18s ease;
+      }
+      .stgfeat-switch-slider::before {
+        content: ''; position: absolute; height: 20px; width: 20px; left: 3px; top: 3px;
+        background: #fff; border-radius: 50%; transition: transform .18s ease;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.25);
+      }
+      .stgfeat-switch input:checked + .stgfeat-switch-slider { background: #10b981; }
+      .stgfeat-switch input:checked + .stgfeat-switch-slider::before { transform: translateX(18px); }
+      .stgfeat-switch input:focus-visible + .stgfeat-switch-slider { outline: 2px solid #5b5ef4; outline-offset: 2px; }
     `;
     document.head.appendChild(style);
   }
@@ -399,7 +491,17 @@ window.BoardSettings = (function () {
       { id: 'myprofile',   label: 'My Profile',    icon: ICONS.user,    visible: true,             render: renderMyProfilePane },
       { id: 'shopprofile', label: 'Shop Profile',  icon: ICONS.shop,    visible: canEditShopMoney, render: renderShopProfilePane },
       { id: 'ropricing',   label: 'RO & Pricing',  icon: ICONS.receipt, visible: canEditShopMoney, render: renderRoPricingPane },
+      // Packages — package unit prices (money-gated like RO & Pricing) AND only
+      // when the owner's Packages feature switch is ON.
+      { id: 'packages',    label: 'Rebuild Units & Prices', icon: ICONS.grid, visible: canEditShopMoney && !!getShopSettings().feature_packages, render: renderPackagesPane },
       { id: 'payments',    label: 'Payments',      icon: ICONS.card,    visible: canEditShopMoney, render: renderPaymentsPane },
+      // Advisor Commission — per-advisor base/% + the assumed-margin fallbacks.
+      // Owner-only (it sets pay) AND only when the Advisor Commission switch is ON.
+      { id: 'commission',  label: 'Advisor Commission', icon: ICONS.receipt, visible: viewerRole === 'owner' && !!getShopSettings().feature_advisor_commission, render: renderCommissionPane },
+      // Features — owner-only master switchboard (default-OFF flags on
+      // shop_settings). Gated on the viewer's role, not the board, so a
+      // manager/advisor never sees it even on a board with money rights.
+      { id: 'features',    label: 'Features',      icon: ICONS.toggle,  visible: viewerRole === 'owner', render: renderFeaturesPane },
     ];
     if (typeof onOpenExtra === 'function') {
       cats.push({
@@ -608,6 +710,148 @@ window.BoardSettings = (function () {
       }
       renderPaymentsPane(content);
     });
+  }
+
+  // ── Pane: Rebuild Units & Prices (package units) — Owner/GM, feature-gated ─
+  // Add/edit/delete package units. Each: Group (optional organizing tag), Unit
+  // (code shown in the RO dropdown), Set Price (customer price), Default R&R
+  // Hours (tech-pay default). Units are shown grouped by group_label with a
+  // "set price for the whole group" shortcut; each unit still keeps its own
+  // price. The RO RESOLVE-AND-STORES a unit's price + hours onto the line at
+  // pick time, so editing/deleting here never rewrites a job already built.
+  async function renderPackagesPane(content) {
+    const head = catHeader('Rebuild Units & Prices', 'Package unit prices for the RO "Package" line. Group is an optional organizing tag — units that share a group can be bulk-priced, but each keeps its own price. Set Price is the customer price; Default R&R Hours is the tech-pay credit (never added to the price). The RO copies these onto a line when a unit is picked — editing here never changes jobs already saved.');
+    content.innerHTML = head + '<div class="stgfeat-placeholder">Loading…</div>';
+    await loadPackageUnits();
+    if (packageUnitsRows === null) {
+      content.innerHTML = head + '<div class="stgfeat-placeholder">Run the <code>packages</code> migration (creates <code>package_units</code>) to manage these here.</div>';
+      return;
+    }
+    // group units by group_label: named groups first (alpha), ungrouped last.
+    const byGroup = new Map();
+    packageUnitsRows.forEach(u => {
+      const g = (u.group_label || '').trim();
+      if (!byGroup.has(g)) byGroup.set(g, []);
+      byGroup.get(g).push(u);
+    });
+    const order = [...byGroup.keys()].filter(g => g !== '').sort((a, b) => a.localeCompare(b));
+    if (byGroup.has('')) order.push('');   // ungrouped cluster at the bottom
+
+    const unitRow = (u) => `
+      <tr data-id="${esc(String(u.id))}" style="border-top:1px solid var(--border)">
+        <td style="padding:6px 6px"><input type="text" data-f="group_label" value="${esc(u.group_label || '')}" placeholder="—" style="width:100%"></td>
+        <td style="padding:6px 6px"><input type="text" data-f="unit_code" value="${esc(u.unit_code || '')}" style="width:100%"></td>
+        <td style="padding:6px 6px"><input type="number" data-f="set_price" value="${u.set_price != null ? esc(String(u.set_price)) : ''}" min="0" step="0.01" style="width:88px"></td>
+        <td style="padding:6px 6px"><input type="number" data-f="default_rr_hours" value="${u.default_rr_hours != null ? esc(String(u.default_rr_hours)) : ''}" min="0" step="0.5" placeholder="—" style="width:64px"></td>
+        <td style="padding:6px 6px;white-space:nowrap">
+          <button type="button" class="stgfeat-btn" data-act="save" style="padding:3px 8px;font-size:0.72rem">Save</button>
+          <button type="button" class="stgfeat-btn" data-act="del" style="padding:3px 8px;font-size:0.72rem">✕</button>
+        </td>
+      </tr>`;
+
+    let bodyHtml = '';
+    if (packageUnitsRows.length === 0) {
+      bodyHtml = '<tr><td colspan="5" style="padding:8px 6px;color:var(--muted)">No units yet — add one below.</td></tr>';
+    } else {
+      order.forEach((g, gi) => {
+        const units = byGroup.get(g).slice().sort((a, b) => String(a.unit_code).localeCompare(String(b.unit_code)));
+        const isUngrouped = g === '';
+        const shortcut = isUngrouped ? '' :
+          `<span style="float:right;font-weight:400;font-size:0.72rem;color:var(--muted)">Set price for whole group
+             <input type="number" class="stgPkgGroupPrice" data-gidx="${gi}" min="0" step="0.01" placeholder="$" style="width:78px;margin:0 4px">
+             <button type="button" class="stgfeat-btn" data-group-apply data-gidx="${gi}" style="padding:2px 8px;font-size:0.72rem">Apply</button>
+           </span>`;
+        bodyHtml += `<tr class="stgPkgGroupHead"><td colspan="5" style="padding:9px 6px 5px;font-weight:700;border-top:2px solid var(--border)">${isUngrouped ? '<span style="color:var(--muted)">Ungrouped</span>' : esc(g)}${shortcut}</td></tr>`;
+        bodyHtml += units.map(unitRow).join('');
+      });
+    }
+
+    content.innerHTML = head +
+      `<div class="stgfeat-section">
+        <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+          <thead><tr style="text-align:left;color:var(--muted);font-size:0.72rem">
+            <th style="padding:2px 6px">Group</th><th style="padding:2px 6px">Unit</th><th style="padding:2px 6px">Set Price ($)</th>
+            <th style="padding:2px 6px">R&amp;R Hrs</th><th style="padding:2px 6px"></th>
+          </tr></thead>
+          <tbody>${bodyHtml}</tbody>
+          <tfoot><tr style="border-top:2px solid var(--border)">
+            <td style="padding:6px 6px"><input type="text" id="stgPkgNewGroup" placeholder="group" style="width:100%"></td>
+            <td style="padding:6px 6px"><input type="text" id="stgPkgNewCode" placeholder="e.g. 6L80" style="width:100%"></td>
+            <td style="padding:6px 6px"><input type="number" id="stgPkgNewPrice" min="0" step="0.01" placeholder="price" style="width:88px"></td>
+            <td style="padding:6px 6px"><input type="number" id="stgPkgNewHours" min="0" step="0.5" placeholder="hrs" style="width:64px"></td>
+            <td style="padding:6px 6px"><button type="button" class="stgfeat-btn" id="stgPkgAddBtn" style="padding:3px 8px;font-size:0.72rem">Add</button></td>
+          </tr></tfoot>
+        </table>
+        <div class="stgfeat-error" id="stgPkgError" style="margin-top:6px"></div>
+      </div>`;
+    content.querySelector('#stgPkgAddBtn').addEventListener('click', () => addPackageUnit(content));
+    content.querySelectorAll('tr[data-id]').forEach(tr => {
+      tr.querySelector('[data-act="save"]').addEventListener('click', () => savePackageUnit(tr, content));
+      tr.querySelector('[data-act="del"]').addEventListener('click', () => deletePackageUnit(tr, content));
+    });
+    content.querySelectorAll('[data-group-apply]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const gi = Number(btn.dataset.gidx);
+        const inp = content.querySelector(`.stgPkgGroupPrice[data-gidx="${gi}"]`);
+        setGroupPrice(order[gi], inp ? inp.value : '', content);
+      });
+    });
+  }
+
+  // Bulk shortcut: write one price to EVERY unit in a group. Convenience only —
+  // per-unit edits still work; each unit's set_price is independent afterward.
+  async function setGroupPrice(groupLabel, rawPrice, content) {
+    const err = content.querySelector('#stgPkgError'); if (err) err.textContent = '';
+    const price = parseFloat(rawPrice);
+    if (!Number.isFinite(price) || price < 0) { if (err) err.textContent = 'Enter a valid group price.'; return; }
+    if (!confirm(`Set every unit in "${groupLabel}" to $${price.toFixed(2)}?`)) return;
+    const { error } = await db.from('package_units').update({ set_price: price }).eq('group_label', groupLabel);
+    if (error) { if (err) err.textContent = 'Group price failed: ' + error.message; return; }
+    await loadPackageUnits();
+    renderPackagesPane(content);
+  }
+
+  async function addPackageUnit(content) {
+    const err = content.querySelector('#stgPkgError'); if (err) err.textContent = '';
+    const group = (content.querySelector('#stgPkgNewGroup').value || '').trim() || null;
+    const code = (content.querySelector('#stgPkgNewCode').value || '').trim();
+    const price = parseFloat(content.querySelector('#stgPkgNewPrice').value);
+    const hoursRaw = content.querySelector('#stgPkgNewHours').value;
+    const hours = hoursRaw === '' ? null : parseFloat(hoursRaw);
+    if (!code) { if (err) err.textContent = 'Enter a unit (e.g. 6L80).'; return; }
+    if (!Number.isFinite(price) || price < 0) { if (err) err.textContent = 'Enter a valid set price.'; return; }
+    if (hours != null && (!Number.isFinite(hours) || hours < 0)) { if (err) err.textContent = 'Enter valid R&R hours (or leave blank).'; return; }
+    const { error } = await db.from('package_units')
+      .insert({ group_label: group, unit_code: code, set_price: price, default_rr_hours: hours, active: true });
+    if (error) { if (err) err.textContent = 'Add failed: ' + error.message; return; }
+    renderPackagesPane(content);
+  }
+  async function savePackageUnit(tr, content) {
+    const err = content.querySelector('#stgPkgError'); if (err) err.textContent = '';
+    const group = (tr.querySelector('[data-f="group_label"]').value || '').trim() || null;
+    const code = (tr.querySelector('[data-f="unit_code"]').value || '').trim();
+    const price = parseFloat(tr.querySelector('[data-f="set_price"]').value);
+    const hoursRaw = tr.querySelector('[data-f="default_rr_hours"]').value;
+    const hours = hoursRaw === '' ? null : parseFloat(hoursRaw);
+    if (!code) { if (err) err.textContent = 'Enter a unit code.'; return; }
+    if (!Number.isFinite(price) || price < 0) { if (err) err.textContent = 'Enter a valid set price.'; return; }
+    if (hours != null && (!Number.isFinite(hours) || hours < 0)) { if (err) err.textContent = 'Enter valid R&R hours (or leave blank).'; return; }
+    const { error } = await db.from('package_units')
+      .update({ group_label: group, unit_code: code, set_price: price, default_rr_hours: hours }).eq('id', tr.dataset.id);
+    if (error) { if (err) err.textContent = 'Save failed: ' + error.message; return; }
+    const btn = tr.querySelector('[data-act="save"]');
+    if (btn) { const o = btn.textContent; btn.textContent = 'Saved'; setTimeout(() => { btn.textContent = o; }, 1200); }
+    // group may have changed → re-render so it moves under the right heading.
+    await loadPackageUnits();
+    renderPackagesPane(content);
+  }
+  async function deletePackageUnit(tr, content) {
+    const err = content.querySelector('#stgPkgError'); if (err) err.textContent = '';
+    const code = (tr.querySelector('[data-f="unit_code"]') && tr.querySelector('[data-f="unit_code"]').value) || 'this unit';
+    if (!confirm('Delete package unit "' + code + '"? Jobs already built keep their stored price and hours.')) return;
+    const { error } = await db.from('package_units').delete().eq('id', tr.dataset.id);
+    if (error) { if (err) err.textContent = 'Delete failed: ' + error.message; return; }
+    renderPackagesPane(content);
   }
 
   // ── Pane: Shop Profile (invoice header + legal footer) — Owner/GM ─
@@ -893,6 +1137,154 @@ window.BoardSettings = (function () {
     flashSavedThenClose(saveBtn, 'Save');
   }
 
+  // ── Pane: Advisor Commission — owner-only pay config ──────────
+  // Per-advisor base ($/full week) + commission % of that week's gross profit,
+  // plus the two shop-wide assumed-margin fallbacks the engine uses when a
+  // parts/package line has no real cost. Blank base/% → the engine's code
+  // default ($1,000 / 2.5% — "Manny's plan"). A real cost on a line always
+  // overrides the assumed margins. Same anon write path as every setting; the
+  // owner-only gate is UI-level (see settings.md §4).
+  const COMMISSION_DEFAULT_BASE = 1000, COMMISSION_DEFAULT_PCT = 2.5;
+  const COMMISSION_DEFAULT_PARTS_MARGIN = 40, COMMISSION_DEFAULT_PACKAGE_MARGIN = 55;   // shown as %
+  async function renderCommissionPane(content) {
+    const head = catHeader('Advisor Commission',
+      'Pay basis = the advisor\'s gross profit: labor + parts markup + package margin (Shop Supply / Hazmat / Fee are excluded). Base is a flat weekly amount; commission is a % of THAT week\'s GP, paid weekly-final. Blank base/% → the default ($' + COMMISSION_DEFAULT_BASE + ' / ' + COMMISSION_DEFAULT_PCT + '%).');
+    const s = getShopSettings();
+    if (!s._exists) { content.innerHTML = head + migrationPlaceholder(); return; }
+    content.innerHTML = head + '<div class="stgfeat-placeholder">Loading…</div>';
+    let rows = [];
+    try {
+      const { data, error } = await db.from('employees')
+        .select('id, name, role, active, commission_base_weekly, commission_gp_pct')
+        .eq('role', 'advisor').eq('active', true).order('name');
+      if (error) throw error;
+      rows = data || [];
+    } catch (err) {
+      const missing = err && (err.code === 'PGRST204' || err.code === '42703' || /column/i.test(err.message || ''));
+      content.innerHTML = head + '<div class="stgfeat-placeholder">' +
+        (missing ? 'Run the <code>20260808_advisor_commission</code> migration to configure per-advisor pay here.' : 'Could not load advisors: ' + esc(err.message || String(err))) + '</div>';
+      return;
+    }
+    const advRow = (e) => `
+      <tr data-id="${esc(String(e.id))}" style="border-top:1px solid var(--border)">
+        <td style="padding:6px 6px">${esc(e.name || '—')}<div style="font-size:0.68rem;color:var(--muted)">${esc(e.role)}</div></td>
+        <td style="padding:6px 6px"><input type="number" data-f="base" value="${e.commission_base_weekly != null ? esc(String(e.commission_base_weekly)) : ''}" min="0" step="25" placeholder="${COMMISSION_DEFAULT_BASE}" style="width:88px"></td>
+        <td style="padding:6px 6px"><input type="number" data-f="pct" value="${e.commission_gp_pct != null ? esc(String(e.commission_gp_pct)) : ''}" min="0" step="0.1" placeholder="${COMMISSION_DEFAULT_PCT}" style="width:64px"></td>
+        <td style="padding:6px 6px"><button type="button" class="stgfeat-btn" data-act="save" style="padding:3px 8px;font-size:0.72rem">Save</button></td>
+      </tr>`;
+    const partsPctVal = s.parts_margin_pct != null ? Math.round(s.parts_margin_pct * 1000) / 10 : '';
+    const pkgPctVal = s.package_margin_pct != null ? Math.round(s.package_margin_pct * 1000) / 10 : '';
+    content.innerHTML = head +
+      `<div class="stgfeat-section">
+        <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+          <thead><tr style="text-align:left;color:var(--muted);font-size:0.72rem">
+            <th style="padding:2px 6px">Advisor</th><th style="padding:2px 6px">Base $/wk</th><th style="padding:2px 6px">% of GP</th><th style="padding:2px 6px"></th>
+          </tr></thead>
+          <tbody>${rows.length ? rows.map(advRow).join('') : '<tr><td colspan="4" style="padding:8px 6px;color:var(--muted)">No active advisors.</td></tr>'}</tbody>
+        </table>
+        <div class="stgfeat-error" id="stgComError" style="margin-top:6px"></div>
+      </div>
+      <div class="stgfeat-section">
+        <div style="font-weight:700;margin-bottom:2px">Assumed margin — cost not yet entered</div>
+        <div style="font-size:0.75rem;color:var(--muted);margin-bottom:8px">Used only when a parts or package line has no real cost captured. Once a real cost is entered on a line (or a package unit), it overrides these. Defaults ${COMMISSION_DEFAULT_PARTS_MARGIN}% / ${COMMISSION_DEFAULT_PACKAGE_MARGIN}%.</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
+          <label style="font-size:0.75rem">Parts margin %<br><input type="number" id="stgComParts" value="${partsPctVal}" min="0" max="100" step="1" placeholder="${COMMISSION_DEFAULT_PARTS_MARGIN}" style="width:80px"></label>
+          <label style="font-size:0.75rem">Package margin %<br><input type="number" id="stgComPkg" value="${pkgPctVal}" min="0" max="100" step="1" placeholder="${COMMISSION_DEFAULT_PACKAGE_MARGIN}" style="width:80px"></label>
+          <button type="button" class="stgfeat-btn" id="stgComMarginSave" style="padding:5px 12px">Save margins</button>
+        </div>
+        <div class="stgfeat-error" id="stgComMarginError" style="margin-top:6px"></div>
+      </div>`;
+    content.querySelectorAll('tr[data-id]').forEach(tr =>
+      tr.querySelector('[data-act="save"]').addEventListener('click', () => saveAdvisorPay(tr, content)));
+    content.querySelector('#stgComMarginSave').addEventListener('click', () => saveCommissionMargins(content));
+  }
+
+  async function saveAdvisorPay(tr, content) {
+    const err = content.querySelector('#stgComError'); if (err) err.textContent = '';
+    const baseRaw = tr.querySelector('[data-f="base"]').value;
+    const pctRaw = tr.querySelector('[data-f="pct"]').value;
+    const base = baseRaw === '' ? null : parseFloat(baseRaw);
+    const pct = pctRaw === '' ? null : parseFloat(pctRaw);
+    if (base != null && (!Number.isFinite(base) || base < 0)) { if (err) err.textContent = 'Enter a valid base (or leave blank for the default).'; return; }
+    if (pct != null && (!Number.isFinite(pct) || pct < 0)) { if (err) err.textContent = 'Enter a valid % (or leave blank for the default).'; return; }
+    const { error } = await db.from('employees')
+      .update({ commission_base_weekly: base, commission_gp_pct: pct }).eq('id', tr.dataset.id);
+    if (error) {
+      const missing = error.code === 'PGRST204' || /column/i.test(error.message || '');
+      if (err) err.textContent = missing ? 'Run the 20260808_advisor_commission migration first (pay columns missing).' : 'Save failed: ' + error.message;
+      return;
+    }
+    const btn = tr.querySelector('[data-act="save"]');
+    if (btn) { const o = btn.textContent; btn.textContent = 'Saved'; setTimeout(() => { btn.textContent = o; }, 1200); }
+  }
+
+  async function saveCommissionMargins(content) {
+    const err = content.querySelector('#stgComMarginError'); if (err) err.textContent = '';
+    const partsRaw = content.querySelector('#stgComParts').value;
+    const pkgRaw = content.querySelector('#stgComPkg').value;
+    const toFrac = (raw) => raw === '' ? null : parseFloat(raw) / 100;
+    const parts = toFrac(partsRaw), pkg = toFrac(pkgRaw);
+    for (const v of [parts, pkg]) if (v != null && (!Number.isFinite(v) || v < 0 || v > 1)) { if (err) err.textContent = 'Enter margins as 0–100 (or leave blank for the default).'; return; }
+    const id = (shopSettingsRow && shopSettingsRow.id) || SHOP_SETTINGS_ID;
+    const { error } = await db.from('shop_settings').update({ parts_margin_pct: parts, package_margin_pct: pkg }).eq('id', id);
+    if (error) {
+      const missing = error.code === 'PGRST204' || /column/i.test(error.message || '');
+      if (err) err.textContent = missing ? 'Run the 20260808_advisor_commission migration first (margin columns missing).' : 'Save failed: ' + error.message;
+      return;
+    }
+    await loadShopSettings();
+    const btn = content.querySelector('#stgComMarginSave');
+    if (btn) { const o = btn.textContent; btn.textContent = 'Saved'; setTimeout(() => { btn.textContent = o; }, 1200); }
+  }
+
+  // ── Pane: Features — owner-only master switchboard ────────────
+  // Renders one toggle per FEATURE_FLAGS entry, reading the current value from
+  // getShopSettings() and writing the boolean column on the single shop_settings
+  // row. Additive + extensible: new switches appear here automatically once
+  // added to FEATURE_FLAGS (+ their column). Same anon write path as every other
+  // setting today — the owner-only gate is UI-level (see settings.md §4).
+  function renderFeaturesPane(content) {
+    const head = catHeader('Features', 'Master on/off switches for optional parts of the app. Owner-only. Changes take effect on each board the next time it loads.');
+    const s = getShopSettings();
+    if (!s._exists) {
+      content.innerHTML = head + migrationPlaceholder();
+      return;
+    }
+    const rows = FEATURE_FLAGS.map(f => {
+      const on = !!s[f.column];
+      return `
+        <div class="stgfeat-section" style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
+          <div style="flex:1 1 auto">
+            <div style="font-weight:700;margin-bottom:2px">${esc(f.label)}</div>
+            <div style="font-size:0.75rem;color:var(--muted)">${esc(f.desc)}</div>
+          </div>
+          <label class="stgfeat-switch" style="flex:0 0 auto;margin-top:2px">
+            <input type="checkbox" data-flag-col="${esc(f.column)}"${on ? ' checked' : ''}>
+            <span class="stgfeat-switch-slider"></span>
+          </label>
+        </div>`;
+    }).join('');
+    content.innerHTML = head + rows + '<div class="stgfeat-error" id="stgFeatFlagError"></div>';
+    content.querySelectorAll('input[data-flag-col]').forEach(inp =>
+      inp.addEventListener('change', () => saveFeatureFlag(inp.dataset.flagCol, inp.checked, inp)));
+  }
+
+  async function saveFeatureFlag(column, enabled, inputEl) {
+    const err = modalEl && modalEl.querySelector('#stgFeatFlagError');
+    if (err) err.textContent = '';
+    const id = (shopSettingsRow && shopSettingsRow.id) || SHOP_SETTINGS_ID;
+    const { error } = await db.from('shop_settings').update({ [column]: !!enabled }).eq('id', id);
+    if (error) {
+      if (inputEl) inputEl.checked = !enabled;   // revert the UI on failure
+      const missing = error.code === 'PGRST204' || /column/i.test(error.message || '');
+      if (err) err.textContent = missing
+        ? 'This feature needs its migration applied first (the ' + column + ' column is missing).'
+        : 'Could not save: ' + (error.message || error);
+      return;
+    }
+    await loadShopSettings();   // refresh cache (+ fires onShopSettingsChanged)
+  }
+
   function mountTrigger(mountSelector) {
     const container = document.querySelector(mountSelector);
     if (!container) return;
@@ -919,6 +1311,7 @@ window.BoardSettings = (function () {
     onNameSaved = config.onNameSaved || null;
     canEditShopMoney = !!config.canEditShopMoney;
     canEditShopOps = !!config.canEditShopOps;
+    if (config.viewerRole != null) viewerRole = config.viewerRole;   // may also arrive later via refresh()
     onShopSettingsChanged = config.onShopSettingsChanged || null;
     onOpenExtra = config.onOpenExtra || null;
     extraLabel = config.extraLabel || 'More';
@@ -926,10 +1319,19 @@ window.BoardSettings = (function () {
     mountTrigger(config.mountSelector);
     loadShopSettings();       // warm the cache so getShopSettings() is current early
     loadPaymentMethods();     // warm the payment-method cache for the RO picker
+    loadPackageUnits();       // warm the package-unit cache for the RO "Package" line
   }
 
-  async function refresh(employeeId) {
+  async function refresh(employeeId, role) {
     currentEmployeeId = employeeId || null;
+    // Viewer role resolves in captureSessionAndGreet(), after init() — capture
+    // it here so the owner-only Features category gates correctly. If the modal
+    // is already open, repaint so the category appears/disappears immediately.
+    if (role !== undefined) {
+      const changed = role !== viewerRole;
+      viewerRole = role || null;
+      if (changed && modalEl && modalEl.classList.contains('open')) renderPanes();
+    }
     if (!currentEmployeeId) { applyBackground(null); return; }
     const { data, error } = await db.from('employees').select('name, background_photo_url').eq('id', currentEmployeeId).maybeSingle();
     if (error) {
@@ -943,5 +1345,6 @@ window.BoardSettings = (function () {
   return {
     init, refresh, getShopSettings, reloadShopSettings: loadShopSettings,
     getPaymentMethods, paymentMethodLabel, reloadPaymentMethods: loadPaymentMethods,
+    getPackageUnits, reloadPackageUnits: loadPackageUnits,
   };
 })();

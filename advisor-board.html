@@ -362,11 +362,24 @@
   .cd-lines-table input:focus, .cd-lines-table select:focus { border-color: var(--accent); }
   .cd-lines-table input[type="number"] { text-align: right; }
   .cd-line-total { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .cd-line-del {
-    background: none; border: none; color: var(--muted); font-size: 1.1rem;
-    cursor: pointer; line-height: 1; padding: 2px 4px;
+  .cd-lines-table td { padding-top: 9px; padding-bottom: 9px; }
+  /* read-only line rows + row action buttons (edit / delete) */
+  .cd-line-type {
+    display: inline-block; font-size: 0.7rem; font-weight: 700; color: var(--muted);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 2px 7px;
   }
+  .cd-line-edit, .cd-line-del {
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    line-height: 1; padding: 2px 5px;
+  }
+  .cd-line-edit { font-size: 0.95rem; }
+  .cd-line-del { font-size: 1.1rem; }
+  .cd-line-edit:hover { color: var(--accent); }
   .cd-line-del:hover { color: var(--red); }
+  /* Add/Edit-Line pop-up: two fields side-by-side + the parts margin readout */
+  .cd-lf-2col { display: flex; gap: 12px; }
+  .cd-lf-2col > .intake-field { flex: 1; }
+  .cd-lf-margin { font-size: 0.8rem; color: var(--text); margin: -4px 0 14px; }
   .cd-totals {
     margin-top: 16px; margin-left: auto; max-width: 300px;
     border-top: 1px solid var(--border); padding-top: 12px;
@@ -532,6 +545,15 @@
   import * as RoWriter from './shared/ro-writer.js';
   window.RoWriter = RoWriter;
 </script>
+<!-- Advisor commission engine (ESM → window.CommissionEngine) + the shared
+     commission cards (regular script → window.CommissionCards). Behind the
+     Advisor Commission feature switch (default OFF); used only by event-driven
+     render calls, so load order vs this module is safe. -->
+<script type="module">
+  import * as CommissionEngine from './shared/commission-engine.js';
+  window.CommissionEngine = CommissionEngine;
+</script>
+<script src="shared/commission-cards.js"></script>
 <!-- Desk call-log attach / un-attach / not-a-customer decision logic (ESM).
      Assigns window.CallAttach; used only by event-driven Desk handlers. -->
 <script type="module">
@@ -717,6 +739,7 @@
         <div class="sidebar-item" data-view="cdros" data-label="RO Board"><span class="icon">📄</span>RO Board (CrisData)</div>
         <div class="sidebar-item" data-view="techboard" data-label="Tech Board"><span class="icon">🔧</span>Tech Board</div>
         <div class="sidebar-item active" data-view="approval" data-label="Approval Queue"><span class="icon">📋</span>Approval Queue</div>
+        <div class="sidebar-item" data-view="mycommission" data-label="My Commission" id="nav-mycommission" style="display:none"><span class="icon">💰</span>My Commission</div>
         <div class="sidebar-item" data-view="parts" data-label="Parts"><span class="icon">🔩</span>Parts</div>
         <div class="sidebar-item" data-view="payments" data-label="Payments"><span class="icon">💳</span>Payments</div>
         <div class="sidebar-item" data-view="customer-log" data-label="Customer Log"><span class="icon">📇</span>Customer Log</div>
@@ -751,6 +774,11 @@
     <div class="queue-grid" id="queue-grid">
       <div style="color:var(--muted);padding:24px;grid-column:1/-1">Loading…</div>
     </div>
+  </div>
+
+  <!-- ══ MY COMMISSION (advisor's own card) — feature-gated, nav hidden when OFF ══ -->
+  <div class="view" id="view-mycommission">
+    <div id="myCommissionMount" style="max-width:640px"></div>
   </div>
 
   <!-- ══ TAB 2: PARTS ══ -->
@@ -1382,18 +1410,17 @@
               <table class="cd-lines-table">
                 <thead>
                   <tr>
-                    <th style="width:120px">Type</th>
+                    <th style="width:96px">Type</th>
                     <th>Description</th>
-                    <th style="width:110px">Part No</th>
-                    <th style="width:64px">Qty</th>
-                    <th style="width:100px">Unit $</th>
-                    <th style="width:48px;text-align:center">Tax</th>
+                    <th style="width:70px;text-align:right">Qty/Hrs</th>
+                    <th style="width:96px;text-align:right">Unit $</th>
+                    <th style="width:44px;text-align:center">Tax</th>
                     <th style="width:92px;text-align:right">Line</th>
-                    <th style="width:34px"></th>
+                    <th style="width:60px"></th>
                   </tr>
                 </thead>
                 <tbody id="cdLinesTbody">
-                  <tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px">No lines yet — add one.</td></tr>
+                  <tr><td colspan="7" style="color:var(--muted);text-align:center;padding:20px">No lines yet — add one.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1453,6 +1480,23 @@
                 <label>Status</label>
                 <select id="cdRoStatusFloor"></select>
                 <span id="cdRoStatusHint" style="font-size:0.72rem;color:var(--muted)"></span>
+              </div>
+              <!-- BOOK HOURS — a PAY field (tech flat-rate), NOT a price. Never
+                   enters the money math; write-through mirrors onto the floor
+                   row's flag_hours. Now a READ-ONLY auto-total = Σ labor-line
+                   hours + Σ package R&R hours on this RO (recomputed live as lines
+                   change). Kevin adjusts on the LINE. N/A stays a manual RO control
+                   for genuine parts-only jobs. Hidden by default — revealed only
+                   when the owner's Book Hours master switch is ON. -->
+              <div class="intake-field" id="cdRoBookHoursField" style="display:none">
+                <label>Book Hours <span style="font-weight:600;color:var(--muted);font-size:0.72rem">· auto-total from lines · tech pay</span></label>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                  <span id="cdRoBookHoursTotal" style="font-weight:800;font-size:1rem">0 hrs</span>
+                  <label style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--muted);white-space:nowrap;min-width:0">
+                    <input type="checkbox" id="cdRoBookHoursNA" style="flex:0 0 auto"> N/A · no labor
+                  </label>
+                </div>
+                <span id="cdRoBookHoursHint" style="font-size:0.72rem;color:var(--muted)"></span>
               </div>
             </div>
           </div>
@@ -1616,6 +1660,25 @@
     <button class="modal-btn" id="qrTakePrintBtn">Take payment &amp; print</button>
     <button class="modal-btn sec" id="qrSaveBtn">Save, print later</button>
     <button class="modal-btn sec" id="qrCancelBtn">Cancel</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     Add / Edit Line — the RO line-item entry pop-up (replaces inline
+     row editing). Pick a type; the fields adapt. See renderLineFields
+     / saveLineModal. Cost/margin (parts) is INTERNAL, never printed. -->
+<div class="modal-overlay" id="cdLineModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="cdLineCloseBtn">&times;</button>
+    <h3 id="cdLineModalTitle">Add line</h3>
+    <div class="intake-field">
+      <label>Type</label>
+      <select id="cdLineType"></select>
+    </div>
+    <div id="cdLineFields"></div>
+    <div class="intake-form-error" id="cdLineError"></div>
+    <button class="modal-btn" id="cdLineSaveBtn">Save line</button>
+    <button class="modal-btn sec" id="cdLineCancelBtn">Cancel</button>
   </div>
 </div>
 
@@ -1874,7 +1937,11 @@
     canEditShopOps: true,
     // when shop_settings changes (or first loads), refresh the RO Board's
     // live tax label if a built RO is currently on screen.
-    onShopSettingsChanged: () => { if (window.cdRefreshShopSettings) window.cdRefreshShopSettings(); },
+    onShopSettingsChanged: () => {
+      if (window.cdRefreshShopSettings) window.cdRefreshShopSettings();
+      // reveal/hide + (re)render the My Commission card when the switch loads/changes
+      if (typeof refreshMyCommissionNav === 'function') refreshMyCommissionNav();
+    },
   });
 
   // "Catch this moment" capture FAB — lands in the Owner Marketing tab.
@@ -1945,7 +2012,7 @@
     }
 
     grid.innerHTML = cdCards + all.map(job => `
-      <div class="job-card" data-id="${esc(String(job.id))}" data-table="${esc(job._table)}">
+      <div class="job-card" data-id="${esc(String(job.id))}" data-table="${esc(job._table)}" data-po="${esc(String(job.po || ''))}">
         <div class="job-card-header">
           <div>
             <div class="job-vehicle">${esc(job.vehicle)} — PO #${esc(job.po)}</div>
@@ -1973,6 +2040,34 @@
         </div>
         <div class="flag-hours-hint" style="display:none;color:var(--danger,#c0392b);font-size:12px;padding:0 16px 8px;">Enter Flag Hours before approving.</div>
       </div>`).join('');
+
+    // Pre-fill each card's Flag Hours from the RO's captured book_hours (the
+    // pay number set on the estimate) so the advisor CONFIRMS rather than
+    // re-types. Fire-and-forget; degrades silently pre-migration.
+    prefillFlagHoursFromBookHours(all);
+  }
+
+  // Look up book_hours per po and prefill the matching queue card's Flag Hours
+  // input (enabling Approve via the existing >0 gate). N/A / blank stay blank.
+  async function prefillFlagHoursFromBookHours(jobs) {
+    const pos = [...new Set((jobs || []).map(j => j.po).filter(Boolean).map(String))];
+    if (!pos.length) return;
+    let rows = [];
+    try {
+      const { data, error } = await db.from('repair_orders')
+        .select('po, book_hours, book_hours_na').in('po', pos);
+      if (error) throw error;
+      rows = data || [];
+    } catch (e) { return; }   // pre-migration / error → leave inputs blank
+    const byPo = {};
+    rows.forEach(r => { byPo[String(r.po)] = r; });
+    document.querySelectorAll('#queue-grid .job-card[data-po]').forEach(card => {
+      const r = byPo[card.dataset.po];
+      const input = card.querySelector('.flag-hours-input');
+      if (!input || !r || r.book_hours == null) return;
+      input.value = r.book_hours;
+      onFlagHoursInput(input);   // enables Approve, mirrors the >0 gate
+    });
   }
 
   function onFlagHoursInput(input) {
@@ -2139,6 +2234,33 @@
       closeMobileNav(); // no-op on desktop; on mobile, picking a view closes the drawer
     });
   });
+
+  // ── My Commission card (advisor's own) — Advisor Commission feature ──────
+  // Nav item is hidden unless the switch is ON and the viewer is an advisor
+  // (an advisor sees only themselves). Renders on identity-resolve, on each
+  // open, and when shop_settings first loads / changes. Fail-safe: OFF → hidden,
+  // exactly like before the feature.
+  function myCommissionOn() {
+    const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
+    return !!cfg.feature_advisor_commission && CHAT_IDENTITY && CHAT_IDENTITY.role === 'advisor';
+  }
+  function refreshMyCommissionNav() {
+    const on = myCommissionOn();
+    const nav = document.getElementById('nav-mycommission');
+    if (nav) nav.style.display = on ? '' : 'none';
+    return on;
+  }
+  async function renderMyCommission() {
+    if (!refreshMyCommissionNav()) return;
+    const mount = document.getElementById('myCommissionMount');
+    if (mount && window.CommissionCards && CHAT_IDENTITY && CHAT_IDENTITY.name) {
+      await CommissionCards.renderMine(mount, { db, viewerName: CHAT_IDENTITY.name });
+    }
+  }
+  (function () {
+    const nav = document.querySelector('.sidebar-item[data-view="mycommission"]');
+    if (nav) nav.addEventListener('click', renderMyCommission);
+  })();
 
   // ── Mobile nav drawer (hamburger + backdrop). Inert on desktop —
   // the CSS driving .sidebar.open only exists inside the shared
@@ -2850,7 +2972,7 @@
       if (!who || !who.employee_id) return;
       CHAT_IDENTITY = { name: who.name, role: who.role };
       CURRENT_EMPLOYEE_ID = who.employee_id;
-      BoardSettings.refresh(who.employee_id);
+      BoardSettings.refresh(who.employee_id, who.role);
       const avatar = who.photo_url
         ? `<img class="greeting-avatar" src="${esc(who.photo_url)}" alt="">`
         : `<div class="greeting-avatar-fallback">${esc((who.name || '?').trim().charAt(0).toUpperCase() || '?')}</div>`;
@@ -2863,6 +2985,10 @@
       loadAndRenderTodos();
       loadTodoAssignees();
       todoSubscribeRealtime();
+
+      // Advisor Commission — reveal the nav + render the advisor's own card
+      // (no-op unless the switch is ON and this viewer is an advisor).
+      renderMyCommission();
     }
 
     // Resolve WHO is viewing: an office-login auth session first, else the
@@ -3582,14 +3708,40 @@
       const r = shopCfg().tax_rate;
       return (r != null && Number.isFinite(Number(r))) ? Number(r) : CD_TAX_FALLBACK;
     }
+    // ── BOOK HOURS master switch (owner-controlled, shop_settings.feature_book_hours).
+    // Default OFF and FAIL-SAFE: shopCfg() returns feature_book_hours=false when the
+    // settings read fails / the column is missing (pre-migration), so OFF = exactly the
+    // pre-feature behavior (field hidden, gate never blocks). Read on every check so an
+    // owner flip is picked up on the next board load. ──
+    function bookHoursFeatureOn() { return !!shopCfg().feature_book_hours; }
+    // ── PACKAGES master switch (owner-controlled, shop_settings.feature_packages).
+    // Default OFF and FAIL-SAFE (same as book hours): when OFF the "Package" line
+    // type never appears and the RO builder looks exactly like before. ──
+    function packagesFeatureOn() { return !!shopCfg().feature_packages; }
+    // Active package units for the "Package" line dropdown (resolve-and-store).
+    function packageUnits() {
+      return (window.BoardSettings && window.BoardSettings.getPackageUnits)
+        ? window.BoardSettings.getPackageUnits() : [];
+    }
 
     const money = (n) => '$' + (Number(n) || 0).toFixed(2);
     const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
 
+    // Base line types always available. "Package" is appended only when the
+    // Packages feature is ON (see lineTypeOptions).
     const LINE_TYPES = [
       ['labor', 'Labor'], ['parts', 'Parts'], ['fee', 'Fee'],
       ['shop_supply', 'Shop Supply'], ['hazmat', 'Hazmat'],
     ];
+    // The type <select> options, with Package folded in when the feature is on
+    // (or when the line is ALREADY a package, so an existing package line keeps
+    // a valid selected option even if the switch is later turned off).
+    function lineTypeOptions(selectedType) {
+      const types = LINE_TYPES.slice();
+      if (packagesFeatureOn() || selectedType === 'package') types.push(['package', 'Package']);
+      return types.map(([v, lab]) =>
+        `<option value="${v}"${selectedType === v ? ' selected' : ''}>${lab}</option>`).join('');
+    }
     // ── RO STATUS LIFECYCLE (Phase 4, Slice 1) ────────────────
     // The MONEY/DOCUMENT axis (quote -> job -> paid), NOT the car's
     // physical shop-floor location. Free movement in any direction, no
@@ -3638,6 +3790,7 @@
     let currentRo = null;     // the open RO (with embedded customer/vehicle)
     let currentLines = [];    // ro_line_items for the open RO
     let currentPayments = [];  // ro_payments for the open RO (Phase 5)
+    let techRoster = [];      // [{id,name}] active techs, for the per-line tech-credit picker
 
     // ── PIPELINE KANBAN: load + render ────────────────────────
     async function loadRecentList() {
@@ -4005,6 +4158,16 @@
       if (!ro || !STAGES.includes(nextStage) || nextStage === 'closed') return;
       if (ro.status === nextStage) return;
       const prev = ro.status;
+      // PAY-DATA GATE — leaving Estimate needs book hours captured (or N/A).
+      // Same gate as the RO-detail Stage select, so a drag can't bypass it.
+      if (prev === 'estimate' && nextStage !== 'estimate') {
+        const g = await bookHoursGateForAdvance(ro.id, ro.po || ro.ro_number);
+        if (!g.ok) {
+          renderKanban();   // snap the dragged card back to Estimate
+          alert('RO #' + (ro.po || ro.ro_number) + ' has 0 book hours. Open it and add a labor or package line (the total auto-fills), or tick “N/A · no labor” for a parts-only job, before leaving Estimate.');
+          return;
+        }
+      }
       ro.status = nextStage;                 // optimistic
       renderKanban();
       const { error } = await db.from('repair_orders').update({ status: nextStage }).eq('id', ro.id);
@@ -4394,8 +4557,10 @@
       sel.innerHTML = '<option value="">— Unassigned —</option>';
       let techs = [];
       try {
-        const { data } = await db.from('employees').select('name').eq('role', 'tech').eq('active', true).order('name');
-        techs = (data || []).map(t => t.name);
+        // id+name so the per-line tech-credit picker can store an employee id
+        const { data } = await db.from('employees').select('id, name').eq('role', 'tech').eq('active', true).order('name');
+        techRoster = data || [];
+        techs = techRoster.map(t => t.name);
       } catch (e) { /* non-fatal */ }
       const cur = currentRo.technician;
       if (cur && !techs.includes(cur)) techs.push(cur);
@@ -4443,6 +4608,8 @@
       // Work-status dropdown — mirror of the shop-floor Status dropdown. Same
       // floor-row-by-po rules; disabled on pickup (no status column) or off-floor.
       await populateStatusFloor();
+      // Book Hours (PAY field) — manual ALLDATA-hours capture control.
+      await populateBookHours();
     }
 
     // Resolved floor row for the open RO's work-status dropdown (null = off floor).
@@ -4488,6 +4655,66 @@
       }
     }
 
+    // ── Book Hours (PAY field) — READ-ONLY auto-total from the lines ──────
+    // book_hours is the tech-pay number, DECOUPLED from the line-item price
+    // (see docs/wiring/flat-rate-hours.md). It is now AUTO-TOTALED:
+    //   Σ (each Labor line's hours = quantity) + Σ (each Package line's rr_hours).
+    // Advisors don't type it — Kevin adjusts on the LINE and the total follows.
+    // Stored on repair_orders.book_hours (kept in sync) so the gate / floor
+    // mirror / close-archive keep reading one value. N/A (book_hours_na) stays a
+    // manual RO control for genuine parts-only jobs. Degrades quietly pre-migration.
+    function bookHoursAutoTotal() {
+      const t = currentLines.reduce((s, l) => {
+        if (l.line_type === 'labor') return s + num(l.quantity);
+        if (l.line_type === 'package') return s + num(l.rr_hours);
+        return s;
+      }, 0);
+      return Math.round(t * 100) / 100;
+    }
+    const fmtHrs = (n) => String(Math.round(num(n) * 100) / 100);
+
+    function paintBookHoursHint(total, na) {
+      const hint = $('cdRoBookHoursHint');
+      if (!hint) return;
+      hint.style.color = 'var(--muted)';
+      if (na) hint.textContent = 'Marked no-labor — hours not required to leave Estimate.';
+      else if (total <= 0) hint.textContent = 'Add a labor or package line (or tick “N/A · no labor”) before leaving Estimate.';
+      else hint.textContent = 'Auto-totaled from labor hours + package R&R hours — adjust on the line.';
+    }
+    function paintBookHoursDisplay(total, na) {
+      const totalEl = $('cdRoBookHoursTotal'), naEl = $('cdRoBookHoursNA');
+      if (naEl) naEl.checked = na;
+      if (totalEl) {
+        totalEl.textContent = na ? 'N/A · no labor' : (fmtHrs(total) + ' hrs');
+        totalEl.style.color = na ? 'var(--muted)' : 'var(--text)';
+      }
+      paintBookHoursHint(total, na);
+    }
+    // Recompute the auto-total from the lines, paint it, and persist to the RO
+    // (unless N/A). Called from renderLines() on every line change + on RO open.
+    // Feature-gated; a no-change total skips the write.
+    function updateBookHoursAuto() {
+      if (!bookHoursFeatureOn() || !currentRo) return;
+      const na = !!currentRo.book_hours_na;
+      const total = bookHoursAutoTotal();
+      paintBookHoursDisplay(total, na);
+      if (na) return;                                   // N/A → book_hours stays null
+      if (num(currentRo.book_hours) === total && currentRo.book_hours != null) return;  // unchanged
+      currentRo.book_hours = total;
+      db.from('repair_orders').update({ book_hours: total }).eq('id', currentRo.id)
+        .then(({ error }) => { if (error && !isMissingColumn(error)) console.warn('[CdRO] book_hours autosave failed', error); });
+      mirrorBookHoursToFloor(currentRo.po || currentRo.ro_number, total);
+    }
+
+    async function populateBookHours() {
+      // MASTER SWITCH: feature OFF → keep the whole field hidden and do nothing
+      // else, so the board looks/acts like pre-feature main.
+      const field = $('cdRoBookHoursField');
+      if (!bookHoursFeatureOn()) { if (field) field.style.display = 'none'; return; }
+      if (field) field.style.display = '';
+      updateBookHoursAuto();   // paint from the (already-loaded) lines + reconcile
+    }
+
     // Resolved floor row for the open RO's warranty toggle (null = not on floor).
     let currentFloorRow = null;
     async function populateWarrantyToggle() {
@@ -4525,6 +4752,16 @@
       // (what a write to a not-yet-migrated column actually returns).
       return code === '42703' || code === 'PGRST204' ||
         /column .* does not exist/i.test(msg) || /could not find the .* column/i.test(msg);
+    }
+    // The specific column a missing-column write error names, or null. Lets a
+    // resilient write strip ONLY the not-yet-migrated column (not every optional).
+    function missingColumnName(error) {
+      const msg = (error && error.message) || '';
+      let m = msg.match(/column\s+(?:[\w]+\.)?["']?([a-z_][a-z0-9_]*)["']?\s+does not exist/i);
+      if (m) return m[1];
+      m = msg.match(/could not find the ['"]?([a-z_][a-z0-9_]*)['"]? column/i);
+      if (m) return m[1];
+      return null;
     }
 
     // Pre-work floor statuses — a fresh/blank row a car sits in before a tech
@@ -4663,6 +4900,41 @@
       return { ok: true, table: floor.table, id: floor.id, status: statusValue };
     }
 
+    // ── Book-hours floor mirror ───────────────────────────────────────────
+    // Write-through mirror: book_hours (repair_orders, the source of truth) →
+    // the floor row's EXISTING flag_hours column, by po. A number when captured;
+    // NULL for blank or N/A. Never creates a floor row, never writes the pickup
+    // zone, degrades quietly off-floor / pre-migration. This is why no new floor
+    // column is needed and the pickup archive keeps working unchanged.
+    async function mirrorBookHoursToFloor(po, hours) {
+      let floor;
+      try { floor = await findStatusFloorRow(po); } catch (e) { return; }
+      if (!floor || floor.isPickup) return;
+      const { error } = await db.from(floor.table).update({ flag_hours: hours }).eq('id', floor.id);
+      if (error && !isMissingColumn(error)) console.warn('[CdRO] book-hours floor mirror failed', error);
+    }
+
+    // ── PAY-DATA GATE for advancing a job OUT of Estimate ─────────────────
+    // Shared by the RO-detail Stage select AND the kanban drag, so neither can
+    // bypass the other. LIGHT guardrail: a job can't leave Estimate if the
+    // auto-total book hours are 0 AND N/A isn't set (a genuine parts-only RO
+    // ticks N/A). Reads the persisted auto-total (repair_orders.book_hours, kept
+    // in sync from the lines) so it's correct even for the kanban drag where the
+    // lines aren't in memory. Returns { ok:true } pre-migration + when the feature
+    // is off. NEVER touches the customer price.
+    async function bookHoursGateForAdvance(roId, po) {
+      if (!bookHoursFeatureOn()) return { ok: true };
+      let bh = null, na = false;
+      try {
+        const { data, error } = await db.from('repair_orders')
+          .select('book_hours, book_hours_na').eq('id', roId).maybeSingle();
+        if (error) { if (isMissingColumn(error)) return { ok: true }; }   // pre-migration → don't block
+        else if (data) { bh = data.book_hours; na = !!data.book_hours_na; }
+      } catch (e) { return { ok: true }; }   // never block on an unexpected read error
+      if ((bh == null || Number(bh) <= 0) && na !== true) return { ok: false, reason: 'blank' };
+      return { ok: true };
+    }
+
     async function updateRoField(field, value) {
       if (!currentRo) return;
       currentRo[field] = value;
@@ -4736,41 +5008,57 @@
       renderLines();
     }
 
+    // Human label for a line type (read-only row + modal selector reuse).
+    const LINE_TYPE_LABEL = { labor: 'Labor', parts: 'Parts', package: 'Package', fee: 'Fee', shop_supply: 'Shop Supply', hazmat: 'Hazmat' };
+
+    // READ-ONLY rows. Each line renders as a clean row; editing happens in the
+    // Add/Edit-Line pop-up (pencil), delete via ×. No inline inputs.
     function renderLines() {
       const tb = $('cdLinesTbody');
       if (currentLines.length === 0) {
-        tb.innerHTML = '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:20px">No lines yet — add one.</td></tr>';
+        tb.innerHTML = '<tr><td colspan="7" style="color:var(--muted);text-align:center;padding:20px">No lines yet — add one.</td></tr>';
       } else {
         tb.innerHTML = currentLines.map(l => {
-          const opts = LINE_TYPES.map(([v, lab]) =>
-            `<option value="${v}"${l.line_type === v ? ' selected' : ''}>${lab}</option>`).join('');
           const lineTotal = num(l.quantity) * num(l.unit_price);
-          // Part No is only meaningful on parts lines
-          const partCell = l.line_type === 'parts'
-            ? `<input type="text" data-field="part_number" value="${esc(l.part_number || '')}" placeholder="Part #">`
-            : '<span style="color:var(--muted)">—</span>';
+          const typeLabel = LINE_TYPE_LABEL[l.line_type] || l.line_type;
+          // description cell: description + muted part # for parts; description
+          // otherwise. (No tech-pay / R&R annotations on the advisor's rows —
+          // hours live in the Qty/Hrs column; R&R is the manager's, set in
+          // Rebuild Units & Prices and carried silently on the line.)
+          let descHtml = esc(l.description || '') || '<span style="color:var(--muted)">—</span>';
+          if (l.line_type === 'parts' && l.part_number) {
+            descHtml += ` <span style="color:var(--muted);font-size:0.72rem">#${esc(l.part_number)}</span>`;
+          }
+          // labor line credited to a NON-default tech → show whose hours these are
+          if (l.line_type === 'labor' && l.line_tech_id && bookHoursFeatureOn()) {
+            const tn = techNameById(l.line_tech_id);
+            if (tn) descHtml += ` <span style="color:var(--accent);font-size:0.72rem">→ ${esc(tn)}</span>`;
+          }
           return `
           <tr data-id="${esc(l.id)}">
-            <td><select data-field="line_type">${opts}</select></td>
-            <td><input type="text" data-field="description" value="${esc(l.description || '')}" placeholder="Description"></td>
-            <td>${partCell}</td>
-            <td><input type="number" data-field="quantity" value="${l.quantity != null ? l.quantity : ''}" min="0" step="0.01"></td>
-            <td><input type="number" data-field="unit_price" value="${l.unit_price != null ? l.unit_price : ''}" min="0" step="0.01"></td>
-            <td style="text-align:center"><input type="checkbox" data-field="taxable"${l.taxable ? ' checked' : ''}></td>
+            <td><span class="cd-line-type">${esc(typeLabel)}</span></td>
+            <td>${descHtml}</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">${num(l.quantity)}</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">${money(l.unit_price)}</td>
+            <td style="text-align:center">${l.taxable ? '✓' : '<span style="color:var(--muted)">—</span>'}</td>
             <td class="cd-line-total">${money(lineTotal)}</td>
-            <td><button class="cd-line-del" title="Delete line">×</button></td>
+            <td style="white-space:nowrap;text-align:right">
+              <button class="cd-line-edit" title="Edit line">✎</button>
+              <button class="cd-line-del" title="Delete line">×</button>
+            </td>
           </tr>`;
         }).join('');
-        // wire row inputs
         tb.querySelectorAll('tr[data-id]').forEach(tr => {
           const id = tr.dataset.id;
-          tr.querySelectorAll('[data-field]').forEach(inp => {
-            inp.addEventListener('change', () => onFieldChange(id, inp));
+          tr.querySelector('.cd-line-edit').addEventListener('click', () => {
+            const line = currentLines.find(l => l.id === id);
+            if (line) openLineModal(line);
           });
           tr.querySelector('.cd-line-del').addEventListener('click', () => deleteLine(id));
         });
       }
       recalcTotals();
+      updateBookHoursAuto();   // Book Hours auto-total follows the lines
     }
 
     // RO total (subtotal + tax) as a number — the single source both the
@@ -4930,28 +5218,266 @@
       }).join('');
     }
 
-    async function addLine() {
+    // ══════════════════════════════════════════════════════════
+    // ADD / EDIT LINE pop-up — replaces inline row editing. Pick a
+    // type; the fields adapt. Storage mapping (math unchanged):
+    //   LABOR  → quantity=hours, unit_price=rate  (sell = h×rate)
+    //   PARTS  → quantity=qty, unit_price=sell, unit_cost=cost (INTERNAL)
+    //   PACKAGE→ package_unit_id, quantity=1, unit_price=price, rr_hours
+    //   FEE/supply/hazmat → quantity=1, unit_price=amount (flat)
+    // Book-Hours-only bits (labor Hours hint, package R&R hrs) show only
+    // when that feature is ON; Package type only when Packages is ON.
+    // ══════════════════════════════════════════════════════════
+    let lineModalEditId = null;   // null = adding; else the line id being edited
+    let lineModalSeed = null;     // the line being edited (for prefill), or null
+    let lineModalDraft = {};      // description/taxable preserved across type switches
+    const nv = (x) => (x === '' || x == null) ? '' : esc(String(x));
+    const numOrNull = (v) => { if (v === '' || v == null) return null; const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+
+    // Grouped <optgroup> options for the package unit picker (named groups
+    // alpha-first, ungrouped last; stored-but-deleted unit stays selectable).
+    function packageUnitOptions(selectedId) {
+      const units = packageUnits();
+      const optFor = (u) => `<option value="${esc(String(u.id))}"${selectedId === u.id ? ' selected' : ''}>${esc(u.unit_code)}</option>`;
+      const grp = new Map();
+      units.forEach(u => { const g = (u.group_label || '').trim(); if (!grp.has(g)) grp.set(g, []); grp.get(g).push(u); });
+      const byCode = (a, b) => String(a.unit_code).localeCompare(String(b.unit_code));
+      let html = '<option value="">— Select unit —</option>';
+      [...grp.keys()].filter(g => g !== '').sort((a, b) => a.localeCompare(b)).forEach(g => {
+        html += `<optgroup label="${esc(g)}">` + grp.get(g).slice().sort(byCode).map(optFor).join('') + '</optgroup>';
+      });
+      if (grp.has('')) html += grp.get('').slice().sort(byCode).map(optFor).join('');
+      if (selectedId && !units.some(u => u.id === selectedId)) {
+        const nm = (lineModalSeed && lineModalSeed.package_unit_id === selectedId) ? (lineModalSeed.description || 'unit') : 'unit';
+        html += `<option value="${esc(String(selectedId))}" selected>${esc(nm)}</option>`;
+      }
+      return html;
+    }
+
+    function openLineModal(line) {
       if (!currentRo) return;
-      const btn = $('cdAddLineBtn');
-      btn.disabled = true;
-      // new lines default to Labor; prefill unit price from the shop's
-      // default_labor_rate (still overridable per line).
-      const laborRate = shopCfg().default_labor_rate;
-      const row = {
-        repair_order_id: currentRo.id,
-        line_type: 'labor',
-        description: null,
-        quantity: 1,
-        unit_price: (laborRate != null && Number.isFinite(Number(laborRate))) ? Number(laborRate) : 0,
-        taxable: true,
-        sort_order: currentLines.length,
-      };
-      const { data, error } = await db.from('ro_line_items').insert(row).select('*').single();
+      lineModalEditId = line ? line.id : null;
+      lineModalSeed = line || null;
+      lineModalDraft = {};
+      $('cdLineModalTitle').textContent = line ? 'Edit line' : 'Add line';
+      $('cdLineError').textContent = '';
+      const t = line ? line.line_type : 'labor';
+      const sel = $('cdLineType');
+      sel.innerHTML = lineTypeOptions(t);
+      sel.value = t;
+      renderLineFields();
+      $('cdLineModal').style.display = 'flex';
+    }
+    function closeLineModal() {
+      $('cdLineModal').style.display = 'none';
+      lineModalEditId = null; lineModalSeed = null; lineModalDraft = {};
+    }
+    // capture the shared fields before a type switch so they carry over
+    function captureLineCommon() {
+      const d = document.getElementById('cdLf_desc');
+      const tax = document.getElementById('cdLf_tax');
+      if (d) lineModalDraft.description = d.value;
+      if (tax) lineModalDraft.taxable = tax.checked;
+    }
+
+    const lfField = (labelHtml, inputHtml) => '<div class="intake-field"><label>' + labelHtml + '</label>' + inputHtml + '</div>';
+    const TECHPAY_HINT = ' <span style="color:var(--muted);text-transform:none;letter-spacing:0;font-weight:600">· tech pay</span>';
+
+    // Per-line line_tech_id defaults to null = "inherit the RO's assigned tech"
+    // (repair_orders.technician, a NAME). The rollup resolves inherit → RO tech.
+    function techNameById(id) {
+      const hit = techRoster.find(t => String(t.id) === String(id));
+      return hit ? hit.name : null;
+    }
+    // The per-labor-line "Tech credit" picker. Value "" = inherit the RO's tech;
+    // an id = credit that tech for this line's hours (2nd-tech case). Only shown
+    // when Book Hours is ON. `selId` = the line's stored line_tech_id (or '').
+    function lineTechPickerHtml(selId) {
+      const roName = (currentRo && currentRo.technician) || null;
+      let opts = `<option value="">${roName ? esc(roName) + ' (RO tech)' : '— RO tech —'}</option>`;
+      techRoster.forEach(t => {
+        opts += `<option value="${esc(String(t.id))}"${String(selId) === String(t.id) ? ' selected' : ''}>${esc(t.name)}</option>`;
+      });
+      if (selId && !techRoster.some(t => String(t.id) === String(selId))) {
+        opts += `<option value="${esc(String(selId))}" selected>${esc(techNameById(selId) || 'tech')}</option>`;
+      }
+      return lfField('Tech credit <span style="color:var(--muted);text-transform:none;letter-spacing:0;font-weight:600">· defaults to RO tech</span>',
+        `<select id="cdLf_tech">${opts}</select>`);
+    }
+
+    function renderLineFields() {
+      const type = $('cdLineType').value;
+      const seed = lineModalSeed;
+      const seedMatches = seed && seed.line_type === type;
+      const desc = (lineModalDraft.description !== undefined) ? lineModalDraft.description : (seed ? (seed.description || '') : '');
+      const tax = (lineModalDraft.taxable !== undefined) ? lineModalDraft.taxable : (seedMatches ? !!seed.taxable : true);
+      const box = $('cdLineFields');
+      const descField = lfField('Description', `<input type="text" id="cdLf_desc" value="${nv(desc)}" placeholder="Description">`);
+      const taxField = '<div class="intake-field intake-field-row"><label style="margin:0">Taxable</label>'
+        + `<input type="checkbox" id="cdLf_tax"${tax ? ' checked' : ''} style="width:auto"></div>`;
+
+      let html = '';
+      if (type === 'labor') {
+        const bookOn = bookHoursFeatureOn();
+        const rate = seedMatches ? (seed.unit_price != null ? seed.unit_price : '') : (defaultUnitFor('labor') != null ? defaultUnitFor('labor') : '');
+        const qty = seedMatches ? (seed.quantity != null ? seed.quantity : 1) : 1;
+        const qtyField = lfField((bookOn ? 'Hours' : 'Qty'),
+          `<input type="number" id="cdLf_qty" value="${nv(qty)}" min="0" step="${bookOn ? '0.5' : '0.01'}">`);
+        const rateField = lfField('Rate ($/hr)', `<input type="number" id="cdLf_rate" value="${nv(rate)}" min="0" step="0.01">`);
+        const techField = bookOn ? lineTechPickerHtml(seedMatches ? (seed.line_tech_id || '') : '') : '';
+        html = descField
+          + '<div class="cd-lf-2col">' + qtyField + rateField + '</div>'
+          + lfField('Sell (auto)', '<input type="text" id="cdLf_sell" readonly>')
+          + techField
+          + taxField;
+      } else if (type === 'parts') {
+        const partno = seedMatches ? (seed.part_number || '') : '';
+        const cost = seedMatches ? (seed.unit_cost != null ? seed.unit_cost : '') : '';
+        const sell = seedMatches ? (seed.unit_price != null ? seed.unit_price : '') : '';
+        const qty = seedMatches ? (seed.quantity != null ? seed.quantity : 1) : 1;
+        html = lfField('Part #', `<input type="text" id="cdLf_partno" value="${nv(partno)}" placeholder="Part #">`)
+          + descField
+          + '<div class="cd-lf-2col">'
+            + lfField('Cost ($)' + TECHPAY_HINT.replace('tech pay', 'internal'), `<input type="number" id="cdLf_cost" value="${nv(cost)}" min="0" step="0.01">`)
+            + lfField('Sell ($)', `<input type="number" id="cdLf_sell" value="${nv(sell)}" min="0" step="0.01">`)
+          + '</div>'
+          + lfField('Qty', `<input type="number" id="cdLf_qty" value="${nv(qty)}" min="0" step="0.01">`)
+          + '<div class="cd-lf-margin" id="cdLf_margin"></div>'
+          + taxField;
+      } else if (type === 'package') {
+        // Advisor's Package window shows only Unit, Price, Taxable. R&R hrs is NOT
+        // shown/edited here — it's the manager's (set in Rebuild Units & Prices) —
+        // but the line still silently carries the unit's default_rr_hours (see
+        // saveLineModal), preserving any manager-adjusted value on edit.
+        const selUnit = seedMatches ? (seed.package_unit_id || '') : '';
+        const price = seedMatches ? (seed.unit_price != null ? seed.unit_price : '') : '';
+        html = lfField('Unit', `<select id="cdLf_unit">${packageUnitOptions(selUnit)}</select>`)
+          + lfField('Price ($)', `<input type="number" id="cdLf_price" value="${nv(price)}" min="0" step="0.01">`)
+          + taxField;
+      } else {
+        // fee / shop_supply / hazmat — flat amount, qty fixed at 1
+        const amount = seedMatches ? (seed.unit_price != null ? seed.unit_price : '') : (defaultUnitFor(type) != null ? defaultUnitFor(type) : '');
+        html = descField
+          + lfField('Amount ($)', `<input type="number" id="cdLf_amount" value="${nv(amount)}" min="0" step="0.01">`)
+          + taxField;
+      }
+      box.innerHTML = html;
+      wireLineFields(type);
+    }
+
+    function wireLineFields(type) {
+      if (type === 'labor') {
+        const calc = () => { $('cdLf_sell').value = money(num($('cdLf_qty').value) * num($('cdLf_rate').value)); };
+        $('cdLf_qty').addEventListener('input', calc);
+        $('cdLf_rate').addEventListener('input', calc);
+        calc();
+      } else if (type === 'parts') {
+        const calc = () => {
+          const cost = num($('cdLf_cost').value), sell = num($('cdLf_sell').value);
+          const m = sell - cost, pct = sell > 0 ? (m / sell * 100) : null;
+          $('cdLf_margin').innerHTML = `Margin <b>${money(m)}</b> (${pct == null ? '—' : pct.toFixed(1) + '%'}) <span style="color:var(--muted)">· internal, never printed</span>`;
+        };
+        $('cdLf_cost').addEventListener('input', calc);
+        $('cdLf_sell').addEventListener('input', calc);
+        calc();
+      } else if (type === 'package') {
+        // picking a unit fills the (visible) Price; R&R hrs is carried silently
+        // at save time (no advisor field), see saveLineModal.
+        $('cdLf_unit').addEventListener('change', () => {
+          const u = packageUnits().find(x => x.id === $('cdLf_unit').value);
+          if (u) $('cdLf_price').value = Number(u.set_price) || 0;
+        });
+      }
+    }
+
+    // Resilient insert/update: if a not-yet-migrated OPTIONAL column
+    // (unit_cost / package_unit_id / rr_hours / part_number / line_tech_id) makes
+    // the write fail, strip ONLY the column the error names and retry — so an
+    // unmigrated line_tech_id never clobbers an already-migrated unit_cost etc.
+    async function writeLineRow(payload, id) {
+      const OPTIONAL = new Set(['unit_cost', 'package_unit_id', 'rr_hours', 'part_number', 'line_tech_id']);
+      let attempt = Object.assign({}, payload);
+      for (let i = 0; i < 6; i++) {
+        const resp = id
+          ? await db.from('ro_line_items').update(attempt).eq('id', id).select('*').single()
+          : await db.from('ro_line_items').insert(attempt).select('*').single();
+        if (!resp.error) return { data: resp.data };
+        const col = missingColumnName(resp.error);
+        if (col && OPTIONAL.has(col) && (col in attempt)) {
+          delete attempt[col];
+          console.warn('[CdRO] line saved without ' + col + ' — run the latest migration first.');
+          continue;
+        }
+        return { error: resp.error };
+      }
+      return { error: { message: 'ro_line_items: too many missing columns' } };
+    }
+
+    async function saveLineModal() {
+      if (!currentRo) return;
+      const type = $('cdLineType').value;
+      const errEl = $('cdLineError'); errEl.textContent = '';
+      const taxable = !!(document.getElementById('cdLf_tax') && document.getElementById('cdLf_tax').checked);
+      let payload = { line_type: type, taxable, unit_cost: null, package_unit_id: null, rr_hours: null, part_number: null, line_tech_id: null };
+
+      if (type === 'labor') {
+        payload.description = ($('cdLf_desc').value || '').trim() || null;
+        payload.quantity = num($('cdLf_qty').value);
+        payload.unit_price = num($('cdLf_rate').value);
+        // Per-line tech credit: "" = inherit the RO tech (null); an id = override.
+        // Only when the picker is shown (Book Hours ON); else preserve the seed's.
+        payload.line_tech_id = document.getElementById('cdLf_tech')
+          ? ($('cdLf_tech').value || null)
+          : ((lineModalSeed && lineModalSeed.line_type === 'labor') ? (lineModalSeed.line_tech_id || null) : null);
+      } else if (type === 'parts') {
+        payload.part_number = ($('cdLf_partno').value || '').trim() || null;
+        payload.description = ($('cdLf_desc').value || '').trim() || null;
+        payload.quantity = num($('cdLf_qty').value);
+        payload.unit_price = num($('cdLf_sell').value);
+        payload.unit_cost = numOrNull($('cdLf_cost').value);
+      } else if (type === 'package') {
+        const uid = $('cdLf_unit').value || null;
+        if (!uid) { errEl.textContent = 'Pick a unit.'; return; }
+        const u = packageUnits().find(x => x.id === uid);
+        payload.package_unit_id = uid;
+        payload.description = u ? u.unit_code : ((lineModalSeed && lineModalSeed.description) || null);
+        payload.quantity = 1;
+        payload.unit_price = num($('cdLf_price').value);
+        // R&R hrs is not shown/edited by the advisor — carried silently. On the
+        // SAME unit keep the line's current value (a manager may have adjusted it
+        // in Rebuild Units & Prices / on the manager side); on a new/changed unit
+        // take that unit's default_rr_hours. Never null-clobbers a manager value.
+        const sameUnit = lineModalSeed && lineModalSeed.line_type === 'package' && lineModalSeed.package_unit_id === uid;
+        const unitDefault = (u && u.default_rr_hours != null) ? Number(u.default_rr_hours) : null;
+        payload.rr_hours = sameUnit
+          ? (lineModalSeed.rr_hours != null ? lineModalSeed.rr_hours : unitDefault)
+          : unitDefault;
+      } else {
+        payload.description = ($('cdLf_desc').value || '').trim() || null;
+        payload.quantity = 1;
+        payload.unit_price = num($('cdLf_amount').value);
+      }
+
+      const btn = $('cdLineSaveBtn'); btn.disabled = true;
+      let result;
+      if (lineModalEditId) {
+        result = await writeLineRow(payload, lineModalEditId);
+      } else {
+        payload.repair_order_id = currentRo.id;
+        payload.sort_order = currentLines.length;
+        result = await writeLineRow(payload, null);
+      }
       btn.disabled = false;
-      if (error) { console.error('[CdRO] add line failed', error); alert('Add line failed: ' + error.message); return; }
-      currentLines.push(data);
+      if (!result || result.error) { errEl.textContent = 'Save failed: ' + (result && result.error ? result.error.message : 'unknown'); return; }
+      if (lineModalEditId) {
+        const i = currentLines.findIndex(l => l.id === lineModalEditId);
+        if (i >= 0) currentLines[i] = result.data;
+      } else {
+        currentLines.push(result.data);
+      }
       renderLines();
       refreshListCacheFor(currentRo.id);
+      closeLineModal();
     }
 
     // flat default (or labor rate) that a line type prefills its unit
@@ -4962,51 +5488,6 @@
       if (type === 'shop_supply') return Number.isFinite(Number(cfg.shop_supplies_default)) ? Number(cfg.shop_supplies_default) : null;
       if (type === 'hazmat') return Number.isFinite(Number(cfg.hazmat_default)) ? Number(cfg.hazmat_default) : null;
       return null;
-    }
-
-    async function onFieldChange(id, inp) {
-      const field = inp.dataset.field;
-      let value;
-      if (field === 'taxable') value = inp.checked;
-      else if (field === 'quantity' || field === 'unit_price') value = num(inp.value);
-      else value = inp.value;
-
-      const line = currentLines.find(l => l.id === id);
-      const update = { [field]: value };
-
-      // Switching a line to labor / shop_supply / hazmat prefills its unit
-      // price from the shop default — but only when the price is still 0
-      // (an untouched line), so we never clobber a manually entered amount.
-      if (field === 'line_type' && line && num(line.unit_price) === 0) {
-        const def = defaultUnitFor(value);
-        if (def != null && def !== 0) update.unit_price = def;
-      }
-
-      // update local cache first so totals feel instant
-      if (line) Object.assign(line, update);
-      const tr = $('cdLinesTbody').querySelector(`tr[data-id="${CSS.escape(id)}"]`);
-      if (line && tr) {
-        if (update.unit_price != null) {
-          const upInp = tr.querySelector('[data-field="unit_price"]');
-          if (upInp) upInp.value = update.unit_price;
-        }
-        tr.querySelector('.cd-line-total').textContent = money(num(line.quantity) * num(line.unit_price));
-      }
-      recalcTotals();
-
-      const { error } = await db.from('ro_line_items').update(update).eq('id', id);
-      if (error) {
-        if (isMissingColumn(error)) {
-          // part_number before the Phase-3 migration — degrade quietly
-          console.warn('[CdRO] part_number not saved — run the Phase-3 migration first.');
-        } else {
-          console.error('[CdRO] update line failed', error); alert('Save failed: ' + error.message); return;
-        }
-      }
-      refreshListCacheFor(currentRo.id);
-
-      // a type change flips whether the Part No cell is shown → re-render
-      if (field === 'line_type') renderLines();
     }
 
     // Card processing fee = card_fee_pct × the RO total (subtotal + tax,
@@ -5043,6 +5524,9 @@
     }
 
     async function deleteLine(id) {
+      const line = currentLines.find(l => l.id === id);
+      const label = line ? ((LINE_TYPE_LABEL[line.line_type] || line.line_type) + (line.description ? ' — ' + line.description : '')) : 'this line';
+      if (!confirm('Delete ' + label + '?')) return;
       const { error } = await db.from('ro_line_items').delete().eq('id', id);
       if (error) { console.error('[CdRO] delete line failed', error); alert('Delete failed: ' + error.message); return; }
       currentLines = currentLines.filter(l => l.id !== id);
@@ -5107,6 +5591,21 @@
                 '\n\nA comeback isn’t invoiced, so this is the only place the complaint and the repair get recorded.');
           // The stage <select> already shows the attempted "Closed" — snap it back.
           const sel = $('cdRoStage'); if (sel) sel.value = STAGES.includes(currentRo.status) ? currentRo.status : 'estimate';
+          return;
+        }
+      }
+
+      // BOOK-HOURS GATE — moving OUT of Estimate (approving the job into a real
+      // RO / invoice / close) requires the pay-side book hours to be CAPTURED:
+      // a number, or an explicit N/A. Blank is blocked. This is the pay-data
+      // choke point; it never touches the customer price. Runs BEFORE the
+      // optimistic update.
+      if (prev === 'estimate' && next !== 'estimate') {
+        const g = await bookHoursGateForAdvance(currentRo.id, currentRo.po || currentRo.ro_number);
+        if (!g.ok) {
+          alert('This RO has 0 book hours.\n\nBook hours auto-total from the labor + package lines — add a labor or package line, or tick “N/A · no labor” for a parts-only job, before moving it out of Estimate.');
+          const sel = $('cdRoStage'); if (sel) sel.value = STAGES.includes(currentRo.status) ? currentRo.status : 'estimate';
+          const f = $('cdRoBookHoursField'); if (f) f.scrollIntoView({ block: 'center', behavior: 'smooth' });
           return;
         }
       }
@@ -5195,6 +5694,10 @@
         work: ro.complaint || null,
         notes: ro.advisory_notes || null,
         assigned_tech: ro.technician || null,
+        // PAY hours → the archive's flag_hours (the report source). Book hours
+        // is the source of truth on the RO; N/A or blank archive as NULL. The
+        // pickup-archive path already copies flag_hours via the floor mirror.
+        flag_hours: (ro.book_hours != null ? ro.book_hours : null),
         arrival_date: ro.created_at ? ro.created_at.slice(0, 10) : null,
         status: 'closed',
         labor_subtotal: laborSub,
@@ -5372,7 +5875,12 @@
       // category totals
       const catSum = (t) => currentLines.filter(l => l.line_type === t)
         .reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
-      const laborTotal = catSum('labor'), partsTotal = catSum('parts');
+      const laborTotal = catSum('labor');
+      // Package lines are customer priced (qty 1 × set price); print them in the
+      // Parts section and fold them into the Parts subtotal, so the Parts rows
+      // and the Parts total agree and the invoice total adds up. Their R&R hours
+      // are tech-pay only — never printed, never added to the price.
+      const partsTotal = catSum('parts') + catSum('package');
       const hazmatTotal = catSum('hazmat'), suppliesTotal = catSum('shop_supply'), feesTotal = catSum('fee');
       const taxableBase = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
       const exempt = !!c.tax_exempt;
@@ -5381,7 +5889,7 @@
       const invoiceTotal = laborTotal + partsTotal + hazmatTotal + suppliesTotal + feesTotal + taxTotal;
 
       const laborLines = currentLines.filter(l => l.line_type === 'labor');
-      const partsLines = currentLines.filter(l => l.line_type === 'parts');
+      const partsLines = currentLines.filter(l => l.line_type === 'parts' || l.line_type === 'package');
 
       const laborRows = laborLines.length ? laborLines.map(l => `
         <tr><td>${P(l.description)}</td><td class="tc">${showTech ? P(ro.technician) : ''}</td>
@@ -5566,8 +6074,14 @@
     $('qrCancelBtn').addEventListener('click', closeQuickReceipt);
     $('qrTakePrintBtn').addEventListener('click', () => submitQuickReceipt(true));
     $('qrSaveBtn').addEventListener('click', () => submitQuickReceipt(false));
-    $('cdAddLineBtn').addEventListener('click', addLine);
+    $('cdAddLineBtn').addEventListener('click', () => openLineModal(null));
     $('cdAddCardFeeBtn').addEventListener('click', addCardFee);
+    // Add/Edit-Line pop-up wiring
+    $('cdLineType').addEventListener('change', () => { captureLineCommon(); renderLineFields(); });
+    $('cdLineSaveBtn').addEventListener('click', saveLineModal);
+    $('cdLineCloseBtn').addEventListener('click', closeLineModal);
+    $('cdLineCancelBtn').addEventListener('click', closeLineModal);
+    $('cdLineModal').addEventListener('click', (e) => { if (e.target === $('cdLineModal')) closeLineModal(); });
     $('cdRoNewBtn').addEventListener('click', () => window.cdOpenNewRo());
     $('cdPrintBtn').addEventListener('click', printRo);
     // Payments (Phase 5): seed the method dropdown (refreshed on each RO open
@@ -5689,6 +6203,22 @@
         return;
       }
       if (currentStatusFloor) currentStatusFloor.status = value;   // keep cache in sync
+    });
+    // ── Book Hours N/A toggle — the only manual RO-level control now (the hours
+    // themselves auto-total from the lines, see updateBookHoursAuto). Ticking N/A
+    // stores book_hours_na=true + clears book_hours (parts-only job); unticking
+    // restores the auto-total. Persists to repair_orders + mirrors to floor.
+    $('cdRoBookHoursNA').addEventListener('change', async () => {
+      if (!currentRo) return;
+      const na = $('cdRoBookHoursNA').checked;
+      currentRo.book_hours_na = na;
+      const hours = na ? null : bookHoursAutoTotal();
+      currentRo.book_hours = hours;
+      const { error } = await db.from('repair_orders')
+        .update({ book_hours: hours, book_hours_na: na }).eq('id', currentRo.id);
+      if (error && !isMissingColumn(error)) console.error('[CdRO] book_hours N/A save failed', error);
+      await mirrorBookHoursToFloor(currentRo.po || currentRo.ro_number, hours);
+      paintBookHoursDisplay(na ? 0 : hours, na);
     });
     $('cdRoComplaint').addEventListener('change', () => updateRoField('complaint', $('cdRoComplaint').value.trim() || null));
     $('cdRoWorkDescription').addEventListener('change', () => updateRoField('work_description', $('cdRoWorkDescription').value.trim() || null));

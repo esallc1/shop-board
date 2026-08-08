@@ -568,6 +568,13 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="shared/office-identity.js"></script>
 <script src="shared/board-settings.js"></script>
+<!-- Advisor commission engine (ESM → window.CommissionEngine) + shared cards
+     (→ window.CommissionCards). Behind the Advisor Commission switch (default OFF). -->
+<script type="module">
+  import * as CommissionEngine from './shared/commission-engine.js';
+  window.CommissionEngine = CommissionEngine;
+</script>
+<script src="shared/commission-cards.js"></script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
@@ -628,6 +635,7 @@
         <div class="sidebar-item" data-view="overview" data-label="Overview"><span class="icon">📊</span>Overview</div>
         <div class="sidebar-item" data-view="queue" data-label="Unprocessed Invoices"><span class="icon">🧾</span>Unprocessed Invoices</div>
         <div class="sidebar-item" data-view="history" data-label="History"><span class="icon">📚</span>History</div>
+        <div class="sidebar-item" data-view="commission" data-label="Commission & Payout" id="nav-commission" style="display:none"><span class="icon">💰</span>Commission &amp; Payout</div>
         <div class="sidebar-item" data-view="capture" data-label="Capture Invoice"><span class="icon">📸</span>Capture Invoice</div>
         <div class="sidebar-item" data-view="todo" data-label="To-Do"><span class="icon">✅</span>To-Do<span class="chat-nav-badge" id="todo-nav-badge" style="display:none">0</span></div>
         <div class="sidebar-item" data-view="planner" data-label="Planner"><span class="icon">🗓️</span>Planner</div>
@@ -730,6 +738,11 @@
       <button type="button" class="ov-returned-toggle" id="ovReturnedToggle" style="display:none">▸ Returned cores</button>
       <div class="ov-returned-list" id="ovReturnedList" style="display:none"></div>
     </div>
+  </div>
+
+  <!-- ══ COMMISSION & PAYOUT ══ (shared/commission-cards.js) — feature-gated -->
+  <div class="view" id="view-commission">
+    <div id="commissionMount" style="max-width:680px"></div>
   </div>
 
   <!-- ══ UNPROCESSED INVOICES QUEUE ══ -->
@@ -999,7 +1012,26 @@
     // Daiana's Categories + Types managers live in the gear panel.
     onOpenExtra: (container) => renderBookkeepingSettings(container),
     extraLabel: 'Categories & Types',
+    // Reveal/hide the Commission & Payout nav when the switch loads/changes.
+    onShopSettingsChanged: () => { if (typeof refreshCommissionNav === 'function') refreshCommissionNav(); },
   });
+
+  // ── Commission & Payout card (all advisors) — Advisor Commission feature ──
+  function commissionOn() {
+    const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
+    return !!cfg.feature_advisor_commission;
+  }
+  function refreshCommissionNav() {
+    const on = commissionOn();
+    const nav = document.getElementById('nav-commission');
+    if (nav) nav.style.display = on ? '' : 'none';
+    return on;
+  }
+  async function renderCommission() {
+    if (!refreshCommissionNav()) return;
+    const mount = document.getElementById('commissionMount');
+    if (mount && window.CommissionCards) await CommissionCards.renderPayout(mount, { db });
+  }
 
   // "Catch this moment" capture FAB — lands in the Owner Marketing tab.
   CatchMoment.init({ db, getName: () => CHAT_IDENTITY.name });
@@ -1044,6 +1076,7 @@
     currentViewKey = view;
     try { sessionStorage.setItem(TAB_KEY, view); } catch (e) {}
     if (view === 'overview') loadOverview(); // always fetch fresh on open
+    if (view === 'commission') renderCommission(); // fresh weekly numbers on open
     closeMobileNav(); // no-op on desktop; on mobile, picking a view closes the drawer
   }
 
@@ -4044,7 +4077,7 @@
 
     CHAT_IDENTITY = { name: who.name, role: who.role };
     CURRENT_EMPLOYEE_ID = who.employee_id;
-    BoardSettings.refresh(who.employee_id);
+    BoardSettings.refresh(who.employee_id, who.role);
 
     const avatar = who.photo_url
       ? `<img class="greeting-avatar" src="${esc(who.photo_url)}" alt="">`
