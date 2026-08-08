@@ -1,7 +1,7 @@
 # How the RO / invoice document builder is wired
 
 > Doc: `/docs/wiring/ro-invoice.md`
-> Last updated: 2026-08-09 — verified vs commit `f55c89c` (branch `feat/bookkeeping-ro-detail`)
+> Last updated: 2026-08-09 — verified vs commit `455693f` (merged to main)
 > Status: ✅ BUILT + verified this session. `printRo` was extracted into a shared PURE builder
 > `shared/ro-invoice.js` (+ `ro-invoice.test.js`, 11 tests). Two consumers render the identical
 > document: the advisor board prints it; the bookkeeping RO-detail LEFT pane embeds it. Verified

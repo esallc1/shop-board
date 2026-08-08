@@ -1,7 +1,7 @@
 # How RO payments (the `ro_payments` ledger) are wired
 
 > Doc: `/docs/wiring/payments.md`
-> Last updated: 2026-08-09 — verified vs commit `f55c89c` (branch `feat/bookkeeping-ro-detail`)
+> Last updated: 2026-08-09 — verified vs commit `455693f` (merged to main)
 > Status: ✅ Verified vs `advisor-board.html` (record/list/balance) + `bookkeeping-board.html`
 > (Financial Pulse income) + `migrations/20260718_ro_payments.sql`. Record-only ledger; the
 > app never processes cards.

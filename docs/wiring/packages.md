@@ -1,7 +1,7 @@
 # How Packages (unit prices + the Package RO line) is wired
 
 > Doc: `/docs/wiring/packages.md`
-> Last updated: 2026-08-08 — verified vs commit `8c93cee` (merged to main)
+> Last updated: 2026-08-09 — verified vs commit `455693f` (merged to main)
 > Status: ✅ BUILT, behind an owner switch (`feature_packages`, default OFF).
 > Migration `20260807_packages.sql` has since been **applied** and the switch turned
 > **ON** — confirmed live 2026-08-07: `feature_packages` true, the `package` line
