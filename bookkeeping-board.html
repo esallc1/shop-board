@@ -373,6 +373,52 @@
   }
   .fin-drill-reconcile.ok  { color: var(--green); font-weight: 800; }
   .fin-drill-reconcile.bad { color: var(--red); font-weight: 800; }
+
+  /* ── Per-RO drill-down (feature_bk_ro_detail) ─────────────────────── */
+  /* clickable rows in the paid / open lists + the follow-up aging table */
+  .fin-drill-table tbody tr.fin-rowlink, .fin-aging-table tbody tr.fin-rowlink { cursor: pointer; }
+  .fin-drill-table tbody tr.fin-rowlink:hover, .fin-aging-table tbody tr.fin-rowlink:hover { background: var(--surface-2); }
+  .fin-rowlink .fin-go { color: var(--muted); font-weight: 800; }
+  .fin-score.pipeline.clickable { cursor: pointer; }
+  .fin-score.pipeline.clickable:hover { filter: brightness(0.98); }
+  .fin-score-hint.blue { color: #1d4ed8; }
+  /* wide split detail modal */
+  .fin-drill.wide { max-width: 1140px; }
+  .fin-ro-split { display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px; }
+  .fin-ro-pane.invpane { overflow-x: auto; }
+  @media (max-width: 760px) { .fin-ro-split { grid-template-columns: 1fr; } }
+  .fin-ro-pane { min-width: 0; }
+  .fin-ro-pane h4 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); font-weight: 800; margin: 0 0 8px; }
+  .fin-ro-meta { font-size: 0.8rem; color: var(--muted); margin-bottom: 10px; line-height: 1.5; }
+  .fin-ro-meta b { color: var(--text); }
+  .fin-ro-lines { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  .fin-ro-lines th { text-align: left; font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); font-weight: 700; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+  .fin-ro-lines td { padding: 6px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  .fin-ro-lines td.num, .fin-ro-lines th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .fin-ro-lines .lt { font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); font-weight: 700; }
+  .fin-ro-tot { display: flex; justify-content: space-between; font-size: 0.82rem; padding: 4px 6px; }
+  .fin-ro-tot.grand { font-weight: 800; color: var(--text); border-top: 2px solid var(--border); margin-top: 4px; padding-top: 8px; }
+  /* receipts list (right) */
+  .fin-rc { display: flex; gap: 10px; align-items: center; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  .fin-rc-thumb { width: 46px; height: 46px; border-radius: 8px; object-fit: cover; background: var(--surface-2); border: 1px solid var(--border); cursor: zoom-in; flex-shrink: 0; }
+  .fin-rc-thumb.noimg { display: flex; align-items: center; justify-content: center; font-size: 1.1rem; color: var(--muted); cursor: default; }
+  .fin-rc-main { flex: 1; min-width: 0; }
+  .fin-rc-desc { font-size: 0.8rem; color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+  .fin-rc-sub { font-size: 0.7rem; color: var(--muted); margin-top: 1px; }
+  .fin-rc-amt { font-size: 0.82rem; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .fin-rc-amt.credit { color: var(--green); }
+  .fin-rc-empty { color: var(--muted); font-size: 0.8rem; padding: 14px 6px; text-align: center; }
+  /* profit box */
+  .fin-profit { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; background: var(--surface-2); }
+  .fin-profit-row { display: flex; justify-content: space-between; font-size: 0.82rem; padding: 3px 0; }
+  .fin-profit-row.big { font-size: 1rem; font-weight: 800; color: var(--text); border-top: 1px dashed var(--border); margin-top: 6px; padding-top: 8px; }
+  .fin-profit-row .pos { color: var(--green); } .fin-profit-row .neg { color: var(--red); }
+  .fin-profit-note { font-size: 0.68rem; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+  .fin-provisional { display: inline-block; font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: #b45309; background: #fef3e2; border-radius: 6px; padding: 2px 7px; margin-left: 6px; }
+  /* photo lightbox */
+  .fin-photo-overlay { position: fixed; inset: 0; z-index: 1300; background: rgba(15,23,42,0.82); display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .fin-photo-overlay img { max-width: 96vw; max-height: 92vh; border-radius: 8px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+  .fin-photo-close { position: fixed; top: 16px; right: 20px; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.3); color: #fff; width: 38px; height: 38px; border-radius: 10px; font-size: 1.1rem; cursor: pointer; }
   .fin-score-badge {
     font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;
     padding: 2px 7px; border-radius: 999px;
@@ -575,6 +621,12 @@
   window.CommissionEngine = CommissionEngine;
 </script>
 <script src="shared/commission-cards.js"></script>
+<!-- Shared RO/invoice builder (ESM → window.RoInvoice) — the per-RO detail LEFT
+     pane embeds its output (same document the advisor board prints). -->
+<script type="module">
+  import * as RoInvoice from './shared/ro-invoice.js';
+  window.RoInvoice = RoInvoice;
+</script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
@@ -727,6 +779,42 @@
         </div>
         <div class="fin-drill-body" id="finDrillBody"></div>
       </div>
+    </div>
+
+    <!-- Open-ROs list (pipeline tile → clickable). Same style as the paid list;
+         rows open the per-RO detail. Feature-gated (feature_bk_ro_detail). -->
+    <div class="fin-drill-overlay" id="finOpenModal" style="display:none">
+      <div class="fin-drill" role="dialog" aria-modal="true" aria-label="Open ROs">
+        <div class="fin-drill-head">
+          <div>
+            <div class="fin-drill-title">🔮 Open ROs — future income</div>
+            <div class="fin-drill-sub" id="finOpenSub"></div>
+          </div>
+          <button type="button" class="fin-drill-close" id="finOpenClose" aria-label="Close">✕</button>
+        </div>
+        <div class="fin-drill-body" id="finOpenBody"></div>
+      </div>
+    </div>
+
+    <!-- Per-RO detail — split: original RO (left) + matched parts receipts &
+         profit-over-parts (right). Feature-gated (feature_bk_ro_detail). -->
+    <div class="fin-drill-overlay" id="finRoDetail" style="display:none">
+      <div class="fin-drill wide" role="dialog" aria-modal="true" aria-label="RO detail">
+        <div class="fin-drill-head">
+          <div>
+            <div class="fin-drill-title" id="finRoTitle">RO detail</div>
+            <div class="fin-drill-sub" id="finRoSub"></div>
+          </div>
+          <button type="button" class="fin-drill-close" id="finRoClose" aria-label="Close">✕</button>
+        </div>
+        <div class="fin-drill-body" id="finRoBody"></div>
+      </div>
+    </div>
+
+    <!-- Receipt-photo lightbox -->
+    <div class="fin-photo-overlay" id="finPhoto" style="display:none">
+      <button type="button" class="fin-photo-close" id="finPhotoClose" aria-label="Close">✕</button>
+      <img id="finPhotoImg" alt="Receipt photo">
     </div>
 
     <div class="card">
@@ -3210,7 +3298,17 @@
     let customFrom = '', customTo = '';
     let wired = false;
     let drillOpen = false;          // income drill-down modal open?
+    let openListOpen = false;       // open-ROs list modal open?
+    let roDetailOpen = false;       // per-RO split detail open?
     let cur = { r: null, incRows: [], income: 0 };   // last render's range + income records
+
+    // Per-RO drill-down feature (feature_bk_ro_detail) — default OFF. When OFF,
+    // the Income/Open lists behave exactly as before (no row clicks, no detail).
+    function bkRoDetailOn() {
+      const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
+      return !!cfg.feature_bk_ro_detail;
+    }
+    const LINE_TYPE_LABEL = { labor: 'Labor', parts: 'Parts', package: 'Package', fee: 'Fee', shop_supply: 'Shop Supply', hazmat: 'Hazmat' };
 
     // ── date helpers — LOCAL dates as 'YYYY-MM-DD' to match invoice_date ──
     function ymd(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
@@ -3461,10 +3559,11 @@
           <div class="fin-score-sub">${fmtRangeLabel(r.start, r.end)} · ${roCount} paid RO${roCount === 1 ? '' : 's'}</div>
           <div class="fin-score-hint">Tap to list paid ROs →</div>
         </div>
-        <div class="fin-score pipeline">
+        <div class="fin-score pipeline${bkRoDetailOn() ? ' clickable' : ''}"${bkRoDetailOn() ? ' role="button" tabindex="0" aria-haspopup="dialog" title="List the open ROs behind this number"' : ''}>
           <div class="fin-score-label">🔮 Open ROs — future income <span class="fin-score-badge">as of now</span></div>
           <div class="fin-score-value">${fmtMoney(pipeline)}</div>
           <div class="fin-score-sub">${openCount} open RO${openCount === 1 ? '' : 's'} in the pipeline (not the date range)</div>
+          ${bkRoDetailOn() ? '<div class="fin-score-hint blue">Tap to list open ROs →</div>' : ''}
         </div>`;
 
       // trend
@@ -3504,7 +3603,14 @@
         incCard.addEventListener('click', openDrill);
         incCard.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrill(); } });
       }
+      // Pipeline card → open-ROs list (feature-gated).
+      const pipeCard = document.querySelector('#finScorecards .fin-score.pipeline');
+      if (pipeCard && bkRoDetailOn()) {
+        pipeCard.addEventListener('click', openOpenList);
+        pipeCard.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openOpenList(); } });
+      }
       if (drillOpen) renderDrill();
+      if (openListOpen) renderOpenList();
     }
 
     // ── Income drill-down — the paid-in-full ROs behind the Income (realized)
@@ -3534,8 +3640,10 @@
       const trs = rows.length ? rows.map(x => {
         const method = x.methods && x.methods.length ? x.methods.join(' + ') : '—';
         const methodCls = x.methods && x.methods.length ? '' : 'fin-drill-unknown';
-        return `<tr>
-          <td class="fin-drill-po">${esc(x.po || '—')}</td>
+        const link = bkRoDetailOn() && x.po ? ` class="fin-rowlink" data-po="${esc(x.po)}"` : '';
+        const go = bkRoDetailOn() && x.po ? ' <span class="fin-go">›</span>' : '';
+        return `<tr${link}>
+          <td class="fin-drill-po">${esc(x.po || '—')}${go}</td>
           <td>${esc(x.customer || '—')}</td>
           <td class="fin-drill-date">${esc(fmtDrillDate(x.date))}</td>
           <td class="num">${fmtMoney(x.amount)}</td>
@@ -3565,17 +3673,208 @@
         const age = ro.created_at ? Math.max(0, Math.floor((now - new Date(ro.created_at).getTime()) / 86400000)) : null;
         return { po: ro.po, status: ro.status, cust: (ro.customers && ro.customers.name) || '—', amount: roTotal(ro), age };
       }).sort((a, b) => (b.age || 0) - (a.age || 0)); // oldest first
-      const body = rows.map(x => `
-        <tr>
-          <td class="fin-aging-po">${esc(x.po || '—')}</td>
+      const body = rows.map(x => {
+        const link = bkRoDetailOn() && x.po ? ` class="fin-rowlink" data-po="${esc(x.po)}"` : '';
+        const go = bkRoDetailOn() && x.po ? ' <span class="fin-go">›</span>' : '';
+        return `
+        <tr${link}>
+          <td class="fin-aging-po">${esc(x.po || '—')}${go}</td>
           <td>${esc(x.cust)}</td>
           <td><span class="fin-aging-status ${esc(x.status)}">${esc(x.status)}</span></td>
           <td class="num">${fmtMoney(x.amount)}</td>
           <td class="num"><span class="fin-aging-age ${x.age != null && x.age >= OLD_DAYS ? 'old' : ''}">${x.age == null ? '—' : x.age + 'd'}</span></td>
-        </tr>`).join('');
+        </tr>`; }).join('');
       el.innerHTML = `<div class="fin-aging-scroll"><table class="fin-aging-table">
         <thead><tr><th>RO&nbsp;#</th><th>Customer</th><th>Stage</th><th class="num">Amount</th><th class="num">Age</th></tr></thead>
         <tbody>${body}</tbody></table></div>`;
+    }
+
+    // ── Open-ROs list (pipeline tile → modal, same style as the paid list) ──
+    function openOpenList() {
+      if (!bkRoDetailOn()) return;
+      openListOpen = true; renderOpenList();
+      const m = document.getElementById('finOpenModal'); if (m) m.style.display = 'flex';
+    }
+    function closeOpenList() {
+      openListOpen = false;
+      const m = document.getElementById('finOpenModal'); if (m) m.style.display = 'none';
+    }
+    function renderOpenList() {
+      const body = document.getElementById('finOpenBody'); if (!body) return;
+      const now = Date.now();
+      const rows = (data.openROs || []).map(ro => ({
+        po: ro.po, status: ro.status, cust: (ro.customers && ro.customers.name) || '—',
+        amount: roTotal(ro),
+        age: ro.created_at ? Math.max(0, Math.floor((now - new Date(ro.created_at).getTime()) / 86400000)) : null,
+      })).sort((a, b) => (b.age || 0) - (a.age || 0));
+      const total = rows.reduce((s, x) => s + x.amount, 0);
+      const sub = document.getElementById('finOpenSub');
+      if (sub) sub.textContent = `${rows.length} open RO${rows.length === 1 ? '' : 's'} · ${fmtMoney(total)} pipeline (as of now)`;
+      const trs = rows.length ? rows.map(x => {
+        const link = x.po ? ` class="fin-rowlink" data-po="${esc(x.po)}"` : '';
+        const go = x.po ? ' <span class="fin-go">›</span>' : '';
+        return `<tr${link}>
+          <td class="fin-drill-po">${esc(x.po || '—')}${go}</td>
+          <td>${esc(x.cust)}</td>
+          <td><span class="fin-aging-status ${esc(x.status)}">${esc(x.status)}</span></td>
+          <td class="num">${fmtMoney(x.amount)}</td>
+          <td class="num">${x.age == null ? '—' : x.age + 'd'}</td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:22px">No open ROs.</td></tr>`;
+      body.innerHTML = `<div class="fin-drill-scroll"><table class="fin-drill-table">
+        <thead><tr><th>RO #</th><th>Customer</th><th>Stage</th><th class="num">Amount</th><th class="num">Age</th></tr></thead>
+        <tbody>${trs}</tbody></table></div>`;
+    }
+
+    // ── Per-RO split detail: original RO (left) + matched parts receipts and
+    // profit-over-parts (right). Read-only; matches receipts by PO# = RO#. ──
+    async function openRoDetail(po, provisional) {
+      if (!bkRoDetailOn() || !po) return;
+      roDetailOpen = true;
+      const overlay = document.getElementById('finRoDetail');
+      const title = document.getElementById('finRoTitle');
+      const subEl = document.getElementById('finRoSub');
+      const body = document.getElementById('finRoBody');
+      if (title) title.textContent = `RO #${po}`;
+      if (subEl) subEl.textContent = 'Loading…';
+      if (body) body.innerHTML = '<div class="fin-rc-empty">Loading RO + receipts…</div>';
+      if (overlay) overlay.style.display = 'flex';
+      let ro = null, receipts = [], poLines = [], payments = [];
+      // Full RO fields so the LEFT pane can render the real invoice document.
+      const RO_COLS = 'po,ro_number,status,created_at,closed_at,complaint,advisory_notes,technician,odometer_in,miles_out,customers(name,phone_primary,email,tax_exempt),vehicles(year,make,model,engine,transmission_code,vin,plate,plate_state),service_writer:employees!service_writer_id(name),ro_line_items(line_type,description,part_number,quantity,unit_price,taxable)';
+      const RO_COLS_NOWRITER = RO_COLS.replace(',service_writer:employees!service_writer_id(name)', '');
+      try {
+        const [roRes, iqRes, plRes, payRes] = await Promise.all([
+          db.from('repair_orders').select(RO_COLS).eq('po', po).limit(1).maybeSingle(),
+          db.from('invoice_queue').select('id,po,invoice_type,amount,invoice_date,vendor,description,image_path').eq('po', po),
+          db.from('invoice_po_lines').select('po,label,amount,invoice_queue(invoice_date,vendor,image_path,invoice_type)').eq('po', po),
+          db.from('ro_payments').select('amount,method,paid_at,po').eq('po', po),
+        ]);
+        let roData = roRes;
+        // The service_writer embed may not resolve on every schema — retry without it.
+        if (roRes.error && /service_writer|relationship|employees/i.test(roRes.error.message || '')) {
+          roData = await db.from('repair_orders').select(RO_COLS_NOWRITER).eq('po', po).limit(1).maybeSingle();
+        }
+        if (roData.error) throw roData.error;
+        ro = roData.data;
+        receipts = iqRes.error ? [] : (iqRes.data || []);
+        poLines = plRes.error ? [] : (plRes.data || []);
+        payments = payRes.error ? [] : (payRes.data || []);
+      } catch (e) {
+        console.warn('[RO detail] load failed', e);
+        if (roDetailOpen && body) body.innerHTML = '<div class="fin-rc-empty">Could not load this RO.</div>';
+        return;
+      }
+      if (!roDetailOpen) return;   // closed while awaiting
+      await renderRoDetail(po, ro, receipts, poLines, provisional, payments);
+    }
+    function closeRoDetail() {
+      roDetailOpen = false;
+      const m = document.getElementById('finRoDetail'); if (m) m.style.display = 'none';
+    }
+
+    async function renderRoDetail(po, ro, receipts, poLines, provisional, payments) {
+      // Matched PARTS receipts only: parts_vendor (cost) / vendor_credit (credit)
+      // etc. EXCLUDE shop_expense (general supplies) + record_only (the RO's own
+      // repair_invoice). Credits subtract. invoice_po_lines split a multi-PO
+      // parts invoice across jobs (its amount is a cost for this PO).
+      const items = [];
+      (receipts || []).forEach(r => {
+        const ca = countsAsFor(r.invoice_type);
+        if (ca === 'record_only') return;
+        if (r.invoice_type === 'shop_expense') return;
+        items.push({ desc: r.description || r.vendor || (r.invoice_type || 'Receipt'), vendor: r.vendor || '',
+          date: r.invoice_date || '', amount: Number(r.amount) || 0, credit: ca === 'credit', image_path: r.image_path || null });
+      });
+      (poLines || []).forEach(l => {
+        const parent = l.invoice_queue || {};
+        items.push({ desc: l.label || parent.vendor || 'PO line', vendor: parent.vendor || '',
+          date: parent.invoice_date || '', amount: Number(l.amount) || 0, credit: false, image_path: parent.image_path || null });
+      });
+      items.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      const partsCost = items.reduce((s, x) => s + (x.credit ? -x.amount : x.amount), 0);
+
+      // D: profit over parts is computed on the PRE-TAX SUBTOTAL (labor + parts +
+      // hazmat + supplies + fees) — sales tax isn't shop margin — not the
+      // tax-included ticket total.
+      const subtotal = ((ro && ro.ro_line_items) || []).reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
+      const profit = subtotal - partsCost;
+      const pct = subtotal > 0 ? (profit / subtotal * 100) : 0;
+
+      // sign the receipt photos (batch), degrade to placeholder on failure
+      const paths = [...new Set(items.map(i => i.image_path).filter(Boolean))];
+      const urlByPath = {};
+      if (paths.length) {
+        try {
+          const { data: signed } = await db.storage.from(INVOICE_BUCKET).createSignedUrls(paths, SIGNED_URL_TTL);
+          (signed || []).forEach(s => { if (s && s.signedUrl && !s.error) urlByPath[s.path] = s.signedUrl; });
+        } catch (e) { /* thumbnails degrade */ }
+      }
+      if (!roDetailOpen) return;   // closed while awaiting the signer
+
+      const cust = (ro && ro.customers && ro.customers.name) || '—';
+      const v = ro && ro.vehicles;
+      const vstr = v ? [v.year, v.make, v.model].filter(Boolean).join(' ') : '';
+      const status = ro ? ro.status : '';
+      const subEl = document.getElementById('finRoSub');
+      if (subEl) subEl.textContent = ro ? `${cust}${vstr ? ' · ' + vstr : ''} · stage ${status}` : `No CrisData RO record for PO ${po}`;
+
+      // LEFT — the FULL RO / invoice document, via the SAME shared builder the
+      // advisor board prints (window.RoInvoice). The invoice CSS is scoped under
+      // `.roinv` and injected once. When the RO isn't in CrisData (ALLDATA-only)
+      // there's nothing to render — show a note; receipts still show at right.
+      const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
+      const methodLabel = (window.BoardSettings && BoardSettings.paymentMethodLabel) ? BoardSettings.paymentMethodLabel : undefined;
+      if (window.RoInvoice && window.RoInvoice.INVOICE_CSS && !document.getElementById('roinv-css')) {
+        const st = document.createElement('style'); st.id = 'roinv-css'; st.textContent = window.RoInvoice.INVOICE_CSS; document.head.appendChild(st);
+      }
+      const leftHtml = (ro && window.RoInvoice && window.RoInvoice.buildInvoiceHtml)
+        ? `<div class="roinv roinv-embed">${window.RoInvoice.buildInvoiceHtml({ ro, lines: ro.ro_line_items || [], settings: cfg, payments: payments || [], methodLabel })}</div>`
+        : `<div class="fin-rc-empty">No CrisData RO record for PO ${esc(po)} (likely an ALLDATA-only job). Receipts still shown at right.</div>`;
+
+      // RIGHT — matched receipts + profit box
+      const rcRows = items.length ? items.map(i => {
+        const url = i.image_path ? urlByPath[i.image_path] : null;
+        const thumb = url
+          ? `<img class="fin-rc-thumb" src="${esc(url)}" alt="Receipt" data-full="${esc(url)}">`
+          : `<div class="fin-rc-thumb noimg" title="No photo">🧾</div>`;
+        return `<div class="fin-rc">${thumb}
+          <div class="fin-rc-main">
+            <div class="fin-rc-desc">${esc(i.desc)}</div>
+            <div class="fin-rc-sub">${esc(i.vendor || '')}${i.vendor && i.date ? ' · ' : ''}${esc(i.date ? fmtDrillDate(i.date) : '')}</div>
+          </div>
+          <div class="fin-rc-amt ${i.credit ? 'credit' : ''}">${i.credit ? '−' : ''}${fmtMoney(i.amount)}</div>
+        </div>`;
+      }).join('') : `<div class="fin-rc-empty">No parts receipts matched to PO ${esc(po)}.<br><span style="font-size:0.66rem">Receipts match when the receipt's PO# equals this RO#. A receipt tagged with the vendor's own invoice number (or a general shop-supply purchase) won't map here.</span></div>`;
+
+      const provBadge = provisional ? '<span class="fin-provisional">provisional · so far</span>' : '';
+      const pctCls = profit >= 0 ? 'pos' : 'neg';
+      const profitHtml = `
+        <div class="fin-profit">
+          <div class="fin-profit-row"><span>Ticket subtotal (pre-tax)</span><span>${fmtMoney(subtotal)}</span></div>
+          <div class="fin-profit-row"><span>− Parts cost (${items.length} receipt${items.length === 1 ? '' : 's'})</span><span>−${fmtMoney(partsCost)}</span></div>
+          <div class="fin-profit-row big"><span>Profit over parts ${provBadge}</span><span class="${pctCls}">${profit < 0 ? '−' : ''}${fmtMoney(Math.abs(profit))} · ${pct.toFixed(0)}%</span></div>
+          <div class="fin-profit-note"><b>Profit over parts</b> = pre-tax ticket subtotal − matched parts receipts (sales tax excluded — it isn't shop margin). It <b>excludes labor &amp; overhead</b> — it is NOT net profit.${provisional ? ' This RO is still open, so parts are partial — the figure is provisional (“so far”).' : ''} Note: core deposits currently count as parts cost until the core credit posts.</div>
+        </div>`;
+
+      const body = document.getElementById('finRoBody');
+      if (body) body.innerHTML = `
+        <div class="fin-ro-split">
+          <div class="fin-ro-pane invpane"><h4>RO / Invoice document</h4>${leftHtml}</div>
+          <div class="fin-ro-pane"><h4>Parts receipts (PO = ${esc(po)})</h4>${rcRows}${profitHtml}</div>
+        </div>`;
+    }
+
+    // ── Receipt-photo lightbox ──
+    function openPhoto(url) {
+      const o = document.getElementById('finPhoto'), img = document.getElementById('finPhotoImg');
+      if (!o || !img || !url) return;
+      img.src = url; o.style.display = 'flex';
+    }
+    function closePhoto() {
+      const o = document.getElementById('finPhoto'), img = document.getElementById('finPhotoImg');
+      if (o) o.style.display = 'none';
+      if (img) img.src = '';
     }
 
     function wire() {
@@ -3594,6 +3893,44 @@
       if (closeBtn) closeBtn.addEventListener('click', closeDrill);
       if (modal) modal.addEventListener('click', e => { if (e.target === modal) closeDrill(); });
       document.addEventListener('keydown', e => { if (e.key === 'Escape' && drillOpen) closeDrill(); });
+
+      // ── Per-RO drill-down (feature_bk_ro_detail) ──
+      // Delegated row → detail clicks survive each re-render (containers persist).
+      const rowToDetail = (provisional) => (e) => {
+        const tr = e.target.closest('tr.fin-rowlink'); if (!tr) return;
+        const po = tr.getAttribute('data-po'); if (po) openRoDetail(po, provisional);
+      };
+      const drillBody = document.getElementById('finDrillBody');   // paid ROs = final
+      const openBody = document.getElementById('finOpenBody');     // open ROs = provisional
+      const aging = document.getElementById('finAging');           // follow-up = provisional
+      if (drillBody) drillBody.addEventListener('click', rowToDetail(false));
+      if (openBody) openBody.addEventListener('click', rowToDetail(true));
+      if (aging) aging.addEventListener('click', rowToDetail(true));
+      // open-ROs list modal close
+      const openModal = document.getElementById('finOpenModal');
+      const openClose = document.getElementById('finOpenClose');
+      if (openClose) openClose.addEventListener('click', closeOpenList);
+      if (openModal) openModal.addEventListener('click', e => { if (e.target === openModal) closeOpenList(); });
+      // RO detail modal close
+      const roModal = document.getElementById('finRoDetail');
+      const roClose = document.getElementById('finRoClose');
+      if (roClose) roClose.addEventListener('click', closeRoDetail);
+      if (roModal) roModal.addEventListener('click', e => { if (e.target === roModal) closeRoDetail(); });
+      // receipt-photo thumbnails (delegated on the RO detail body) + lightbox
+      const roBody = document.getElementById('finRoBody');
+      if (roBody) roBody.addEventListener('click', e => { const im = e.target.closest('.fin-rc-thumb[data-full]'); if (im) openPhoto(im.getAttribute('data-full')); });
+      const photo = document.getElementById('finPhoto');
+      const photoClose = document.getElementById('finPhotoClose');
+      if (photoClose) photoClose.addEventListener('click', closePhoto);
+      if (photo) photo.addEventListener('click', e => { if (e.target === photo) closePhoto(); });
+      // Esc closes the topmost new layer (photo → detail → open-list)
+      document.addEventListener('keydown', e => {
+        if (e.key !== 'Escape') return;
+        const p = document.getElementById('finPhoto');
+        if (p && p.style.display === 'flex') { closePhoto(); return; }
+        if (roDetailOpen) { closeRoDetail(); return; }
+        if (openListOpen) { closeOpenList(); }
+      });
     }
 
     function update(next) {

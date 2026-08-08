@@ -93,7 +93,8 @@ switch, default OFF — when off, the RO builder and settings look exactly like 
 - **Tech pay** = `ro_line_items.rr_hours` — a **separate column that is never
   summed into any total**. It is the pull/install credit, captured now; the
   tech-hours rollup + report is the next step.
-- **Print:** `printRo` sums by category, so package lines are **folded into the
+- **Print:** `printRo` (now a thin wrapper over the shared builder `shared/ro-invoice.js`,
+  see [[ro-invoice]]) sums by category, so package lines are **folded into the
   Parts section and the Parts subtotal** (`partsTotal = catSum('parts') +
   catSum('package')`, `partsLines` includes package) so the printed rows and total
   agree. `rr_hours` is never printed.

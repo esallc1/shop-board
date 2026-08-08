@@ -28,11 +28,12 @@ gate and no server-side enforcement**, so "hidden" today means "removed from the
     value is **4%**, set in-app), `shop_supplies_default` ($ flat), `hazmat_default` ($ flat),
     `show_tech_on_ro` (bool).
   - **Feature switches** (`20260807_feature_book_hours_flag.sql`, `20260807_packages.sql`,
-    `20260808_advisor_commission.sql`): `feature_book_hours`, `feature_packages`, and
-    `feature_advisor_commission` (all bool, `not null default false`) — the master on/off switches
-    for the Book Hours, Packages, and Advisor Commission features (§4.1). One boolean column per
-    switch; additive, no new table, no RLS change. The commission migration also adds the
-    assumed-margin fallbacks `parts_margin_pct` / `package_margin_pct` (nullable; see §4.3).
+    `20260808_advisor_commission.sql`, `20260808_bk_ro_detail_flag.sql`): `feature_book_hours`,
+    `feature_packages`, `feature_advisor_commission`, and `feature_bk_ro_detail` (all bool,
+    `not null default false`) — the master on/off switches for the Book Hours, Packages, Advisor
+    Commission, and Bookkeeping RO Detail features (§4.1). One boolean column per switch; additive,
+    no new table, no RLS change. The commission migration also adds the assumed-margin fallbacks
+    `parts_margin_pct` / `package_margin_pct` (nullable; see §4.3).
 - **Package unit prices → `public.package_units`** (migration `20260807_packages.sql`): the
   shop-set list backing the RO "Package" line — `group_label` (nullable organizing tag),
   `unit_code`, `set_price`, `default_rr_hours`, `active`, timestamps. Anon-full-access RLS +
@@ -109,9 +110,11 @@ a small, forward-compatible step toward the role-gated hub in PART B.
   `getShopSettings()`; `saveFeatureFlag(column, enabled)` writes the column on the single
   `shop_settings` row (same anon write path as every setting). Adding a future switch (e.g. the
   Phase 3 manager-approval toggle) is **one registry line + one additive boolean column** — no
-  schema redesign. **Three entries today:** `book_hours` → `feature_book_hours` (see
-  [[flat-rate-hours]] §9), `packages` → `feature_packages` (see [[packages]] / §4.2), and
-  `advisor_commission` → `feature_advisor_commission` (see [[advisor-commission]] / §4.3).
+  schema redesign. **Four entries today:** `book_hours` → `feature_book_hours` (see
+  [[flat-rate-hours]] §9), `packages` → `feature_packages` (see [[packages]] / §4.2),
+  `advisor_commission` → `feature_advisor_commission` (see [[advisor-commission]] / §4.3), and
+  `bk_ro_detail` → `feature_bk_ro_detail` (the Bookkeeping per-RO parts/profit drill-down; see
+  [[financial-pulse]] §9).
 - **Owner-only gate:** the category's `visible` is `viewerRole === 'owner'`. `viewerRole` is a
   new module variable set by **`BoardSettings.refresh(employeeId, role)`** — each board now passes
   `who.role` from `captureSessionAndGreet()` (owner/gm/advisor/bookkeeping boards all updated). If
@@ -270,6 +273,11 @@ mechanism, in preference order:
   [[my-numbers]] (no viewer role today), [[announcements]] (a live service-role write path).
 
 ## Session change log
+- 2026-08-08 — **Added the fourth feature flag (`bk_ro_detail`)** — `shop_settings.feature_bk_ro_detail`
+  (`migrations/20260808_bk_ro_detail_flag.sql`, additive boolean, **unapplied**), 4th `FEATURE_FLAGS`
+  entry (owner Features pane, default OFF). Gates the Bookkeeping board's per-RO parts/profit
+  drill-down (read-only; see [[financial-pulse]] §9). No RLS change; SHOP_DEFAULTS + getShopSettings
+  extended. `shared/board-settings.js` + docs.
 - 2026-08-08 — **Added the third feature flag (`advisor_commission`) + the owner-only,
   feature-gated "Advisor Commission" category (§4.3).** New
   `shop_settings.feature_advisor_commission` + `parts_margin_pct` / `package_margin_pct`
