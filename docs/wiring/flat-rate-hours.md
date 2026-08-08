@@ -1,7 +1,7 @@
 # How the flagged-hours / book-hours (tech-pay) data is wired
 
 > Doc: `/docs/wiring/flat-rate-hours.md`
-> Last updated: 2026-08-07 — verified vs commit `3535697`
+> Last updated: 2026-08-08 — verified vs commit `8c93cee` (merged to main)
 > Status: ✅ verified vs code AND live schema this session. **`book_hours` capture is
 > BUILT** and, as of the **Hours Engine Part 1**, is a **read-only auto-total from the
 > lines** (§8) — not hand-typed. Per-line **tech credit** (`ro_line_items.line_tech_id`)

@@ -1,7 +1,7 @@
 # How RO line items (the Add/Edit-Line pop-up) are wired
 
 > Doc: `/docs/wiring/ro-line-items.md`
-> Last updated: 2026-08-07 — verified vs commit `661b8f0`
+> Last updated: 2026-08-08 — verified vs commit `8c93cee` (merged to main)
 > Status: ✅ BUILT + verified live this session. The line editor is a pop-up
 > window (no inline row editing). Verified end-to-end on real ROs: read-only rows,
 > add/edit/delete round-trip, labor auto-Sell, parts margin, package resolve,

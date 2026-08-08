@@ -1,7 +1,7 @@
 # How the Manager board Technicians table is wired
 
 > Doc: `/docs/wiring/manager-board.md`
-> Last updated: 2026-08-07 — verified vs commit `3535697`
+> Last updated: 2026-08-08 — verified vs commit `8c93cee` (merged to main)
 > Status: ✅ BUILT + verified live. The **Billed Hrs** column is now real (per-tech,
 > current week) behind the Book Hours switch; Clocked Hrs / Efficiency / time-punches
 > remain sample. Feature OFF → the table looks exactly like before (all sample).

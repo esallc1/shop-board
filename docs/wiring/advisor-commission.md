@@ -1,7 +1,7 @@
 # How Advisor Commission (gross-profit rollup + payout widgets) is wired
 
 > Doc: `/docs/wiring/advisor-commission.md`
-> Last updated: 2026-08-08 — verified vs commit `02d1879` (+ this session's work)
+> Last updated: 2026-08-08 — verified vs commit `8c93cee` (merged to main)
 > Status: ✅ BUILT on `feat/book-hours` (Hours Engine **Part 2**), behind an owner
 > **Advisor Commission** switch (`feature_advisor_commission`, default OFF). Engine +
 > both cards verified live in-browser (owner board): week GP `$17,224.80` / 10 ROs →

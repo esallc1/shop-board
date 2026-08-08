@@ -1,7 +1,7 @@
 # How Settings is wired (and the proposed role-gated hub)
 
 > Doc: `/docs/wiring/settings.md`
-> Last updated: 2026-08-07 — verified vs commit `0deddaa`
+> Last updated: 2026-08-08 — verified vs commit `8c93cee` (merged to main)
 > Status: ✅ §0–§4 (today's wiring) verified vs code this session — read against
 > `shared/board-settings.js`, `migrations/20260716_shop_settings.sql`, `crisdata.html`, the four
 > board `BoardSettings.init` calls, and `api/announcement.js`. **§4.1 (the owner Features
