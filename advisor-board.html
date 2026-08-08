@@ -545,6 +545,15 @@
   import * as RoWriter from './shared/ro-writer.js';
   window.RoWriter = RoWriter;
 </script>
+<!-- Advisor commission engine (ESM → window.CommissionEngine) + the shared
+     commission cards (regular script → window.CommissionCards). Behind the
+     Advisor Commission feature switch (default OFF); used only by event-driven
+     render calls, so load order vs this module is safe. -->
+<script type="module">
+  import * as CommissionEngine from './shared/commission-engine.js';
+  window.CommissionEngine = CommissionEngine;
+</script>
+<script src="shared/commission-cards.js"></script>
 <!-- Desk call-log attach / un-attach / not-a-customer decision logic (ESM).
      Assigns window.CallAttach; used only by event-driven Desk handlers. -->
 <script type="module">
@@ -730,6 +739,7 @@
         <div class="sidebar-item" data-view="cdros" data-label="RO Board"><span class="icon">📄</span>RO Board (CrisData)</div>
         <div class="sidebar-item" data-view="techboard" data-label="Tech Board"><span class="icon">🔧</span>Tech Board</div>
         <div class="sidebar-item active" data-view="approval" data-label="Approval Queue"><span class="icon">📋</span>Approval Queue</div>
+        <div class="sidebar-item" data-view="mycommission" data-label="My Commission" id="nav-mycommission" style="display:none"><span class="icon">💰</span>My Commission</div>
         <div class="sidebar-item" data-view="parts" data-label="Parts"><span class="icon">🔩</span>Parts</div>
         <div class="sidebar-item" data-view="payments" data-label="Payments"><span class="icon">💳</span>Payments</div>
         <div class="sidebar-item" data-view="customer-log" data-label="Customer Log"><span class="icon">📇</span>Customer Log</div>
@@ -764,6 +774,11 @@
     <div class="queue-grid" id="queue-grid">
       <div style="color:var(--muted);padding:24px;grid-column:1/-1">Loading…</div>
     </div>
+  </div>
+
+  <!-- ══ MY COMMISSION (advisor's own card) — feature-gated, nav hidden when OFF ══ -->
+  <div class="view" id="view-mycommission">
+    <div id="myCommissionMount" style="max-width:640px"></div>
   </div>
 
   <!-- ══ TAB 2: PARTS ══ -->
@@ -1922,7 +1937,11 @@
     canEditShopOps: true,
     // when shop_settings changes (or first loads), refresh the RO Board's
     // live tax label if a built RO is currently on screen.
-    onShopSettingsChanged: () => { if (window.cdRefreshShopSettings) window.cdRefreshShopSettings(); },
+    onShopSettingsChanged: () => {
+      if (window.cdRefreshShopSettings) window.cdRefreshShopSettings();
+      // reveal/hide + (re)render the My Commission card when the switch loads/changes
+      if (typeof refreshMyCommissionNav === 'function') refreshMyCommissionNav();
+    },
   });
 
   // "Catch this moment" capture FAB — lands in the Owner Marketing tab.
@@ -2215,6 +2234,33 @@
       closeMobileNav(); // no-op on desktop; on mobile, picking a view closes the drawer
     });
   });
+
+  // ── My Commission card (advisor's own) — Advisor Commission feature ──────
+  // Nav item is hidden unless the switch is ON and the viewer is an advisor
+  // (an advisor sees only themselves). Renders on identity-resolve, on each
+  // open, and when shop_settings first loads / changes. Fail-safe: OFF → hidden,
+  // exactly like before the feature.
+  function myCommissionOn() {
+    const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
+    return !!cfg.feature_advisor_commission && CHAT_IDENTITY && CHAT_IDENTITY.role === 'advisor';
+  }
+  function refreshMyCommissionNav() {
+    const on = myCommissionOn();
+    const nav = document.getElementById('nav-mycommission');
+    if (nav) nav.style.display = on ? '' : 'none';
+    return on;
+  }
+  async function renderMyCommission() {
+    if (!refreshMyCommissionNav()) return;
+    const mount = document.getElementById('myCommissionMount');
+    if (mount && window.CommissionCards && CHAT_IDENTITY && CHAT_IDENTITY.name) {
+      await CommissionCards.renderMine(mount, { db, viewerName: CHAT_IDENTITY.name });
+    }
+  }
+  (function () {
+    const nav = document.querySelector('.sidebar-item[data-view="mycommission"]');
+    if (nav) nav.addEventListener('click', renderMyCommission);
+  })();
 
   // ── Mobile nav drawer (hamburger + backdrop). Inert on desktop —
   // the CSS driving .sidebar.open only exists inside the shared
@@ -2939,6 +2985,10 @@
       loadAndRenderTodos();
       loadTodoAssignees();
       todoSubscribeRealtime();
+
+      // Advisor Commission — reveal the nav + render the advisor's own card
+      // (no-op unless the switch is ON and this viewer is an advisor).
+      renderMyCommission();
     }
 
     // Resolve WHO is viewing: an office-login auth session first, else the

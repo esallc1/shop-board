@@ -119,6 +119,11 @@ switch, default OFF — when off, the RO builder and settings look exactly like 
 - **Financial Pulse / bookkeeping** don't bucket by `line_type` today, so package
   price flows through their generic sums correctly — but if a future report
   category-splits lines, `package` must be mapped explicitly.
+- **Package COST is now capturable** — `package_units.unit_cost` (per-unit rebuild cost,
+  added by `migrations/20260808_advisor_commission.sql`, additive/nullable) so the Advisor
+  Commission engine can derive package **gross profit** (`set_price − unit_cost`), falling
+  back to an assumed package margin until costs are entered. See [[advisor-commission]] §1.
+  It's a **pay/GP** field only — never in the customer price (§4).
 
 ## Where it lives in the code / schema
 - **Schema:** `migrations/20260807_packages.sql` — `ro_line_type` +`package`;

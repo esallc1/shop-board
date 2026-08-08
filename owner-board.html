@@ -14,6 +14,13 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="shared/office-identity.js"></script>
 <script src="shared/board-settings.js"></script>
+<!-- Advisor commission engine (ESM → window.CommissionEngine) + shared cards
+     (→ window.CommissionCards). Behind the Advisor Commission switch (default OFF). -->
+<script type="module">
+  import * as CommissionEngine from './shared/commission-engine.js';
+  window.CommissionEngine = CommissionEngine;
+</script>
+<script src="shared/commission-cards.js"></script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/roadmap.js"></script>
 <script src="shared/planner.js"></script>
@@ -115,6 +122,7 @@
       <div class="sidebar-group">
         <div class="sidebar-group-label">Insights</div>
         <div class="sidebar-item" data-view="adoption" data-label="Feature Adoption"><span class="icon">📊</span>Feature Adoption</div>
+        <div class="sidebar-item" data-view="commission" data-label="Commission & Payout" id="nav-commission" style="display:none"><span class="icon">💰</span>Commission &amp; Payout</div>
         <div class="sidebar-item" data-view="filecabinet" data-label="File Cabinet"><span class="icon">🗄️</span>File Cabinet</div>
       </div>
       <!-- Owner master-key switcher: open the other rooms in new tabs. These are
@@ -162,6 +170,11 @@
         <div style="color:var(--muted);padding:24px;text-align:center">Loading…</div>
       </div>
     </div>
+  </div>
+
+  <!-- ══ COMMISSION & PAYOUT ══ (shared/commission-cards.js) — feature-gated -->
+  <div class="view" id="view-commission">
+    <div id="commissionMount" style="max-width:680px"></div>
   </div>
 
   <!-- ══ ROADMAP ══ (shared/roadmap.js — one-line include, self-contained) -->
@@ -267,7 +280,31 @@
     // operational toggle. (CrisData Shop / RO settings.)
     canEditShopMoney: true,
     canEditShopOps: true,
+    // Reveal/hide + (re)render the Commission & Payout card when the switch
+    // loads/changes. Fail-safe: OFF → nav hidden, board exactly like before.
+    onShopSettingsChanged: () => { if (typeof refreshCommissionNav === 'function') refreshCommissionNav(); },
   });
+
+  // ── Commission & Payout card (all advisors) — Advisor Commission feature ──
+  function commissionOn() {
+    const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
+    return !!cfg.feature_advisor_commission;
+  }
+  function refreshCommissionNav() {
+    const on = commissionOn();
+    const nav = document.getElementById('nav-commission');
+    if (nav) nav.style.display = on ? '' : 'none';
+    return on;
+  }
+  async function renderCommission() {
+    if (!refreshCommissionNav()) return;
+    const mount = document.getElementById('commissionMount');
+    if (mount && window.CommissionCards) await CommissionCards.renderPayout(mount, { db });
+  }
+  (function () {
+    const nav = document.querySelector('.sidebar-item[data-view="commission"]');
+    if (nav) nav.addEventListener('click', renderCommission);
+  })();
 
   // "Catch this moment" capture FAB — lands in this board's Marketing tab.
   CatchMoment.init({ db, getName: () => CHAT_IDENTITY.name });

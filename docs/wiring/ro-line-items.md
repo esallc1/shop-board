@@ -6,8 +6,10 @@
 > window (no inline row editing). Verified end-to-end on real ROs: read-only rows,
 > add/edit/delete round-trip, labor auto-Sell, parts margin, package resolve,
 > totals unchanged. New column `ro_line_items.unit_cost` migration
-> (`20260807_ro_line_unit_cost.sql`) is written but **NOT yet applied** — parts
-> cost degrades quietly until it is (the line still saves).
+> (`20260807_ro_line_unit_cost.sql`) is **now applied** (verified live 2026-08-08: the
+> column exists) — though costs are still sparse (1 of 28 parts lines had one), which is
+> why the Advisor Commission engine falls back to an assumed parts margin (see
+> [[advisor-commission]] §1).
 
 ## 0. In one line
 Each RO line is a **clean read-only row** (type · description · qty/hrs · unit $ ·

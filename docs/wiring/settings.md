@@ -27,10 +27,12 @@ gate and no server-side enforcement**, so "hidden" today means "removed from the
     `default_diag_fee` ($, nullable), `card_fee_pct` (fraction, default 0.03 — the shop's live
     value is **4%**, set in-app), `shop_supplies_default` ($ flat), `hazmat_default` ($ flat),
     `show_tech_on_ro` (bool).
-  - **Feature switches** (`20260807_feature_book_hours_flag.sql`, `20260807_packages.sql`):
-    `feature_book_hours` and `feature_packages` (both bool, `not null default false`) — the master
-    on/off switches for the Book Hours and Packages features (§4.1). One boolean column per switch;
-    additive, no new table, no RLS change.
+  - **Feature switches** (`20260807_feature_book_hours_flag.sql`, `20260807_packages.sql`,
+    `20260808_advisor_commission.sql`): `feature_book_hours`, `feature_packages`, and
+    `feature_advisor_commission` (all bool, `not null default false`) — the master on/off switches
+    for the Book Hours, Packages, and Advisor Commission features (§4.1). One boolean column per
+    switch; additive, no new table, no RLS change. The commission migration also adds the
+    assumed-margin fallbacks `parts_margin_pct` / `package_margin_pct` (nullable; see §4.3).
 - **Package unit prices → `public.package_units`** (migration `20260807_packages.sql`): the
   shop-set list backing the RO "Package" line — `group_label` (nullable organizing tag),
   `unit_code`, `set_price`, `default_rr_hours`, `active`, timestamps. Anon-full-access RLS +
@@ -107,8 +109,9 @@ a small, forward-compatible step toward the role-gated hub in PART B.
   `getShopSettings()`; `saveFeatureFlag(column, enabled)` writes the column on the single
   `shop_settings` row (same anon write path as every setting). Adding a future switch (e.g. the
   Phase 3 manager-approval toggle) is **one registry line + one additive boolean column** — no
-  schema redesign. Two entries today: `book_hours` → `feature_book_hours` (see
-  [[flat-rate-hours]] §9) and `packages` → `feature_packages` (see [[packages]] / §4.2).
+  schema redesign. **Three entries today:** `book_hours` → `feature_book_hours` (see
+  [[flat-rate-hours]] §9), `packages` → `feature_packages` (see [[packages]] / §4.2), and
+  `advisor_commission` → `feature_advisor_commission` (see [[advisor-commission]] / §4.3).
 - **Owner-only gate:** the category's `visible` is `viewerRole === 'owner'`. `viewerRole` is a
   new module variable set by **`BoardSettings.refresh(employeeId, role)`** — each board now passes
   `who.role` from `captureSessionAndGreet()` (owner/gm/advisor/bookkeeping boards all updated). If
@@ -130,6 +133,20 @@ the feature is off. It's the first category whose visibility combines the money 
 flag. The list is **grouped by `group_label`** with a per-group "set price for whole group" bulk
 shortcut (`setGroupPrice`). The RO builder reads the list via `BoardSettings.getPackageUnits()`.
 Full wiring (the Package RO line type, price-vs-pay separation, print fold-in) lives in [[packages]].
+
+## 4.3 The "Advisor Commission" category — owner-only AND feature-gated (BUILT 2026-08-08)
+An **Advisor Commission** pane (`renderCommissionPane`; category id `commission`) sets the
+per-advisor pay plan behind the commission widgets. Because it sets **pay**, its `visible` is
+`viewerRole === 'owner' && getShopSettings().feature_advisor_commission` — owner-only, and only
+when the Advisor Commission switch is on (advisor/GM/bookkeeping never see it). Two sections:
+- **Per-advisor base + %** — one row per active `role='advisor'` employee: `commission_base_weekly`
+  ($/full week) and `commission_gp_pct` (% of that week's GP). Blank → the engine's code default
+  ($1,000 / 2.5%). Written to `employees` (`saveAdvisorPay`).
+- **Assumed-margin fallbacks** — `shop_settings.parts_margin_pct` / `package_margin_pct` (stored
+  as fractions; shown as %), used by the engine only when a parts/package line has no real cost;
+  a real cost always overrides (`saveCommissionMargins`). Defaults 40% / 55%.
+Same anon write path + UI-level gate as every setting (§4). Full feature (the GP engine + the
+two cards) is documented in [[advisor-commission]].
 
 ---
 
@@ -253,6 +270,14 @@ mechanism, in preference order:
   [[my-numbers]] (no viewer role today), [[announcements]] (a live service-role write path).
 
 ## Session change log
+- 2026-08-08 — **Added the third feature flag (`advisor_commission`) + the owner-only,
+  feature-gated "Advisor Commission" category (§4.3).** New
+  `shop_settings.feature_advisor_commission` + `parts_margin_pct` / `package_margin_pct`
+  and `employees.commission_base_weekly` / `commission_gp_pct`
+  (`migrations/20260808_advisor_commission.sql`, additive, **not yet applied**).
+  `renderCommissionPane` (`viewerRole==='owner' && feature_advisor_commission`) sets per-advisor
+  base/% + the assumed-margin fallbacks. Full feature in [[advisor-commission]] (Hours Engine
+  Part 2). UI-level gate, same posture as §4.
 - 2026-07-30 — Created during the "CrisData Settings hub" investigation. Mapped today's storage
   (`shop_settings` fixed row + `employees`, all anon), the shared `board-settings.js` modal and
   its per-board hardcoded `canEditShopMoney` gate, and the identity model (real PIN login +

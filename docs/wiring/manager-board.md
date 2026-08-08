@@ -54,7 +54,9 @@ when the Book Hours feature is ON — else sample), and **Clocked Hrs / Efficien
   that select 400s **once** — a session-cached flag (`closedAtColAvailable` /
   `lineTechColAvailable`) then stops probing and the code re-queries without it (bucketing
   falls back to `updated_at`). The 400s disappear once the columns exist. `line_tech_id`
-  is already applied; `closed_at` (`20260807_ro_closed_at.sql`) is pending.
+  is already applied; `closed_at` (`20260807_ro_closed_at.sql`) is **now applied too**
+  (verified live 2026-08-08: the column exists and is stamped on all 33 invoice/closed
+  ROs), so that probe no longer 400s.
 
 ## Where it lives in the code
 - `gm-board.html`: `renderTechnicians`, `computeBilledHours` (buckets by `closed_at`),

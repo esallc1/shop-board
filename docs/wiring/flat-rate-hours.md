@@ -236,6 +236,14 @@ the header tags and the banner say which is live vs sample.
   labor all credits the RO tech), caching the probe result per session. Verified live: week Aug 2–8,
   billed `{Cory: 9, Alex: 3}`, matching an independent DB sum; OFF → sample.
 
+## 11. Hours Engine Part 2 — advisor GP + commission (separate subsystem)
+Part 2 builds a per-**advisor** weekly **gross-profit** rollup and the commission it drives
+(advisor "My Commission" card; owner/bookkeeper "Commission & Payout" card), behind its own
+owner **Advisor Commission** switch (default OFF). It **reuses this doc's bucketing verbatim**
+— stable `closed_at`, Sun–Sat NY, `status IN ('invoice','closed')` (§10) — but keys on the
+RO's **advisor** (`service_writer_id`), not the tech, and computes **money** (labor + parts
+markup + package margin), not hours. Fully documented in [[advisor-commission]].
+
 ## Known gaps & open questions (as of 2026-08-07)
 - **Multi-tech / per-phase** is now *partly* addressed: a labor line can credit a specific tech
   (`line_tech_id`), but a single line still can't split across techs, and diag-vs-repair phase
@@ -253,7 +261,8 @@ the header tags and the banner say which is live vs sample.
   **applied**). Labor pop-up picker `lineTechPickerHtml` (:5245), saved in `saveLineModal`; see
   [[ro-line-items]] §5.
 - **Stable completion stamp:** `repair_orders.closed_at` + trigger `crisdata_stamp_ro_closed_at`
-  (`migrations/20260807_ro_closed_at.sql`, **unapplied**) — set once on first invoice/closed.
+  (`migrations/20260807_ro_closed_at.sql`, **applied** — verified live 2026-08-08: column
+  present, stamped on all 33 invoice/closed ROs) — set once on first invoice/closed.
 - **Weekly Billed Hrs rollup:** `gm-board.html` `computeBilledHours` (:2174, buckets by
   `closed_at`), `nyWeekSunSat` / `nyDateOf`, `renderTechnicians`, `bookHoursFeatureOnGm`; column
   probes cached via `lineTechColAvailable` / `closedAtColAvailable`.

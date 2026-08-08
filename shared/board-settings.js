@@ -69,6 +69,11 @@ window.BoardSettings = (function () {
     // behavior when the column/row is missing (pre-migration) or unreadable.
     feature_book_hours: false,
     feature_packages: false,
+    feature_advisor_commission: false,
+    // Assumed-margin fallbacks for the commission engine (used only when a
+    // parts/package line has no real cost). Null → the engine's code default.
+    parts_margin_pct: null,
+    package_margin_pct: null,
   };
 
   // ── FEATURE FLAGS registry — the owner "Features" switchboard ─────
@@ -89,6 +94,12 @@ window.BoardSettings = (function () {
       column: 'feature_packages',
       label: 'Packages',
       desc: 'Turn on package unit prices (a "Rebuild Units & Prices" settings section) and the "Package" RO line type. Off = neither shows — the RO builder and settings look exactly like before.',
+    },
+    {
+      key: 'advisor_commission',
+      column: 'feature_advisor_commission',
+      label: 'Advisor Commission',
+      desc: 'Show the advisor gross-profit + commission widgets (advisor "My Commission" card; owner & bookkeeping "Commission & Payout" card) and an "Advisor Commission" settings section for per-advisor base/%. Off = nothing shows — the boards look exactly like before.',
     },
   ];
   let shopSettingsRow = null;   // raw row, or null if table/row missing
@@ -128,6 +139,11 @@ window.BoardSettings = (function () {
       // feature-flag migration adds the column; missing column → false.
       feature_book_hours: !!shopSettingsRow.feature_book_hours,
       feature_packages: !!shopSettingsRow.feature_packages,
+      feature_advisor_commission: !!shopSettingsRow.feature_advisor_commission,
+      // Assumed-margin fallbacks (fractions) for the commission engine. Present
+      // only post-migration; null → the engine uses its code default.
+      parts_margin_pct: shopSettingsRow.parts_margin_pct != null ? Number(shopSettingsRow.parts_margin_pct) : null,
+      package_margin_pct: shopSettingsRow.package_margin_pct != null ? Number(shopSettingsRow.package_margin_pct) : null,
       // shop profile (Phase 3) — nulls until the migration seeds them
       shop_name: shopSettingsRow.shop_name || null,
       address_line: shopSettingsRow.address_line || null,
@@ -479,6 +495,9 @@ window.BoardSettings = (function () {
       // when the owner's Packages feature switch is ON.
       { id: 'packages',    label: 'Rebuild Units & Prices', icon: ICONS.grid, visible: canEditShopMoney && !!getShopSettings().feature_packages, render: renderPackagesPane },
       { id: 'payments',    label: 'Payments',      icon: ICONS.card,    visible: canEditShopMoney, render: renderPaymentsPane },
+      // Advisor Commission — per-advisor base/% + the assumed-margin fallbacks.
+      // Owner-only (it sets pay) AND only when the Advisor Commission switch is ON.
+      { id: 'commission',  label: 'Advisor Commission', icon: ICONS.receipt, visible: viewerRole === 'owner' && !!getShopSettings().feature_advisor_commission, render: renderCommissionPane },
       // Features — owner-only master switchboard (default-OFF flags on
       // shop_settings). Gated on the viewer's role, not the board, so a
       // manager/advisor never sees it even on a board with money rights.
@@ -1116,6 +1135,106 @@ window.BoardSettings = (function () {
     await loadShopSettings();   // refresh cache (+ fires onShopSettingsChanged);
                                 // the pane re-renders fresh on next open.
     flashSavedThenClose(saveBtn, 'Save');
+  }
+
+  // ── Pane: Advisor Commission — owner-only pay config ──────────
+  // Per-advisor base ($/full week) + commission % of that week's gross profit,
+  // plus the two shop-wide assumed-margin fallbacks the engine uses when a
+  // parts/package line has no real cost. Blank base/% → the engine's code
+  // default ($1,000 / 2.5% — "Manny's plan"). A real cost on a line always
+  // overrides the assumed margins. Same anon write path as every setting; the
+  // owner-only gate is UI-level (see settings.md §4).
+  const COMMISSION_DEFAULT_BASE = 1000, COMMISSION_DEFAULT_PCT = 2.5;
+  const COMMISSION_DEFAULT_PARTS_MARGIN = 40, COMMISSION_DEFAULT_PACKAGE_MARGIN = 55;   // shown as %
+  async function renderCommissionPane(content) {
+    const head = catHeader('Advisor Commission',
+      'Pay basis = the advisor\'s gross profit: labor + parts markup + package margin (Shop Supply / Hazmat / Fee are excluded). Base is a flat weekly amount; commission is a % of THAT week\'s GP, paid weekly-final. Blank base/% → the default ($' + COMMISSION_DEFAULT_BASE + ' / ' + COMMISSION_DEFAULT_PCT + '%).');
+    const s = getShopSettings();
+    if (!s._exists) { content.innerHTML = head + migrationPlaceholder(); return; }
+    content.innerHTML = head + '<div class="stgfeat-placeholder">Loading…</div>';
+    let rows = [];
+    try {
+      const { data, error } = await db.from('employees')
+        .select('id, name, role, active, commission_base_weekly, commission_gp_pct')
+        .eq('role', 'advisor').eq('active', true).order('name');
+      if (error) throw error;
+      rows = data || [];
+    } catch (err) {
+      const missing = err && (err.code === 'PGRST204' || err.code === '42703' || /column/i.test(err.message || ''));
+      content.innerHTML = head + '<div class="stgfeat-placeholder">' +
+        (missing ? 'Run the <code>20260808_advisor_commission</code> migration to configure per-advisor pay here.' : 'Could not load advisors: ' + esc(err.message || String(err))) + '</div>';
+      return;
+    }
+    const advRow = (e) => `
+      <tr data-id="${esc(String(e.id))}" style="border-top:1px solid var(--border)">
+        <td style="padding:6px 6px">${esc(e.name || '—')}<div style="font-size:0.68rem;color:var(--muted)">${esc(e.role)}</div></td>
+        <td style="padding:6px 6px"><input type="number" data-f="base" value="${e.commission_base_weekly != null ? esc(String(e.commission_base_weekly)) : ''}" min="0" step="25" placeholder="${COMMISSION_DEFAULT_BASE}" style="width:88px"></td>
+        <td style="padding:6px 6px"><input type="number" data-f="pct" value="${e.commission_gp_pct != null ? esc(String(e.commission_gp_pct)) : ''}" min="0" step="0.1" placeholder="${COMMISSION_DEFAULT_PCT}" style="width:64px"></td>
+        <td style="padding:6px 6px"><button type="button" class="stgfeat-btn" data-act="save" style="padding:3px 8px;font-size:0.72rem">Save</button></td>
+      </tr>`;
+    const partsPctVal = s.parts_margin_pct != null ? Math.round(s.parts_margin_pct * 1000) / 10 : '';
+    const pkgPctVal = s.package_margin_pct != null ? Math.round(s.package_margin_pct * 1000) / 10 : '';
+    content.innerHTML = head +
+      `<div class="stgfeat-section">
+        <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+          <thead><tr style="text-align:left;color:var(--muted);font-size:0.72rem">
+            <th style="padding:2px 6px">Advisor</th><th style="padding:2px 6px">Base $/wk</th><th style="padding:2px 6px">% of GP</th><th style="padding:2px 6px"></th>
+          </tr></thead>
+          <tbody>${rows.length ? rows.map(advRow).join('') : '<tr><td colspan="4" style="padding:8px 6px;color:var(--muted)">No active advisors.</td></tr>'}</tbody>
+        </table>
+        <div class="stgfeat-error" id="stgComError" style="margin-top:6px"></div>
+      </div>
+      <div class="stgfeat-section">
+        <div style="font-weight:700;margin-bottom:2px">Assumed margin — cost not yet entered</div>
+        <div style="font-size:0.75rem;color:var(--muted);margin-bottom:8px">Used only when a parts or package line has no real cost captured. Once a real cost is entered on a line (or a package unit), it overrides these. Defaults ${COMMISSION_DEFAULT_PARTS_MARGIN}% / ${COMMISSION_DEFAULT_PACKAGE_MARGIN}%.</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
+          <label style="font-size:0.75rem">Parts margin %<br><input type="number" id="stgComParts" value="${partsPctVal}" min="0" max="100" step="1" placeholder="${COMMISSION_DEFAULT_PARTS_MARGIN}" style="width:80px"></label>
+          <label style="font-size:0.75rem">Package margin %<br><input type="number" id="stgComPkg" value="${pkgPctVal}" min="0" max="100" step="1" placeholder="${COMMISSION_DEFAULT_PACKAGE_MARGIN}" style="width:80px"></label>
+          <button type="button" class="stgfeat-btn" id="stgComMarginSave" style="padding:5px 12px">Save margins</button>
+        </div>
+        <div class="stgfeat-error" id="stgComMarginError" style="margin-top:6px"></div>
+      </div>`;
+    content.querySelectorAll('tr[data-id]').forEach(tr =>
+      tr.querySelector('[data-act="save"]').addEventListener('click', () => saveAdvisorPay(tr, content)));
+    content.querySelector('#stgComMarginSave').addEventListener('click', () => saveCommissionMargins(content));
+  }
+
+  async function saveAdvisorPay(tr, content) {
+    const err = content.querySelector('#stgComError'); if (err) err.textContent = '';
+    const baseRaw = tr.querySelector('[data-f="base"]').value;
+    const pctRaw = tr.querySelector('[data-f="pct"]').value;
+    const base = baseRaw === '' ? null : parseFloat(baseRaw);
+    const pct = pctRaw === '' ? null : parseFloat(pctRaw);
+    if (base != null && (!Number.isFinite(base) || base < 0)) { if (err) err.textContent = 'Enter a valid base (or leave blank for the default).'; return; }
+    if (pct != null && (!Number.isFinite(pct) || pct < 0)) { if (err) err.textContent = 'Enter a valid % (or leave blank for the default).'; return; }
+    const { error } = await db.from('employees')
+      .update({ commission_base_weekly: base, commission_gp_pct: pct }).eq('id', tr.dataset.id);
+    if (error) {
+      const missing = error.code === 'PGRST204' || /column/i.test(error.message || '');
+      if (err) err.textContent = missing ? 'Run the 20260808_advisor_commission migration first (pay columns missing).' : 'Save failed: ' + error.message;
+      return;
+    }
+    const btn = tr.querySelector('[data-act="save"]');
+    if (btn) { const o = btn.textContent; btn.textContent = 'Saved'; setTimeout(() => { btn.textContent = o; }, 1200); }
+  }
+
+  async function saveCommissionMargins(content) {
+    const err = content.querySelector('#stgComMarginError'); if (err) err.textContent = '';
+    const partsRaw = content.querySelector('#stgComParts').value;
+    const pkgRaw = content.querySelector('#stgComPkg').value;
+    const toFrac = (raw) => raw === '' ? null : parseFloat(raw) / 100;
+    const parts = toFrac(partsRaw), pkg = toFrac(pkgRaw);
+    for (const v of [parts, pkg]) if (v != null && (!Number.isFinite(v) || v < 0 || v > 1)) { if (err) err.textContent = 'Enter margins as 0–100 (or leave blank for the default).'; return; }
+    const id = (shopSettingsRow && shopSettingsRow.id) || SHOP_SETTINGS_ID;
+    const { error } = await db.from('shop_settings').update({ parts_margin_pct: parts, package_margin_pct: pkg }).eq('id', id);
+    if (error) {
+      const missing = error.code === 'PGRST204' || /column/i.test(error.message || '');
+      if (err) err.textContent = missing ? 'Run the 20260808_advisor_commission migration first (margin columns missing).' : 'Save failed: ' + error.message;
+      return;
+    }
+    await loadShopSettings();
+    const btn = content.querySelector('#stgComMarginSave');
+    if (btn) { const o = btn.textContent; btn.textContent = 'Saved'; setTimeout(() => { btn.textContent = o; }, 1200); }
   }
 
   // ── Pane: Features — owner-only master switchboard ────────────
