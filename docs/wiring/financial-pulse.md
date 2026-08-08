@@ -1,7 +1,7 @@
 # How the Financial Pulse is wired
 
 > Doc: `/docs/wiring/financial-pulse.md`
-> Last updated: 2026-08-08 — verified vs commit `c6fecec` (branch `feat/bookkeeping-ro-detail`)
+> Last updated: 2026-08-09 — verified vs commit `f55c89c` (branch `feat/bookkeeping-ro-detail`)
 > Status: ✅ Verified vs `bookkeeping-board.html`. Realized income reads the `ro_payments`
 > ledger (paid-in-full gate, capped at the true invoice total, bucketed by `paid_at`); every
 > income view + the income drill-down read that one source. **NEW (Hours-Engine-adjacent, this
