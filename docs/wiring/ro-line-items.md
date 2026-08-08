@@ -93,7 +93,8 @@ unmigrated `line_tech_id` never clobbers an already-migrated `unit_cost` /
 per-field auto-save is gone.
 
 ## 4. Cost / margin is INTERNAL — never printed
-`unit_cost` and the computed margin exist for the shop only. `printRo` builds its
+`unit_cost` and the computed margin exist for the shop only. `printRo` (now a thin wrapper
+over the shared builder `shared/ro-invoice.js`, see [[ro-invoice]]) builds its
 invoice from `description` / `part_number` / `quantity` / `unit_price` **only** — it
 never reads `unit_cost`. The read-only row also shows only the sell price, not cost.
 So cost/margin never reaches the customer estimate / RO / invoice.

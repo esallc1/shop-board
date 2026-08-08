@@ -554,6 +554,12 @@
   window.CommissionEngine = CommissionEngine;
 </script>
 <script src="shared/commission-cards.js"></script>
+<!-- Shared RO/invoice document builder (ESM → window.RoInvoice). printRo() below
+     is a thin wrapper over it; the bookkeeping board embeds the same builder. -->
+<script type="module">
+  import * as RoInvoice from './shared/ro-invoice.js';
+  window.RoInvoice = RoInvoice;
+</script>
 <!-- Desk call-log attach / un-attach / not-a-customer decision logic (ESM).
      Assigns window.CallAttach; used only by event-driven Desk handlers. -->
 <script type="module">
@@ -5827,239 +5833,40 @@
     }
 
     // ══════════════════════════════════════════════════════════
-    // PRINTABLE ONE-PAGE ESTIMATE / RO / INVOICE (Phase 3)
-    // Read-only: opens a print-optimized standalone document and
-    // fires the browser print dialog (Save-as-PDF works from there).
-    // Reads currentRo + currentLines + shop_settings. One number
-    // (ro_number); the legal footer is small-print at page bottom.
+    // PRINTABLE ONE-PAGE ESTIMATE / RO / INVOICE / RECEIPT.
+    // Thin wrapper over the shared builder shared/ro-invoice.js
+    // (window.RoInvoice) — the SAME builder the bookkeeping board embeds, so the
+    // printed document and the bookkeeping RO-detail panel can never diverge.
+    // Gathers the open RO + its lines + shop settings + recorded payments, asks
+    // the builder for a standalone print doc, and opens it for the print dialog.
     //
-    // Legal terms + MV# come from shop_settings and are printed ONLY
-    // when set — a customer-facing invoice must NEVER show an internal
-    // "(set in Settings)" / placeholder. Unset → the line is omitted.
-    // ══════════════════════════════════════════════════════════
-
-    // printRo()          → normal ESTIMATE/RO/INVOICE from currentRo+currentLines.
-    // printRo(receipt)    → RECEIPT MODE (quick diag-fee receipt): same engine +
-    //   one-page letter layout, but stripped to a single line. receipt =
-    //   { ro, amount, description, method:'cash'|'card', receiptNumber, estimateNumber }.
+    // printRo()          → ESTIMATE/RO/INVOICE from currentRo + currentLines. When
+    //   the RO is invoice/closed AND paid in full (currentPayments), the builder
+    //   emits the PAID document (PAID stamp, payment lines, $0 balance) instead of
+    //   the authorization/signature block — see shared/ro-invoice.js.
+    // printRo(receipt)    → RECEIPT MODE (quick diag-fee receipt): receipt =
+    //   { ro, amount, description, method, receiptNumber, estimateNumber }.
+    // The "Service Advisor" name comes from the RO's STORED writer (the builder
+    // reads ro.service_writer), NEVER from whoever is logged in at print time.
     function printRo(receipt) {
-      const isReceipt = !!(receipt && receipt.amount != null);
       const ro = (receipt && receipt.ro) || currentRo;
       if (!ro) return;
-      const c = ro.customers || {}, v = ro.vehicles || {};
+      if (!window.RoInvoice || !window.RoInvoice.buildPrintDoc) {
+        alert('Invoice builder still loading — please try again in a moment.');
+        return;
+      }
       const cfg = (window.BoardSettings && window.BoardSettings.getShopSettings)
         ? window.BoardSettings.getShopSettings() : {};
-      const showTech = !!cfg.show_tech_on_ro;
-      // The printed "Service Advisor" is the RO's STORED service writer (resolved
-      // to a name by the openRo embed), NOT whoever is logged in at print time.
-      // A blank ('—') is honest for the ~30 pre-tracking ROs and for a board
-      // running before the migration; a wrong name is not. Never reads
-      // CHAT_IDENTITY. Inline fallback mirrors serviceWriterName so the security
-      // property holds even if the module hasn't loaded.
-      const advisor = (window.RoWriter && window.RoWriter.serviceWriterName)
-        ? window.RoWriter.serviceWriterName(ro)
-        : ((ro && ro.service_writer && (Array.isArray(ro.service_writer) ? ro.service_writer[0] : ro.service_writer) || {}).name || '—');
-      const P = (s) => esc(s == null ? '' : String(s));
-      const M = (n) => '$' + (Number(n) || 0).toFixed(2);
-      // Stage drives the document's identity — ESTIMATE (the quote the
-      // customer approves) vs REPAIR ORDER vs INVOICE (final doc). Same
-      // layout, same one ro_number; only this label changes.
-      const docLabel = isReceipt ? DOC_LABEL.receipt : (DOC_LABEL[ro.status] || 'INVOICE');
-      const docTitle = docLabel.charAt(0) + docLabel.slice(1).toLowerCase();  // "Invoice" / "Estimate" / "Receipt"
-      const numShown = isReceipt ? (receipt.receiptNumber || ('R-' + ro.ro_number)) : ('#' + ro.ro_number);
-      const rAmt = isReceipt ? (Number(receipt.amount) || 0) : 0;
-      const rDesc = isReceipt ? (receipt.description || 'Diagnostic fee') : '';
-      const rMethod = isReceipt ? (receipt.method === 'card' ? 'Card' : 'Cash') : '';
-      const rEstNum = isReceipt ? (receipt.estimateNumber != null ? receipt.estimateNumber : ro.ro_number) : '';
-
-      // category totals
-      const catSum = (t) => currentLines.filter(l => l.line_type === t)
-        .reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
-      const laborTotal = catSum('labor');
-      // Package lines are customer priced (qty 1 × set price); print them in the
-      // Parts section and fold them into the Parts subtotal, so the Parts rows
-      // and the Parts total agree and the invoice total adds up. Their R&R hours
-      // are tech-pay only — never printed, never added to the price.
-      const partsTotal = catSum('parts') + catSum('package');
-      const hazmatTotal = catSum('hazmat'), suppliesTotal = catSum('shop_supply'), feesTotal = catSum('fee');
-      const taxableBase = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
-      const exempt = !!c.tax_exempt;
-      const rate = taxRate();
-      const taxTotal = exempt ? 0 : taxableBase * rate;
-      const invoiceTotal = laborTotal + partsTotal + hazmatTotal + suppliesTotal + feesTotal + taxTotal;
-
-      const laborLines = currentLines.filter(l => l.line_type === 'labor');
-      const partsLines = currentLines.filter(l => l.line_type === 'parts' || l.line_type === 'package');
-
-      const laborRows = laborLines.length ? laborLines.map(l => `
-        <tr><td>${P(l.description)}</td><td class="tc">${showTech ? P(ro.technician) : ''}</td>
-        <td class="tr">${num(l.quantity)}</td><td class="tr">${M(l.unit_price)}</td>
-        <td class="tr">${M(num(l.quantity) * num(l.unit_price))}</td></tr>`).join('')
-        : '<tr><td colspan="5" class="muted">—</td></tr>';
-      const partsRows = partsLines.length ? partsLines.map(l => `
-        <tr><td>${P(l.description)}</td><td>${P(l.part_number)}</td>
-        <td class="tr">${num(l.quantity)}</td><td class="tr">${M(l.unit_price)}</td>
-        <td class="tr">${M(num(l.quantity) * num(l.unit_price))}</td></tr>`).join('')
-        : '<tr><td colspan="5" class="muted">—</td></tr>';
-
-      const totalRow = (label, val, note) =>
-        `<tr><td>${label}${note ? ' <sup>*</sup>' : ''}</td><td class="tr">${M(val)}</td></tr>`;
-
-      const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-      const idLine = [v.vin ? 'VIN ' + v.vin : '', (v.plate ? 'Plate ' + v.plate + (v.plate_state ? ' ' + v.plate_state : '') : '')].filter(Boolean).join('  ·  ');
-      const logo = cfg.logo_url ? `<img class="logo" src="${P(cfg.logo_url)}" alt="">` : '';
-
-      // Body differs by mode. RECEIPT = one line + paid totals (no work sections,
-      // no auth/signature). INVOICE/etc = the full labor/parts/totals/auth block.
-      const invoiceBody = `
-  <h2>Customer Issues &amp; Advisories</h2>
-  <div class="kv"><b>Symptoms / DTC</b> ${P(ro.complaint) || '—'}</div>
-  <div class="kv"><b>Advisory notes</b> ${P(ro.advisory_notes) || '—'}</div>
-
-  <h2>Work Performed — Labor</h2>
-  <table class="lt"><thead><tr><th>Description</th><th class="tc">Tech</th><th class="tr">Hrs</th><th class="tr">Price</th><th class="tr">Total</th></tr></thead><tbody>${laborRows}</tbody></table>
-
-  <h2>Work Performed — Parts</h2>
-  <table class="lt"><thead><tr><th>Description</th><th>Part No</th><th class="tr">Qty</th><th class="tr">Price</th><th class="tr">Total</th></tr></thead><tbody>${partsRows}</tbody></table>
-
-  <div class="totals">
-    <table>
-      ${totalRow('Labor', laborTotal)}
-      ${totalRow('Parts', partsTotal)}
-      ${totalRow('Hazmat', hazmatTotal, true)}
-      ${totalRow('Shop Supplies', suppliesTotal, true)}
-      ${feesTotal > 0 ? totalRow('Fees', feesTotal) : ''}
-      ${totalRow(exempt ? 'Taxes (exempt)' : 'Taxes (' + (rate * 100).toFixed(2) + '%)', taxTotal)}
-      <tr><td>Invoice Total</td><td class="tr">${M(invoiceTotal)}</td></tr>
-    </table>
-    <div class="foot-note">* Shop supplies &amp; hazmat are flat shop charges, not per-part.</div>
-  </div>
-
-  <div class="auth">
-    <div class="row"><div><b>Authorization</b></div><div>Original estimate total: <b>${M(invoiceTotal)}</b></div></div>
-    <div class="row" style="margin-top:5px">
-      <span>Method:</span>
-      <span><span class="box"></span>Email</span>
-      <span><span class="box"></span>Text</span>
-      <span><span class="box"></span>Phone</span>
-      <span><span class="box"></span>Fax</span>
-      <span><span class="box"></span>In person</span>
-    </div>
-    <div class="row" style="margin-top:5px">
-      <span>Date: ______________</span>
-      <span>Contact: ______________________</span>
-      <span>Authorized by: ______________________</span>
-    </div>
-    <div class="sigblock">
-      <div class="sigline"></div>
-      <div class="siglabel">X — Customer signature</div>
-    </div>
-  </div>`;
-
-      const receiptBody = `
-  <table class="lt"><thead><tr><th>Description</th><th class="tr">Amount</th></tr></thead>
-    <tbody><tr><td>${P(rDesc)}</td><td class="tr">${M(rAmt)}</td></tr></tbody></table>
-  <div class="totals">
-    <table>
-      <tr><td>Subtotal</td><td class="tr">${M(rAmt)}</td></tr>
-      <tr><td>Balance Due</td><td class="tr">${M(0)}</td></tr>
-      <tr><td>Paid — ${P(rMethod)}</td><td class="tr">${M(rAmt)}</td></tr>
-    </table>
-  </div>
-  <div class="foot-note" style="margin-top:6px">Diagnostic fee for the declined estimate above. The estimate itself remains unbilled — no repair was authorized.</div>`;
-
-      const bodyHtml = isReceipt ? receiptBody : invoiceBody;
-
-      const doc = `<!doctype html><html><head><meta charset="utf-8"><title>${P(docTitle)} ${P(numShown)} — ${P(cfg.shop_name || 'Lee Transmission')}</title>
-<style>
-  @page { size: letter; margin: 0.5in; }
-  * { box-sizing: border-box; }
-  body { font-family: 'Segoe UI', system-ui, Arial, sans-serif; color: #111; font-size: 10px; line-height: 1.35; margin: 0; }
-  /* centered, bounded container → balanced left/right margins on Letter */
-  .inv { width: 100%; max-width: 7.5in; margin: 0 auto; }
-  /* RECEIPT mode: the short half-page doc can render tight to the top edge,
-     so give the header the same ~0.5in breathing room the full invoice has. */
-  .inv.inv-receipt { padding-top: 0.5in; }
-  .tr { text-align: right; } .tc { text-align: center; } .muted { color: #888; }
-  /* align-items:flex-start so the (possibly multi-line) shop block sizes
-     to its own height and can't overflow the header into the section
-     below it — this is what caused text to collide with the CUSTOMER
-     heading. margin-bottom adds clean separation before the body. */
-  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 8px; }
-  .top .shop { display: flex; gap: 10px; align-items: flex-start; }
-  .logo { max-height: 54px; max-width: 130px; object-fit: contain; }
-  .shopname { font-size: 15px; font-weight: 800; }
-  .shopmeta { color: #333; }
-  .doc-meta { text-align: right; font-size: 10px; }
-  .doc-meta .num { font-size: 17px; font-weight: 800; }
-  h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; color: #555; margin: 10px 0 3px; border-bottom: 1px solid #ccc; padding-bottom: 2px; }
-  .grid2 { display: flex; gap: 22px; } .grid2 > div { flex: 1; }
-  .kv { margin: 1px 0; } .kv b { display: inline-block; min-width: 92px; color: #444; font-weight: 600; }
-  table.lt { width: 100%; border-collapse: collapse; margin-top: 3px; }
-  table.lt th, table.lt td { border-bottom: 1px solid #ddd; padding: 3px 5px; text-align: left; }
-  table.lt th { background: #f2f2f4; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.4px; color: #555; }
-  .totals { width: 250px; margin-left: auto; margin-top: 8px; }
-  .totals table { width: 100%; border-collapse: collapse; }
-  .totals td { padding: 2px 5px; } .totals tr:last-child td { border-top: 2px solid #111; font-weight: 800; font-size: 12px; }
-  .foot-note { font-size: 8px; color: #777; margin-top: 3px; }
-  .auth { border: 1px solid #bbb; border-radius: 4px; padding: 8px; margin-top: 10px; font-size: 9px; break-inside: avoid; page-break-inside: avoid; }
-  .auth .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: baseline; }
-  .auth .box { border: 1px solid #666; width: 10px; height: 10px; display: inline-block; margin-right: 3px; vertical-align: middle; }
-  /* Customer signature — its own full-width row with a genuinely tall signing
-     area (physical inches so the height holds in the actual Print / Save-PDF
-     output, not just on screen); the "X — Customer signature" label sits
-     beneath the line. break-inside:avoid keeps the block off a second page. */
-  .sigblock { margin-top: 16px; width: 100%; break-inside: avoid; page-break-inside: avoid; }
-  .sigline { height: 0.6in; border-bottom: 1px solid #111; }
-  .siglabel { margin-top: 3px; font-size: 9px; color: #333; }
-  .legal { font-size: 7px; color: #555; line-height: 1.3; margin-top: 10px; border-top: 1px solid #ccc; padding-top: 5px; }
-  .mv { font-size: 8px; color: #333; margin-top: 3px; font-weight: 700; }
-</style></head><body onload="window.focus();window.print();">
-<div class="inv${isReceipt ? ' inv-receipt' : ''}">
-  <div class="top">
-    <div class="shop">
-      ${logo}
-      <div>
-        <div class="shopname">${P(cfg.shop_name || 'Lee Transmission')}</div>
-        <div class="shopmeta">${P(cfg.address_line)}${cfg.city_state_zip ? ', ' + P(cfg.city_state_zip) : ''}</div>
-        <div class="shopmeta">${P(cfg.phone)}${cfg.email ? '  ·  ' + P(cfg.email) : ''}</div>
-        <div class="shopmeta">${P(cfg.website)}</div>
-      </div>
-    </div>
-    <div class="doc-meta">
-      <div class="num">${P(docLabel)} ${isReceipt ? P(numShown) : '#' + P(ro.ro_number)}</div>
-      <div>Date: ${P(dateStr)}</div>
-      ${isReceipt ? `<div><b>Re: Estimate #${P(rEstNum)}</b></div>` : ''}
-      <div>Service Advisor: ${P(advisor) || '—'}</div>
-      ${showTech && ro.technician ? `<div>Technician: ${P(ro.technician)}</div>` : ''}
-    </div>
-  </div>
-
-  <div class="grid2">
-    <div>
-      <h2>Customer</h2>
-      <div class="kv"><b>Name</b> ${P(c.name)}</div>
-      <div class="kv"><b>Cell</b> ${P(formatPhone(c.phone_primary))}</div>
-      <div class="kv"><b>Email</b> ${P(c.email)}</div>
-    </div>
-    <div>
-      <h2>Vehicle</h2>
-      <div class="kv"><b>Vehicle</b> ${P([v.year, v.make, v.model].filter(Boolean).join(' '))}</div>
-      <div class="kv"><b>Engine</b> ${P(v.engine)}</div>
-      <div class="kv"><b>Trans code</b> ${P(v.transmission_code)}</div>
-      <div class="kv"><b>VIN</b> ${P(v.vin)}</div>
-      <div class="kv"><b>Plate</b> ${P(v.plate)}${v.plate_state ? ' ' + P(v.plate_state) : ''}</div>
-      <div class="kv"><b>Miles</b> in ${P(ro.odometer_in != null ? ro.odometer_in : '—')} / out ${P(ro.miles_out != null ? ro.miles_out : '—')}</div>
-    </div>
-  </div>
-
-  ${bodyHtml}
-
-  ${cfg.legal_terms ? `<div class="legal">${P(cfg.legal_terms)}</div>` : ''}
-  ${cfg.mv_number ? `<div class="mv">MV# ${P(cfg.mv_number)}</div>` : ''}
-</div>
-</body></html>`;
-
+      const methodLabel = (window.BoardSettings && window.BoardSettings.paymentMethodLabel)
+        ? window.BoardSettings.paymentMethodLabel : undefined;
+      const doc = window.RoInvoice.buildPrintDoc({
+        ro,
+        lines: currentLines,
+        settings: cfg,
+        payments: currentPayments || [],   // drives the PAID state for a paid-off invoice
+        receipt: (receipt && receipt.amount != null) ? receipt : null,
+        methodLabel,
+      });
       const w = window.open('', '_blank', 'width=850,height=1100');
       if (!w) { alert('Please allow pop-ups to print the invoice.'); return; }
       w.document.open(); w.document.write(doc); w.document.close();

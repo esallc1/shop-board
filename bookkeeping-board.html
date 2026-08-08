@@ -383,8 +383,9 @@
   .fin-score.pipeline.clickable:hover { filter: brightness(0.98); }
   .fin-score-hint.blue { color: #1d4ed8; }
   /* wide split detail modal */
-  .fin-drill.wide { max-width: 1000px; }
-  .fin-ro-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .fin-drill.wide { max-width: 1140px; }
+  .fin-ro-split { display: grid; grid-template-columns: 1.5fr 1fr; gap: 16px; }
+  .fin-ro-pane.invpane { overflow-x: auto; }
   @media (max-width: 760px) { .fin-ro-split { grid-template-columns: 1fr; } }
   .fin-ro-pane { min-width: 0; }
   .fin-ro-pane h4 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); font-weight: 800; margin: 0 0 8px; }
@@ -620,6 +621,12 @@
   window.CommissionEngine = CommissionEngine;
 </script>
 <script src="shared/commission-cards.js"></script>
+<!-- Shared RO/invoice builder (ESM → window.RoInvoice) — the per-RO detail LEFT
+     pane embeds its output (same document the advisor board prints). -->
+<script type="module">
+  import * as RoInvoice from './shared/ro-invoice.js';
+  window.RoInvoice = RoInvoice;
+</script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
@@ -3732,33 +3739,41 @@
       if (subEl) subEl.textContent = 'Loading…';
       if (body) body.innerHTML = '<div class="fin-rc-empty">Loading RO + receipts…</div>';
       if (overlay) overlay.style.display = 'flex';
-      let ro = null, receipts = [], poLines = [];
+      let ro = null, receipts = [], poLines = [], payments = [];
+      // Full RO fields so the LEFT pane can render the real invoice document.
+      const RO_COLS = 'po,ro_number,status,created_at,closed_at,complaint,advisory_notes,technician,odometer_in,miles_out,customers(name,phone_primary,email,tax_exempt),vehicles(year,make,model,engine,transmission_code,vin,plate,plate_state),service_writer:employees!service_writer_id(name),ro_line_items(line_type,description,part_number,quantity,unit_price,taxable)';
+      const RO_COLS_NOWRITER = RO_COLS.replace(',service_writer:employees!service_writer_id(name)', '');
       try {
-        const [roRes, iqRes, plRes] = await Promise.all([
-          db.from('repair_orders')
-            .select('po,ro_number,status,created_at,customers(name,tax_exempt),vehicles(year,make,model),ro_line_items(line_type,description,part_number,quantity,unit_price,taxable)')
-            .eq('po', po).limit(1).maybeSingle(),
+        const [roRes, iqRes, plRes, payRes] = await Promise.all([
+          db.from('repair_orders').select(RO_COLS).eq('po', po).limit(1).maybeSingle(),
           db.from('invoice_queue').select('id,po,invoice_type,amount,invoice_date,vendor,description,image_path').eq('po', po),
           db.from('invoice_po_lines').select('po,label,amount,invoice_queue(invoice_date,vendor,image_path,invoice_type)').eq('po', po),
+          db.from('ro_payments').select('amount,method,paid_at,po').eq('po', po),
         ]);
-        if (roRes.error) throw roRes.error;
-        ro = roRes.data;
+        let roData = roRes;
+        // The service_writer embed may not resolve on every schema — retry without it.
+        if (roRes.error && /service_writer|relationship|employees/i.test(roRes.error.message || '')) {
+          roData = await db.from('repair_orders').select(RO_COLS_NOWRITER).eq('po', po).limit(1).maybeSingle();
+        }
+        if (roData.error) throw roData.error;
+        ro = roData.data;
         receipts = iqRes.error ? [] : (iqRes.data || []);
         poLines = plRes.error ? [] : (plRes.data || []);
+        payments = payRes.error ? [] : (payRes.data || []);
       } catch (e) {
         console.warn('[RO detail] load failed', e);
         if (roDetailOpen && body) body.innerHTML = '<div class="fin-rc-empty">Could not load this RO.</div>';
         return;
       }
       if (!roDetailOpen) return;   // closed while awaiting
-      await renderRoDetail(po, ro, receipts, poLines, provisional);
+      await renderRoDetail(po, ro, receipts, poLines, provisional, payments);
     }
     function closeRoDetail() {
       roDetailOpen = false;
       const m = document.getElementById('finRoDetail'); if (m) m.style.display = 'none';
     }
 
-    async function renderRoDetail(po, ro, receipts, poLines, provisional) {
+    async function renderRoDetail(po, ro, receipts, poLines, provisional, payments) {
       // Matched PARTS receipts only: parts_vendor (cost) / vendor_credit (credit)
       // etc. EXCLUDE shop_expense (general supplies) + record_only (the RO's own
       // repair_invoice). Credits subtract. invoice_po_lines split a multi-PO
@@ -3779,9 +3794,12 @@
       items.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
       const partsCost = items.reduce((s, x) => s + (x.credit ? -x.amount : x.amount), 0);
 
-      const ticket = ro ? roTotal(ro) : 0;
-      const profit = ticket - partsCost;
-      const pct = ticket > 0 ? (profit / ticket * 100) : 0;
+      // D: profit over parts is computed on the PRE-TAX SUBTOTAL (labor + parts +
+      // hazmat + supplies + fees) — sales tax isn't shop margin — not the
+      // tax-included ticket total.
+      const subtotal = ((ro && ro.ro_line_items) || []).reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
+      const profit = subtotal - partsCost;
+      const pct = subtotal > 0 ? (profit / subtotal * 100) : 0;
 
       // sign the receipt photos (batch), degrade to placeholder on failure
       const paths = [...new Set(items.map(i => i.image_path).filter(Boolean))];
@@ -3801,32 +3819,17 @@
       const subEl = document.getElementById('finRoSub');
       if (subEl) subEl.textContent = ro ? `${cust}${vstr ? ' · ' + vstr : ''} · stage ${status}` : `No CrisData RO record for PO ${po}`;
 
-      // LEFT — the original RO (line items + totals; mirrors roTotal)
-      const lines = (ro && ro.ro_line_items) || [];
-      const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : null;
-      const rate = cfg && Number.isFinite(Number(cfg.tax_rate)) ? Number(cfg.tax_rate) : 0.065;
-      let sub = 0, txbl = 0;
-      const lineRows = lines.map(l => {
-        const amt = (Number(l.quantity) || 0) * (Number(l.unit_price) || 0);
-        sub += amt; if (l.taxable) txbl += amt;
-        return `<tr>
-          <td><div class="lt">${esc(LINE_TYPE_LABEL[l.line_type] || l.line_type || '')}</div>${esc(l.description || '')}</td>
-          <td class="num">${Number(l.quantity) || 0}</td>
-          <td class="num">${fmtMoney(Number(l.unit_price) || 0)}</td>
-          <td class="num">${fmtMoney(amt)}</td>
-        </tr>`;
-      }).join('');
-      const exempt = ro && ro.customers && ro.customers.tax_exempt;
-      const tax = exempt ? 0 : txbl * rate;
-      const leftHtml = ro ? `
-        <div class="fin-ro-meta"><b>${esc(cust)}</b>${vstr ? ' · ' + esc(vstr) : ''}<br>RO #${esc(po)} · stage <b>${esc(status)}</b></div>
-        <table class="fin-ro-lines"><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Unit</th><th class="num">Total</th></tr></thead>
-          <tbody>${lineRows || '<tr><td colspan="4" style="color:var(--muted)">No line items.</td></tr>'}</tbody></table>
-        <div style="margin-top:8px">
-          <div class="fin-ro-tot"><span>Subtotal</span><span>${fmtMoney(sub)}</span></div>
-          <div class="fin-ro-tot"><span>Tax${exempt ? ' (exempt)' : ''}</span><span>${fmtMoney(tax)}</span></div>
-          <div class="fin-ro-tot grand"><span>Ticket total</span><span>${fmtMoney(sub + tax)}</span></div>
-        </div>`
+      // LEFT — the FULL RO / invoice document, via the SAME shared builder the
+      // advisor board prints (window.RoInvoice). The invoice CSS is scoped under
+      // `.roinv` and injected once. When the RO isn't in CrisData (ALLDATA-only)
+      // there's nothing to render — show a note; receipts still show at right.
+      const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
+      const methodLabel = (window.BoardSettings && BoardSettings.paymentMethodLabel) ? BoardSettings.paymentMethodLabel : undefined;
+      if (window.RoInvoice && window.RoInvoice.INVOICE_CSS && !document.getElementById('roinv-css')) {
+        const st = document.createElement('style'); st.id = 'roinv-css'; st.textContent = window.RoInvoice.INVOICE_CSS; document.head.appendChild(st);
+      }
+      const leftHtml = (ro && window.RoInvoice && window.RoInvoice.buildInvoiceHtml)
+        ? `<div class="roinv roinv-embed">${window.RoInvoice.buildInvoiceHtml({ ro, lines: ro.ro_line_items || [], settings: cfg, payments: payments || [], methodLabel })}</div>`
         : `<div class="fin-rc-empty">No CrisData RO record for PO ${esc(po)} (likely an ALLDATA-only job). Receipts still shown at right.</div>`;
 
       // RIGHT — matched receipts + profit box
@@ -3848,16 +3851,16 @@
       const pctCls = profit >= 0 ? 'pos' : 'neg';
       const profitHtml = `
         <div class="fin-profit">
-          <div class="fin-profit-row"><span>Ticket total</span><span>${fmtMoney(ticket)}</span></div>
+          <div class="fin-profit-row"><span>Ticket subtotal (pre-tax)</span><span>${fmtMoney(subtotal)}</span></div>
           <div class="fin-profit-row"><span>− Parts cost (${items.length} receipt${items.length === 1 ? '' : 's'})</span><span>−${fmtMoney(partsCost)}</span></div>
           <div class="fin-profit-row big"><span>Profit over parts ${provBadge}</span><span class="${pctCls}">${profit < 0 ? '−' : ''}${fmtMoney(Math.abs(profit))} · ${pct.toFixed(0)}%</span></div>
-          <div class="fin-profit-note"><b>Profit over parts</b> = ticket total − matched parts receipts. It <b>excludes labor &amp; overhead</b> — it is NOT net profit.${provisional ? ' This RO is still open, so parts are partial — the figure is provisional (“so far”).' : ''} Note: core deposits currently count as parts cost until the core credit posts.</div>
+          <div class="fin-profit-note"><b>Profit over parts</b> = pre-tax ticket subtotal − matched parts receipts (sales tax excluded — it isn't shop margin). It <b>excludes labor &amp; overhead</b> — it is NOT net profit.${provisional ? ' This RO is still open, so parts are partial — the figure is provisional (“so far”).' : ''} Note: core deposits currently count as parts cost until the core credit posts.</div>
         </div>`;
 
       const body = document.getElementById('finRoBody');
       if (body) body.innerHTML = `
         <div class="fin-ro-split">
-          <div class="fin-ro-pane"><h4>Repair Order</h4>${leftHtml}</div>
+          <div class="fin-ro-pane invpane"><h4>RO / Invoice document</h4>${leftHtml}</div>
           <div class="fin-ro-pane"><h4>Parts receipts (PO = ${esc(po)})</h4>${rcRows}${profitHtml}</div>
         </div>`;
     }

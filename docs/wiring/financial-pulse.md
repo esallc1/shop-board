@@ -207,17 +207,21 @@ so they survive each re-render; each row carries `data-po` and the `fin-rowlink`
 the feature is on.
 
 ### 9.2 The split detail (`#finRoDetail`, `openRoDetail(po, provisional)` → `renderRoDetail`)
-- **LEFT — the original RO.** Fetched fresh by `po` from `repair_orders` (+ `customers`,
-  `vehicles`, `ro_line_items`). Renders customer/vehicle/stage + a read-only line-item table and
-  Subtotal / Tax / **Ticket total**, reproducing `roTotal` (so a paid RO's ticket equals its
-  recognized income). If no `repair_orders` row matches the PO (an ALLDATA-only job) the left
-  shows a note and the right still lists receipts.
+- **LEFT — the FULL RO / invoice document.** As of 2026-08-09 the left pane **embeds the real
+  invoice** via the shared builder `window.RoInvoice.buildInvoiceHtml` (the SAME document the
+  advisor board prints — see [[ro-invoice]]), scoped under `.roinv .roinv-embed`. `openRoDetail`
+  fetches the full RO fields (`customers`, `vehicles`, `service_writer`, complaint/advisory,
+  odometer, line items) **plus `ro_payments`**, so a paid closed RO shows the **PAID** state
+  (stamp, $0 balance, combined method) inside the panel too. If no `repair_orders` row matches
+  the PO (an ALLDATA-only job) the left shows a note and the right still lists receipts.
 - **RIGHT — matched parts receipts + profit.** See §9.3. Each receipt row = photo thumbnail
   (signed URL) + description/vendor/date + amount; the thumbnail opens a **lightbox** (`#finPhoto`).
-- **Profit line:** `Ticket total − Parts cost`, shown as **$ and %**, labelled **"Profit over
-  parts (excludes labor & overhead) — NOT net profit."** For a **provisional** (open) RO it adds a
-  `provisional · so far` badge and says parts are partial. Negative profit (a mistagged/oversized
-  receipt, or an under-billed ticket) renders in red — surfaced, not hidden.
+- **Profit line:** `pre-tax ticket subtotal − Parts cost`, shown as **$ and %**, labelled
+  **"Profit over parts (excludes labor & overhead) — NOT net profit."** The base is the RO's
+  **pre-tax subtotal** (labor + parts + hazmat + supplies + fees) — sales tax is excluded because
+  it isn't shop margin (changed 2026-08-09; was the tax-included ticket). For a **provisional**
+  (open) RO it adds a `provisional · so far` badge and says parts are partial. Negative profit (a
+  mistagged/oversized receipt, or an under-billed ticket) renders in red — surfaced, not hidden.
 - **Read-only**: the view only READs; it never writes.
 
 ### 9.3 Receipt → RO matching (the linkage, verified live 2026-08-08)
@@ -307,6 +311,15 @@ surfaced). PO 6009 (open) → provisional. Unmatched PO → "no receipts" empty 
   GP-vs-cost view — labor+parts-markup per advisor).
 
 ## Session change log
+- 2026-08-09 — **Refinement pass (D → C → B).** (D) Profit-over-parts now computes on the RO's
+  **pre-tax subtotal**, not the tax-included ticket (sales tax isn't shop margin). (C) The RO-detail
+  **LEFT pane now embeds the full real invoice** via the shared builder `shared/ro-invoice.js`
+  (`window.RoInvoice.buildInvoiceHtml`, scoped `.roinv .roinv-embed`), replacing the brief summary;
+  `openRoDetail` now fetches the full RO fields + `ro_payments`. (B) A **PAID** invoice state landed
+  in the shared builder (stamp, per-payment lines, $0 balance, combined method) — so a paid closed RO
+  shows PAID in the panel **and** in the advisor print-out (`printRo` is now a thin wrapper over the
+  same builder). New docs [[ro-invoice]] + [[payments]]. No schema change. Verified live: 6022 paid →
+  PAID doc + $339.04 pre-tax profit; 6025 estimate → unchanged auth/signature.
 - 2026-08-08 — **Added the per-RO drill-down (§9), behind `feature_bk_ro_detail` (default OFF).**
   The Income modal rows, a new Open-ROs list modal (from the pipeline tile), and the follow-up
   rows all open a split RO detail: the original RO (left, from `repair_orders` + `ro_line_items`,

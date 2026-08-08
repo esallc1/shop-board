@@ -68,6 +68,8 @@ Every file under `/docs/wiring/` follows this shape:
 | Packages (unit prices + Package line) | `packages.md` | `package_units`, `ro_line_items.package_unit_id`/`rr_hours`, `shop_settings.feature_packages`, `shared/board-settings.js`, `advisor-board.html` |
 | RO line items (Add/Edit-Line pop-up) | `ro-line-items.md` | `ro_line_items` (+ `unit_cost`), `advisor-board.html` (`#cdLineModal`, `renderLines`, `openLineModal`/`saveLineModal`) |
 | Financial Pulse (bookkeeping) | `financial-pulse.md` | `bookkeeping-board.html` (`#finPulse`, `FinancialPulse`); `invoice_queue`, `repair_orders` + `ro_line_items`, `completed_jobs` |
+| RO / invoice document (print + embed) | `ro-invoice.md` | `shared/ro-invoice.js`; `advisor-board.html` (`printRo` wrapper), `bookkeeping-board.html` (RO-detail left pane) |
+| RO payments ledger | `payments.md` | `ro_payments`; `advisor-board.html` (`recordPayment`/balance), `bookkeeping-board.html` (income + RO detail) |
 | Settings hub | `settings.md` | `shared/board-settings.js`, `shop_settings`, `employees`, `crisdata.html`, `api/announcement.js` |
 | File Cabinet tab | `file-cabinet.md` | `shared/file-cabinet.js`, `owner-board.html` |
 | Hosting & domains | `hosting-domains.md` | `vercel.json`, `api/send-push.js`, Vercel projects (shop-board/kiki), Namecheap DNS, Supabase `hygemiszxwmyrkmhbjub` |
