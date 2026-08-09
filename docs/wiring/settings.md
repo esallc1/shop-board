@@ -1,8 +1,9 @@
 # How Settings is wired (and the proposed role-gated hub)
 
 > Doc: `/docs/wiring/settings.md`
-> Last updated: 2026-08-09 — verified vs commit `1d64041` (+ Cost & Profit Step 2a:
-> three standard-cost rate columns on `shop_settings`, verified in-browser)
+> Last updated: 2026-08-09 — verified vs commit `c0c3f81` (Cost & Profit Step 2b
+> added NO settings change — `board-settings.js` byte-unchanged; the parts library
+> is a cost-side table, see [[cost-profit]] §8)
 > Status: ✅ §0–§4 (today's wiring) verified vs code this session — read against
 > `shared/board-settings.js`, `migrations/20260716_shop_settings.sql`, `crisdata.html`, the four
 > board `BoardSettings.init` calls, and `api/announcement.js`. **§4.1 (the owner Features
@@ -302,6 +303,9 @@ mechanism, in preference order:
   [[my-numbers]] (no viewer role today), [[announcements]] (a live service-role write path).
 
 ## Session change log
+- 2026-08-09 — **Cost & Profit Step 2b: no settings change.** The shared parts library
+  (`parts_library`) + `unit_parts.library_part_id` are cost-side (Build Sheet) tables;
+  `shared/board-settings.js` is byte-unchanged. Marker bumped only. See [[cost-profit]] §8–§9.
 - 2026-08-09 — **Cost & Profit Step 2a: three standard-cost rate columns on `shop_settings`**
   (`std_rr_rate`/`rebuilder_cost`/`std_advisor_pct`, add-only migration
   `20260809_costlayer_unit_parts_rates.sql`, defaults 0/0/2.5) added to `SHOP_DEFAULTS` + the

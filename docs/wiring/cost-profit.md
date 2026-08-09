@@ -1,22 +1,24 @@
 # How Cost & Profit (Cockpit + Build Sheet) is wired
 
 > Doc: `/docs/wiring/cost-profit.md`
-> Last updated: 2026-08-09 — verified vs commit `1d64041` (+ this Step-2a cost
-> layer, verified in-browser this session)
-> Status: ✅ Step 1 (frame + relocation) + ✅ Step 2a (per-unit parts recipe +
-> standard rates + live cost/profit/margin) BUILT, **always on — NO feature
-> switch** (per the standing rule in §1). Step 2a migration
-> `20260809_costlayer_unit_parts_rates.sql` is add-only + **NOT yet applied** —
-> hand to Cris. NOT built: shared parts library / vendor sweep (Step 2b), the
-> Cockpit (Step 3), per-person roster / actual-vs-standard (Step 3).
+> Last updated: 2026-08-09 — verified vs commit `c0c3f81` (+ this Step-2b shared
+> parts library + vendor sweep, verified in-browser this session)
+> Status: ✅ Step 1 (frame + relocation) + ✅ Step 2a (recipe + rates + live
+> profit) + ✅ Step 2b (shared parts library + linked recipe lines + vendor
+> bulk-cost sweep) BUILT, **always on — NO feature switch** (§1). Step 2a is live
+> (`20260809_costlayer_unit_parts_rates.sql` applied); Step 2b migration
+> `20260809_costlayer_parts_library.sql` is add-only + **NOT yet applied** — hand
+> to Cris. NOT built: the Cockpit (Step 3), per-person roster / actual-vs-standard
+> (Step 3).
 
 ## 0. In one line
 A **"Cost & Profit"** sidebar group that **always shows** on the **Owner and
 Bookkeeping boards** with two items — **Cockpit** (Step-3 placeholder) and **Build
 Sheet** — where the Build Sheet is a three-tab workbench: **Units** (the relocated
 "Rebuild Units & Prices" editor **plus** a per-unit rebuild-parts recipe and live
-cost/profit/margin — §6), **Parts catalog & vendor pricing** (Step-2b stub), and
-**People & rates** (three shop-level standard-cost rates — §7).
+cost/profit/margin — §6), **Parts catalog & vendor pricing** (the shared parts
+library + the vendor bulk-cost sweep — §8–§9), and **People & rates** (three
+shop-level standard-cost rates — §7).
 
 ## 1. No feature switch (standing rule)
 - **There is no toggle.** The group ships unconditionally; new features (this one,
@@ -43,7 +45,8 @@ cost/profit/margin — §6), **Parts catalog & vendor pricing** (Step-2b stub), 
   - **Units** (ACTIVE) → calls **`BoardSettings.renderRebuildUnits(pane, { db,
     costLayer })`** — the ONE shared copy of the Rebuild Units editor (§4) with the
     Build-Sheet-only cost layer bolted on via the `costLayer` provider (§6).
-  - **Parts catalog & vendor pricing** → stub, "Coming in Step 2b".
+  - **Parts catalog & vendor pricing** → the shared parts library + vendor
+    bulk-cost sweep (§8–§9).
   - **People & rates** → three standard-cost rate inputs (§7).
 - **Mount points:**
   - Owner: `#buildsheet-root` inside `#view-buildsheet`; a click listener on the
@@ -99,14 +102,21 @@ expand, no summary).
   Price / R&R Hrs are typed; `onCollapse(handle)` drops the open panel. `handle =
   { unit, getLive(), setSummary(html) }` is built per row by `wireCostRow` in
   board-settings.js.
-- **Recipe = `unit_parts`** (one row per part line): `name`, `part_no`, `vendor`
-  (free text for now — a shared library is Step 2b), `unit_cost`, `qty`, FK
-  `package_unit_id` → `package_units(id)` `on delete cascade`. Add/edit/delete in
-  the expanded panel; each mutation reloads that unit's parts and re-renders the
-  panel + the collapsed summary (the panel stays open). See [[packages]].
+- **Recipe = `unit_parts`** (one row per part line): FK `package_unit_id` →
+  `package_units(id)` `on delete cascade`, plus `qty`. A line is **either**:
+  - a **standalone typed part** (`library_part_id` null) carrying its own
+    `name`/`part_no`/`vendor`/`unit_cost` (Step 2a), OR
+  - a **linked library line** (`library_part_id` set — Step 2b): it stores only
+    the reference + `qty`; name/vendor/cost are read live from the shared library
+    item (§8). Editing the library item's cost updates every linked line.
+  Add/edit/delete in the expanded panel ("Add" for a typed line, "Add from
+  library" for a linked one); each mutation reloads that unit's parts and
+  re-renders the panel + collapsed summary (the panel stays open). See [[packages]].
 - **Standard cost (per unit):**
-  `Σ(part unit_cost × qty) + (R&R Hrs × Standard R&R rate) + Rebuilder cost
-   + (Set Price × Standard advisor %)`.
+  `Σ(part cost × qty) + (R&R Hrs × Standard R&R rate) + Rebuilder cost
+   + (Set Price × Standard advisor %)`, where a part's cost is its typed
+  `unit_cost` (standalone) or the library item's **effective per-unit cost**
+  (linked): flat = `unit_cost`, bulk = `bulk_price ÷ bulk_qty` (§8).
   **Profit** = Set Price − Standard cost. **Margin** = Profit ÷ Set Price. Shown
   in a result box in the expanded recipe AND compactly on the collapsed row.
 - **Honest empty state:** a unit with **zero recipe parts** shows **"No cost set"**
@@ -131,12 +141,57 @@ so the Units cost math sees the new rates on next render.
   were added to `SHOP_DEFAULTS` + the reader; fail-safe to the defaults
   pre-migration).
 
+## 8. Shared parts library (Step 2b) — reusable, linked items
+`parts_library` holds reusable interchangeable parts (ATF, cleaner, common
+hardware) entered once and **linked** into many recipes (not copied). Managed on
+the **Parts catalog & vendor pricing** tab (`renderPartsCatalog` in
+`shared/build-sheet.js` — one editable card per item + an add card).
+- **Two cost modes:** `cost_mode` = `flat` (a per-unit `unit_cost`, e.g. a seal
+  $4.25 ea) or `bulk` (`bulk_price ÷ bulk_qty`, e.g. an ATF drum $1,268 ÷ 200 qt =
+  $6.34/qt, with `bulk_unit` as the label). The per-unit cost is **computed in the
+  app** (`libUnitCost`), never stored; the card shows it live as you type.
+- **Linked, not copied:** a recipe line with `unit_parts.library_part_id` set reads
+  name/vendor/cost from the item. Edit the item's cost (or its drum price) once →
+  every recipe using it recomputes (`effectiveUnitCost` resolves it at compute
+  time). Standalone Step-2a lines are unaffected.
+- **Delete is blocked while in use:** deleting a library item first counts
+  referencing `unit_parts` rows; if any, it refuses ("Used in N recipe lines —
+  remove those first"). The FK is `on delete set null` only as a DB backstop.
+- **Pre-migration fallback:** the tab shows a "run the migration" note, and the
+  Units "Add from library" control is hidden, until
+  `20260809_costlayer_parts_library.sql` is applied.
+- **RLS covers anon AND authenticated:** a signed-in office owner runs as the
+  `authenticated` role (Supabase Auth via `office-login.html` — see
+  [[office-auth]]), not `anon`. Every cost-layer table therefore needs BOTH an
+  anon policy and an `authenticated` twin (per the 2026-08-01 widen), or the
+  signed-in owner goes blind / can't write. `parts_library` originally shipped
+  anon-only, which RLS-blocked the owner's inserts; the authenticated twin was
+  added by `20260809_costlayer_rls_authenticated_fix.sql` (and inline in the
+  canonical `20260809_costlayer_parts_library.sql` for fresh rebuilds).
+
+## 9. Vendor bulk-cost sweep (Step 2b) — the inflation fix
+On the same tab: pick a **vendor**, enter **±X%**, **Apply** → raises the cost of
+every part tagged to that vendor (`applyVendorSweep`):
+- **Standalone recipe lines** (`unit_parts` where `vendor = V` and
+  `library_part_id` null) → `unit_cost × (1 + X/100)`.
+- **Library items** where `vendor = V` → flat: `unit_cost ×`; bulk: **`bulk_price ×`**
+  (so the per-unit cost recomputes, and every linked recipe line follows).
+- **Impact summary:** "Vendor ±X% → N parts updated across M units." Every affected
+  unit's Cost/Profit/Margin reflects the change when the Units tab is reopened
+  (it remounts + reloads the library on each open).
+- **Undo last:** the sweep captures each changed row's old value in memory; **Undo
+  last** writes them back and re-renders. (In-memory — an immediate undo, not a
+  persistent history.)
+
 ## Known gaps & open questions (as of 2026-08-09)
-- **Step 2a migration unapplied:** until `20260809_costlayer_unit_parts_rates.sql`
-  runs, the recipe editor shows a "run the migration" note, summaries read "No cost
-  set", and saving rates errors with a fail-safe message. All add-only.
-- **Not built:** shared parts library + vendor bulk-cost sweep (Step 2b), the
-  Cockpit (Step 3), and a per-person roster / actual-vs-standard (Step 3).
+- **Step 2b migration unapplied:** until `20260809_costlayer_parts_library.sql`
+  runs, the Parts catalog shows a "run the migration" note and the "Add from
+  library" control is hidden; standalone Step-2a recipes keep working. All add-only.
+- **Vendor sweep updates row-by-row** (PostgREST anon has no arithmetic UPDATE), so
+  a vendor with many parts is several small writes; undo is in-memory (lost on
+  reload). Fine at shop scale.
+- **Not built:** the Cockpit (Step 3) and a per-person roster / actual-vs-standard
+  (Step 3).
 - **`std_advisor_pct` is a percentage number** (2.5 = 2.5%), divided by 100 in the
   math — distinct from the commission engine's fraction-stored margins.
 - **Dormant column:** `shop_settings.feature_cost_profit` still exists (from the
@@ -145,16 +200,21 @@ so the Units cost math sees the new rates on next render.
 ## Where it lives in the code
 - **Build Sheet module:** `shared/build-sheet.js` — `BuildSheet.mount`, the tab
   shell, the cost layer (`makeCostLayer`/`loadCostContext`/`computeCost`/
-  `summaryHtml`/`resultBoxHtml`/`renderRecipe`/`onRowInput`), and `renderPeopleRates`.
+  `effectiveUnitCost`/`libUnitCost`/`summaryHtml`/`resultBoxHtml`/`renderRecipe`/
+  `onRowInput`), the shared parts library + vendor sweep (`renderPartsCatalog`/
+  `wireLibCards`/`applyVendorSweep`/`undoLastSweep`), and `renderPeopleRates`.
 - **Shared Units editor:** `shared/board-settings.js` — `renderUnitsEditor`
   (guts; accepts `opts.costLayer`), `wireCostRow` (per-row cost UI + handle),
   `renderPackagesPane` (redirect-or-editor dispatcher, gated on `onOpenBuildSheet`),
-  CRUD (`setGroupPrice`/`addPackageUnit`/`savePackageUnit`/`deletePackageUnit`),
-  the `std_*` rate defaults + reader, exposed via `BoardSettings.renderRebuildUnits`.
-  `onOpenBuildSheet` init arg.
+  CRUD, the `std_*` rate defaults + reader, exposed via
+  `BoardSettings.renderRebuildUnits`. **Unchanged by Step 2b** (all 2b logic is in
+  build-sheet.js) — GM/Advisor stay unchanged.
 - **Cost schema (Step 2a):** `migrations/20260809_costlayer_unit_parts_rates.sql`
   — `unit_parts` (recipe lines, RLS mirrors `package_units`) + `shop_settings`
-  `std_rr_rate`/`rebuilder_cost`/`std_advisor_pct`. **Add-only, not yet applied.**
+  `std_rr_rate`/`rebuilder_cost`/`std_advisor_pct`. **Applied.**
+- **Cost schema (Step 2b):** `migrations/20260809_costlayer_parts_library.sql` —
+  `parts_library` (RLS/realtime mirror `package_units`) + `unit_parts.library_part_id`
+  (nullable FK, `on delete set null`). **Add-only, not yet applied.**
 - **Owner board:** `owner-board.html` — the Cost & Profit `sidebar-group`,
   `#view-cockpit`, `#view-buildsheet` (`#buildsheet-root`), `openBuildSheet`,
   `BoardSettings.init({ onOpenBuildSheet, … })`, `<script src="shared/build-sheet.js">`.
@@ -168,6 +228,32 @@ so the Units cost math sees the new rates on next render.
   [[flat-rate-hours]] (R&R hours = the tech-pay side of a unit).
 
 ## Session change log
+- 2026-08-09 — **Fixed a Step-2b RLS bug: `parts_library` inserts blocked for the
+  signed-in owner.** Root cause: the office owner runs as the `authenticated` role
+  (Supabase Auth via office-login.html), but `parts_library` shipped with only a
+  `to anon` policy (it was created after the 2026-08-01 office-auth widen and not
+  in its list), so the authenticated owner had no applicable policy → INSERT/SELECT
+  RLS-blocked ("violates row-level security policy"). Fix: add the `authenticated`
+  twin policy (same access, no broader) to `parts_library` + `unit_parts`, mirroring
+  the widen — `20260809_costlayer_rls_authenticated_fix.sql` (add-only, hand-run) and
+  inline in the canonical 2b migration for fresh rebuilds. Add-only; no data or other
+  tables touched. See [[office-auth]] and §8.
+- 2026-08-09 — **Built Step 2b — cost layer, part 2 (shared parts library + vendor
+  sweep).** Add-only migration `20260809_costlayer_parts_library.sql` (**unapplied**):
+  `parts_library` (reusable items, flat or bulk-priced; RLS/realtime mirror
+  `package_units`) + `unit_parts.library_part_id` (nullable FK, on delete set null).
+  Filled the **Parts catalog & vendor pricing** tab: library CRUD (`renderPartsCatalog`,
+  bulk `price ÷ size → computed per-unit`) + the vendor bulk-cost sweep
+  (`applyVendorSweep`/`undoLastSweep`: pick vendor + %, raises standalone recipe
+  lines AND library items — bulk raises the drum price — with an impact summary and
+  in-memory undo). Recipes gained **linked library lines** ("Add from library":
+  `library_part_id` + qty; name/vendor/cost read live from the library so one edit
+  recomputes everywhere) alongside standalone typed lines. Delete of an in-use
+  library item is blocked. **All Step 2b logic is in `shared/build-sheet.js`** —
+  `board-settings.js` is byte-unchanged, so GM/Advisor are untouched. Verified
+  in-browser (linked-line cost from a bulk item = $6.34/qt, sweep math bulk/flat/
+  standalone, impact summary, live recompute, undo restore, pre-migration
+  fallbacks). Cockpit (3) + per-person roster (3) NOT built. See [[packages]].
 - 2026-08-09 — **Built Step 2a — cost layer, part 1 (enter parts + see live profit).**
   Add-only migration `20260809_costlayer_unit_parts_rates.sql` (**unapplied**):
   `unit_parts` recipe table (RLS/realtime mirror `package_units`, FK on delete
