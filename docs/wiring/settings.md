@@ -1,11 +1,14 @@
 # How Settings is wired (and the proposed role-gated hub)
 
 > Doc: `/docs/wiring/settings.md`
-> Last updated: 2026-08-09 — verified vs commit `455693f` (merged to main)
+> Last updated: 2026-08-09 — verified vs commit `ee725cc` (+ this Cost & Profit
+> Step-1 change + its feature-switch removal, verified in-browser this session)
 > Status: ✅ §0–§4 (today's wiring) verified vs code this session — read against
 > `shared/board-settings.js`, `migrations/20260716_shop_settings.sql`, `crisdata.html`, the four
 > board `BoardSettings.init` calls, and `api/announcement.js`. **§4.1 (the owner Features
-> switchboard, now two flags) and §4.2 (the money+feature-gated "Rebuild Units & Prices" category) are BUILT.**
+> switchboard, FOUR flags), §4.2 (the money+feature-gated "Rebuild Units & Prices" category),
+> §4.3 (Advisor Commission), and §4.4 (the Rebuild Units relocation to the Build Sheet — now
+> flagless) are BUILT.**
 > **§5–§10 remain a PROPOSED architecture — NOT built, pending approval.**
 
 ## 0. In one line
@@ -114,7 +117,8 @@ a small, forward-compatible step toward the role-gated hub in PART B.
   [[flat-rate-hours]] §9), `packages` → `feature_packages` (see [[packages]] / §4.2),
   `advisor_commission` → `feature_advisor_commission` (see [[advisor-commission]] / §4.3), and
   `bk_ro_detail` → `feature_bk_ro_detail` (the Bookkeeping per-RO parts/profit drill-down; see
-  [[financial-pulse]] §9).
+  [[financial-pulse]] §9). **New features no longer add a flag** — they ship via preview → prod
+  (the standing rule set with the Cost & Profit relocation; see [[cost-profit]] §1 and §4.4).
 - **Owner-only gate:** the category's `visible` is `viewerRole === 'owner'`. `viewerRole` is a
   new module variable set by **`BoardSettings.refresh(employeeId, role)`** — each board now passes
   `who.role` from `captureSessionAndGreet()` (owner/gm/advisor/bookkeeping boards all updated). If
@@ -150,6 +154,23 @@ when the Advisor Commission switch is on (advisor/GM/bookkeeping never see it). 
   a real cost always overrides (`saveCommissionMargins`). Defaults 40% / 55%.
 Same anon write path + UI-level gate as every setting (§4). Full feature (the GP engine + the
 two cards) is documented in [[advisor-commission]].
+
+## 4.4 The Rebuild Units relocation to the Build Sheet (BUILT 2026-08-09, flagless)
+The "Cost & Profit" sidebar group (Cockpit + Build Sheet) on the **Owner and Bookkeeping boards**
+**relocates the Rebuild Units editor out of Settings** into Build Sheet → Units. It ships **with no
+feature switch** (the standing rule — see [[cost-profit]] §1; a `feature_cost_profit` flag existed
+for a few hours on 2026-08-09 and was removed same-day, leaving a dormant, unread `shop_settings`
+column). Two wiring notes that live in this doc:
+- **ONE editor, extracted:** the "Rebuild Units & Prices" pane guts moved into a reusable
+  `renderUnitsEditor` (add/edit/delete `package_units`, grouped view + bulk group price — §4.2
+  behavior unchanged) and are exposed as **`BoardSettings.renderRebuildUnits(content, cfg)`** so the
+  Build Sheet mounts the exact same editor — no duplicate copy.
+- **`renderPackagesPane` is now a redirect-or-editor dispatcher gated purely on
+  `onOpenBuildSheet`:** when the board passed that init arg (owner + bookkeeping do; GM/Advisor do
+  not), the pane shows a one-line "Moved to the Build Sheet" redirect + an **Open Build Sheet**
+  button; otherwise it renders `renderUnitsEditor` inline exactly as before. So GM (money rights, no
+  Build Sheet) keeps the classic inline editor — verified in-browser. Full wiring of the group /
+  Build Sheet / Cockpit lives in [[cost-profit]].
 
 ---
 
@@ -254,12 +275,15 @@ mechanism, in preference order:
 - Settings modal: `shared/board-settings.js` (`getCategories`, `renderPanes`, `renderRoPricingPane`,
   `saveShopSettings`, `getShopSettings`/`loadShopSettings`).
 - **Features switchboard (§4.1):** `shared/board-settings.js` — `FEATURE_FLAGS` registry
-  (`book_hours`, `packages`), `renderFeaturesPane`, `saveFeatureFlag`; category
-  `visible: viewerRole === 'owner'`; `viewerRole` set via `refresh(employeeId, role)`.
-- **"Rebuild Units & Prices" category (§4.2):** `shared/board-settings.js` — `renderPackagesPane`
-  (grouped) + `setGroupPrice`, `addPackageUnit`/`savePackageUnit`/`deletePackageUnit`,
-  `loadPackageUnits`/`getPackageUnits`; `package_units` (`migrations/20260807_packages.sql`). See
-  [[packages]].
+  (`book_hours`, `packages`, `advisor_commission`, `bk_ro_detail`), `renderFeaturesPane`,
+  `saveFeatureFlag`; category `visible: viewerRole === 'owner'`; `viewerRole` set via
+  `refresh(employeeId, role)`.
+- **"Rebuild Units & Prices" category (§4.2 / §4.4):** `shared/board-settings.js` —
+  `renderPackagesPane` (redirect-or-editor dispatcher; redirect when the board passed
+  `onOpenBuildSheet`), the shared `renderUnitsEditor` (grouped editor) exposed as
+  `BoardSettings.renderRebuildUnits`, + `setGroupPrice`,
+  `addPackageUnit`/`savePackageUnit`/`deletePackageUnit`, `loadPackageUnits`/`getPackageUnits`;
+  `package_units` (`migrations/20260807_packages.sql`). See [[packages]], [[cost-profit]].
 - Board wiring: `BoardSettings.init(...)` in `owner-board.html`, `gm-board.html`,
   `advisor-board.html`, `bookkeeping-board.html`; `BoardSettings.refresh(emp.id, role)` after
   `captureSessionAndGreet()` (now passes the viewer role).
@@ -273,6 +297,19 @@ mechanism, in preference order:
   [[my-numbers]] (no viewer role today), [[announcements]] (a live service-role write path).
 
 ## Session change log
+- 2026-08-09 — **Removed the `cost_profit` feature flag (same-day follow-up); new standing rule:
+  features ship via preview → prod, not behind a toggle.** Dropped the 5th `FEATURE_FLAGS` entry +
+  its `SHOP_DEFAULTS`/`getShopSettings` reader (Features pane back to 4 toggles); `renderPackagesPane`
+  now redirects purely on `onOpenBuildSheet` (§4.4). The Cost & Profit group shows unconditionally
+  on owner + bookkeeping. `shop_settings.feature_cost_profit` left dormant, NOT dropped. Verified
+  in-browser (owner always-redirect + 4 toggles; GM unchanged).
+- 2026-08-09 — **Added the fifth feature flag (`cost_profit`) + relocated the Rebuild Units
+  editor (§4.4).** New `shop_settings.feature_cost_profit` (`migrations/20260809_feature_cost_profit_flag.sql`,
+  additive boolean), 5th `FEATURE_FLAGS` entry (owner Features pane, default OFF). Extracted the
+  "Rebuild Units & Prices" pane guts into the shared `renderUnitsEditor` (exposed as
+  `BoardSettings.renderRebuildUnits`) so the new Build Sheet mounts the same editor — no duplicate.
+  `renderPackagesPane` became a redirect-or-editor dispatcher. Full feature (the Cost & Profit group
+  / Build Sheet / Cockpit) in [[cost-profit]]. **(Flag removed later the same day — see above.)**
 - 2026-08-08 — **Added the fourth feature flag (`bk_ro_detail`)** — `shop_settings.feature_bk_ro_detail`
   (`migrations/20260808_bk_ro_detail_flag.sql`, additive boolean, **unapplied**), 4th `FEATURE_FLAGS`
   entry (owner Features pane, default OFF). Gates the Bookkeeping board's per-RO parts/profit

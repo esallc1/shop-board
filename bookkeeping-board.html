@@ -614,6 +614,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="shared/office-identity.js"></script>
 <script src="shared/board-settings.js"></script>
+<!-- Cost & Profit — Build Sheet workbench (Step 1 frame). Always on (no
+     feature switch — ships via preview → prod). -->
+<script src="shared/build-sheet.js"></script>
 <!-- Advisor commission engine (ESM → window.CommissionEngine) + shared cards
      (→ window.CommissionCards). Behind the Advisor Commission switch (default OFF). -->
 <script type="module">
@@ -695,6 +698,12 @@
       <div class="sidebar-group">
         <div class="sidebar-group-label">Manage</div>
         <div class="sidebar-item" data-view="teamchat" data-label="Team Chat"><span class="icon">💬</span>Team Chat<span class="chat-nav-badge" id="teamchat-unread-badge" style="display:none">0</span></div>
+      </div>
+      <!-- Cost & Profit — always shown (no feature switch). -->
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Cost &amp; Profit</div>
+        <div class="sidebar-item" data-view="cockpit" data-label="Cockpit"><span class="icon">🎛️</span>Cockpit</div>
+        <div class="sidebar-item" data-view="buildsheet" data-label="Build Sheet"><span class="icon">🔧</span>Build Sheet</div>
       </div>
     </div>
   </nav>
@@ -831,6 +840,22 @@
   <!-- ══ COMMISSION & PAYOUT ══ (shared/commission-cards.js) — feature-gated -->
   <div class="view" id="view-commission">
     <div id="commissionMount" style="max-width:680px"></div>
+  </div>
+
+  <!-- ══ COST & PROFIT — COCKPIT ══ (Step 3 placeholder) -->
+  <div class="view" id="view-cockpit">
+    <div class="card">
+      <div class="card-title"><div class="dot"></div>Cockpit</div>
+      <p style="color:var(--muted);font-size:0.9rem;margin:6px 0 0">Coming in Step 3.</p>
+    </div>
+  </div>
+
+  <!-- ══ COST & PROFIT — BUILD SHEET ══ (shared/build-sheet.js) -->
+  <div class="view" id="view-buildsheet">
+    <div class="card">
+      <div class="card-title"><div class="dot"></div>Build Sheet</div>
+      <div id="buildsheet-root"></div>
+    </div>
   </div>
 
   <!-- ══ UNPROCESSED INVOICES QUEUE ══ -->
@@ -1100,7 +1125,11 @@
     // Daiana's Categories + Types managers live in the gear panel.
     onOpenExtra: (container) => renderBookkeepingSettings(container),
     extraLabel: 'Categories & Types',
-    // Reveal/hide the Commission & Payout nav when the switch loads/changes.
+    // The Settings "Rebuild Units & Prices" redirect opens Build Sheet → Units.
+    // (Only surfaces on boards where the Rebuild Units settings pane shows; kept
+    // for symmetry with the owner board.)
+    onOpenBuildSheet: () => activateView('buildsheet'),
+    // Reveal/hide feature-gated surfaces when the switch loads/changes.
     onShopSettingsChanged: () => { if (typeof refreshCommissionNav === 'function') refreshCommissionNav(); },
   });
 
@@ -1165,6 +1194,7 @@
     try { sessionStorage.setItem(TAB_KEY, view); } catch (e) {}
     if (view === 'overview') loadOverview(); // always fetch fresh on open
     if (view === 'commission') renderCommission(); // fresh weekly numbers on open
+    if (view === 'buildsheet' && window.BuildSheet) BuildSheet.mount(document.getElementById('buildsheet-root'), { db }); // Build Sheet → Units (fresh on open)
     closeMobileNav(); // no-op on desktop; on mobile, picking a view closes the drawer
   }
 

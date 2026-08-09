@@ -43,6 +43,7 @@ window.FileCabinet = (function () {
     { id: 'mynumbers', file: 'my-numbers.md',       icon: '📱', title: 'My Numbers (tech phone tool)' },
     { id: 'flatrate',  file: 'flat-rate-hours.md',  icon: '📊', title: 'Flagged-hours / flat-rate data' },
     { id: 'finpulse',  file: 'financial-pulse.md',  icon: '💵', title: 'Financial Pulse (bookkeeping Overview)' },
+    { id: 'costprofit', file: 'cost-profit.md',      icon: '📈', title: 'Cost & Profit (Cockpit + Build Sheet)' },
     { id: 'settings',  file: 'settings.md',         icon: '⚙️', title: 'Settings hub (storage · roles · enforcement)' },
     { id: 'officeauth', file: 'office-auth.md',      icon: '🔐', title: 'Office auth (Supabase Auth adoption)' },
     { id: 'hosting',   file: 'hosting-domains.md',   icon: '🌐', title: 'Hosting & domains (Vercel · DNS · Supabase)' },
