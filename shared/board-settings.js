@@ -75,6 +75,12 @@ window.BoardSettings = (function () {
     // parts/package line has no real cost). Null → the engine's code default.
     parts_margin_pct: null,
     package_margin_pct: null,
+    // Cost & Profit (Build Sheet) standard-cost rate placeholders the owner tunes
+    // on the People & rates tab. Stored on shop_settings. INDEPENDENT of the live
+    // Advisor Commission engine — used only for the Build Sheet's standard cost.
+    std_advisor_pct: 2.5,    // % of sale (a percentage number, e.g. 2.5 = 2.5%)
+    std_rr_rate: 0,          // $/flagged hour
+    rebuilder_cost: 0,       // $ per unit built
   };
 
   // ── FEATURE FLAGS registry — the owner "Features" switchboard ─────
@@ -158,6 +164,12 @@ window.BoardSettings = (function () {
       // only post-migration; null → the engine uses its code default.
       parts_margin_pct: shopSettingsRow.parts_margin_pct != null ? Number(shopSettingsRow.parts_margin_pct) : null,
       package_margin_pct: shopSettingsRow.package_margin_pct != null ? Number(shopSettingsRow.package_margin_pct) : null,
+      // Cost & Profit standard-cost rates (Build Sheet). Fall back to the defaults
+      // (advisor 2.5% / R&R $0 / rebuilder $0) until the Step-2a migration adds
+      // the columns and the owner sets them.
+      std_advisor_pct: n(shopSettingsRow.std_advisor_pct, SHOP_DEFAULTS.std_advisor_pct),
+      std_rr_rate: n(shopSettingsRow.std_rr_rate, SHOP_DEFAULTS.std_rr_rate),
+      rebuilder_cost: n(shopSettingsRow.rebuilder_cost, SHOP_DEFAULTS.rebuilder_cost),
       // shop profile (Phase 3) — nulls until the migration seeds them
       shop_name: shopSettingsRow.shop_name || null,
       address_line: shopSettingsRow.address_line || null,
@@ -760,14 +772,27 @@ window.BoardSettings = (function () {
   // pick time, so editing/deleting here never rewrites a job already built.
   //
   // Mounted in TWO places, never both at once (the redirect above guarantees
-  // it): the Settings "Rebuild Units & Prices" pane (Cost & Profit OFF, or GM),
-  // and the Build Sheet → Units tab (Cost & Profit ON) via renderRebuildUnits().
-  // Editing here reloads the module's package-unit cache (loadPackageUnits) so
-  // the RO "Package" dropdown stays current — exactly as the settings pane did.
+  // it): the Settings "Rebuild Units & Prices" pane (GM), and the Build Sheet →
+  // Units tab via renderRebuildUnits(). Editing here reloads the module's
+  // package-unit cache (loadPackageUnits) so the RO "Package" dropdown stays
+  // current — exactly as the settings pane did.
+  //
   // opts.showHeader === false drops the title/sub (the Build Sheet tab bar
-  // already labels the pane).
+  // already labels the pane). opts.costLayer is an OPTIONAL provider object
+  // (supplied only by the Build Sheet — GM/Advisor never pass it, so their
+  // editor is unchanged) that bolts a per-unit rebuild-recipe + live
+  // cost/profit/margin onto the table. Its contract (all cost math + unit_parts
+  // access lives in the provider, NOT here):
+  //   • load(): Promise<ctx>                         — warm rates + parts once
+  //   • summaryHtml(handle, ctx): string             — collapsed row summary cell
+  //   • renderRecipe(detailCell, handle, ctx): void  — the expanded parts editor
+  //   • onRowInput(handle, ctx): void                — price/hours typed → recompute
+  //   • onCollapse(handle): void                     — row's recipe was closed
+  // where handle = { unit, getLive(), setSummary(html) } is built per row here.
   async function renderUnitsEditor(content, opts) {
     opts = opts || {};
+    const cl = opts.costLayer || null;
+    const nCols = cl ? 7 : 5;
     const rerender = () => renderUnitsEditor(content, opts);
     const head = opts.showHeader === false ? '' :
       catHeader('Rebuild Units & Prices', 'Package unit prices for the RO "Package" line. Group is an optional organizing tag — units that share a group can be bulk-priced, but each keeps its own price. Set Price is the customer price; Default R&R Hours is the tech-pay credit (never added to the price). The RO copies these onto a line when a unit is picked — editing here never changes jobs already saved.');
@@ -777,6 +802,11 @@ window.BoardSettings = (function () {
       content.innerHTML = head + '<div class="stgfeat-placeholder">Run the <code>packages</code> migration (creates <code>package_units</code>) to manage these here.</div>';
       return;
     }
+    // Cost layer: warm rates + all recipe parts once before building rows.
+    let costCtx = null;
+    if (cl) { try { costCtx = await cl.load(); } catch (e) { console.warn('[BoardSettings] cost layer load failed', e); } }
+    const unitById = new Map(packageUnitsRows.map(u => [String(u.id), u]));
+
     // group units by group_label: named groups first (alpha), ungrouped last.
     const byGroup = new Map();
     packageUnitsRows.forEach(u => {
@@ -787,12 +817,16 @@ window.BoardSettings = (function () {
     const order = [...byGroup.keys()].filter(g => g !== '').sort((a, b) => a.localeCompare(b));
     if (byGroup.has('')) order.push('');   // ungrouped cluster at the bottom
 
+    const expandCell = cl ? '<td style="padding:6px 2px 6px 6px;width:20px"><button type="button" class="cp-exp stgfeat-btn sec" style="padding:1px 6px;font-size:0.72rem;line-height:1" aria-label="Toggle recipe">▸</button></td>' : '';
+    const sumCell = cl ? '<td class="cp-sum" data-sum style="padding:6px 6px;font-size:0.74rem;white-space:nowrap;color:var(--muted)">…</td>' : '';
     const unitRow = (u) => `
       <tr data-id="${esc(String(u.id))}" style="border-top:1px solid var(--border)">
+        ${expandCell}
         <td style="padding:6px 6px"><input type="text" data-f="group_label" value="${esc(u.group_label || '')}" placeholder="—" style="width:100%"></td>
         <td style="padding:6px 6px"><input type="text" data-f="unit_code" value="${esc(u.unit_code || '')}" style="width:100%"></td>
         <td style="padding:6px 6px"><input type="number" data-f="set_price" value="${u.set_price != null ? esc(String(u.set_price)) : ''}" min="0" step="0.01" style="width:88px"></td>
         <td style="padding:6px 6px"><input type="number" data-f="default_rr_hours" value="${u.default_rr_hours != null ? esc(String(u.default_rr_hours)) : ''}" min="0" step="0.5" placeholder="—" style="width:64px"></td>
+        ${sumCell}
         <td style="padding:6px 6px;white-space:nowrap">
           <button type="button" class="stgfeat-btn" data-act="save" style="padding:3px 8px;font-size:0.72rem">Save</button>
           <button type="button" class="stgfeat-btn" data-act="del" style="padding:3px 8px;font-size:0.72rem">✕</button>
@@ -801,7 +835,7 @@ window.BoardSettings = (function () {
 
     let bodyHtml = '';
     if (packageUnitsRows.length === 0) {
-      bodyHtml = '<tr><td colspan="5" style="padding:8px 6px;color:var(--muted)">No units yet — add one below.</td></tr>';
+      bodyHtml = `<tr><td colspan="${nCols}" style="padding:8px 6px;color:var(--muted)">No units yet — add one below.</td></tr>`;
     } else {
       order.forEach((g, gi) => {
         const units = byGroup.get(g).slice().sort((a, b) => String(a.unit_code).localeCompare(String(b.unit_code)));
@@ -811,25 +845,29 @@ window.BoardSettings = (function () {
              <input type="number" class="stgPkgGroupPrice" data-gidx="${gi}" min="0" step="0.01" placeholder="$" style="width:78px;margin:0 4px">
              <button type="button" class="stgfeat-btn" data-group-apply data-gidx="${gi}" style="padding:2px 8px;font-size:0.72rem">Apply</button>
            </span>`;
-        bodyHtml += `<tr class="stgPkgGroupHead"><td colspan="5" style="padding:9px 6px 5px;font-weight:700;border-top:2px solid var(--border)">${isUngrouped ? '<span style="color:var(--muted)">Ungrouped</span>' : esc(g)}${shortcut}</td></tr>`;
+        bodyHtml += `<tr class="stgPkgGroupHead"><td colspan="${nCols}" style="padding:9px 6px 5px;font-weight:700;border-top:2px solid var(--border)">${isUngrouped ? '<span style="color:var(--muted)">Ungrouped</span>' : esc(g)}${shortcut}</td></tr>`;
         bodyHtml += units.map(unitRow).join('');
       });
     }
 
+    const headExpand = cl ? '<th style="padding:2px 6px"></th>' : '';
+    const headSum = cl ? '<th style="padding:2px 6px">Cost · Profit · Margin</th>' : '';
+    const footExpand = cl ? '<td></td>' : '';
+    const footSum = cl ? '<td></td>' : '';
     content.innerHTML = head +
       `<div class="stgfeat-section">
         <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
           <thead><tr style="text-align:left;color:var(--muted);font-size:0.72rem">
-            <th style="padding:2px 6px">Group</th><th style="padding:2px 6px">Unit</th><th style="padding:2px 6px">Set Price ($)</th>
-            <th style="padding:2px 6px">R&amp;R Hrs</th><th style="padding:2px 6px"></th>
+            ${headExpand}<th style="padding:2px 6px">Group</th><th style="padding:2px 6px">Unit</th><th style="padding:2px 6px">Set Price ($)</th>
+            <th style="padding:2px 6px">R&amp;R Hrs</th>${headSum}<th style="padding:2px 6px"></th>
           </tr></thead>
           <tbody>${bodyHtml}</tbody>
           <tfoot><tr style="border-top:2px solid var(--border)">
-            <td style="padding:6px 6px"><input type="text" id="stgPkgNewGroup" placeholder="group" style="width:100%"></td>
+            ${footExpand}<td style="padding:6px 6px"><input type="text" id="stgPkgNewGroup" placeholder="group" style="width:100%"></td>
             <td style="padding:6px 6px"><input type="text" id="stgPkgNewCode" placeholder="e.g. 6L80" style="width:100%"></td>
             <td style="padding:6px 6px"><input type="number" id="stgPkgNewPrice" min="0" step="0.01" placeholder="price" style="width:88px"></td>
             <td style="padding:6px 6px"><input type="number" id="stgPkgNewHours" min="0" step="0.5" placeholder="hrs" style="width:64px"></td>
-            <td style="padding:6px 6px"><button type="button" class="stgfeat-btn" id="stgPkgAddBtn" style="padding:3px 8px;font-size:0.72rem">Add</button></td>
+            ${footSum}<td style="padding:6px 6px"><button type="button" class="stgfeat-btn" id="stgPkgAddBtn" style="padding:3px 8px;font-size:0.72rem">Add</button></td>
           </tr></tfoot>
         </table>
         <div class="stgfeat-error" id="stgPkgError" style="margin-top:6px"></div>
@@ -838,6 +876,7 @@ window.BoardSettings = (function () {
     content.querySelectorAll('tr[data-id]').forEach(tr => {
       tr.querySelector('[data-act="save"]').addEventListener('click', () => savePackageUnit(tr, content, rerender));
       tr.querySelector('[data-act="del"]').addEventListener('click', () => deletePackageUnit(tr, content, rerender));
+      if (cl) wireCostRow(tr, unitById.get(tr.dataset.id), cl, costCtx, nCols);
     });
     content.querySelectorAll('[data-group-apply]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -846,6 +885,44 @@ window.BoardSettings = (function () {
         setGroupPrice(order[gi], inp ? inp.value : '', content, rerender);
       });
     });
+  }
+
+  // Wire ONE unit row's cost-layer UI: the collapsed summary cell, the expand
+  // toggle (opens/closes the recipe editor via the provider), and live recompute
+  // as Set Price / R&R Hours are typed. All cost math + unit_parts access lives
+  // in the provider `cl` (the Build Sheet) — this only builds the row `handle`
+  // and drives the provider. Never runs on GM/Advisor (they pass no costLayer).
+  function wireCostRow(tr, unit, cl, costCtx, nCols) {
+    if (!unit) return;
+    const priceInput = tr.querySelector('[data-f="set_price"]');
+    const hoursInput = tr.querySelector('[data-f="default_rr_hours"]');
+    const sumCell = tr.querySelector('[data-sum]');
+    const expBtn = tr.querySelector('.cp-exp');
+    const num = (v) => { const x = parseFloat(v); return Number.isFinite(x) ? x : null; };
+    const handle = {
+      unit,
+      getLive: () => ({ set_price: num(priceInput && priceInput.value), default_rr_hours: num(hoursInput && hoursInput.value) }),
+      setSummary: (html) => { if (sumCell) sumCell.innerHTML = html; },
+    };
+    if (sumCell) { try { sumCell.innerHTML = cl.summaryHtml(handle, costCtx); } catch (e) { console.warn('[BoardSettings] summaryHtml failed', e); } }
+    if (expBtn) expBtn.addEventListener('click', () => {
+      const next = tr.nextElementSibling;
+      if (next && next.classList.contains('cp-detail')) {          // collapse
+        next.remove();
+        expBtn.textContent = '▸';
+        try { cl.onCollapse && cl.onCollapse(handle); } catch (e) {}
+        return;
+      }
+      const detail = document.createElement('tr');                 // expand
+      detail.className = 'cp-detail';
+      detail.innerHTML = `<td colspan="${nCols}" class="cp-detail-cell" style="padding:0 6px 12px 6px"></td>`;
+      tr.after(detail);
+      expBtn.textContent = '▾';
+      try { cl.renderRecipe(detail.querySelector('.cp-detail-cell'), handle, costCtx); } catch (e) { console.error('[BoardSettings] renderRecipe failed', e); }
+    });
+    const onLive = () => { try { cl.onRowInput(handle, costCtx); } catch (e) {} };
+    if (priceInput) priceInput.addEventListener('input', onLive);
+    if (hoursInput) hoursInput.addEventListener('input', onLive);
   }
 
   // Bulk shortcut: write one price to EVERY unit in a group. Convenience only —

@@ -1,18 +1,22 @@
 # How Cost & Profit (Cockpit + Build Sheet) is wired
 
 > Doc: `/docs/wiring/cost-profit.md`
-> Last updated: 2026-08-09 — verified vs commit `ee725cc` (+ this Cost & Profit
-> Step-1 change + the feature-switch removal, verified in-browser this session)
-> Status: ✅ Step 1 (frame + relocation) BUILT and **always on — NO feature
-> switch** (shipped via preview → prod, per the standing rule in §1). Steps 2
-> (parts recipes / vendor costs) and 3 (Cockpit) are NOT built.
+> Last updated: 2026-08-09 — verified vs commit `1d64041` (+ this Step-2a cost
+> layer, verified in-browser this session)
+> Status: ✅ Step 1 (frame + relocation) + ✅ Step 2a (per-unit parts recipe +
+> standard rates + live cost/profit/margin) BUILT, **always on — NO feature
+> switch** (per the standing rule in §1). Step 2a migration
+> `20260809_costlayer_unit_parts_rates.sql` is add-only + **NOT yet applied** —
+> hand to Cris. NOT built: shared parts library / vendor sweep (Step 2b), the
+> Cockpit (Step 3), per-person roster / actual-vs-standard (Step 3).
 
 ## 0. In one line
 A **"Cost & Profit"** sidebar group that **always shows** on the **Owner and
 Bookkeeping boards** with two items — **Cockpit** (Step-3 placeholder) and **Build
-Sheet** — where the Build Sheet is a three-tab workbench whose first tab
-(**Units**) is the existing "Rebuild Units & Prices" editor *relocated out of
-Settings*, working identically.
+Sheet** — where the Build Sheet is a three-tab workbench: **Units** (the relocated
+"Rebuild Units & Prices" editor **plus** a per-unit rebuild-parts recipe and live
+cost/profit/margin — §6), **Parts catalog & vendor pricing** (Step-2b stub), and
+**People & rates** (three shop-level standard-cost rates — §7).
 
 ## 1. No feature switch (standing rule)
 - **There is no toggle.** The group ships unconditionally; new features (this one,
@@ -36,11 +40,11 @@ Settings*, working identically.
 - **One shared module** mounted on both boards: `BuildSheet.mount(container, { db })`.
   Self-contained (injects its own `<style>` once). Builds an inner **sub-tab bar**
   with three tabs and renders the active one:
-  - **Units** (ACTIVE) → calls **`BoardSettings.renderRebuildUnits(pane, { db })`** —
-    the ONE shared copy of the Rebuild Units editor (see §4). Header suppressed
-    (the tab bar already labels it).
-  - **Parts catalog & vendor pricing** → stub, "Coming in Step 2".
-  - **People & rates** → stub, "Coming in Step 2".
+  - **Units** (ACTIVE) → calls **`BoardSettings.renderRebuildUnits(pane, { db,
+    costLayer })`** — the ONE shared copy of the Rebuild Units editor (§4) with the
+    Build-Sheet-only cost layer bolted on via the `costLayer` provider (§6).
+  - **Parts catalog & vendor pricing** → stub, "Coming in Step 2b".
+  - **People & rates** → three standard-cost rate inputs (§7).
 - **Mount points:**
   - Owner: `#buildsheet-root` inside `#view-buildsheet`; a click listener on the
     Build Sheet nav item calls `BuildSheet.mount`.
@@ -79,19 +83,78 @@ Settings*, working identically.
   the redirect branch is skipped → GM keeps the full inline editor. Verified
   in-browser this session.
 
+## 6. The cost layer (Step 2a) — recipes + live profit, Build Sheet only
+The Units tab bolts a per-unit **rebuild-parts recipe** and **live
+cost/profit/margin** onto the shared editor **without duplicating it and without
+touching GM/Advisor**. Mechanism: the shared `renderUnitsEditor` accepts an
+optional **`opts.costLayer` provider object**, supplied ONLY by the Build Sheet
+(`makeCostLayer(db)` in `shared/build-sheet.js`). GM/Advisor mount the editor with
+no `costLayer`, so they render exactly as before (verified: no cost column, no
+expand, no summary).
+- **Provider contract** (all cost math + `unit_parts` access live in the provider,
+  never in board-settings.js): `load()` warms rates + all recipe parts once;
+  `summaryHtml(handle, ctx)` returns the collapsed row's compact
+  `cost · profit · margin`; `renderRecipe(cell, handle, ctx)` fills the expanded
+  parts editor + result box; `onRowInput(handle, ctx)` recomputes live as Set
+  Price / R&R Hrs are typed; `onCollapse(handle)` drops the open panel. `handle =
+  { unit, getLive(), setSummary(html) }` is built per row by `wireCostRow` in
+  board-settings.js.
+- **Recipe = `unit_parts`** (one row per part line): `name`, `part_no`, `vendor`
+  (free text for now — a shared library is Step 2b), `unit_cost`, `qty`, FK
+  `package_unit_id` → `package_units(id)` `on delete cascade`. Add/edit/delete in
+  the expanded panel; each mutation reloads that unit's parts and re-renders the
+  panel + the collapsed summary (the panel stays open). See [[packages]].
+- **Standard cost (per unit):**
+  `Σ(part unit_cost × qty) + (R&R Hrs × Standard R&R rate) + Rebuilder cost
+   + (Set Price × Standard advisor %)`.
+  **Profit** = Set Price − Standard cost. **Margin** = Profit ÷ Set Price. Shown
+  in a result box in the expanded recipe AND compactly on the collapsed row.
+- **Honest empty state:** a unit with **zero recipe parts** shows **"No cost set"**
+  (never $0 profit) — parts presence is the signal that cost has been entered. The
+  shop-level rates apply only once a unit has a recipe.
+- **Live:** recipe edits recompute immediately; typing in Set Price / R&R Hrs
+  updates the summary + result box on the fly (`onRowInput`); a row **Save**
+  re-renders the whole editor (collapsing panels) with fresh numbers.
+
+## 7. People & rates tab (Step 2a) — three standard-cost placeholders
+`renderPeopleRates` (in `shared/build-sheet.js`) reads/writes three numeric
+columns on the single `shop_settings` row: **Standard R&R rate** (`std_rr_rate`,
+$/flagged hour), **Rebuilder cost** (`rebuilder_cost`, $/unit), **Standard advisor
+%** (`std_advisor_pct`, % of sale). Defaults fabricate nothing: 0 / 0 / 2.5.
+Saved via the anon path like every setting, then `BoardSettings.reloadShopSettings()`
+so the Units cost math sees the new rates on next render.
+- **INDEPENDENT of the live Advisor Commission engine** — these are Build-Sheet
+  standard-cost assumptions only. They are **not** wired to
+  `parts_margin_pct`/`package_margin_pct` or the per-advisor pay plan
+  ([[advisor-commission]]); `std_advisor_pct` is a separate column.
+- Read by the cost layer via `BoardSettings.getShopSettings()` (the three columns
+  were added to `SHOP_DEFAULTS` + the reader; fail-safe to the defaults
+  pre-migration).
+
 ## Known gaps & open questions (as of 2026-08-09)
-- **Steps 2 & 3 not built:** the Parts and People tabs are stubs; the Cockpit is a
-  placeholder. No cost math, parts recipes, vendor costs, or profit yet.
+- **Step 2a migration unapplied:** until `20260809_costlayer_unit_parts_rates.sql`
+  runs, the recipe editor shows a "run the migration" note, summaries read "No cost
+  set", and saving rates errors with a fail-safe message. All add-only.
+- **Not built:** shared parts library + vendor bulk-cost sweep (Step 2b), the
+  Cockpit (Step 3), and a per-person roster / actual-vs-standard (Step 3).
+- **`std_advisor_pct` is a percentage number** (2.5 = 2.5%), divided by 100 in the
+  math — distinct from the commission engine's fraction-stored margins.
 - **Dormant column:** `shop_settings.feature_cost_profit` still exists (from the
   original flag) but is read by nothing — intentionally left, not dropped (§1).
 
 ## Where it lives in the code
-- **Build Sheet module:** `shared/build-sheet.js` (`BuildSheet.mount`).
+- **Build Sheet module:** `shared/build-sheet.js` — `BuildSheet.mount`, the tab
+  shell, the cost layer (`makeCostLayer`/`loadCostContext`/`computeCost`/
+  `summaryHtml`/`resultBoxHtml`/`renderRecipe`/`onRowInput`), and `renderPeopleRates`.
 - **Shared Units editor:** `shared/board-settings.js` — `renderUnitsEditor`
-  (guts), `renderPackagesPane` (redirect-or-editor dispatcher, gated on
-  `onOpenBuildSheet`), CRUD
-  (`setGroupPrice`/`addPackageUnit`/`savePackageUnit`/`deletePackageUnit`),
-  exposed via `BoardSettings.renderRebuildUnits`. `onOpenBuildSheet` init arg.
+  (guts; accepts `opts.costLayer`), `wireCostRow` (per-row cost UI + handle),
+  `renderPackagesPane` (redirect-or-editor dispatcher, gated on `onOpenBuildSheet`),
+  CRUD (`setGroupPrice`/`addPackageUnit`/`savePackageUnit`/`deletePackageUnit`),
+  the `std_*` rate defaults + reader, exposed via `BoardSettings.renderRebuildUnits`.
+  `onOpenBuildSheet` init arg.
+- **Cost schema (Step 2a):** `migrations/20260809_costlayer_unit_parts_rates.sql`
+  — `unit_parts` (recipe lines, RLS mirrors `package_units`) + `shop_settings`
+  `std_rr_rate`/`rebuilder_cost`/`std_advisor_pct`. **Add-only, not yet applied.**
 - **Owner board:** `owner-board.html` — the Cost & Profit `sidebar-group`,
   `#view-cockpit`, `#view-buildsheet` (`#buildsheet-root`), `openBuildSheet`,
   `BoardSettings.init({ onOpenBuildSheet, … })`, `<script src="shared/build-sheet.js">`.
@@ -105,6 +168,19 @@ Settings*, working identically.
   [[flat-rate-hours]] (R&R hours = the tech-pay side of a unit).
 
 ## Session change log
+- 2026-08-09 — **Built Step 2a — cost layer, part 1 (enter parts + see live profit).**
+  Add-only migration `20260809_costlayer_unit_parts_rates.sql` (**unapplied**):
+  `unit_parts` recipe table (RLS/realtime mirror `package_units`, FK on delete
+  cascade) + three `shop_settings` rate columns (`std_rr_rate`/`rebuilder_cost`/
+  `std_advisor_pct`, defaults 0/0/2.5). `shared/build-sheet.js` gained the cost
+  layer + the real **People & rates** tab; `renderUnitsEditor` gained an optional
+  `opts.costLayer` provider (Build-Sheet-only) + `wireCostRow`, so each unit row
+  expands to a parts recipe and shows live cost/profit/margin (collapsed summary +
+  expanded result box). Standard cost = Σ(part×qty) + R&R Hrs×rate + rebuilder +
+  price×advisor%. No-recipe → honest "No cost set". GM/Advisor unchanged (no
+  `costLayer`). Verified in-browser (exact math, live price recompute, honest empty
+  state, GM has no cost column). Parts library/vendor sweep (2b), Cockpit (3), and
+  per-person roster (3) NOT built. See [[packages]], [[settings]].
 - 2026-08-09 — **Removed the feature switch (same day, follow-up).** New standing
   rule: features ship via preview → prod, not behind a toggle. Dropped the
   `cost_profit` `FEATURE_FLAGS` entry + its `SHOP_DEFAULTS`/`getShopSettings`

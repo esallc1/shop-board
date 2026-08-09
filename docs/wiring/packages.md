@@ -1,8 +1,8 @@
 # How Packages (unit prices + the Package RO line) is wired
 
 > Doc: `/docs/wiring/packages.md`
-> Last updated: 2026-08-09 — verified vs commit `ee725cc` (+ this Cost & Profit
-> Step-1 change; the Rebuild Units editor can now live in the Build Sheet — §2)
+> Last updated: 2026-08-09 — verified vs commit `1d64041` (+ Cost & Profit Step 2a:
+> a cost-side `unit_parts` recipe table now references `package_units` — see below)
 > Status: ✅ BUILT, behind an owner switch (`feature_packages`, default OFF).
 > Migration `20260807_packages.sql` has since been **applied** and the switch turned
 > **ON** — confirmed live 2026-08-07: `feature_packages` true, the `package` line
@@ -135,6 +135,12 @@ switch, default OFF — when off, the RO builder and settings look exactly like 
   Commission engine can derive package **gross profit** (`set_price − unit_cost`), falling
   back to an assumed package margin until costs are entered. See [[advisor-commission]] §1.
   It's a **pay/GP** field only — never in the customer price (§4).
+- **Cost-side recipe (Cost & Profit Step 2a):** a new `unit_parts` table (one row per
+  rebuild-part line: name/part_no/vendor/unit_cost/qty) references `package_units(id)`
+  `on delete cascade`. It feeds the Build Sheet's standard-cost/profit estimate only —
+  it does **not** touch `package_units` fields, the customer price, or any RO. Full wiring
+  in [[cost-profit]] §6; migration `20260809_costlayer_unit_parts_rates.sql` (add-only).
+  (Distinct from `package_units.unit_cost` above, which the commission engine uses.)
 
 ## Where it lives in the code / schema
 - **Schema:** `migrations/20260807_packages.sql` — `ro_line_type` +`package`;
@@ -154,6 +160,11 @@ switch, default OFF — when off, the RO builder and settings look exactly like 
   Hours — the other tech-pay hours source, and the gate that shows the R&R field).
 
 ## Session change log
+- 2026-08-09 — **Cost & Profit Step 2a added a cost-side `unit_parts` recipe table** that
+  references `package_units(id)` (on delete cascade) — per-unit rebuild-part lines feeding
+  the Build Sheet's standard-cost/profit estimate. Does NOT alter `package_units`, the
+  customer price, or any RO. Migration `20260809_costlayer_unit_parts_rates.sql` (add-only,
+  RLS mirrors `package_units`). Full wiring in [[cost-profit]] §6.
 - 2026-08-09 — **The Rebuild Units editor was extracted + relocated to the Build Sheet**
   (Cost & Profit Step 1). `renderPackagesPane` → the shared `renderUnitsEditor`
   (exposed as `BoardSettings.renderRebuildUnits`); on the Owner / Bookkeeping boards it lives in
