@@ -14,6 +14,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="shared/office-identity.js"></script>
 <script src="shared/board-settings.js"></script>
+<!-- Cost & Profit — Build Sheet workbench (Step 1 frame). Behind the
+     feature_cost_profit switch (default OFF). -->
+<script src="shared/build-sheet.js"></script>
 <!-- Advisor commission engine (ESM → window.CommissionEngine) + shared cards
      (→ window.CommissionCards). Behind the Advisor Commission switch (default OFF). -->
 <script type="module">
@@ -125,6 +128,13 @@
         <div class="sidebar-item" data-view="commission" data-label="Commission & Payout" id="nav-commission" style="display:none"><span class="icon">💰</span>Commission &amp; Payout</div>
         <div class="sidebar-item" data-view="filecabinet" data-label="File Cabinet"><span class="icon">🗄️</span>File Cabinet</div>
       </div>
+      <!-- Cost & Profit — gated behind the feature_cost_profit switch (default
+           OFF). Hidden until refreshCostProfitNav() reveals it. -->
+      <div class="sidebar-group" id="group-costprofit" style="display:none">
+        <div class="sidebar-group-label">Cost &amp; Profit</div>
+        <div class="sidebar-item" data-view="cockpit" data-label="Cockpit"><span class="icon">🎛️</span>Cockpit</div>
+        <div class="sidebar-item" data-view="buildsheet" data-label="Build Sheet"><span class="icon">🔧</span>Build Sheet</div>
+      </div>
       <!-- Owner master-key switcher: open the other rooms in new tabs. These are
            <a> links (no data-view), so the view-switch handler ignores them. -->
       <div class="sidebar-group">
@@ -175,6 +185,22 @@
   <!-- ══ COMMISSION & PAYOUT ══ (shared/commission-cards.js) — feature-gated -->
   <div class="view" id="view-commission">
     <div id="commissionMount" style="max-width:680px"></div>
+  </div>
+
+  <!-- ══ COST & PROFIT — COCKPIT ══ (Step 3 placeholder) -->
+  <div class="view" id="view-cockpit">
+    <div class="card">
+      <div class="card-title"><div class="dot"></div>Cockpit</div>
+      <p style="color:var(--muted);font-size:0.9rem;margin:6px 0 0">Coming in Step 3.</p>
+    </div>
+  </div>
+
+  <!-- ══ COST & PROFIT — BUILD SHEET ══ (shared/build-sheet.js) -->
+  <div class="view" id="view-buildsheet">
+    <div class="card">
+      <div class="card-title"><div class="dot"></div>Build Sheet</div>
+      <div id="buildsheet-root"></div>
+    </div>
   </div>
 
   <!-- ══ ROADMAP ══ (shared/roadmap.js — one-line include, self-contained) -->
@@ -280,10 +306,38 @@
     // operational toggle. (CrisData Shop / RO settings.)
     canEditShopMoney: true,
     canEditShopOps: true,
-    // Reveal/hide + (re)render the Commission & Payout card when the switch
-    // loads/changes. Fail-safe: OFF → nav hidden, board exactly like before.
-    onShopSettingsChanged: () => { if (typeof refreshCommissionNav === 'function') refreshCommissionNav(); },
+    // Cost & Profit ON → the Settings "Rebuild Units & Prices" pane becomes a
+    // redirect that calls this to open Build Sheet → Units.
+    onOpenBuildSheet: () => openBuildSheet(),
+    // Reveal/hide + (re)render feature-gated surfaces when the switch
+    // loads/changes. Fail-safe: OFF → hidden, board exactly like before.
+    onShopSettingsChanged: () => {
+      if (typeof refreshCommissionNav === 'function') refreshCommissionNav();
+      if (typeof refreshCostProfitNav === 'function') refreshCostProfitNav();
+    },
   });
+
+  // ── Cost & Profit sidebar group (Cockpit + Build Sheet) — feature-gated ──
+  function costProfitOn() {
+    const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
+    return !!cfg.feature_cost_profit;
+  }
+  function refreshCostProfitNav() {
+    const grp = document.getElementById('group-costprofit');
+    if (grp) grp.style.display = costProfitOn() ? '' : 'none';
+    return costProfitOn();
+  }
+  function openBuildSheet() {
+    // Group is visible whenever this is reachable (feature ON). Activate the tab.
+    const nav = document.querySelector('.sidebar-item[data-view="buildsheet"]');
+    if (nav) nav.click();
+  }
+  (function () {
+    const nav = document.querySelector('.sidebar-item[data-view="buildsheet"]');
+    if (nav && window.BuildSheet) {
+      nav.addEventListener('click', () => BuildSheet.mount(document.getElementById('buildsheet-root'), { db }));
+    }
+  })();
 
   // ── Commission & Payout card (all advisors) — Advisor Commission feature ──
   function commissionOn() {

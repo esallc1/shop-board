@@ -71,6 +71,7 @@ window.BoardSettings = (function () {
     feature_packages: false,
     feature_advisor_commission: false,
     feature_bk_ro_detail: false,
+    feature_cost_profit: false,
     // Assumed-margin fallbacks for the commission engine (used only when a
     // parts/package line has no real cost). Null → the engine's code default.
     parts_margin_pct: null,
@@ -108,6 +109,12 @@ window.BoardSettings = (function () {
       label: 'Bookkeeping RO Detail',
       desc: 'On the Bookkeeping Overview, make the Income and Open-RO lists open a per-RO detail — the original RO on the left, its matched parts receipts (with photos) + "profit over parts" on the right. Read-only. Off = the lists behave exactly like before.',
     },
+    {
+      key: 'cost_profit',
+      column: 'feature_cost_profit',
+      label: 'Cost & Profit',
+      desc: 'Show the "Cost & Profit" sidebar group (Cockpit + Build Sheet) on the Owner and Bookkeeping boards, and move "Rebuild Units & Prices" out of Settings into Build Sheet → Units. Off = the group is hidden and Settings keeps the Rebuild Units & Prices tab — everything looks exactly like before.',
+    },
   ];
   let shopSettingsRow = null;   // raw row, or null if table/row missing
   let canEditShopMoney = false;
@@ -121,6 +128,12 @@ window.BoardSettings = (function () {
   let shopLogoFile = null;      // pending logo upload (Owner/GM only)
   let onOpenExtra = null;       // board-specific extra Settings category
   let extraLabel = 'More';      // nav label for that extra category
+  // Set by boards that host a Build Sheet (Cost & Profit feature). When the
+  // Cost & Profit switch is ON, the "Rebuild Units & Prices" settings pane
+  // becomes a one-line redirect that calls this to open Build Sheet → Units.
+  // Boards without a Build Sheet (GM/Advisor) never pass it, so their settings
+  // pane keeps the classic inline editor unchanged.
+  let onOpenBuildSheet = null;
   // logos live in the existing public board-backgrounds bucket (same
   // anon storage policies already in place), under a shop-logo/ prefix.
   const LOGO_BUCKET = 'board-backgrounds';
@@ -148,6 +161,7 @@ window.BoardSettings = (function () {
       feature_packages: !!shopSettingsRow.feature_packages,
       feature_advisor_commission: !!shopSettingsRow.feature_advisor_commission,
       feature_bk_ro_detail: !!shopSettingsRow.feature_bk_ro_detail,
+      feature_cost_profit: !!shopSettingsRow.feature_cost_profit,
       // Assumed-margin fallbacks (fractions) for the commission engine. Present
       // only post-migration; null → the engine uses its code default.
       parts_margin_pct: shopSettingsRow.parts_margin_pct != null ? Number(shopSettingsRow.parts_margin_pct) : null,
@@ -721,14 +735,49 @@ window.BoardSettings = (function () {
   }
 
   // ── Pane: Rebuild Units & Prices (package units) — Owner/GM, feature-gated ─
+  // Thin dispatcher. When the Cost & Profit feature is ON *and* the host board
+  // has a Build Sheet (owner/bookkeeping pass onOpenBuildSheet), this pane is a
+  // one-line redirect — the editor moved to Build Sheet → Units. Otherwise it
+  // renders the classic inline editor (flag OFF, or GM which has no Build Sheet
+  // so its settings pane is unchanged). The editor itself is renderUnitsEditor,
+  // the ONE shared copy also mounted by the Build Sheet (see renderRebuildUnits).
+  async function renderPackagesPane(content) {
+    if (!!getShopSettings().feature_cost_profit && typeof onOpenBuildSheet === 'function') {
+      content.innerHTML = catHeader('Rebuild Units & Prices', 'Moved to the Build Sheet.') +
+        `<div class="stgfeat-section">
+           <p class="stgfeat-placeholder" style="margin:0 0 12px">Rebuild unit prices now live under <strong>Cost &amp; Profit → Build Sheet → Units</strong>.</p>
+           <button type="button" class="stgfeat-btn" id="stgPkgGoBuild">Open Build Sheet</button>
+         </div>`;
+      const b = content.querySelector('#stgPkgGoBuild');
+      if (b) b.addEventListener('click', () => {
+        closeModal();
+        try { onOpenBuildSheet(); } catch (e) { console.error('[BoardSettings] onOpenBuildSheet failed', e); }
+      });
+      return;
+    }
+    await renderUnitsEditor(content, {});
+  }
+
+  // ── The Rebuild Units editor — ONE shared copy ────────────────
   // Add/edit/delete package units. Each: Group (optional organizing tag), Unit
   // (code shown in the RO dropdown), Set Price (customer price), Default R&R
   // Hours (tech-pay default). Units are shown grouped by group_label with a
   // "set price for the whole group" shortcut; each unit still keeps its own
   // price. The RO RESOLVE-AND-STORES a unit's price + hours onto the line at
   // pick time, so editing/deleting here never rewrites a job already built.
-  async function renderPackagesPane(content) {
-    const head = catHeader('Rebuild Units & Prices', 'Package unit prices for the RO "Package" line. Group is an optional organizing tag — units that share a group can be bulk-priced, but each keeps its own price. Set Price is the customer price; Default R&R Hours is the tech-pay credit (never added to the price). The RO copies these onto a line when a unit is picked — editing here never changes jobs already saved.');
+  //
+  // Mounted in TWO places, never both at once (the redirect above guarantees
+  // it): the Settings "Rebuild Units & Prices" pane (Cost & Profit OFF, or GM),
+  // and the Build Sheet → Units tab (Cost & Profit ON) via renderRebuildUnits().
+  // Editing here reloads the module's package-unit cache (loadPackageUnits) so
+  // the RO "Package" dropdown stays current — exactly as the settings pane did.
+  // opts.showHeader === false drops the title/sub (the Build Sheet tab bar
+  // already labels the pane).
+  async function renderUnitsEditor(content, opts) {
+    opts = opts || {};
+    const rerender = () => renderUnitsEditor(content, opts);
+    const head = opts.showHeader === false ? '' :
+      catHeader('Rebuild Units & Prices', 'Package unit prices for the RO "Package" line. Group is an optional organizing tag — units that share a group can be bulk-priced, but each keeps its own price. Set Price is the customer price; Default R&R Hours is the tech-pay credit (never added to the price). The RO copies these onto a line when a unit is picked — editing here never changes jobs already saved.');
     content.innerHTML = head + '<div class="stgfeat-placeholder">Loading…</div>';
     await loadPackageUnits();
     if (packageUnitsRows === null) {
@@ -792,34 +841,33 @@ window.BoardSettings = (function () {
         </table>
         <div class="stgfeat-error" id="stgPkgError" style="margin-top:6px"></div>
       </div>`;
-    content.querySelector('#stgPkgAddBtn').addEventListener('click', () => addPackageUnit(content));
+    content.querySelector('#stgPkgAddBtn').addEventListener('click', () => addPackageUnit(content, rerender));
     content.querySelectorAll('tr[data-id]').forEach(tr => {
-      tr.querySelector('[data-act="save"]').addEventListener('click', () => savePackageUnit(tr, content));
-      tr.querySelector('[data-act="del"]').addEventListener('click', () => deletePackageUnit(tr, content));
+      tr.querySelector('[data-act="save"]').addEventListener('click', () => savePackageUnit(tr, content, rerender));
+      tr.querySelector('[data-act="del"]').addEventListener('click', () => deletePackageUnit(tr, content, rerender));
     });
     content.querySelectorAll('[data-group-apply]').forEach(btn => {
       btn.addEventListener('click', () => {
         const gi = Number(btn.dataset.gidx);
         const inp = content.querySelector(`.stgPkgGroupPrice[data-gidx="${gi}"]`);
-        setGroupPrice(order[gi], inp ? inp.value : '', content);
+        setGroupPrice(order[gi], inp ? inp.value : '', content, rerender);
       });
     });
   }
 
   // Bulk shortcut: write one price to EVERY unit in a group. Convenience only —
   // per-unit edits still work; each unit's set_price is independent afterward.
-  async function setGroupPrice(groupLabel, rawPrice, content) {
+  async function setGroupPrice(groupLabel, rawPrice, content, rerender) {
     const err = content.querySelector('#stgPkgError'); if (err) err.textContent = '';
     const price = parseFloat(rawPrice);
     if (!Number.isFinite(price) || price < 0) { if (err) err.textContent = 'Enter a valid group price.'; return; }
     if (!confirm(`Set every unit in "${groupLabel}" to $${price.toFixed(2)}?`)) return;
     const { error } = await db.from('package_units').update({ set_price: price }).eq('group_label', groupLabel);
     if (error) { if (err) err.textContent = 'Group price failed: ' + error.message; return; }
-    await loadPackageUnits();
-    renderPackagesPane(content);
+    rerender();   // renderUnitsEditor reloads the unit cache at its top
   }
 
-  async function addPackageUnit(content) {
+  async function addPackageUnit(content, rerender) {
     const err = content.querySelector('#stgPkgError'); if (err) err.textContent = '';
     const group = (content.querySelector('#stgPkgNewGroup').value || '').trim() || null;
     const code = (content.querySelector('#stgPkgNewCode').value || '').trim();
@@ -832,9 +880,9 @@ window.BoardSettings = (function () {
     const { error } = await db.from('package_units')
       .insert({ group_label: group, unit_code: code, set_price: price, default_rr_hours: hours, active: true });
     if (error) { if (err) err.textContent = 'Add failed: ' + error.message; return; }
-    renderPackagesPane(content);
+    rerender();   // renderUnitsEditor reloads the unit cache at its top
   }
-  async function savePackageUnit(tr, content) {
+  async function savePackageUnit(tr, content, rerender) {
     const err = content.querySelector('#stgPkgError'); if (err) err.textContent = '';
     const group = (tr.querySelector('[data-f="group_label"]').value || '').trim() || null;
     const code = (tr.querySelector('[data-f="unit_code"]').value || '').trim();
@@ -847,19 +895,17 @@ window.BoardSettings = (function () {
     const { error } = await db.from('package_units')
       .update({ group_label: group, unit_code: code, set_price: price, default_rr_hours: hours }).eq('id', tr.dataset.id);
     if (error) { if (err) err.textContent = 'Save failed: ' + error.message; return; }
-    const btn = tr.querySelector('[data-act="save"]');
-    if (btn) { const o = btn.textContent; btn.textContent = 'Saved'; setTimeout(() => { btn.textContent = o; }, 1200); }
-    // group may have changed → re-render so it moves under the right heading.
-    await loadPackageUnits();
-    renderPackagesPane(content);
+    // group may have changed → re-render so it moves under the right heading
+    // (renderUnitsEditor reloads the unit cache at its top).
+    rerender();
   }
-  async function deletePackageUnit(tr, content) {
+  async function deletePackageUnit(tr, content, rerender) {
     const err = content.querySelector('#stgPkgError'); if (err) err.textContent = '';
     const code = (tr.querySelector('[data-f="unit_code"]') && tr.querySelector('[data-f="unit_code"]').value) || 'this unit';
     if (!confirm('Delete package unit "' + code + '"? Jobs already built keep their stored price and hours.')) return;
     const { error } = await db.from('package_units').delete().eq('id', tr.dataset.id);
     if (error) { if (err) err.textContent = 'Delete failed: ' + error.message; return; }
-    renderPackagesPane(content);
+    rerender();   // renderUnitsEditor reloads the unit cache at its top
   }
 
   // ── Pane: Shop Profile (invoice header + legal footer) — Owner/GM ─
@@ -1323,6 +1369,7 @@ window.BoardSettings = (function () {
     onShopSettingsChanged = config.onShopSettingsChanged || null;
     onOpenExtra = config.onOpenExtra || null;
     extraLabel = config.extraLabel || 'More';
+    onOpenBuildSheet = typeof config.onOpenBuildSheet === 'function' ? config.onOpenBuildSheet : null;
     injectStyles();
     mountTrigger(config.mountSelector);
     loadShopSettings();       // warm the cache so getShopSettings() is current early
@@ -1354,5 +1401,9 @@ window.BoardSettings = (function () {
     init, refresh, getShopSettings, reloadShopSettings: loadShopSettings,
     getPaymentMethods, paymentMethodLabel, reloadPaymentMethods: loadPaymentMethods,
     getPackageUnits, reloadPackageUnits: loadPackageUnits,
+    // Mount the shared Rebuild Units editor into any container (the Build Sheet
+    // → Units tab). Same editor as the Settings "Rebuild Units & Prices" pane —
+    // ONE copy. Header suppressed by default (the tab bar already labels it).
+    renderRebuildUnits: (content, cfg) => renderUnitsEditor(content, Object.assign({ showHeader: false }, cfg || {})),
   };
 })();

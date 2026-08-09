@@ -71,6 +71,8 @@ and renders their markdown — the File Cabinet the CLAUDE.md rules describe, ma
 - Design blueprint (not shipped): `docs/_design/file-cabinet-mockup.html`.
 
 ## Session change log
+- 2026-08-09 — Added a `DOCS` manifest row for `cost-profit.md` (Cost & Profit / Build Sheet,
+  Step 1). Manifest-only change; renderer/status-chip logic unchanged.
 - 2026-07-30 — Built the tab from the mockup: `shared/file-cabinet.js` (manifest +
   markdown renderer + header-derived status chips) wired into `owner-board.html` under
   Insights. Created this doc in the same commit (Rule 2).
