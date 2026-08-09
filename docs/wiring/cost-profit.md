@@ -160,6 +160,14 @@ the **Parts catalog & vendor pricing** tab (`renderPartsCatalog` in
 - **Pre-migration fallback:** the tab shows a "run the migration" note, and the
   Units "Add from library" control is hidden, until
   `20260809_costlayer_parts_library.sql` is applied.
+- **RLS covers anon AND authenticated:** a signed-in office owner runs as the
+  `authenticated` role (Supabase Auth via `office-login.html` — see
+  [[office-auth]]), not `anon`. Every cost-layer table therefore needs BOTH an
+  anon policy and an `authenticated` twin (per the 2026-08-01 widen), or the
+  signed-in owner goes blind / can't write. `parts_library` originally shipped
+  anon-only, which RLS-blocked the owner's inserts; the authenticated twin was
+  added by `20260809_costlayer_rls_authenticated_fix.sql` (and inline in the
+  canonical `20260809_costlayer_parts_library.sql` for fresh rebuilds).
 
 ## 9. Vendor bulk-cost sweep (Step 2b) — the inflation fix
 On the same tab: pick a **vendor**, enter **±X%**, **Apply** → raises the cost of
@@ -220,6 +228,16 @@ every part tagged to that vendor (`applyVendorSweep`):
   [[flat-rate-hours]] (R&R hours = the tech-pay side of a unit).
 
 ## Session change log
+- 2026-08-09 — **Fixed a Step-2b RLS bug: `parts_library` inserts blocked for the
+  signed-in owner.** Root cause: the office owner runs as the `authenticated` role
+  (Supabase Auth via office-login.html), but `parts_library` shipped with only a
+  `to anon` policy (it was created after the 2026-08-01 office-auth widen and not
+  in its list), so the authenticated owner had no applicable policy → INSERT/SELECT
+  RLS-blocked ("violates row-level security policy"). Fix: add the `authenticated`
+  twin policy (same access, no broader) to `parts_library` + `unit_parts`, mirroring
+  the widen — `20260809_costlayer_rls_authenticated_fix.sql` (add-only, hand-run) and
+  inline in the canonical 2b migration for fresh rebuilds. Add-only; no data or other
+  tables touched. See [[office-auth]] and §8.
 - 2026-08-09 — **Built Step 2b — cost layer, part 2 (shared parts library + vendor
   sweep).** Add-only migration `20260809_costlayer_parts_library.sql` (**unapplied**):
   `parts_library` (reusable items, flat or bulk-priced; RLS/realtime mirror

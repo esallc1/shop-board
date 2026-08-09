@@ -14,9 +14,13 @@
 --      cost read live from the library) instead of typing a standalone part.
 --
 -- SAFETY (the add-only / mirror-anon check):
---   • parts_library' RLS + policy + realtime MIRROR public.package_units EXACTLY
---     (see 20260807_packages.sql 2b/2c) — anon full access, app-level auth, the
---     same posture every settings list uses. NO broader access.
+--   • parts_library' anon RLS + policy + realtime MIRROR public.package_units'
+--     anon posture (see 20260807_packages.sql 2b/2c) — anon full access,
+--     app-level auth. NO broader than anon.
+--   • PLUS an `authenticated` twin policy (same access, no broader): a signed-in
+--     office owner runs as `authenticated`, so anon-only would leave them blind.
+--     This mirrors the 2026-08-01 office-auth widen. (On the live DB this was
+--     added separately by 20260809_costlayer_rls_authenticated_fix.sql.)
 --   • unit_parts is only EXTENDED (one nullable FK column); its existing columns,
 --     the Step-2a recipe rows, package_units, and all ROs are untouched.
 --   • Everything is IF NOT EXISTS / additive. Re-running is safe.
@@ -44,11 +48,23 @@ create table if not exists public.parts_library (
 
 create index if not exists idx_parts_library_vendor on public.parts_library (vendor);
 
--- RLS — anon full access, MIRRORING public.package_units exactly. No broader.
+-- RLS — anon full access (mirrors public.package_units' anon posture). No broader.
 alter table public.parts_library enable row level security;
 drop policy if exists "Allow anon full access to parts_library" on public.parts_library;
 create policy "Allow anon full access to parts_library"
   on public.parts_library for all to anon using (true) with check (true);
+
+-- Office-auth: a signed-in owner runs as the `authenticated` role (Supabase Auth
+-- via office-login.html — see docs/wiring/office-auth.md + the 2026-08-01 widen
+-- `20260801_office_auth_widen_step1_5.sql`). Add the authenticated twin of the
+-- anon policy — same access, no broader — or the signed-in owner goes blind
+-- (SELECT → 0 rows, INSERT → "violates row-level security policy").
+-- NOTE: the LIVE DB shipped this table anon-only first; the authenticated policy
+-- was added there by 20260809_costlayer_rls_authenticated_fix.sql. This inline
+-- copy keeps a FRESH rebuild correct.
+drop policy if exists "auth write parts_library" on public.parts_library;
+create policy "auth write parts_library"
+  on public.parts_library for all to authenticated using (true) with check (true);
 
 -- REALTIME — mirror package_units (2c).
 do $$

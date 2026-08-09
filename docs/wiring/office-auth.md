@@ -835,6 +835,13 @@ pin column; all board reads/greeting/roster still populate.
   identity-first, §8 enforcement), [[change-requests]] (§5 — a feature that deferred to this).
 
 ## Session change log
+- 2026-08-09 — **Recurring-gotcha note (Step 1½ widen is a FIXED LIST):** any table created
+  AFTER the 2026-08-01 widen must add its own `for all to authenticated using(true) with
+  check(true)` twin, or a signed-in office session goes blind (SELECT → 0 rows, INSERT →
+  "violates row-level security policy"). Bit the Cost & Profit **`parts_library`** (Step 2b,
+  shipped anon-only) — the owner's library inserts were RLS-blocked. Fixed by
+  `migrations/20260809_costlayer_rls_authenticated_fix.sql` (parts_library + unit_parts twins).
+  Lesson for future tables: mirror anon AND authenticated. See [[cost-profit]] §8.
 - 2026-07-31 — Created during the "Kiki Supabase Auth + lockout-safe adoption" investigation.
   Mapped CrisData's phone/PIN + anon-`employees` identity model and every "who is logged in"
   touchpoint; documented KiKi's email-invite Supabase-Auth implementation (clients, `proxy.ts`
