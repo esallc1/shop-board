@@ -1,8 +1,8 @@
 # How Settings is wired (and the proposed role-gated hub)
 
 > Doc: `/docs/wiring/settings.md`
-> Last updated: 2026-08-09 — verified vs commit `ee725cc` (+ this Cost & Profit
-> Step-1 change + its feature-switch removal, verified in-browser this session)
+> Last updated: 2026-08-09 — verified vs commit `1d64041` (+ Cost & Profit Step 2a:
+> three standard-cost rate columns on `shop_settings`, verified in-browser)
 > Status: ✅ §0–§4 (today's wiring) verified vs code this session — read against
 > `shared/board-settings.js`, `migrations/20260716_shop_settings.sql`, `crisdata.html`, the four
 > board `BoardSettings.init` calls, and `api/announcement.js`. **§4.1 (the owner Features
@@ -37,6 +37,11 @@ gate and no server-side enforcement**, so "hidden" today means "removed from the
     Commission, and Bookkeeping RO Detail features (§4.1). One boolean column per switch; additive,
     no new table, no RLS change. The commission migration also adds the assumed-margin fallbacks
     `parts_margin_pct` / `package_margin_pct` (nullable; see §4.3).
+  - **Cost & Profit standard-cost rates** (`20260809_costlayer_unit_parts_rates.sql`, add-only):
+    `std_rr_rate` ($/flagged hr), `rebuilder_cost` ($/unit), `std_advisor_pct` (% of sale;
+    defaults 0 / 0 / 2.5). Read via `getShopSettings()`; set on the Build Sheet → **People &
+    rates** tab. Build-Sheet standard-cost placeholders only — **independent** of the Advisor
+    Commission engine (see [[cost-profit]] §7). Same anon write path as every setting.
 - **Package unit prices → `public.package_units`** (migration `20260807_packages.sql`): the
   shop-set list backing the RO "Package" line — `group_label` (nullable organizing tag),
   `unit_code`, `set_price`, `default_rr_hours`, `active`, timestamps. Anon-full-access RLS +
@@ -297,6 +302,11 @@ mechanism, in preference order:
   [[my-numbers]] (no viewer role today), [[announcements]] (a live service-role write path).
 
 ## Session change log
+- 2026-08-09 — **Cost & Profit Step 2a: three standard-cost rate columns on `shop_settings`**
+  (`std_rr_rate`/`rebuilder_cost`/`std_advisor_pct`, add-only migration
+  `20260809_costlayer_unit_parts_rates.sql`, defaults 0/0/2.5) added to `SHOP_DEFAULTS` + the
+  `getShopSettings()` reader. Set on the Build Sheet → People & rates tab; used only by the Build
+  Sheet standard-cost estimate, **independent** of the commission engine. See [[cost-profit]] §6–§7.
 - 2026-08-09 — **Removed the `cost_profit` feature flag (same-day follow-up); new standing rule:
   features ship via preview → prod, not behind a toggle.** Dropped the 5th `FEATURE_FLAGS` entry +
   its `SHOP_DEFAULTS`/`getShopSettings` reader (Features pane back to 4 toggles); `renderPackagesPane`
