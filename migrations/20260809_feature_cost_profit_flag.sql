@@ -3,6 +3,12 @@
 -- Run in the Supabase SQL Editor (project hygemiszxwmyrkmhbjub).
 -- Cris runs migrations by hand — the app never runs this.
 --
+-- ⚠️ SUPERSEDED / OPTIONAL (2026-08-09): the feature switch was removed the same
+-- day — the Cost & Profit group now ships unconditionally (no toggle). No app
+-- code reads shop_settings.feature_cost_profit anymore. You do NOT need to run
+-- this; if you already ran it, the column is harmless and stays (dormant,
+-- additive — intentionally not dropped). Kept only as history.
+--
 -- WHAT: one additive boolean on the single shop_settings row — the master
 -- on/off switch for the "Cost & Profit" sidebar group (Cockpit + Build Sheet) on
 -- the Owner and Bookkeeping boards. When ON it also moves "Rebuild Units &

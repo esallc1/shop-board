@@ -2,43 +2,35 @@
 
 > Doc: `/docs/wiring/cost-profit.md`
 > Last updated: 2026-08-09 — verified vs commit `ee725cc` (+ this Cost & Profit
-> Step-1 change, verified in-browser on the owner board this session)
-> Status: ✅ Step 1 (frame + relocation) BUILT, behind an owner switch
-> (`feature_cost_profit`, default OFF). Migration `20260809_feature_cost_profit_flag.sql`
-> written, **NOT yet applied** — hand to Cris. Steps 2 (parts recipes / vendor
-> costs) and 3 (Cockpit) are NOT built.
+> Step-1 change + the feature-switch removal, verified in-browser this session)
+> Status: ✅ Step 1 (frame + relocation) BUILT and **always on — NO feature
+> switch** (shipped via preview → prod, per the standing rule in §1). Steps 2
+> (parts recipes / vendor costs) and 3 (Cockpit) are NOT built.
 
 ## 0. In one line
-A new **"Cost & Profit"** sidebar group on the **Owner and Bookkeeping boards**
-with two items — **Cockpit** (Step-3 placeholder) and **Build Sheet** — where the
-Build Sheet is a three-tab workbench whose first tab (**Units**) is the existing
-"Rebuild Units & Prices" editor *relocated out of Settings*, working identically.
-The whole group is gated behind one owner switch, default OFF; when OFF nothing
-changes anywhere.
+A **"Cost & Profit"** sidebar group that **always shows** on the **Owner and
+Bookkeeping boards** with two items — **Cockpit** (Step-3 placeholder) and **Build
+Sheet** — where the Build Sheet is a three-tab workbench whose first tab
+(**Units**) is the existing "Rebuild Units & Prices" editor *relocated out of
+Settings*, working identically.
 
-## 1. The master switch (owner-controlled, default OFF)
-- **Flag:** `shop_settings.feature_cost_profit boolean not null default false`
-  (migration `20260809_feature_cost_profit_flag.sql`, additive, reuses the single
-  anon-full-access `shop_settings` row — no new table, no RLS change). **Fifth**
-  entry in the `FEATURE_FLAGS` registry (see [[settings]] §4.1).
-- **Flip it:** owner-only **Features** pane (`renderFeaturesPane`), same as the
-  other flags. **Fail-safe OFF:** `getShopSettings().feature_cost_profit` returns
-  false when the column is missing (pre-migration) or the read fails, so both
-  boards degrade to exactly today's behavior.
-- **What OFF suppresses:** (a) the Cost & Profit sidebar group is hidden, and
-  (b) the Settings "Rebuild Units & Prices" pane keeps the classic inline editor
-  (no redirect). Nothing else changes.
+## 1. No feature switch (standing rule)
+- **There is no toggle.** The group ships unconditionally; new features (this one,
+  and Steps 2/3) ship through the **preview → eyeball → prod** flow, NOT behind a
+  `shop_settings` flag. (History: Step 1 first shipped behind a
+  `feature_cost_profit` switch; the switch was removed the same day when the team
+  adopted the no-toggle rule.)
+- **The `shop_settings.feature_cost_profit` column is DORMANT.** It was added by
+  `migrations/20260809_feature_cost_profit_flag.sql` (additive boolean) and is now
+  **unused** — no app code reads it. It is harmless and intentionally **not
+  dropped** (no down-migration). Ignore it.
 
 ## 2. The sidebar group (Owner + Bookkeeping only)
-- Markup: a `sidebar-group` with `id="group-costprofit" style="display:none"`,
-  label "Cost & Profit", two `sidebar-item`s: `data-view="cockpit"` 🎛️ and
-  `data-view="buildsheet"` 🔧. Present in **`owner-board.html`** and
-  **`bookkeeping-board.html`** only — Manager/Advisor boards are untouched.
-- **Reveal:** `refreshCostProfitNav()` (defined on each board) sets the group's
-  `display` from `BoardSettings.getShopSettings().feature_cost_profit`. It is
-  wired into `onShopSettingsChanged` (the same hook that reveals the Commission
-  nav), so the group appears/disappears when the switch loads or changes. First
-  paint (before settings load) → hidden; fail-safe.
+- Markup: a plain `sidebar-group` (label "Cost & Profit") with two
+  `sidebar-item`s: `data-view="cockpit"` 🎛️ and `data-view="buildsheet"` 🔧.
+  Present in **`owner-board.html`** and **`bookkeeping-board.html`** only —
+  Manager/Advisor boards are untouched. **Always visible** — no `display:none`, no
+  reveal function.
 
 ## 3. The Build Sheet page — `shared/build-sheet.js`
 - **One shared module** mounted on both boards: `BuildSheet.mount(container, { db })`.
@@ -73,55 +65,54 @@ changes anywhere.
   saved RO. It is a relocation of an existing surface.
 
 ## 5. Settings ↔ Build Sheet handoff (no double home)
-- The Settings "Rebuild Units & Prices" pane (`renderPackagesPane`) is now a thin
-  dispatcher. When **`feature_cost_profit` is ON *and* the host board passed
-  `onOpenBuildSheet`** (owner + bookkeeping do; GM/Advisor do not), the pane shows
-  a one-line **"Moved to the Build Sheet"** redirect with an **Open Build Sheet**
-  button (closes the modal, opens Build Sheet → Units). Otherwise it renders the
-  classic inline editor (`renderUnitsEditor`).
+- The Settings "Rebuild Units & Prices" pane (`renderPackagesPane`) is a thin
+  dispatcher gated purely on **whether the host board passed `onOpenBuildSheet`**
+  (owner + bookkeeping do; GM/Advisor do not — no flag involved). When it did, the
+  pane shows a one-line **"Moved to the Build Sheet"** redirect with an **Open
+  Build Sheet** button (closes the modal, opens Build Sheet → Units). Otherwise it
+  renders the classic inline editor (`renderUnitsEditor`).
 - **Guarantee:** the editor is mounted in exactly ONE place at a time — Settings
-  (flag OFF, or a board with no Build Sheet) XOR the Build Sheet (flag ON). This
+  (a board with no Build Sheet) XOR the Build Sheet (a board that has one). This
   is why a module-level re-render is safe.
-- **GM board is unchanged even when the flag is ON:** GM has money rights (so the
-  Packages settings category can show) but no Build Sheet, so it never passes
-  `onOpenBuildSheet` → the redirect branch is skipped → GM keeps the full inline
-  editor. Verified in-browser this session.
+- **GM board is unchanged:** GM has money rights (so the Packages settings
+  category can show) but no Build Sheet, so it never passes `onOpenBuildSheet` →
+  the redirect branch is skipped → GM keeps the full inline editor. Verified
+  in-browser this session.
 
 ## Known gaps & open questions (as of 2026-08-09)
 - **Steps 2 & 3 not built:** the Parts and People tabs are stubs; the Cockpit is a
   placeholder. No cost math, parts recipes, vendor costs, or profit yet.
-- **UI-level gate only:** like every feature flag, `shop_settings` is still
-  anon-writable — the switch is not server-enforced (same posture as
-  [[settings]] §4). Fine for a dark-shipped frame.
-- **Migration unapplied:** flipping the switch before
-  `20260809_feature_cost_profit_flag.sql` is applied shows the standard "needs its
-  migration applied first" message and reverts (fail-safe).
-- **Bookkeeping stored-tab edge case:** if a viewer's `sessionStorage` last-tab is
-  `buildsheet` and the owner later turns the feature OFF, `activateInitialView`
-  could still open the (now nav-hidden) Build Sheet view. Cosmetic only, inert
-  content; acceptable for a dark-shipped Step 1.
+- **Dormant column:** `shop_settings.feature_cost_profit` still exists (from the
+  original flag) but is read by nothing — intentionally left, not dropped (§1).
 
 ## Where it lives in the code
-- **Switch:** `shared/board-settings.js` — `FEATURE_FLAGS` `cost_profit` entry,
-  `SHOP_DEFAULTS.feature_cost_profit`, `getShopSettings().feature_cost_profit`;
-  migration `migrations/20260809_feature_cost_profit_flag.sql` (**unapplied**).
 - **Build Sheet module:** `shared/build-sheet.js` (`BuildSheet.mount`).
 - **Shared Units editor:** `shared/board-settings.js` — `renderUnitsEditor`
-  (guts), `renderPackagesPane` (redirect-or-editor dispatcher), CRUD
+  (guts), `renderPackagesPane` (redirect-or-editor dispatcher, gated on
+  `onOpenBuildSheet`), CRUD
   (`setGroupPrice`/`addPackageUnit`/`savePackageUnit`/`deletePackageUnit`),
   exposed via `BoardSettings.renderRebuildUnits`. `onOpenBuildSheet` init arg.
-- **Owner board:** `owner-board.html` — `#group-costprofit`, `#view-cockpit`,
-  `#view-buildsheet` (`#buildsheet-root`), `refreshCostProfitNav`/`costProfitOn`/
-  `openBuildSheet`, `BoardSettings.init({ onOpenBuildSheet, onShopSettingsChanged })`,
-  `<script src="shared/build-sheet.js">`.
-- **Bookkeeping board:** `bookkeeping-board.html` — same markup + helpers;
+- **Owner board:** `owner-board.html` — the Cost & Profit `sidebar-group`,
+  `#view-cockpit`, `#view-buildsheet` (`#buildsheet-root`), `openBuildSheet`,
+  `BoardSettings.init({ onOpenBuildSheet, … })`, `<script src="shared/build-sheet.js">`.
+- **Bookkeeping board:** `bookkeeping-board.html` — same markup + `openBuildSheet`;
   `activateView('buildsheet')` mounts the Build Sheet; `onOpenBuildSheet:
   () => activateView('buildsheet')`.
+- **Dormant column:** `migrations/20260809_feature_cost_profit_flag.sql` (the flag
+  that used to gate this; now unused — §1).
 - **Related docs:** [[packages]] (the unit list + RO "Package" line),
   [[settings]] (Features switchboard + the money-gated Rebuild Units category),
   [[flat-rate-hours]] (R&R hours = the tech-pay side of a unit).
 
 ## Session change log
+- 2026-08-09 — **Removed the feature switch (same day, follow-up).** New standing
+  rule: features ship via preview → prod, not behind a toggle. Dropped the
+  `cost_profit` `FEATURE_FLAGS` entry + its `SHOP_DEFAULTS`/`getShopSettings`
+  reader; the Cost & Profit group now shows unconditionally on both boards (no
+  `refreshCostProfitNav`/`display:none`); the Settings redirect now keys only on
+  `onOpenBuildSheet` (no flag). `shop_settings.feature_cost_profit` left dormant,
+  NOT dropped. Verified in-browser: owner group always visible + always-redirect,
+  Features pane back to 4 toggles, GM unchanged (inline editor, no group).
 - 2026-08-09 — **Created. Built Cost & Profit Step 1 (frame + relocation only).**
   Added the `feature_cost_profit` owner switch (5th `FEATURE_FLAGS` entry, default
   OFF, `20260809_feature_cost_profit_flag.sql` — additive boolean, **unapplied**).

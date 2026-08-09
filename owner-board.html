@@ -14,8 +14,8 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="shared/office-identity.js"></script>
 <script src="shared/board-settings.js"></script>
-<!-- Cost & Profit — Build Sheet workbench (Step 1 frame). Behind the
-     feature_cost_profit switch (default OFF). -->
+<!-- Cost & Profit — Build Sheet workbench (Step 1 frame). Always on (no
+     feature switch — ships via preview → prod). -->
 <script src="shared/build-sheet.js"></script>
 <!-- Advisor commission engine (ESM → window.CommissionEngine) + shared cards
      (→ window.CommissionCards). Behind the Advisor Commission switch (default OFF). -->
@@ -128,9 +128,8 @@
         <div class="sidebar-item" data-view="commission" data-label="Commission & Payout" id="nav-commission" style="display:none"><span class="icon">💰</span>Commission &amp; Payout</div>
         <div class="sidebar-item" data-view="filecabinet" data-label="File Cabinet"><span class="icon">🗄️</span>File Cabinet</div>
       </div>
-      <!-- Cost & Profit — gated behind the feature_cost_profit switch (default
-           OFF). Hidden until refreshCostProfitNav() reveals it. -->
-      <div class="sidebar-group" id="group-costprofit" style="display:none">
+      <!-- Cost & Profit — always shown (no feature switch). -->
+      <div class="sidebar-group">
         <div class="sidebar-group-label">Cost &amp; Profit</div>
         <div class="sidebar-item" data-view="cockpit" data-label="Cockpit"><span class="icon">🎛️</span>Cockpit</div>
         <div class="sidebar-item" data-view="buildsheet" data-label="Build Sheet"><span class="icon">🔧</span>Build Sheet</div>
@@ -306,29 +305,15 @@
     // operational toggle. (CrisData Shop / RO settings.)
     canEditShopMoney: true,
     canEditShopOps: true,
-    // Cost & Profit ON → the Settings "Rebuild Units & Prices" pane becomes a
-    // redirect that calls this to open Build Sheet → Units.
+    // The Settings "Rebuild Units & Prices" pane redirects to Build Sheet → Units;
+    // this opens it.
     onOpenBuildSheet: () => openBuildSheet(),
-    // Reveal/hide + (re)render feature-gated surfaces when the switch
-    // loads/changes. Fail-safe: OFF → hidden, board exactly like before.
-    onShopSettingsChanged: () => {
-      if (typeof refreshCommissionNav === 'function') refreshCommissionNav();
-      if (typeof refreshCostProfitNav === 'function') refreshCostProfitNav();
-    },
+    // Reveal/hide + (re)render feature-gated surfaces when settings load/change.
+    onShopSettingsChanged: () => { if (typeof refreshCommissionNav === 'function') refreshCommissionNav(); },
   });
 
-  // ── Cost & Profit sidebar group (Cockpit + Build Sheet) — feature-gated ──
-  function costProfitOn() {
-    const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
-    return !!cfg.feature_cost_profit;
-  }
-  function refreshCostProfitNav() {
-    const grp = document.getElementById('group-costprofit');
-    if (grp) grp.style.display = costProfitOn() ? '' : 'none';
-    return costProfitOn();
-  }
+  // ── Cost & Profit sidebar group (Cockpit + Build Sheet) — always shown ──
   function openBuildSheet() {
-    // Group is visible whenever this is reachable (feature ON). Activate the tab.
     const nav = document.querySelector('.sidebar-item[data-view="buildsheet"]');
     if (nav) nav.click();
   }

@@ -71,7 +71,6 @@ window.BoardSettings = (function () {
     feature_packages: false,
     feature_advisor_commission: false,
     feature_bk_ro_detail: false,
-    feature_cost_profit: false,
     // Assumed-margin fallbacks for the commission engine (used only when a
     // parts/package line has no real cost). Null → the engine's code default.
     parts_margin_pct: null,
@@ -108,12 +107,6 @@ window.BoardSettings = (function () {
       column: 'feature_bk_ro_detail',
       label: 'Bookkeeping RO Detail',
       desc: 'On the Bookkeeping Overview, make the Income and Open-RO lists open a per-RO detail — the original RO on the left, its matched parts receipts (with photos) + "profit over parts" on the right. Read-only. Off = the lists behave exactly like before.',
-    },
-    {
-      key: 'cost_profit',
-      column: 'feature_cost_profit',
-      label: 'Cost & Profit',
-      desc: 'Show the "Cost & Profit" sidebar group (Cockpit + Build Sheet) on the Owner and Bookkeeping boards, and move "Rebuild Units & Prices" out of Settings into Build Sheet → Units. Off = the group is hidden and Settings keeps the Rebuild Units & Prices tab — everything looks exactly like before.',
     },
   ];
   let shopSettingsRow = null;   // raw row, or null if table/row missing
@@ -161,7 +154,6 @@ window.BoardSettings = (function () {
       feature_packages: !!shopSettingsRow.feature_packages,
       feature_advisor_commission: !!shopSettingsRow.feature_advisor_commission,
       feature_bk_ro_detail: !!shopSettingsRow.feature_bk_ro_detail,
-      feature_cost_profit: !!shopSettingsRow.feature_cost_profit,
       // Assumed-margin fallbacks (fractions) for the commission engine. Present
       // only post-migration; null → the engine uses its code default.
       parts_margin_pct: shopSettingsRow.parts_margin_pct != null ? Number(shopSettingsRow.parts_margin_pct) : null,
@@ -734,15 +726,16 @@ window.BoardSettings = (function () {
     });
   }
 
-  // ── Pane: Rebuild Units & Prices (package units) — Owner/GM, feature-gated ─
-  // Thin dispatcher. When the Cost & Profit feature is ON *and* the host board
-  // has a Build Sheet (owner/bookkeeping pass onOpenBuildSheet), this pane is a
-  // one-line redirect — the editor moved to Build Sheet → Units. Otherwise it
-  // renders the classic inline editor (flag OFF, or GM which has no Build Sheet
-  // so its settings pane is unchanged). The editor itself is renderUnitsEditor,
-  // the ONE shared copy also mounted by the Build Sheet (see renderRebuildUnits).
+  // ── Pane: Rebuild Units & Prices (package units) — Owner/GM ────
+  // Thin dispatcher. When the host board has a Build Sheet (owner/bookkeeping
+  // pass onOpenBuildSheet), this pane is a one-line redirect — the editor lives
+  // in Build Sheet → Units (the relocation is now unconditional; there is no
+  // feature switch). Otherwise it renders the classic inline editor (GM, which
+  // has no Build Sheet, so its settings pane is unchanged). The editor itself is
+  // renderUnitsEditor, the ONE shared copy also mounted by the Build Sheet (see
+  // renderRebuildUnits).
   async function renderPackagesPane(content) {
-    if (!!getShopSettings().feature_cost_profit && typeof onOpenBuildSheet === 'function') {
+    if (typeof onOpenBuildSheet === 'function') {
       content.innerHTML = catHeader('Rebuild Units & Prices', 'Moved to the Build Sheet.') +
         `<div class="stgfeat-section">
            <p class="stgfeat-placeholder" style="margin:0 0 12px">Rebuild unit prices now live under <strong>Cost &amp; Profit → Build Sheet → Units</strong>.</p>

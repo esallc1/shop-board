@@ -36,15 +36,15 @@ switch, default OFF — when off, the RO builder and settings look exactly like 
 > copy (`renderUnitsEditor` in `shared/board-settings.js`, exposed as
 > `BoardSettings.renderRebuildUnits`). Behavior below is unchanged; only its home
 > can move. See [[cost-profit]] and [[settings]] §4.4.
-- **Home A — Settings (default, `feature_cost_profit` OFF):** the **Rebuild Units
-  & Prices** pane in the shared settings modal (`renderPackagesPane`; category id
-  still `packages`), visible when **`canEditShopMoney && feature_packages`** — the
-  same money gate as RO & Pricing (owner/GM), AND only when the Packages switch is
-  on. Manager (GM board) can edit it; advisor cannot.
-- **Home B — Build Sheet → Units (`feature_cost_profit` ON):** on the Owner and
-  Bookkeeping boards the editor moves into the Cost & Profit → Build Sheet → Units
-  tab, and the Settings pane becomes a one-line "Moved to the Build Sheet"
-  redirect (GM, which has no Build Sheet, keeps the inline editor). Same
+- **Home A — Settings inline editor (GM board):** the **Rebuild Units & Prices**
+  pane in the shared settings modal (`renderPackagesPane`; category id still
+  `packages`), visible when **`canEditShopMoney && feature_packages`** — the money
+  gate as RO & Pricing, AND only when the Packages switch is on. Shown on boards
+  **without** a Build Sheet (GM); advisor cannot see it.
+- **Home B — Build Sheet → Units (Owner + Bookkeeping):** those boards host the
+  Cost & Profit → Build Sheet, so the editor lives in its Units tab and the
+  Settings pane becomes a one-line "Moved to the Build Sheet" redirect. This is
+  **unconditional now — no feature switch** (see [[cost-profit]] §1). Same
   `package_units` data, same CRUD, same bulk group price.
 - **Table:** `public.package_units` — `group_label` (nullable organizing tag),
   `unit_code` (the dropdown label, e.g. `6L80`), `set_price` (customer price),
@@ -154,11 +154,13 @@ switch, default OFF — when off, the RO builder and settings look exactly like 
   Hours — the other tech-pay hours source, and the gate that shows the R&R field).
 
 ## Session change log
-- 2026-08-09 — **The Rebuild Units editor was extracted + can relocate to the Build Sheet**
+- 2026-08-09 — **The Rebuild Units editor was extracted + relocated to the Build Sheet**
   (Cost & Profit Step 1). `renderPackagesPane` → the shared `renderUnitsEditor`
-  (exposed as `BoardSettings.renderRebuildUnits`); when `feature_cost_profit` is ON on the Owner /
-  Bookkeeping boards it lives in Build Sheet → Units and the Settings pane redirects (§2). ONE copy,
-  no behavior change to `package_units`, the RO "Package" line, or any saved job. See [[cost-profit]].
+  (exposed as `BoardSettings.renderRebuildUnits`); on the Owner / Bookkeeping boards it lives in
+  Build Sheet → Units and the Settings pane redirects, GM keeps the inline editor (§2). Shipped
+  **behind a `feature_cost_profit` switch, then the switch was removed the same day** — the
+  relocation is now unconditional (no flag; see [[cost-profit]] §1). ONE copy, no behavior change to
+  `package_units`, the RO "Package" line, or any saved job. See [[cost-profit]].
 - 2026-08-07 — Created. Built Packages behind a `feature_packages` owner switch
   (default OFF, second FEATURE_FLAGS entry): a `package_units` settings table +
   money-gated Packages pane (add/edit/delete Unit / Set Price / Default R&R
