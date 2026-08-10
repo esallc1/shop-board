@@ -1,8 +1,8 @@
 # How Packages (unit prices + the Package RO line) is wired
 
 > Doc: `/docs/wiring/packages.md`
-> Last updated: 2026-08-09 — verified vs commit `c0c3f81` (+ Cost & Profit Step 2b:
-> `unit_parts` gained `library_part_id` linking to a shared `parts_library` — below)
+> Last updated: 2026-08-10 — verified vs commit `17d4b02` (+ the Package line got a
+> customer-facing **Description** field, reusing `description`; verified in-browser)
 > Status: ✅ BUILT, behind an owner switch (`feature_packages`, default OFF).
 > Migration `20260807_packages.sql` has since been **applied** and the switch turned
 > **ON** — confirmed live 2026-08-07: `feature_packages` true, the `package` line
@@ -76,11 +76,15 @@ switch, default OFF — when off, the RO builder and settings look exactly like 
   `alter type ... add value`). The type `<select>` in the pop-up includes Package
   only when the feature is on — `lineTypeOptions()` appends it (or when the line
   being edited is already a package).
-- **The Package fields (in the pop-up)** — **Unit, Price, Taxable only**:
+- **The Package fields (in the pop-up)** — **Unit, Description, Price, Taxable**:
   - **Unit** → a dropdown of the active units, **grouped into `<optgroup>`s by
     `group_label`** (named groups alpha-first, ungrouped last) so the advisor scans
     by group but still picks an individual unit (`packageUnitOptions()`). A
     stored-but-deleted unit stays selectable so the name still shows.
+  - **Description** (added 2026-08-10) → a **customer-facing** text field right after
+    Unit, before Price, pre-filled with the default **"R&R TRANSMISSION W/OVERHAUL"**
+    (`DEFAULT_PKG_DESC`), fully editable per line. It **reuses the `description`
+    column** (no new column). See [[ro-line-items]] §2.
   - **Price** → editable (the effective price). **Qty** is fixed at 1 on save.
     **Taxable** → a checkbox, default on.
   - **No R&R hrs field** — the advisor does not see or edit R&R hours (as of
@@ -88,11 +92,13 @@ switch, default OFF — when off, the RO builder and settings look exactly like 
     **R&R Hrs** column (§2) and adjustable on the manager side later.
 - **Picking a unit** copies `set_price` → the Price field (editable after — bump it
   for one job without touching settings). On save the line stores
-  `package_unit_id`, `description = unit_code`, `quantity = 1`, `taxable`, and
-  **silently carries `rr_hours`**: a new/changed unit takes that unit's
-  `default_rr_hours`; a same-unit edit **preserves the line's current** `rr_hours`
-  so a manager-adjusted value is never clobbered. `rr_hours` still never enters the
-  price math (§4).
+  `package_unit_id`, `description` = **the customer text** (or the **unit code** as a
+  fallback when blank — legacy lines that stored the unit code keep rendering as just
+  the unit), `quantity = 1`, `taxable`, and **silently carries `rr_hours`**: a
+  new/changed unit takes that unit's `default_rr_hours`; a same-unit edit **preserves
+  the line's current** `rr_hours` so a manager-adjusted value is never clobbered.
+  `rr_hours` still never enters the price math (§4). The line table + printed invoice
+  render the description; the table prefixes it with the unit (`<unit> — <description>`).
 
 ## 4. Price vs pay — the one rule that keeps it safe
 - **Customer price** = `Σ(quantity × unit_price)` over `ro_line_items`, unchanged.
@@ -107,7 +113,9 @@ switch, default OFF — when off, the RO builder and settings look exactly like 
   see [[ro-invoice]]) sums by category, so package lines are **folded into the
   Parts section and the Parts subtotal** (`partsTotal = catSum('parts') +
   catSum('package')`, `partsLines` includes package) so the printed rows and total
-  agree. `rr_hours` is never printed.
+  agree. The printed row label is the line's `description` — since 2026-08-10 that
+  is the **customer-facing description** (e.g. "R&R TRANSMISSION W/OVERHAUL"), not the
+  raw unit code. `rr_hours` is never printed.
 - **Deleting a settings unit never rewrites a built job:** the line stored its own
   `description` / `unit_price` / `rr_hours` at pick time; the FK is
   `on delete set null`, so the line keeps its numbers and just loses the link.
@@ -116,7 +124,8 @@ switch, default OFF — when off, the RO builder and settings look exactly like 
 - `package_unit_id uuid` → `package_units(id)` `on delete set null` (which unit).
 - `rr_hours numeric` (nullable) — the effective tech-pay R&R hours for this job.
 - Plus the shared columns it reuses: `line_type='package'`, `description`
-  (unit code), `unit_price` (effective price), `quantity` (1), `taxable`.
+  (**customer text**, or the unit code as a blank fallback), `unit_price`
+  (effective price), `quantity` (1), `taxable`.
 - Pre-migration writes to `package_unit_id` / `rr_hours` degrade quietly via
   `isMissingColumn` (a warning, no crash), same pattern as `part_number`.
 
@@ -164,6 +173,12 @@ switch, default OFF — when off, the RO builder and settings look exactly like 
   Hours — the other tech-pay hours source, and the gate that shows the R&R field).
 
 ## Session change log
+- 2026-08-10 — **Package lines got a customer-facing Description field** in the RO
+  Add/Edit-line pop-up (after Unit, before Price), default "R&R TRANSMISSION W/OVERHAUL",
+  editable per line. **Reuses the `description` column** (no migration): a package line's
+  `description` now holds the customer text (blank → unit-code fallback); the line table
+  renders `<unit> — <description>` and the printed invoice shows the description. §3/§4/§5
+  updated. Package-only. Full wiring in [[ro-line-items]] §2.
 - 2026-08-09 — **Cost & Profit Step 2b: `unit_parts.library_part_id`** (nullable FK, on
   delete set null) lets a recipe line link to a shared `parts_library` item instead of a
   typed part. No change to `package_units`, the customer price, or any RO. Migration
