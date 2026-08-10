@@ -22,10 +22,19 @@
 // STANDARD COST (per unit):
 //   Σ(part cost × qty) + (R&R Hrs × Standard R&R rate) + Rebuilder cost
 //     + (Set Price × Standard advisor %)
-//   Profit = Set Price − Standard cost ; Margin = Profit ÷ Set Price
-// A unit with NO recipe (zero parts) shows an honest "No cost set" — never $0.
+//   Profit = Set Price − cost ; Margin = Profit ÷ Set Price
 // A part's cost is its typed unit_cost (standalone) OR the library item's
 // effective per-unit cost (linked): flat = unit_cost, bulk = bulk_price ÷ bulk_qty.
+//
+// COST BASIS — every unit shows a number, honestly labelled (see costStateFor):
+//   • Estimate  — no recipe, no saved cost: cost = 45% of Set Price (the 55%
+//     assumed-margin fallback the commission engine also uses). A labelled guess.
+//   • Standard  — a recipe computes a cost, not yet saved. Shown with a "Use as
+//     actual cost" button; downstream still uses the estimate until confirmed.
+//   • Confirmed — the Standard cost has been SAVED to package_units.unit_cost via
+//     the confirm button (advisor % included). Profit/Margin — and the commission
+//     engine's package GP — now read this real cost. If the recipe changes after,
+//     the saved cost is kept and a subtle "recipe changed — reconfirm?" hint shows.
 //
 // Not here: the Cockpit (Step 3) or a per-person roster / actual-vs-standard
 // (Step 3). No feature switch — ships via preview → prod.
@@ -130,6 +139,25 @@ window.BuildSheet = (function () {
       .cp-pos { color: var(--green, #0f6e56); font-weight: 700; }
       .cp-neg { color: var(--red, #c0392b); font-weight: 700; }
 
+      /* Cost basis — badges (estimate / standard / confirmed) + confirm action */
+      .cp-badge { display: inline-block; font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; padding: 1px 6px; border-radius: 999px; border: 1px solid transparent; vertical-align: middle; white-space: nowrap; }
+      .cp-badge-est  { color: #9a6a00; background: rgba(230,160,0,0.14); border-color: rgba(230,160,0,0.35); }
+      .cp-badge-std  { color: #1f6feb; background: rgba(31,111,235,0.12); border-color: rgba(31,111,235,0.32); }
+      .cp-badge-conf { color: #0f6e56; background: rgba(15,110,86,0.14); border-color: rgba(15,110,86,0.34); }
+      .cp-reconfirm { color: #9a6a00; font-size: 0.66rem; font-weight: 700; margin-left: 6px; cursor: help; }
+      .cp-reconfirm::before { content: '⟳ '; }
+      .cp-sum-badge { margin-left: 6px; }
+      .cp-basis { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+      .cp-basis .cp-basis-note { font-size: 0.72rem; color: var(--muted); flex: 1 1 160px; min-width: 140px; }
+      .cp-confirm-btn { padding: 4px 12px; font-size: 0.74rem; }
+      .cp-confirm-err { color: var(--red, #c0392b); font-size: 0.72rem; min-height: 12px; margin-top: 4px; }
+      @media (prefers-color-scheme: dark) {
+        .cp-badge-est  { color: #f0c04a; }
+        .cp-badge-std  { color: #79b8ff; }
+        .cp-badge-conf { color: #56d4a8; }
+        .cp-reconfirm  { color: #f0c04a; }
+      }
+
       /* People & rates */
       .cp-rates { max-width: 460px; }
       .cp-rate-field { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 0; border-bottom: 1px solid var(--border); }
@@ -201,6 +229,47 @@ window.BuildSheet = (function () {
     return { partsCost, rrHours, rr, rebuild, advisorPct, advisor, price, total: partsCost + rr + rebuild + advisor };
   }
 
+  // Assumed gross margin used to ESTIMATE cost when a unit has no confirmed cost
+  // and no recipe. Mirrors the commission engine's DEFAULT_PACKAGE_MARGIN (0.55):
+  // estimated cost = (1 − 0.55) × Set Price = 45% of Set Price.
+  const ESTIMATE_MARGIN = 0.55;
+
+  // Resolve which cost a unit's Cost·Profit·Margin should read, and how honest it
+  // is. Three states, in priority order:
+  //   • 'confirmed' — package_units.unit_cost is saved (feeds the profit/commission
+  //     reads downstream). Cost = the saved value. If a recipe exists and now
+  //     computes a different Standard cost, `drift` is true (→ "reconfirm?" hint).
+  //   • 'standard'  — no saved cost yet, but a recipe computes a Standard cost.
+  //     Cost = that computed total. Shown with a "Confirm" action; downstream
+  //     still uses the estimate until it's confirmed.
+  //   • 'estimate'  — no saved cost and no recipe. Cost = 45% of Set Price (the
+  //     assumed-margin fallback). A labelled guess.
+  function costStateFor(handle, ctx) {
+    const live = handle.getLive();
+    const price = Number(live.set_price) || 0;
+    const parts = ctx ? partsFor(ctx, handle.unit.id) : [];
+    const hasRecipe = parts.length > 0;
+    const computed = hasRecipe ? computeCost(live, parts, ctx.rates, ctx).total : null;
+    const saved = handle.unit.unit_cost != null ? Number(handle.unit.unit_cost) : null;
+
+    let state, cost;
+    if (saved != null) { state = 'confirmed'; cost = saved; }
+    else if (hasRecipe) { state = 'standard'; cost = computed; }
+    else { state = 'estimate'; cost = price * (1 - ESTIMATE_MARGIN); }
+
+    const profit = price - cost;
+    const margin = price > 0 ? profit / price : null;
+    const drift = state === 'confirmed' && computed != null && Math.abs(computed - saved) > 0.005;
+    return { state, cost, profit, margin, price, computed, saved, hasRecipe, drift };
+  }
+
+  const BADGE = {
+    estimate:  '<span class="cp-badge cp-badge-est" title="Guess — 55% assumed margin, no recipe entered">Estimate</span>',
+    standard:  '<span class="cp-badge cp-badge-std" title="Computed from the recipe, but not yet confirmed — profit/commission still use the estimate until you confirm">Standard · unsaved</span>',
+    confirmed: '<span class="cp-badge cp-badge-conf" title="Saved to package_units.unit_cost — this is the real cost profit and commission read">Confirmed cost</span>',
+  };
+  const RECONFIRM = '<span class="cp-reconfirm" title="The recipe changed since this cost was confirmed. Reconfirm to save the new Standard cost.">recipe changed — reconfirm?</span>';
+
   // Warm rates + ALL recipe parts + the shared library once.
   async function loadCostContext(db) {
     let rates = { std_advisor_pct: 2.5, std_rr_rate: 0, rebuilder_cost: 0 };
@@ -253,40 +322,67 @@ window.BuildSheet = (function () {
   // ── Collapsed-row summary ────────────────────────────────────
   function summaryHtml(handle, ctx) {
     if (!ctx) return '<span class="cp-nocost">—</span>';
-    const parts = partsFor(ctx, handle.unit.id);
-    if (!parts.length) return '<span class="cp-nocost">No cost set</span>';
-    const live = handle.getLive();
-    const c = computeCost(live, parts, ctx.rates, ctx);
-    const profit = c.price - c.total;
-    const margin = c.price > 0 ? profit / c.price : null;
-    const cls = profit >= 0 ? 'cp-pos' : 'cp-neg';
-    return `<span title="Standard cost">${fmtMoney(c.total)}</span> · ` +
-      `<span class="${cls}" title="Profit">${fmtMoney(profit)}</span> · ` +
-      `<span class="${cls}" title="Margin">${fmtPct(margin)}</span>`;
+    const s = costStateFor(handle, ctx);
+    const cls = s.profit >= 0 ? 'cp-pos' : 'cp-neg';
+    const costTitle = s.state === 'confirmed' ? 'Confirmed cost' : s.state === 'standard' ? 'Standard cost (computed)' : 'Estimated cost (55% assumed margin)';
+    return `<span title="${costTitle}">${fmtMoney(s.cost)}</span> · ` +
+      `<span class="${cls}" title="Profit">${fmtMoney(s.profit)}</span> · ` +
+      `<span class="${cls}" title="Margin">${fmtPct(s.margin)}</span>` +
+      `<span class="cp-sum-badge">${BADGE[s.state]}</span>` +
+      (s.drift ? ' ' + RECONFIRM : '');
   }
 
   // ── Expanded recipe result box ───────────────────────────────
   function resultBoxHtml(handle, ctx) {
     const parts = partsFor(ctx, handle.unit.id);
     const live = handle.getLive();
-    if (!parts.length) {
-      return `<div class="cp-result"><div class="cp-nocost">No cost set — add a part above to see cost, profit, and margin.</div></div>`;
-    }
-    const c = computeCost(live, parts, ctx.rates, ctx);
-    const profit = c.price - c.total;
-    const margin = c.price > 0 ? profit / c.price : null;
-    const cls = profit >= 0 ? 'cp-pos' : 'cp-neg';
+    const s = costStateFor(handle, ctx);
     const row = (lbl, val, extra) => `<div class="cp-lbl${extra || ''}">${lbl}</div><div class="cp-val${extra || ''}">${val}</div>`;
-    return `<div class="cp-result"><div class="cp-result-grid">` +
+
+    // No recipe → the labelled estimate (45% of Set Price). No cost to confirm
+    // yet; adding a part switches this to a computed, confirmable Standard cost.
+    if (!parts.length) {
+      const cls = s.profit >= 0 ? 'cp-pos' : 'cp-neg';
+      return `<div class="cp-result"><div class="cp-result-grid">` +
+        row('Estimated cost <span class="cp-badge cp-badge-est">Estimate</span>', fmtMoney(s.cost), ' cp-total') +
+        row('Set price', fmtMoney(s.price)) +
+        `<div class="cp-lbl">Profit</div><div class="cp-val ${cls}">${fmtMoney(s.profit)}</div>` +
+        `<div class="cp-lbl">Margin</div><div class="cp-val ${cls}">${fmtPct(s.margin)}</div>` +
+        `</div><div class="cp-basis"><span class="cp-basis-note">Guess — 55% assumed margin. Add a part above to compute a real Standard cost you can confirm.</span></div></div>`;
+    }
+
+    // Recipe present → the full computed Standard cost stack, then the cost basis
+    // (Profit/Margin read the ACTIVE cost: saved if confirmed, else the Standard)
+    // and the Confirm / Reconfirm action.
+    const c = computeCost(live, parts, ctx.rates, ctx);
+    const cls = s.profit >= 0 ? 'cp-pos' : 'cp-neg';
+    const stack =
       row('Parts', fmtMoney(c.partsCost)) +
       row(`R&amp;R (${c.rrHours || 0} hr × ${fmtMoney(ctx.rates.std_rr_rate)})`, fmtMoney(c.rr)) +
       row('Rebuilder', fmtMoney(c.rebuild)) +
       row(`Advisor (${(Number(ctx.rates.std_advisor_pct) || 0)}% of price)`, fmtMoney(c.advisor)) +
       row('Standard cost', fmtMoney(c.total), ' cp-total') +
-      row('Set price', fmtMoney(c.price)) +
-      `<div class="cp-lbl">Profit</div><div class="cp-val ${cls}">${fmtMoney(profit)}</div>` +
-      `<div class="cp-lbl">Margin</div><div class="cp-val ${cls}">${fmtPct(margin)}</div>` +
-      `</div></div>`;
+      (s.state === 'confirmed' ? row('Confirmed cost', fmtMoney(s.saved)) : '') +
+      row('Set price', fmtMoney(s.price)) +
+      `<div class="cp-lbl">Profit</div><div class="cp-val ${cls}">${fmtMoney(s.profit)}</div>` +
+      `<div class="cp-lbl">Margin</div><div class="cp-val ${cls}">${fmtPct(s.margin)}</div>`;
+
+    const btnLabel = s.state === 'confirmed' ? (s.drift ? 'Reconfirm cost' : 'Re-save cost') : 'Use as actual cost';
+    const note = s.state === 'confirmed'
+      ? (s.drift
+          ? 'Saved cost is used by profit &amp; commission. The recipe now computes a different Standard cost.'
+          : 'Confirmed — profit &amp; commission read this saved cost.')
+      : 'Not yet confirmed — profit &amp; commission use a 55% estimate until you confirm this Standard cost.';
+
+    return `<div class="cp-result">` +
+      `<div class="cp-result-grid">${stack}</div>` +
+      `<div class="cp-basis">` +
+        `${BADGE[s.state]}${s.drift ? ' ' + RECONFIRM : ''}` +
+        `<span class="cp-basis-note">${note}</span>` +
+        `<button type="button" class="stgfeat-btn cp-confirm-btn" data-confirm-cost>${btnLabel}</button>` +
+      `</div>` +
+      `<div class="cp-confirm-err" data-confirm-err></div>` +
+      `</div>`;
   }
 
   // ── Recipe editor (per unit) ─────────────────────────────────
@@ -377,6 +473,10 @@ window.BuildSheet = (function () {
     const resultBox = cell.querySelector('[data-resultbox]');
     resultBox.innerHTML = resultBoxHtml(handle, ctx);
     openPanels.set(unitId, resultBox);
+    // Delegated so it survives the innerHTML swaps onRowInput() does on this box.
+    resultBox.addEventListener('click', (e) => {
+      if (e.target.closest('[data-confirm-cost]')) confirmCost(handle, ctx, resultBox);
+    });
 
     const errEl = cell.querySelector('[data-perr]');
     const fail = (m) => { if (errEl) errEl.textContent = m || ''; };
@@ -468,6 +568,31 @@ window.BuildSheet = (function () {
     if (box) box.innerHTML = resultBoxHtml(handle, ctx);
   }
   function onCollapse(handle) { openPanels.delete(String(handle.unit.id)); }
+
+  // Save the unit's currently-computed Standard cost (the full stack, advisor
+  // INCLUDED) into package_units.unit_cost — the column the commission engine and
+  // any profit view read. Uses the live (as-shown) Set Price / R&R Hrs, so the
+  // saved cost matches exactly what the recipe summary displays. After a
+  // successful write, the row flips to the "Confirmed cost" state and its
+  // Profit·Margin recompute from the saved real cost.
+  async function confirmCost(handle, ctx, resultBox) {
+    const parts = partsFor(ctx, handle.unit.id);
+    if (!parts.length) return;                       // nothing computed to confirm
+    const errSlot = resultBox && resultBox.querySelector('[data-confirm-err]');
+    if (errSlot) errSlot.textContent = '';
+    const c = computeCost(handle.getLive(), parts, ctx.rates, ctx);
+    const val = round2(c.total);
+    try {
+      const { error } = await ctx.db.from('package_units').update({ unit_cost: val }).eq('id', handle.unit.id);
+      if (error) throw error;
+      handle.unit.unit_cost = val;                   // reflect in the cached row
+      if (resultBox) resultBox.innerHTML = resultBoxHtml(handle, ctx);
+      try { handle.setSummary(summaryHtml(handle, ctx)); } catch (e) {}
+    } catch (e) {
+      console.error('[BuildSheet] confirm cost failed', e);
+      if (errSlot) errSlot.textContent = 'Save failed: ' + (e.message || e);
+    }
+  }
 
   function makeCostLayer(db) {
     return {

@@ -1,15 +1,17 @@
 # How Cost & Profit (Cockpit + Build Sheet) is wired
 
 > Doc: `/docs/wiring/cost-profit.md`
-> Last updated: 2026-08-09 — verified vs commit `c0c3f81` (+ this Step-2b shared
-> parts library + vendor sweep, verified in-browser this session)
+> Last updated: 2026-08-10 — verified vs branch `cost-profit-step2c` (+ this Step-2c persist
+> confirmed unit cost + honest estimate labelling, verified in-browser this session)
 > Status: ✅ Step 1 (frame + relocation) + ✅ Step 2a (recipe + rates + live
 > profit) + ✅ Step 2b (shared parts library + linked recipe lines + vendor
-> bulk-cost sweep) BUILT, **always on — NO feature switch** (§1). Step 2a is live
+> bulk-cost sweep) + ✅ Step 2c (persist confirmed cost + estimate labelling — §10)
+> BUILT, **always on — NO feature switch** (§1). Step 2a is live
 > (`20260809_costlayer_unit_parts_rates.sql` applied); Step 2b migration
 > `20260809_costlayer_parts_library.sql` is add-only + **NOT yet applied** — hand
-> to Cris. NOT built: the Cockpit (Step 3), per-person roster / actual-vs-standard
-> (Step 3).
+> to Cris. Step 2c needs **no migration** — `package_units.unit_cost` already
+> exists live (confirmed 2026-08-10 via the REST API; nullable, was all-null). NOT
+> built: the Cockpit (Step 3), per-person roster / actual-vs-standard (Step 3).
 
 ## 0. In one line
 A **"Cost & Profit"** sidebar group that **always shows** on the **Owner and
@@ -119,9 +121,13 @@ expand, no summary).
   (linked): flat = `unit_cost`, bulk = `bulk_price ÷ bulk_qty` (§8).
   **Profit** = Set Price − Standard cost. **Margin** = Profit ÷ Set Price. Shown
   in a result box in the expanded recipe AND compactly on the collapsed row.
-- **Honest empty state:** a unit with **zero recipe parts** shows **"No cost set"**
-  (never $0 profit) — parts presence is the signal that cost has been entered. The
-  shop-level rates apply only once a unit has a recipe.
+- **Honest labelling (Step 2c — see §10):** a unit with **zero recipe parts** no
+  longer shows "No cost set" — it shows an **Estimate** (cost = 45% of Set Price),
+  so every row carries a number that's clearly badged a guess. A unit **with** a
+  recipe shows its computed **Standard cost** (badged *Standard · unsaved*) plus a
+  **Confirm** action that persists it to `package_units.unit_cost` (badged
+  *Confirmed cost* after). The shop-level rates still apply only once a unit has a
+  recipe.
 - **Live:** recipe edits recompute immediately; typing in Set Price / R&R Hrs
   updates the summary + result box on the fly (`onRowInput`); a row **Save**
   re-renders the whole editor (collapsing panels) with fresh numbers.
@@ -183,6 +189,56 @@ every part tagged to that vendor (`applyVendorSweep`):
   last** writes them back and re-renders. (In-memory — an immediate undo, not a
   persistent history.)
 
+## 10. Persisted confirmed cost + estimate labelling (Step 2c) — the profit link
+Before this step the Build Sheet **computed** a Standard cost live but never **saved**
+it, so `package_units.unit_cost` (the column the commission engine and any profit
+view read) stayed null and downstream fell back to an assumed 55% margin. Step 2c
+closes that loop. All logic is in **`shared/build-sheet.js`** (the cost-layer
+provider) — `board-settings.js` is byte-unchanged, so GM/Advisor stay untouched.
+
+- **Three cost states (`costStateFor`)** decide which cost a unit's
+  Cost·Profit·Margin reads and how it's badged:
+  - **Estimate** — no saved cost **and** no recipe: cost = `Set Price × (1 −
+    0.55)` = 45% of price. `ESTIMATE_MARGIN = 0.55` mirrors the commission engine's
+    `DEFAULT_PACKAGE_MARGIN`. Amber **Estimate** badge — a labelled guess (replaces
+    the old "No cost set").
+  - **Standard · unsaved** — a recipe computes a cost, nothing saved yet: cost =
+    the computed Standard total. Blue badge; downstream **still** uses the estimate
+    until it's confirmed.
+  - **Confirmed cost** — `package_units.unit_cost` is set: cost = the saved value.
+    Green badge; this is what profit/commission read.
+- **Confirm action (`confirmCost`)** — the expanded recipe result box shows a
+  **"Use as actual cost"** button (→ **"Reconfirm cost"** when drifted, **"Re-save
+  cost"** when confirmed & unchanged). It writes `round2(computeCost(...).total)`
+  to `package_units.unit_cost` via the same anon/authenticated `.update().eq('id')`
+  path as `savePackageUnit`, using the **live (as-shown) Set Price / R&R Hrs** so the
+  saved cost matches the summary exactly, **advisor % included**. On success it
+  mutates the cached row and re-renders the summary + result box; the click listener
+  is **delegated on the result box** so it survives the innerHTML swaps `onRowInput`
+  does while typing.
+- **Reconfirm hint (drift):** once confirmed, if the recipe (or a rate / the live
+  price) now computes a Standard cost differing from the saved value by > $0.005,
+  the row **keeps** the saved cost and shows a subtle **"recipe changed —
+  reconfirm?"** hint on both the collapsed summary and the result box. Confirming
+  again overwrites with the new total.
+- **A normal row Save does NOT touch `unit_cost`** (`savePackageUnit` updates only
+  group/code/price/hours), so editing a unit's price never silently wipes a
+  confirmed cost.
+
+### 10.1 Downstream effect + the advisor double-count caveat (documented, not fixed)
+- The **commission engine already reads `package_units.unit_cost`**
+  ([[advisor-commission]] §1): a confirmed cost makes that unit's **package GP =
+  `price − unit_cost`** (real) instead of the `price × 0.55` fallback. That is the
+  intended payoff of this step.
+- **Caveat:** the confirmed `unit_cost` **includes the advisor component** (`Set
+  Price × std_advisor_pct`, 2.5%). So when the **GP-based** commission engine is on,
+  `GP = price − unit_cost` **slightly double-counts the advisor** (once inside the
+  cost, once as the 2.5% commission on GP). This is **left as-is on purpose** — the
+  engine is **OFF** and the current advisor plan is **gross-sales based**, not GP-
+  based, so nothing live is affected today. If/when the GP engine goes live, either
+  exclude the advisor leg from the saved cost or subtract it in the engine. Flagged
+  here so it isn't a surprise.
+
 ## Known gaps & open questions (as of 2026-08-09)
 - **Step 2b migration unapplied:** until `20260809_costlayer_parts_library.sql`
   runs, the Parts catalog shows a "run the migration" note and the "Add from
@@ -201,8 +257,17 @@ every part tagged to that vendor (`applyVendorSweep`):
 - **Build Sheet module:** `shared/build-sheet.js` — `BuildSheet.mount`, the tab
   shell, the cost layer (`makeCostLayer`/`loadCostContext`/`computeCost`/
   `effectiveUnitCost`/`libUnitCost`/`summaryHtml`/`resultBoxHtml`/`renderRecipe`/
-  `onRowInput`), the shared parts library + vendor sweep (`renderPartsCatalog`/
+  `onRowInput`), the **cost-state + confirm layer** (Step 2c: `costStateFor` /
+  `ESTIMATE_MARGIN` / `BADGE` / `RECONFIRM` / `confirmCost`, `.cp-badge*` +
+  `.cp-basis` CSS), the shared parts library + vendor sweep (`renderPartsCatalog`/
   `wireLibCards`/`applyVendorSweep`/`undoLastSweep`), and `renderPeopleRates`.
+- **Confirmed cost column:** `package_units.unit_cost` (numeric, nullable) —
+  **already live** (shipped in `20260808_advisor_commission.sql`; no Step-2c
+  migration). Written by `confirmCost`, read by the cost layer AND the commission
+  engine ([[advisor-commission]]). ⚠ `package_units` RLS has an **anon** full-access
+  policy (`20260807_packages.sql`); verify the **authenticated** twin exists (the
+  table was created after the 2026-08-01 office-auth widen — same footgun that hit
+  `parts_library`, see §8 change log) or a signed-in owner's confirm can RLS-block.
 - **Shared Units editor:** `shared/board-settings.js` — `renderUnitsEditor`
   (guts; accepts `opts.costLayer`), `wireCostRow` (per-row cost UI + handle),
   `renderPackagesPane` (redirect-or-editor dispatcher, gated on `onOpenBuildSheet`),
@@ -228,6 +293,26 @@ every part tagged to that vendor (`applyVendorSweep`):
   [[flat-rate-hours]] (R&R hours = the tech-pay side of a unit).
 
 ## Session change log
+- 2026-08-10 — **Built Step 2c — persist confirmed cost + honest estimate labelling.**
+  The live-computed Standard cost is now **savable** to `package_units.unit_cost`
+  (the column commission GP / any profit view reads), and every unit shows a badged
+  number instead of "No cost set" (§10). Three states via `costStateFor`:
+  **Estimate** (no recipe → 45% of Set Price, mirrors the engine's 0.55 fallback),
+  **Standard · unsaved** (recipe computed, not saved), **Confirmed cost** (saved).
+  A **"Use as actual cost"** button in the recipe result box calls `confirmCost`
+  (writes `computeCost().total`, advisor **included**, via the same anon/auth
+  `package_units.update` path; delegated listener survives `onRowInput` swaps); a
+  later recipe/price change keeps the saved cost and shows **"recipe changed —
+  reconfirm?"**. **No migration** — `package_units.unit_cost` already exists live
+  (verified via REST; was all-null). **All logic in `shared/build-sheet.js`;
+  `board-settings.js` byte-unchanged** → GM/Advisor untouched. Verified in-browser
+  on the owner board: no-recipe units badged Estimate (`$1,287 · $1,573 · 55%` on a
+  $2,860 unit); 4L60 recipe → Standard·unsaved `$788.68 · $2,071.32 · 72%`; Confirm
+  wrote `unit_cost=788.68` (confirmed live via REST) and flipped the badge to
+  Confirmed cost; a live price change surfaced the reconfirm hint; the test unit was
+  **reverted to null** afterward. Documented the advisor-double-count caveat for the
+  (off) GP engine (§10.1). Flagged the `package_units` authenticated-RLS-twin check
+  for Cris.
 - 2026-08-09 — **Fixed a Step-2b RLS bug: `parts_library` inserts blocked for the
   signed-in owner.** Root cause: the office owner runs as the `authenticated` role
   (Supabase Auth via office-login.html), but `parts_library` shipped with only a
