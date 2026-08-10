@@ -1,7 +1,8 @@
 # How RO line items (the Add/Edit-Line pop-up) are wired
 
 > Doc: `/docs/wiring/ro-line-items.md`
-> Last updated: 2026-08-09 — verified vs commit `455693f` (merged to main)
+> Last updated: 2026-08-10 — verified vs commit `17d4b02` (+ this Package
+> Description field change, verified in-browser on a real RO this session)
 > Status: ✅ BUILT + verified live this session. The line editor is a pop-up
 > window (no inline row editing). Verified end-to-end on real ROs: read-only rows,
 > add/edit/delete round-trip, labor auto-Sell, parts margin, package resolve,
@@ -50,7 +51,7 @@ into `quantity` / `unit_price`; type-specific extras use their own columns.
 |---|---|---|---|---|
 | **Labor** | Description, **Hours** (labelled "Qty" when Book Hours OFF), Rate ($/hr, default = RO&Pricing labor rate), **Sell (auto = Hours×Rate, read-only)**, **Tech credit** (Book Hours ON only — defaults to the RO tech), Taxable | hours | rate | **`line_tech_id`** (null = RO tech) |
 | **Parts** | Part #, Description, **Cost** (internal), **Sell**, Qty, Taxable | qty | sell | **`unit_cost` = cost** |
-| **Package** | Unit (grouped `<optgroup>` dropdown), Price (editable), Taxable — **no R&R field** | 1 | price | `package_unit_id`, `description`=unit_code, `rr_hours` (silent) |
+| **Package** | Unit (grouped `<optgroup>` dropdown), **Description** (customer-facing, default "R&R TRANSMISSION W/OVERHAUL", editable — right after Unit, before Price), Price (editable), Taxable — **no R&R field** | 1 | price | `package_unit_id`, `description`=**customer text** (blank → unit_code fallback), `rr_hours` (silent) |
 | **Fee / Shop Supply / Hazmat** | Description, Amount (Shop Supply/Hazmat prefill their RO&Pricing default), Taxable | 1 | amount | — |
 
 - **Labor** field is labelled **"Hours"** when the Book Hours feature is ON and
@@ -64,6 +65,19 @@ into `quantity` / `unit_price`; type-specific extras use their own columns.
   unit's `default_rr_hours`; on a same-unit edit it **preserves the line's current
   value** (a manager may have adjusted it). R&R is the manager's, set in the
   **Rebuild Units & Prices** R&R Hrs column (see [[packages]]).
+- **Package Description (customer-facing).** The Package window has a **Description**
+  field (right after Unit, before Price) that **reuses the shared `description`
+  column** — no new column. New/legacy lines pre-fill the default
+  **"R&R TRANSMISSION W/OVERHAUL"** (`DEFAULT_PKG_DESC`); it's fully editable per
+  line. On save, `description` = the typed text, or the **unit code** as a fallback
+  when blank (so the row + printed invoice always have a sensible label, and legacy
+  lines that stored the unit code keep working). The line table renders a Package
+  row as **`<unit> — <description>`** (unit from `package_unit_id` via
+  `unitCodeFromId`), falling back to just the unit when the description is blank or
+  equals the unit code. The edit modal pre-fills the saved description (or the
+  default for legacy/blank lines). The printed invoice shows `description` (the
+  customer text) — an improvement over the old unit-code label. Package-specific:
+  Labor / Parts / Fee are unchanged.
 - **Parts margin** (`Sell − Cost`, and %) renders **live** in the window
   (`#cdLf_margin`). It is **INTERNAL** — never shown to the customer and never
   printed (see §4).
@@ -140,6 +154,17 @@ Manager board ([[flat-rate-hours]] §10).
   Pricing defaults).
 
 ## Session change log
+- 2026-08-10 — **Package lines got a customer-facing Description field** (Add/Edit-Line
+  pop-up, right after Unit before Price), pre-filled with the default
+  "R&R TRANSMISSION W/OVERHAUL", editable per line. **Reuses the `description` column**
+  (no migration): a Package line's `description` now holds the customer text (blank →
+  unit-code fallback), and the line table renders `<unit> — <description>` (unit from
+  `package_unit_id`), falling back to the unit alone when blank/legacy. Edit pre-fills
+  the saved description; the printed invoice now shows the customer text. Package-only —
+  Labor/Parts/Fee untouched. `advisor-board.html`: `unitCodeFromId`/`DEFAULT_PKG_DESC`,
+  `renderLines`/`renderLineFields`/`saveLineModal` package branches. Verified in-browser
+  on a real RO (add default → "41TE — R&R TRANSMISSION W/OVERHAUL", custom desc, blank →
+  unit-only, edit prefill), test line cleaned up, no console errors. See [[packages]] §3.
 - 2026-08-07 — Created. Replaced inline RO line-item editing with an **Add/Edit-Line
   pop-up**: read-only rows (type chip · desc · qty/hrs · unit $ · tax · line · pencil
   + ×), one window whose fields adapt per type (Labor with auto-Sell + tech-pay

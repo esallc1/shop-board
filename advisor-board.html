@@ -3729,6 +3729,16 @@
       return (window.BoardSettings && window.BoardSettings.getPackageUnits)
         ? window.BoardSettings.getPackageUnits() : [];
     }
+    // Unit code for a package_unit_id (null if it can't be resolved — e.g. the
+    // unit was deleted, or the list isn't loaded yet). Used to prefix a Package
+    // line's customer description with its unit in the line table.
+    function unitCodeFromId(id) {
+      if (!id) return null;
+      const u = packageUnits().find(x => String(x.id) === String(id));
+      return u ? u.unit_code : null;
+    }
+    // Default customer-facing description pre-filled on a Package line.
+    const DEFAULT_PKG_DESC = 'R&R TRANSMISSION W/OVERHAUL';
 
     const money = (n) => '$' + (Number(n) || 0).toFixed(2);
     const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : 0; };
@@ -5031,7 +5041,18 @@
           // otherwise. (No tech-pay / R&R annotations on the advisor's rows —
           // hours live in the Qty/Hrs column; R&R is the manager's, set in
           // Rebuild Units & Prices and carried silently on the line.)
-          let descHtml = esc(l.description || '') || '<span style="color:var(--muted)">—</span>';
+          // Package rows read as "<unit> — <description>", e.g.
+          // "4L80 — R&R TRANSMISSION W/OVERHAUL". Blank/legacy (description ===
+          // unit code) falls back to just the unit name. Other types: description.
+          let descHtml;
+          if (l.line_type === 'package') {
+            const unit = unitCodeFromId(l.package_unit_id) || l.description || '';
+            const d = l.description || '';
+            const label = (d && d !== unit) ? (unit + ' — ' + d) : unit;
+            descHtml = esc(label) || '<span style="color:var(--muted)">—</span>';
+          } else {
+            descHtml = esc(l.description || '') || '<span style="color:var(--muted)">—</span>';
+          }
           if (l.line_type === 'parts' && l.part_number) {
             descHtml += ` <span style="color:var(--muted);font-size:0.72rem">#${esc(l.part_number)}</span>`;
           }
@@ -5357,7 +5378,17 @@
         // saveLineModal), preserving any manager-adjusted value on edit.
         const selUnit = seedMatches ? (seed.package_unit_id || '') : '';
         const price = seedMatches ? (seed.unit_price != null ? seed.unit_price : '') : '';
+        // Customer-facing description (reuses the `description` column). Use the
+        // line's saved description when editing (unless it's the legacy unit-code
+        // fallback), else the standard default — so a fresh Package line always
+        // shows the default, not an empty value carried over from another type.
+        // Fully editable per line; placed right after Unit, before Price.
+        const seedUnitCode = seedMatches ? (unitCodeFromId(seed.package_unit_id) || '') : '';
+        const pkgDesc = (seedMatches && seed.description && seed.description !== seedUnitCode)
+          ? seed.description
+          : DEFAULT_PKG_DESC;
         html = lfField('Unit', `<select id="cdLf_unit">${packageUnitOptions(selUnit)}</select>`)
+          + lfField('Description', `<input type="text" id="cdLf_desc" value="${nv(pkgDesc)}" placeholder="Description">`)
           + lfField('Price ($)', `<input type="number" id="cdLf_price" value="${nv(price)}" min="0" step="0.01">`)
           + taxField;
       } else {
@@ -5446,7 +5477,11 @@
         if (!uid) { errEl.textContent = 'Pick a unit.'; return; }
         const u = packageUnits().find(x => x.id === uid);
         payload.package_unit_id = uid;
-        payload.description = u ? u.unit_code : ((lineModalSeed && lineModalSeed.description) || null);
+        // Customer-facing description (reuses `description`). Blank → fall back to
+        // the unit code so the row + printed invoice always have a sensible label
+        // (and legacy lines that stored the unit code keep rendering as just the unit).
+        const typedDesc = $('cdLf_desc') ? ($('cdLf_desc').value || '').trim() : '';
+        payload.description = typedDesc || (u ? u.unit_code : ((lineModalSeed && lineModalSeed.description) || null));
         payload.quantity = 1;
         payload.unit_price = num($('cdLf_price').value);
         // R&R hrs is not shown/edited by the advisor — carried silently. On the
