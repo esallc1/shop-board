@@ -6259,12 +6259,18 @@
     }
 
     // Scroll the browse list so the chosen letter's group sits at the top of the
-    // scroll box (the box scrolls, not the page).
+    // scroll box (the box scrolls, not the page). We measure the header's CURRENT
+    // position relative to the list and adjust scrollTop by that delta — robust
+    // from any scroll state. (offsetTop is unreliable here: the headers are
+    // position:sticky, so a stuck header reports its stuck position, not its flow
+    // position — every header ends up reading the same offsetTop.)
     function custJumpToLetter(L) {
       const el = $('custSearchList');
       if (!el) return;
       const head = el.querySelector('.cust-group-head[data-letter="' + (window.CSS && CSS.escape ? CSS.escape(L) : L) + '"]');
-      if (head) el.scrollTop = Math.max(0, head.offsetTop - 4);
+      if (!head) return;
+      const delta = head.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      el.scrollTop = Math.max(0, el.scrollTop + delta - 2);
     }
 
     // Default (no search): the FULL customer list, alphabetical by displayed name,
