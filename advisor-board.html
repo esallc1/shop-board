@@ -463,9 +463,9 @@
   .cust-search-phone { margin-left:auto; font-size:0.78rem; color:var(--muted); white-space:nowrap; }
   .cust-search-empty { color:var(--muted); font-size:0.85rem; text-align:center; padding:22px 8px; }
   /* sticky letter header above each alphabetical group */
-  .cust-group-head { position:sticky; top:0; z-index:1; background:var(--surface-2); color:var(--muted);
-    font-size:0.72rem; font-weight:800; letter-spacing:0.08em; padding:5px 10px; border-radius:6px;
-    border:1px solid var(--border); margin:6px 0 1px; }
+  .cust-group-head { position:sticky; top:0; z-index:1; background:var(--surface-2); color:var(--accent);
+    font-size:1rem; font-weight:800; letter-spacing:0.04em; padding:8px 12px; border-radius:6px;
+    border:1px solid var(--border); border-left:3px solid var(--accent); margin:10px 0 3px; line-height:1.1; }
   .cust-group-head:first-child { margin-top:0; }
   /* A–Z index bar */
   .cust-az-bar { display:flex; flex-wrap:wrap; gap:3px; margin-top:10px; }
@@ -473,7 +473,9 @@
   .cust-az-letter { min-width:22px; padding:3px 5px; font-size:0.72rem; font-weight:700; line-height:1;
     border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--accent); cursor:pointer; font-family:inherit; }
   .cust-az-letter:hover { background:var(--accent); border-color:var(--accent); color:#fff; }
-  .cust-az-letter.disabled { color:var(--muted); opacity:0.4; cursor:default; pointer-events:none; background:var(--surface); }
+  /* active = the letter of the group currently at the top (set on click + scroll) */
+  .cust-az-letter.active { background:var(--accent); border-color:var(--accent); color:#fff; box-shadow:0 0 0 2px rgba(91,94,244,0.25); }
+  .cust-az-letter.disabled { color:var(--muted); opacity:0.4; cursor:default; pointer-events:none; background:var(--surface); box-shadow:none; }
   /* top strip */
   .cust-name { font-size:1.15rem; font-weight:800; color:var(--text); }
   .cust-biz { font-size:0.9rem; color:var(--muted); margin-top:1px; }
@@ -6205,24 +6207,51 @@
       $('custListPanel').style.display = 'block';
       ensureCustAllList().then(() => renderCustSearch($('custSearchInput').value || ''));
     }
-    // The name AS DISPLAYED in the list — business name if there is one, else the
-    // person's name (shown first-name-first, unchanged).
+    // The name AS DISPLAYED in the customer RECORD header — plain "First Last" for a
+    // person, or the business name. (The LIST uses custListLabel below for "Last, First".)
     function custDisplayName(c) { return (c.business_name || c.name || '').trim(); }
-    // The SORT/BUCKET key. A business sorts by its business name; a PERSON sorts by
-    // LAST NAME (the last token of their name, moved to the front — "Aaron Coleman"
-    // → "coleman aaron"), skipping a trailing Jr/Sr/II/III/IV suffix. Display name
-    // is untouched — only ordering + the A–Z bucket change. (custBucket derives from
-    // this so a group's header letter always matches where the row actually sorts.)
+    // Surname split for a PERSON's name, in ORIGINAL case. Returns { surname, rest }
+    // where `rest` is the given name(s) + a trailing Jr/Sr/II/III/IV/V suffix (that
+    // suffix is NOT treated as the surname). Returns null for a single-token name
+    // (nothing to flip). This is the ONE place the surname is computed — both the
+    // sort key (custSortName) and the list label (custListLabel) read it, so display
+    // and sort can never disagree.
     const CUST_SUFFIX = { jr: 1, sr: 1, ii: 1, iii: 1, iv: 1, v: 1 };
+    function custSurnameSplit(name) {
+      const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+      if (parts.length < 2) return null;
+      let last = parts.length - 1;
+      if (last > 0 && CUST_SUFFIX[parts[last].toLowerCase().replace(/\.$/, '')]) last--;   // skip Jr/Sr/III…
+      const surname = parts[last];
+      const rest = parts.slice(0, last).concat(parts.slice(last + 1)).join(' ');            // given + trailing suffix
+      return { surname, rest };
+    }
+    // The SORT/BUCKET key. A business sorts by its business name; a PERSON sorts by
+    // LAST NAME ("Aaron Coleman" → "coleman aaron"). custBucket derives from this so a
+    // group's header letter always matches where the row actually sorts.
     function custSortName(c) {
       const biz = (c.business_name || '').trim();
       if (biz) return biz.toLowerCase();
-      const parts = (c.name || '').trim().split(/\s+/).filter(Boolean);
-      if (parts.length < 2) return (c.name || '').trim().toLowerCase();
-      let last = parts.length - 1;
-      if (last > 0 && CUST_SUFFIX[parts[last].toLowerCase().replace(/\.$/, '')]) last--;   // skip Jr/Sr/III…
-      const rest = parts.slice(0, last).concat(parts.slice(last + 1)).join(' ');
-      return (parts[last] + (rest ? ' ' + rest : '')).toLowerCase();
+      const nm = (c.name || '').trim();
+      const s = custSurnameSplit(nm);
+      if (!s) return nm.toLowerCase();
+      return (s.surname + (s.rest ? ' ' + s.rest : '')).toLowerCase();
+    }
+    // The LIST row label — phonebook "Last, First" for a person ("Wyatt Tabb" →
+    // "Tabb, Wyatt"; "Bob Smith Jr" → "Smith, Bob Jr"), the business name AS-IS for a
+    // business (no comma flip), and a single-token/ambiguous name as-is (no trailing
+    // comma). Uses the SAME surname split as the sort, so display matches the jump.
+    function custListLabel(c) {
+      const biz = (c.business_name || '').trim();
+      if (biz) return biz;
+      const nm = (c.name || '').trim();
+      if (!nm) return '(no name)';
+      const s = custSurnameSplit(nm);
+      // Flip to "Last, First" only when the surname starts with a real letter
+      // (\p{L} covers accented names too). A junk placeholder last token like "."
+      // ("SANDRA .") is left as-is rather than shown as "., SANDRA".
+      if (!s || !/^\p{L}/u.test(s.surname)) return nm;
+      return s.surname + ', ' + s.rest;
     }
     // Bucket letter: A–Z from the SORT key (so people bucket by last name), else
     // "#" (numbers/symbols/blank).
@@ -6239,7 +6268,7 @@
     }
     const custItemHtml = (c) =>
       `<button type="button" class="cust-search-item" data-cust-id="${esc(c.id)}">` +
-      `<span class="cust-search-name">${esc(custDisplayName(c) || '(no name)')}</span>` +
+      `<span class="cust-search-name">${esc(custListLabel(c))}</span>` +
       `<span class="cust-search-phone">${esc(custFmtPhone(c.phone_primary))}</span></button>`;
 
     const AZ_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').concat('#');
@@ -6273,6 +6302,37 @@
       el.scrollTop = Math.max(0, el.scrollTop + delta - 2);
     }
 
+    // ── Active-letter feedback ──
+    // Mark one A–Z letter as the "current" group (filled/accent). Set on click and
+    // kept in step with scrolling via the scroll-spy below.
+    function setActiveAzLetter(L) {
+      const bar = $('custAzBar');
+      if (!bar) return;
+      bar.querySelectorAll('.cust-az-letter').forEach(b => b.classList.toggle('active', b.dataset.jump === L));
+    }
+    // Which group is currently at the top of the scroll box? With sticky headers the
+    // current group's header is the last one at/above the list's top edge.
+    function currentTopLetter() {
+      const el = $('custSearchList');
+      if (!el || !el.classList.contains('cust-browse')) return null;
+      const listTop = el.getBoundingClientRect().top;
+      let cur = null;
+      el.querySelectorAll('.cust-group-head').forEach(h => {
+        if (h.getBoundingClientRect().top <= listTop + 4) cur = h.dataset.letter;
+      });
+      return cur;
+    }
+    // Scroll-spy — rAF-throttled so a fast scroll over 2700 rows stays cheap.
+    let custAzSpyRAF = null;
+    function custAzScrollSpy() {
+      if (custAzSpyRAF) return;
+      custAzSpyRAF = requestAnimationFrame(() => {
+        custAzSpyRAF = null;
+        const L = currentTopLetter();
+        if (L) setActiveAzLetter(L);
+      });
+    }
+
     // Default (no search): the FULL customer list, alphabetical by displayed name,
     // grouped by first letter with a sticky letter header per group.
     function renderCustBrowse() {
@@ -6289,6 +6349,8 @@
       });
       el.innerHTML = html;
       renderCustAzBar(present);
+      el.scrollTop = 0;
+      setActiveAzLetter(currentTopLetter());   // highlight the first group on (re)render
     }
 
     function renderCustSearch(q) {
@@ -6603,16 +6665,22 @@
     // Delegated clicks — one handler survives the (up to ~2700-row) re-renders.
     (function wireCustListDelegation() {
       const el = $('custSearchList');
-      if (el) el.addEventListener('click', (e) => {
-        const item = e.target.closest('[data-cust-id]');
-        if (!item) return;
-        custBackTarget = { kind: 'list' };
-        showCustomerRecord(item.dataset.custId);
-      });
+      if (el) {
+        el.addEventListener('click', (e) => {
+          const item = e.target.closest('[data-cust-id]');
+          if (!item) return;
+          custBackTarget = { kind: 'list' };
+          showCustomerRecord(item.dataset.custId);
+        });
+        el.addEventListener('scroll', custAzScrollSpy, { passive: true });   // keep active letter in step with scroll
+      }
       const bar = $('custAzBar');
       if (bar) bar.addEventListener('click', (e) => {
         const b = e.target.closest('.cust-az-letter');
-        if (b && !b.classList.contains('disabled')) custJumpToLetter(b.dataset.jump);
+        if (b && !b.classList.contains('disabled')) {
+          setActiveAzLetter(b.dataset.jump);   // immediate feedback on click
+          custJumpToLetter(b.dataset.jump);
+        }
       });
     })();
     // A real "Customers" tab tap shows the LIST (openCustomerById overrides after).

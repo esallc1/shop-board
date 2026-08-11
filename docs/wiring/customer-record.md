@@ -37,19 +37,27 @@ then branches on whether the search box has text:
   - a **person** sorts by **LAST NAME** — the last token of `name` moved to the front
     ("Aaron Coleman" → `coleman aaron`), skipping a trailing **Jr/Sr/II/III/IV/V** suffix
     ("Bob Smith Jr" → `smith bob jr`, bucket **S**). A single-token name sorts as-is.
-  The **displayed** name is unchanged — `custDisplayName` = `business_name || name`, still shown
-  first-name-first; only the ordering + bucket use the last-name key. Names whose sort key starts
-  with a non-letter fall in a **"#" bucket that sorts last** (`custBucket` derives from
-  `custSortName`, so a group's header letter always matches where its rows actually sort). Rows are
-  grouped by first letter with a **sticky letter header** (`.cust-group-head`); the list gets a
-  `cust-browse` class making it its own scroll box.
-  ⚠ Multi-word surnames (e.g. "De La Cruz") key off the **last token** only, so they bucket under
-  that token's letter — a known limitation of the naive last-name split.
+  **Row display = phonebook "Last, First"** for people (`custListLabel`): "Wyatt Tabb" shows as
+  **"Tabb, Wyatt"**, "Bob Smith Jr" as **"Smith, Bob Jr"** — the SAME surname split as the sort
+  (`custSurnameSplit`, the one place the surname is computed), so the label matches where the row
+  sorts/jumps. Businesses show **as-is** (no comma flip); a single-token name, or a junk last token
+  that isn't a real letter (`\p{L}` guard, e.g. "SANDRA ."), shows as-is with **no trailing comma**.
+  The **record header** still shows the person's normal **First Last** (`custDisplayName`) — the
+  flip is LIST-only. Names whose sort key starts with a non-letter fall in a **"#" bucket that sorts
+  last** (`custBucket` derives from `custSortName`, so a group's header letter always matches where
+  its rows actually sort). Rows are grouped by first letter with a **sticky letter header**
+  (`.cust-group-head`, styled as a bold accent "T"-style divider); the list gets a `cust-browse`
+  class making it its own scroll box.
+  ⚠ Multi-word surnames (e.g. "De La Cruz") key off the **last token** only, so they bucket/label
+  under that token's letter ("Cruz, Maria De La") — a known limitation of the naive last-name split.
 - **A–Z bar (`renderCustAzBar`).** One button per letter A–Z + "#". A letter with customers is
   clickable and **jumps** the scroll box so that group's header sits at the top
-  (`custJumpToLetter` sets `scrollTop` from the header's `offsetTop`); a letter with **no**
-  customers renders **dimmed + non-clickable** (`.disabled`). The bar is **hidden while a search
-  is active** (grouping doesn't apply to filtered results).
+  (`custJumpToLetter` — scrolls by the header's live `getBoundingClientRect` delta, robust vs.
+  the sticky-header `offsetTop` trap); a letter with **no** customers renders **dimmed +
+  non-clickable** (`.disabled`). **Active-letter feedback:** the current group's letter is
+  filled/accent (`.active`) — set on click and kept in step with scrolling by a rAF-throttled
+  scroll-spy (`custAzScrollSpy` → `currentTopLetter` → `setActiveAzLetter`). The bar is **hidden
+  while a search is active** (grouping doesn't apply to filtered results).
 - **Non-empty box → search mode (unchanged).** Exactly the prior behavior: a flat filtered list
   (name/business substring, or last-10 phone when ≥3 digits), capped at 60, no group headers.
 - **Clicks are delegated** on `#custSearchList` (one listener survives the ~2700-row re-render) →
@@ -63,15 +71,27 @@ then branches on whether the search box has text:
   (`advisor-board.html:864`), return target tracked by `custBackTarget` (`advisor-board.html:5606`)
 - **List panel (§4):** `#custListPanel` markup — `#custSearchInput`, `#custAzBar`, `#custSearchList`
   (`advisor-board.html:~911`); `.cust-az-*` / `.cust-group-head` / `.cust-search-list.cust-browse`
-  CSS; the JS `custDisplayName`/`custSortName`/`custBucket`/`custAlphaCmp`, `renderCustBrowse`,
-  `renderCustAzBar`, `custJumpToLetter`, and `renderCustSearch` (browse/search branch) — all in
-  the `advisor-board.html` customer IIFE; the delegated click wiring in `wireCustListDelegation`.
-  Full-list load via `window.cdFetchAllCustomers` (paginated past the 1000-row cap).
+  CSS; the JS `custSurnameSplit` (shared surname split) → `custSortName`/`custListLabel`
+  ("Last, First"), `custDisplayName` (record header, First Last), `custBucket`/`custAlphaCmp`,
+  `renderCustBrowse`, `renderCustAzBar`, `custJumpToLetter`, the active-letter helpers
+  (`setActiveAzLetter`/`currentTopLetter`/`custAzScrollSpy`), and `renderCustSearch` (browse/search
+  branch) — all in the `advisor-board.html` customer IIFE; the delegated click + scroll wiring in
+  `wireCustListDelegation`. Full-list load via `window.cdFetchAllCustomers` (paginated past the
+  1000-row cap).
 - The tested reasoning — `buildRecordingCalls`, `customerCounts` (uses `min(repair_orders.created_at)`),
   `openRosOf`, `filterRecordingsByVehicle`, `canAssignRecording`, `roInvoiceTotal` — is in
   `shared/customer-record.js` (tested by `shared/customer-record.test.js`)
 
 ## Session change log
+- 2026-08-11 — **Customers LIST polish: "Last, First" rows + active-letter feedback** (§4).
+  List rows now display phonebook **"Last, First"** for people (`custListLabel`, "Wyatt Tabb" →
+  "Tabb, Wyatt") using the SAME surname split as the sort (extracted to `custSurnameSplit`), so the
+  A–Z jump visibly lands where expected; businesses + single-token/junk names show as-is (no flip),
+  and the **record header keeps First Last**. The A–Z bar now shows an **active letter** (filled
+  accent) set on click and updated by a scroll-spy; the sticky group divider is bigger/bolder
+  (accent "T"-style heading). Sort order, jump, and search behavior otherwise unchanged. Additive,
+  reads-only. Name logic verified by a node harness (label ↔ sort/bucket agree; Jr/Sr + accented
+  surnames + "SANDRA ." guard); UI eyeballed on `test.leetransmissionshop.com`.
 - 2026-08-11 — **Added an A–Z quick lookup to the Customers LIST** (§4). The default (no-search)
   view now renders **every** customer sorted alphabetically (businesses by business name, **people
   by LAST name** — `custSortName`, Jr/Sr/III suffixes skipped; "#" bucket last) instead of the old
