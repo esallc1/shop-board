@@ -67,8 +67,34 @@ window.ProfitByRO = (function () {
 
       /* Ranked bars — the per-RO list */
       .pro-section { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
+      .pro-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
       .pro-ctitle { font-size: 0.98rem; font-weight: 750; color: var(--text); }
       .pro-cap { font-size: 0.76rem; color: var(--muted); margin-top: 3px; }
+
+      /* Graph toggle (Bars | Donut | Split) */
+      .pro-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); flex: 0 0 auto; }
+      .pro-toggle button { font-size: 0.76rem; font-weight: 650; padding: 5px 12px; border: none; background: transparent; color: var(--muted); cursor: pointer; font-family: inherit; border-left: 1px solid var(--border); }
+      .pro-toggle button:first-child { border-left: none; }
+      .pro-toggle button:hover { color: var(--text); }
+      .pro-toggle button.active { background: var(--accent); color: #fff; }
+
+      /* Donut */
+      .pro-donutwrap { display: flex; gap: 26px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
+      .pro-donut { flex: 0 0 auto; }
+      .pro-leg { display: flex; flex-direction: column; gap: 8px; font-size: 0.82rem; color: var(--text); min-width: 240px; flex: 1; }
+      .pro-leg div { display: flex; align-items: center; gap: 9px; }
+      .pro-leg .dot { width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto; }
+      .pro-leg .amt { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--muted); }
+      .pro-leg .amt b { color: var(--text); }
+
+      /* Split bar */
+      .pro-split { display: flex; height: 40px; border-radius: 9px; overflow: hidden; margin-top: 16px; gap: 2px; background: var(--surface-2); }
+      .pro-split .s { display: flex; align-items: center; justify-content: center; color: #fff; font-size: 0.76rem; font-weight: 700; white-space: nowrap; overflow: hidden; }
+      .pro-split .s.rebuild { background: #16a34a; }
+      .pro-split .s.other { background: #94a3b8; }
+      .pro-splitcap { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 12px; font-size: 0.8rem; color: var(--text); }
+      .pro-splitcap b { font-variant-numeric: tabular-nums; }
+      .pro-splitcap .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: baseline; }
       .pro-bars { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
       .pro-bar { display: grid; grid-template-columns: 150px 1fr 168px; align-items: center; gap: 12px; font-size: 0.82rem; }
       .pro-who { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
@@ -137,6 +163,11 @@ window.ProfitByRO = (function () {
   let customFrom = '', customTo = '';
   let inputs = null;               // cached { ros, lines, packageUnits } from CommissionEngine.fetchInputs
   let loading = false;
+  let graphView = 'bars';          // Step C: 'bars' (default) | 'donut' | 'split'
+
+  // Donut slice palette (mirrors the graphs mockup: c1..c4 + a neutral "Other").
+  const SLICE_COLORS = ['#6366f1', '#0ea5a4', '#f59e0b', '#ec4899'];
+  const OTHER_COLOR = '#cbd5e1';
 
   // ── ONE per-RO computation over the closed ROs in range ──
   // A closed RO counts when its closed_at (bucketed to the shop's calendar day)
@@ -164,9 +195,14 @@ window.ProfitByRO = (function () {
       const profit = CE.roGrossProfit(lines, opts);
       // Cost basis for the honesty flag: green only if a package (rebuild) line on
       // this RO uses a CONFIRMED unit cost; otherwise the profit rode an estimate.
-      let hasConfirmed = false;
+      // Also split out the rebuild (Package-line) profit for the Split view — same
+      // per-line engine call, so the Split view has no separate data path.
+      let hasConfirmed = false, rebuildProfit = 0;
       lines.forEach(l => {
-        if (l.line_type === 'package' && l.package_unit_id != null && confirmed[l.package_unit_id] != null) hasConfirmed = true;
+        if (l.line_type === 'package') {
+          rebuildProfit += CE.lineGrossProfit(l, opts);
+          if (l.package_unit_id != null && confirmed[l.package_unit_id] != null) hasConfirmed = true;
+        }
       });
       const advId = ro.service_writer_id;
       rows.push({
@@ -175,7 +211,7 @@ window.ProfitByRO = (function () {
         day,                                            // 'YYYY-MM-DD'
         advisor: advId ? (empName[advId] || null) : null,
         noAdvisor: !advId,
-        sale, profit,
+        sale, profit, rebuildProfit,
         margin: sale > 0 ? profit / sale : 0,
         basis: hasConfirmed ? 'confirmed' : 'estimated',
       });
@@ -230,7 +266,15 @@ window.ProfitByRO = (function () {
       return;
     }
 
-    body.innerHTML = kpiRowHtml(k) + rankedBarsHtml(rows);
+    body.innerHTML = kpiRowHtml(k) + sectionHtml(rows);
+    // wire the graph toggle (rebuilt on every render, so re-attach each time)
+    body.querySelectorAll('.pro-toggle button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (graphView === btn.dataset.gv) return;
+        graphView = btn.dataset.gv;
+        render();
+      });
+    });
   }
 
   // ── KPI row (Step A) ──
@@ -262,29 +306,59 @@ window.ProfitByRO = (function () {
       </div>`;
   }
 
-  // ── ranked bars (Step B) ──
+  // ── shared row helpers ──
   const numLabel = (r) => (r.number != null ? String(r.number) : '—');
   const mmdd = (day) => (day && day.length >= 10 ? day.slice(5) : (day || ''));  // 'YYYY-MM-DD' → 'MM-DD'
-  const marginPct = (m) => `${Math.round(m * 100)}%`;
+  // Margin reads "—" when there's nothing meaningful to divide (no sale, or $0
+  // profit) — never a bare 0% and never a divide-by-zero.
+  const marginDisplay = (r) => (r.sale > 0 && r.profit !== 0 ? `${Math.round(r.margin * 100)}%` : '—');
+  // compact money for the donut center, e.g. $13.5k / $980
+  function fmtK(n) {
+    n = Number(n) || 0; const a = Math.abs(n);
+    if (a >= 1000) return (n < 0 ? '-$' : '$') + (a / 1000).toFixed(a % 1000 < 50 ? 0 : 1) + 'k';
+    return (n < 0 ? '-$' : '$') + Math.round(a);
+  }
 
-  function rankedBarsHtml(rows) {
-    const sorted = rows.slice().sort((a, b) => b.profit - a.profit);
+  // The section shell: title + a Bars/Donut/Split toggle, the active graph, then
+  // the honesty keyline (bars only) + the standing footnote. All three views read
+  // the SAME `rows` (computeRows) — no second data path.
+  const CAPTIONS = {
+    bars:  'Every closed RO, biggest profit first. Each RO: sale → estimated cost → profit &amp; margin.',
+    donut: 'Each slice = that RO’s share of the period’s estimated profit.',
+    split: 'Rebuild (Package-line) profit vs everything else.',
+  };
+  function sectionHtml(rows) {
+    const graph = graphView === 'donut' ? donutHtml(rows)
+                : graphView === 'split' ? splitHtml(rows)
+                : barsHtml(rows);
+    const tbtn = (gv, label) => `<button type="button" data-gv="${gv}" class="${graphView === gv ? 'active' : ''}">${label}</button>`;
+    const keyline = graphView === 'bars' ? `
+        <div class="pro-keyline">
+          <span><span class="pro-cdot conf"></span>Rebuild line uses confirmed cost</span>
+          <span><span class="pro-cdot est"></span>Estimated cost (assumed-margin fallback)</span>
+          <span class="pro-noadv">▲ no advisor stamped — wouldn't earn commission</span>
+        </div>` : '';
+    return `
+      <div class="pro-section">
+        <div class="pro-section-head">
+          <div>
+            <div class="pro-ctitle">Repair orders, ranked by profit</div>
+            <div class="pro-cap">${CAPTIONS[graphView] || CAPTIONS.bars}</div>
+          </div>
+          <div class="pro-toggle">${tbtn('bars', 'Bars')}${tbtn('donut', 'Donut')}${tbtn('split', 'Split')}</div>
+        </div>
+        <div class="pro-graph">${graph}</div>
+        ${keyline}
+        <div class="pro-note"><b>What makes this real:</b> today most ROs' profit rides on an assumed margin. As you confirm each rebuild unit's cost in the Build Sheet — and as jobs get billed on Package lines — the ROs that used those units flip to <b>green (confirmed)</b>, so this board sharpens unit by unit. The last mile (real parts + labor cost per RO) is the per-RO cost feed still to come.</div>
+      </div>`;
+  }
+
+  // ── BARS view (Step B, no collapse — every RO gets a bar) ──
+  function barsHtml(rows) {
+    const sorted = rows.slice().sort((a, b) => b.profit - a.profit);   // $0/negatives sink to the bottom
     const top = sorted.length ? sorted[0].profit : 0;
-
-    // Split the significant earners from the small tail. "Small" = profit at/below
-    // 5% of the leader (or ≤ $0); the visible list is also hard-capped so a huge
-    // period never prints 40 bars. Always show at least the top 3 if present.
-    const CUT = Math.max(1, top * 0.05);
-    const MAX_ROWS = 12, MIN_ROWS = 3;
-    const visible = [], tail = [];
-    sorted.forEach((r, i) => {
-      const significant = r.profit > CUT && r.profit > 0;
-      if ((significant || visible.length < MIN_ROWS) && visible.length < MAX_ROWS) visible.push(r);
-      else tail.push(r);
-    });
-
-    const bars = visible.map(r => {
-      const w = top > 0 && r.profit > 0 ? Math.max(2, (r.profit / top) * 100) : 0;
+    const bars = sorted.map(r => {
+      const w = top > 0 && r.profit > 0 ? Math.max(2, (r.profit / top) * 100) : 0;   // $0 → empty bar
       const who = r.noAdvisor
         ? `<span class="noadv">${esc(mmdd(r.day))} · no advisor</span>`
         : `<span>${esc(mmdd(r.day))}${r.advisor ? ' · ' + esc(r.advisor) : ''}</span>`;
@@ -295,34 +369,68 @@ window.ProfitByRO = (function () {
         <div class="pro-bar">
           <div class="pro-who"><b>RO ${esc(numLabel(r))}</b>${who}</div>
           <div class="pro-track"><div class="pro-fill ${r.basis === 'confirmed' ? 'conf' : 'est'}" style="width:${w.toFixed(1)}%"></div></div>
-          <div class="pro-rt">${profStr} <span class="m">· ${esc(marginPct(r.margin))} · ${fmtMoney(r.sale)}</span></div>
+          <div class="pro-rt">${profStr} <span class="m">· ${esc(marginDisplay(r))} · ${fmtMoney(r.sale)}</span></div>
         </div>`;
     }).join('');
+    return `<div class="pro-bars">${bars}</div>`;
+  }
 
-    let tailLine = '';
-    if (tail.length) {
-      const tailMax = tail.reduce((m, r) => Math.max(m, r.profit), 0);
-      const nonZero = tail.filter(r => r.profit > 0);
-      const zero = tail.filter(r => r.profit <= 0);
-      const parts = [];
-      if (nonZero.length) parts.push(nonZero.map(numLabel).join(', '));
-      if (zero.length) parts.push(`${zero.length} $0 RO${zero.length === 1 ? '' : 's'} (${zero.map(numLabel).join(', ')})`);
-      const cap = nonZero.length ? ` (≤ ${fmtMoney(tailMax)} each)` : '';
-      tailLine = `<div class="pro-tail">+ ${tail.length} more small RO${tail.length === 1 ? '' : 's'}${cap} — ${esc(parts.join(', and '))}</div>`;
-    }
+  // ── DONUT view (Step C) — share of the period's profit ──
+  // Top 4 profitable ROs as slices + an "Other N ROs" slice; center = total. Only
+  // positive-profit ROs contribute to a share pie (a slice can't be negative).
+  function donutHtml(rows) {
+    const pos = rows.filter(r => r.profit > 0).sort((a, b) => b.profit - a.profit);
+    const total = pos.reduce((s, r) => s + r.profit, 0);
+    if (total <= 0) return `<div class="pro-empty">No positive profit to break down in this period.</div>`;
 
+    const TOPN = 4;
+    const head = pos.slice(0, TOPN);
+    const rest = pos.slice(TOPN);
+    const restSum = rest.reduce((s, r) => s + r.profit, 0);
+    const slices = head.map((r, i) => ({ label: `RO ${numLabel(r)}`, value: r.profit, color: SLICE_COLORS[i % SLICE_COLORS.length] }));
+    if (rest.length) slices.push({ label: `Other ${rest.length} RO${rest.length === 1 ? '' : 's'}`, value: restSum, color: OTHER_COLOR });
+
+    // hand-rolled SVG donut (same approach as the Financial Pulse donut)
+    const cx = 70, cy = 70, r = 52, sw = 22, C = 2 * Math.PI * r;
+    let off = 0, arcs = '';
+    slices.forEach(s => {
+      const len = C * (s.value / total);
+      arcs += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${sw}" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"><title>${esc(s.label)}: ${fmtMoney(s.value)}</title></circle>`;
+      off += len;
+    });
+    const center = `<text x="${cx}" y="${cy - 2}" text-anchor="middle" font-size="17" font-weight="800" fill="var(--text)">~${esc(fmtK(total))}</text>` +
+      `<text x="${cx}" y="${cy + 13}" text-anchor="middle" font-size="7.5" letter-spacing="0.5" fill="var(--muted)">EST. PROFIT</text>`;
+    const svg = `<svg viewBox="0 0 140 140" width="180" height="180" role="img" aria-label="Share of profit by RO">${arcs}${center}</svg>`;
+
+    const legend = slices.map(s => {
+      const pct = Math.round((s.value / total) * 100);
+      return `<div><span class="dot" style="background:${s.color}"></span>${esc(s.label)}<span class="amt"><b>${fmtMoney(s.value)}</b> · ${pct}%</span></div>`;
+    }).join('');
+
+    return `<div class="pro-donutwrap"><div class="pro-donut">${svg}</div><div class="pro-leg">${legend}</div></div>`;
+  }
+
+  // ── SPLIT view (Step C) — rebuild (Package-line) profit vs everything else ──
+  function splitHtml(rows) {
+    const rebuild = rows.reduce((s, r) => s + (r.rebuildProfit || 0), 0);
+    const total = rows.reduce((s, r) => s + r.profit, 0);
+    const other = total - rebuild;
+    if (total <= 0) return `<div class="pro-empty">No positive profit to split in this period.</div>`;
+
+    const rPct = Math.max(0, Math.round((rebuild / total) * 100));
+    const oPct = Math.max(0, 100 - rPct);
+    // labels live inside a segment only when it's wide enough to read; a caption
+    // line below always spells both out.
+    const rInside = rPct >= 16 ? `Rebuilds · ${fmtMoney(rebuild)} · ${rPct}%` : '';
+    const oInside = oPct >= 16 ? `Everything else · ${oPct}%` : '';
     return `
-      <div class="pro-section">
-        <div class="pro-ctitle">Repair orders, ranked by profit</div>
-        <div class="pro-cap">Biggest earners first. Each RO: sale → estimated cost → profit &amp; margin.</div>
-        <div class="pro-bars">${bars}</div>
-        ${tailLine}
-        <div class="pro-keyline">
-          <span><span class="pro-cdot conf"></span>Rebuild line uses confirmed cost</span>
-          <span><span class="pro-cdot est"></span>Estimated cost (assumed-margin fallback)</span>
-          <span class="pro-noadv">▲ no advisor stamped — wouldn't earn commission</span>
-        </div>
-        <div class="pro-note"><b>What makes this real:</b> today most ROs' profit rides on an assumed margin. As you confirm each rebuild unit's cost in the Build Sheet — and as jobs get billed on Package lines — the ROs that used those units flip to <b>green (confirmed)</b>, so this board sharpens unit by unit. The last mile (real parts + labor cost per RO) is the per-RO cost feed still to come.</div>
+      <div class="pro-split">
+        <div class="s rebuild" style="width:${rPct}%">${esc(rInside)}</div>
+        <div class="s other" style="width:${oPct}%">${esc(oInside)}</div>
+      </div>
+      <div class="pro-splitcap">
+        <span><span class="sw" style="background:#16a34a"></span>Rebuilds (Package lines): <b>${fmtMoney(Math.max(0, rebuild))}</b> · ${rPct}%</span>
+        <span><span class="sw" style="background:#94a3b8"></span>Everything else: <b>${fmtMoney(other)}</b> · ${oPct}%</span>
       </div>`;
   }
 

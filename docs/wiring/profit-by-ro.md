@@ -3,10 +3,10 @@
 > Doc: `/docs/wiring/profit-by-ro.md`
 > Last updated: 2026-08-11 — verified vs branch `profit-by-ro` (Step A, in-browser on the
 > owner board; bookkeeping verified by structure + owner eyeball on the preview)
-> Status: 🟡 Step A + Step B BUILT (rename + shell + period selector + KPI row + the
-> ranked-bar per-RO list with honesty flags — all on real closed-RO data). Step C
-> (donut / bars / split toggle) NOT built. Reads-only — no writes, no migration, no
-> feature switch. Not merged to prod — A+B+C ship together after the owner eyeballs C.
+> Status: ✅ Steps A + B + C BUILT — rename + shell + period selector + KPI row + the
+> ranked-bar per-RO list (honesty flags) + the Bars/Donut/Split graph toggle, all on
+> real closed-RO data. Reads-only — no writes, no migration, no feature switch. Verified
+> in-browser on the owner board; awaiting the owner's go to ship A+B+C to prod together.
 
 ## 0. In one line
 A **"Profit by RO"** screen in the Cost & Profit sidebar group (Owner + Bookkeeping only)
@@ -72,10 +72,14 @@ Four tiles, computed over the closed ROs in the range:
 - **Avg margin** = `Est. week profit ÷ Week sales` — `~`, badged **estimated**.
 Empty period → "No repair orders were closed in this period." (tiles suppressed).
 
-## 4.5 The ranked-bar per-RO list (Step B)
+## 4.5 The ranked-bar per-RO list (Step B, all-bars as of Step C)
 Under the KPI row, a **"Repair orders, ranked by profit"** section — one horizontal bar per
 closed RO, **biggest profit first**. Both the KPIs and this list read the **same** per-RO array
 (`computeRows` — see §5); there is no second data path.
+- **Every RO gets its own bar — no collapse.** (The Step-B 12-row cap + "+ N more small ROs"
+  tail summary were removed in Step C at the owner's request.) `$0` ROs sort to the bottom and
+  render with an **empty (zero-width) bar** and **`$0 · — · $sale`** — the margin shows **"—"**
+  whenever sale is 0 **or** profit is 0 (never a bare 0%, never a divide-by-zero).
 - **Each bar:** left = **`RO <ro_number>`** + a subline **`MM-DD · <advisor>`** (the RO's
   `closed_at` day + the `service_writer_id`'s employee name); middle = a track whose **fill
   width ∝ that RO's profit** (scaled to the top RO = 100%, min 2px, `0` when profit ≤ 0);
@@ -97,6 +101,25 @@ closed RO, **biggest profit first**. Both the KPIs and this list read the **same
 - **Footnote (`.pro-note`):** the honest "what makes this real" framing — as unit costs are
   confirmed in the Build Sheet **and** jobs get billed on Package lines, ROs flip green and the
   board sharpens unit by unit; the real per-RO parts+labor cost feed is still to come.
+
+## 4.6 The graph toggle — Bars / Donut / Split (Step C)
+A small segmented toggle in the section header switches how the **same `computeRows` data** is
+drawn. **Bars is the default on every fresh load** (`graphView = 'bars'`, a module var reset on
+reload). The keyline legend (§4.5) shows in **Bars only**; the footnote shows in all three.
+- **Bars** — the ranked per-RO list above (§4.5).
+- **Donut** — *share of the period's profit*. A hand-rolled SVG donut (same stroke-dasharray
+  approach as the [[financial-pulse]] donut) with the **top 4 profitable ROs** as coloured
+  slices + an **"Other N ROs"** slice for the rest; the centre shows **`~$<total> EST. PROFIT`**.
+  Only **positive-profit** ROs contribute (a share slice can't be negative) — so `$0` ROs are
+  excluded from the pie and land inside "Other". The legend lists each slice `$profit · %`.
+- **Split** — *rebuild vs everything else*. One horizontal bar: a **green** segment =
+  **rebuild (Package-line) profit** (`Σ rebuildProfit`, the per-RO sum of `lineGrossProfit` over
+  `package` lines) vs a **grey** segment = **everything else** (`total − rebuild`). A caption
+  spells both out (`$ · %`); a segment shows its label inline only when wide enough (≥16%). With
+  today's data rebuilds read **$0 / 0%** because jobs are billed as `labor`, not Package lines —
+  correct and honest, not a bug.
+- **No second data path:** every view is a pure function of the one `rows` array. `rebuildProfit`
+  is computed in the same `computeRows` pass (one extra `lineGrossProfit` call per package line).
 
 ## 5. Where it mounts (Owner + Bookkeeping only)
 - **Nav + view:** the Cost & Profit `sidebar-group` item `data-view="profitro"` (📈 "Profit by
@@ -125,17 +148,23 @@ closed RO, **biggest profit first**. Both the KPIs and this list read the **same
 - **The "last mile" (real per-RO parts + labor cost) is not wired** — the mockup's own note flags
   it as the next data piece. Until then profit is an estimate by construction.
 - **The ranked list's confirmed (green) state is essentially unreachable today** — only 1 of 50
-  units has a confirmed cost and jobs rarely use Package lines, so every bar renders amber. This
-  is correct/honest, not a bug; it turns green as data entry shifts (per the owner's Step-A call).
-- **Not built:** Step C (donut / bars / split toggle).
+  units has a confirmed cost and jobs rarely use Package lines, so every bar renders amber, the
+  **Split** reads rebuilds $0 / 0%, and the **Donut** slices are all labor/parts profit. All
+  correct/honest, not a bug; they shift as data entry moves to Package lines + confirmed costs
+  (per the owner's Step-A call — labor stays 100% margin, no COGS haircut).
+- **Donut caveat:** the centre total and slice denominator use **Σ positive profit**; if a period
+  had negative-profit ROs, the donut total would read slightly under the KPI's `Σ all profit`.
+  None today. Bars/Split still show negatives.
 
 ## Where it lives in the code
 - **`shared/profit-by-ro.js`** — `window.ProfitByRO.mount`; the scoped `.pro-*` styles; the
-  period selector; **`computeRows`** (the ONE closed-RO filter → per-RO `{sale, profit, margin,
-  ro_number, advisor, noAdvisor, basis}`) + `kpisFromRows` (aggregates); `kpiRowHtml` (Step A
-  tiles) + **`rankedBarsHtml`** (Step B bars, tail collapse, keyline, note); `buildOpts` (margins
-  + confirmed package-cost map); `loadData` (`CommissionEngine.fetchInputs` + the label-only
-  `ro_number` map).
+  period selector; **`computeRows`** (the ONE closed-RO filter → per-RO `{sale, profit,
+  rebuildProfit, margin, ro_number, advisor, noAdvisor, basis}`) + `kpisFromRows` (aggregates);
+  `kpiRowHtml` (Step A tiles); the section shell **`sectionHtml`** + the graph state `graphView`
+  and the three view renderers **`barsHtml`** (all rows, no collapse) / **`donutHtml`** (SVG
+  share donut) / **`splitHtml`** (rebuild-vs-rest bar); `buildOpts` (margins + confirmed
+  package-cost map); `loadData` (`CommissionEngine.fetchInputs` + the label-only `ro_number`
+  map). Slice palette `SLICE_COLORS`/`OTHER_COLOR`.
 - **`shared/period-range.js`** — `window.PeriodRange`, the shared window math (§2), also used by
   [[financial-pulse]].
 - **`shared/commission-engine.js`** — `roGrossProfit`/`lineGrossProfit` + `DEFAULT_PARTS_MARGIN`
@@ -153,6 +182,18 @@ closed RO, **biggest profit first**. Both the KPIs and this list read the **same
   that owns the profit math), [[packages]] (the unit list).
 
 ## Session change log
+- 2026-08-11 — **Change 1 + Step C.** (1) **Bars now show every closed RO** — dropped the 12-bar
+  cap + "+ N more small ROs" tail; `$0` ROs render at the bottom with an empty bar and
+  `$0 · — · $sale` (margin "—" when sale or profit is 0, no divide-by-zero). (C) Added a
+  **Bars / Donut / Split** graph toggle (§4.6) on the same `computeRows` data — **Bars is the
+  default on load**. Donut = SVG share-of-profit (top 4 ROs + "Other N", centre = total est.
+  profit, positive-profit only). Split = green rebuild (Package-line) profit vs grey everything
+  else, from a new per-RO `rebuildProfit` (Σ `lineGrossProfit` over `package` lines, same pass —
+  no second data path). Keyline shows in Bars only; footnote in all. Cost logic unchanged (labor
+  stays 100% margin per the owner's Step-A call). Verified in-browser on the owner board: 13 bars
+  no tail incl. the $0 RO 5420; Donut top-4 + "Other 6 ROs" summing 100%, centre ~$22.1k; Split
+  rebuilds $0/0% vs $22,069/100% (honest — jobs billed as labor); fresh load defaults to Bars; no
+  module console errors. Not yet merged — A+B+C ship to prod together on the owner's go.
 - 2026-08-11 — **Built Step B — the ranked-bar per-RO list** under the KPI row (§4.5). Refactored
   the Step-A `computeKpis` into a single **`computeRows(range)`** that both the KPIs and the bars
   read (no second data path); `kpisFromRows` derives the tiles. Each closed RO renders a bar
