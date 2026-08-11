@@ -56,7 +56,20 @@ test a change on a stable URL that holds a logged-in session before it goes to p
 - **New flow:** feature branch → **merge to `staging`** → GitHub→Vercel integration auto-builds
   → **`test.leetransmissionshop.com`** (and the stable alias
   `shop-board-git-staging-leetransmission-kiki.vercel.app`) → Cris eyeballs → **merge to `main`**
-  → `vercel --prod`. (`staging` is long-lived; the production branch is still `main`.)
+  → `vercel --prod` → **sync `staging` up to `main`** (next bullet). (`staging` is long-lived; the
+  production branch is still `main`.)
+- **Keep staging mirroring prod (post-release sync).** After every prod deploy, staging is brought
+  up to main so it always equals **production + whatever feature is still under test**:
+  ```
+  git checkout staging && git merge --ff-only main && git push origin staging && git checkout main
+  ```
+  When staging has an in-test feature ahead of main, `--ff-only` fails → use `git merge main`
+  (preserves the test commits; never force-reset staging with a feature under test). When nothing
+  is under test, staging == main exactly. This is a **manual step in the release routine** today
+  (also saved as a CC memory so it runs on every release). A GitHub Action
+  (`.github/workflows/sync-staging.yml`, on push to `main`) would automate it, but the repo's git
+  PAT lacks the `workflow` scope so CC can't commit workflow files — the file is written for Cris
+  to add via the GitHub web UI (or a workflow-scoped token) if full CI automation is wanted.
 - **DNS (Namecheap BasicDNS, external):** a **CNAME** — Host `test` → `cname.vercel-dns.com`.
   **Live as of 2026-08-11** — CNAME in place, Vercel config `misconfigured:false`, Let's Encrypt
   cert issued (http-01), HTTPS 200 on all four boards + front door, HTTP→HTTPS 308. (The
@@ -127,6 +140,10 @@ Do it in this order so KiKi is never orphaned:
   **Update (same day): both done by Cris — `test.leetransmissionshop.com` is LIVE** (valid
   Let's Encrypt cert; all four boards + front door 200 over HTTPS; origin renders in-browser).
   Final "log in once, session holds on all four" is the owner's to run (password entry).
+- 2026-08-11 — **Post-release staging sync** added to the flow (§3.5): after each `vercel --prod`,
+  `staging` is fast-forwarded/merged up to `main` so test.leetransmissionshop.com keeps mirroring
+  prod. Manual step for now (CC memory `feedback_staging_sync_on_release`); the GitHub Action to
+  automate it couldn't be committed (git PAT missing `workflow` scope) — file handed to Cris.
 - 2026-08-03 — Created. Verified via `vercel` CLI (`domains inspect`, `domains ls`,
   `projects ls`) + live `curl` that `leetransmissionshop.com` + `www` now serve the CrisData
   front door from **shop-board** (apex 308→www; www title "CrisData — Lee Transmission"),
