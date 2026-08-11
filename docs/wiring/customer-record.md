@@ -45,9 +45,11 @@ then branches on whether the search box has text:
   The **record header** still shows the person's normal **First Last** (`custDisplayName`) — the
   flip is LIST-only. Names whose sort key starts with a non-letter fall in a **"#" bucket that sorts
   last** (`custBucket` derives from `custSortName`, so a group's header letter always matches where
-  its rows actually sort). Rows are grouped by first letter with a **sticky letter header**
-  (`.cust-group-head`, styled as a bold accent "T"-style divider); the list gets a `cust-browse`
-  class making it its own scroll box.
+  its rows actually sort). Each letter renders as its **own `.cust-group` wrapper** (header + its
+  rows) with a **sticky letter header** (`.cust-group-head`, bold accent "T"-style divider) —
+  wrapping is what scopes each sticky header to its group so headers don't **pile up** at the top
+  (flat siblings share one sticky range → past headers stay stuck at `top:0`, which silently broke
+  upward letter jumps). The list gets a `cust-browse` class making it its own scroll box.
   ⚠ Multi-word surnames (e.g. "De La Cruz") key off the **last token** only, so they bucket/label
   under that token's letter ("Cruz, Maria De La") — a known limitation of the naive last-name split.
 - **A–Z bar (`renderCustAzBar`).** One button per letter A–Z + "#". A letter with customers is
@@ -83,6 +85,16 @@ then branches on whether the search box has text:
   `shared/customer-record.js` (tested by `shared/customer-record.test.js`)
 
 ## Session change log
+- 2026-08-11 — **Fixed the A–Z letter jump (upward jumps were dead).** Every group header was
+  `position:sticky; top:0` as a **flat sibling** of the one scroll box, so their sticky range was
+  the whole list — a header you'd scrolled past stayed **stuck at the top** (piled up), and
+  `getBoundingClientRect().top` for it read `listTop` → the jump delta computed **0** for any letter
+  above the current scroll position (down-jumps worked, up-jumps did nothing after the first). Fix:
+  render each letter as its own **`.cust-group` wrapper** so each sticky header is scoped to its
+  group and returns to flow once scrolled past — `getBoundingClientRect` is then accurate in both
+  directions. No JS change to `custJumpToLetter`/`currentTopLetter` (they still select headers by
+  `data-letter`); the scroll-spy was **not** the cause. Verified R→T→A→M→Z each lands on its group
+  with the active letter following, from any scroll position, on `test.leetransmissionshop.com`.
 - 2026-08-11 — **Customers LIST polish: "Last, First" rows + active-letter feedback** (§4).
   List rows now display phonebook **"Last, First"** for people (`custListLabel`, "Wyatt Tabb" →
   "Tabb, Wyatt") using the SAME surname split as the sort (extracted to `custSurnameSplit`), so the

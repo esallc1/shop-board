@@ -456,17 +456,20 @@
   .cust-search-list { margin-top:10px; display:flex; flex-direction:column; gap:5px; }
   /* A–Z browse mode: the list becomes its own scroll box so the letter jump +
      sticky group headers are self-contained (the page itself doesn't scroll). */
-  .cust-search-list.cust-browse { max-height:calc(100vh - 320px); min-height:200px; overflow-y:auto; position:relative; padding-right:4px; gap:5px; }
+  .cust-search-list.cust-browse { max-height:calc(100vh - 320px); min-height:200px; overflow-y:auto; position:relative; padding-right:4px; gap:8px; }
+  /* Each alphabetical group is its own wrapper so its sticky header is scoped to
+     THAT group (headers don't pile up at the top — the classic flat-sticky trap,
+     which broke upward letter jumps because a past header stayed stuck at top:0). */
+  .cust-group { display:flex; flex-direction:column; gap:5px; }
   .cust-search-item { display:flex; align-items:baseline; gap:10px; width:100%; text-align:left; border:1px solid var(--border); border-radius:8px; padding:9px 12px; background:#fff; cursor:pointer; }
   .cust-search-item:hover { border-color:var(--accent); background:var(--surface-2); }
   .cust-search-name { font-size:0.9rem; font-weight:700; color:var(--text); }
   .cust-search-phone { margin-left:auto; font-size:0.78rem; color:var(--muted); white-space:nowrap; }
   .cust-search-empty { color:var(--muted); font-size:0.85rem; text-align:center; padding:22px 8px; }
-  /* sticky letter header above each alphabetical group */
+  /* sticky letter header above each alphabetical group (scoped to its .cust-group) */
   .cust-group-head { position:sticky; top:0; z-index:1; background:var(--surface-2); color:var(--accent);
     font-size:1rem; font-weight:800; letter-spacing:0.04em; padding:8px 12px; border-radius:6px;
-    border:1px solid var(--border); border-left:3px solid var(--accent); margin:10px 0 3px; line-height:1.1; }
-  .cust-group-head:first-child { margin-top:0; }
+    border:1px solid var(--border); border-left:3px solid var(--accent); margin:0; line-height:1.1; }
   /* A–Z index bar */
   .cust-az-bar { display:flex; flex-wrap:wrap; gap:3px; margin-top:10px; }
   .cust-az-bar.hidden { display:none; }
@@ -6341,13 +6344,21 @@
       el.classList.add('cust-browse');
       if (!list.length) { el.innerHTML = `<div class="cust-search-empty">No customers.</div>`; renderCustAzBar(null); return; }
       const present = new Set();
-      let html = '', cur = null;
+      // Group into { L, items } so each letter renders as its own .cust-group wrapper
+      // (per-group sticky headers — see CSS; this is what makes upward jumps work).
+      const groups = [];
+      let cur = null;
       list.forEach(c => {
         const L = custBucket(c);
-        if (L !== cur) { cur = L; present.add(L); html += `<div class="cust-group-head" data-letter="${esc(L)}">${esc(L)}</div>`; }
-        html += custItemHtml(c);
+        if (!cur || cur.L !== L) { cur = { L, items: [] }; groups.push(cur); present.add(L); }
+        cur.items.push(c);
       });
-      el.innerHTML = html;
+      el.innerHTML = groups.map(g =>
+        `<div class="cust-group">` +
+        `<div class="cust-group-head" data-letter="${esc(g.L)}">${esc(g.L)}</div>` +
+        g.items.map(custItemHtml).join('') +
+        `</div>`
+      ).join('');
       renderCustAzBar(present);
       el.scrollTop = 0;
       setActiveAzLetter(currentTopLetter());   // highlight the first group on (re)render
