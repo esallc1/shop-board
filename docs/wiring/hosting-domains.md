@@ -58,8 +58,9 @@ test a change on a stable URL that holds a logged-in session before it goes to p
   `shop-board-git-staging-leetransmission-kiki.vercel.app`) → Cris eyeballs → **merge to `main`**
   → `vercel --prod`. (`staging` is long-lived; the production branch is still `main`.)
 - **DNS (Namecheap BasicDNS, external):** a **CNAME** — Host `test` → `cname.vercel-dns.com`.
-  Until it exists the Vercel domain config reads `misconfigured:true`; the boards still serve on
-  the `shop-board-git-staging-…vercel.app` alias meanwhile.
+  **Live as of 2026-08-11** — CNAME in place, Vercel config `misconfigured:false`, Let's Encrypt
+  cert issued (http-01), HTTPS 200 on all four boards + front door, HTTP→HTTPS 308. (The
+  `shop-board-git-staging-…vercel.app` alias also still serves the same deploy.)
 - **Login persistence:** office login is `signInWithPassword` (email/password, **no browser
   redirect**) and every board reads `getSession()` **same-origin**, so the Supabase session
   (localStorage key `sb-hygemiszxwmyrkmhbjub-auth-token`, scoped to the origin) is **shared
@@ -123,6 +124,9 @@ Do it in this order so KiKi is never orphaned:
   Cris: the Namecheap CNAME (`test` → `cname.vercel-dns.com`) and the Supabase Redirect-URL
   additions (future-proofing; not required for password login). Flagged the shared-prod-DB write
   caveat. Infra/config only — no app-code or data change.
+  **Update (same day): both done by Cris — `test.leetransmissionshop.com` is LIVE** (valid
+  Let's Encrypt cert; all four boards + front door 200 over HTTPS; origin renders in-browser).
+  Final "log in once, session holds on all four" is the owner's to run (password entry).
 - 2026-08-03 — Created. Verified via `vercel` CLI (`domains inspect`, `domains ls`,
   `projects ls`) + live `curl` that `leetransmissionshop.com` + `www` now serve the CrisData
   front door from **shop-board** (apex 308→www; www title "CrisData — Lee Transmission"),
