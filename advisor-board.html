@@ -454,11 +454,26 @@
   .cust-search input { width:100%; border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:0.9rem; color:var(--text); box-sizing:border-box; }
   .cust-search input:focus { outline:none; border-color:var(--accent); }
   .cust-search-list { margin-top:10px; display:flex; flex-direction:column; gap:5px; }
+  /* A–Z browse mode: the list becomes its own scroll box so the letter jump +
+     sticky group headers are self-contained (the page itself doesn't scroll). */
+  .cust-search-list.cust-browse { max-height:calc(100vh - 320px); min-height:200px; overflow-y:auto; position:relative; padding-right:4px; gap:5px; }
   .cust-search-item { display:flex; align-items:baseline; gap:10px; width:100%; text-align:left; border:1px solid var(--border); border-radius:8px; padding:9px 12px; background:#fff; cursor:pointer; }
   .cust-search-item:hover { border-color:var(--accent); background:var(--surface-2); }
   .cust-search-name { font-size:0.9rem; font-weight:700; color:var(--text); }
   .cust-search-phone { margin-left:auto; font-size:0.78rem; color:var(--muted); white-space:nowrap; }
   .cust-search-empty { color:var(--muted); font-size:0.85rem; text-align:center; padding:22px 8px; }
+  /* sticky letter header above each alphabetical group */
+  .cust-group-head { position:sticky; top:0; z-index:1; background:var(--surface-2); color:var(--muted);
+    font-size:0.72rem; font-weight:800; letter-spacing:0.08em; padding:5px 10px; border-radius:6px;
+    border:1px solid var(--border); margin:6px 0 1px; }
+  .cust-group-head:first-child { margin-top:0; }
+  /* A–Z index bar */
+  .cust-az-bar { display:flex; flex-wrap:wrap; gap:3px; margin-top:10px; }
+  .cust-az-bar.hidden { display:none; }
+  .cust-az-letter { min-width:22px; padding:3px 5px; font-size:0.72rem; font-weight:700; line-height:1;
+    border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--accent); cursor:pointer; font-family:inherit; }
+  .cust-az-letter:hover { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .cust-az-letter.disabled { color:var(--muted); opacity:0.4; cursor:default; pointer-events:none; background:var(--surface); }
   /* top strip */
   .cust-name { font-size:1.15rem; font-weight:800; color:var(--text); }
   .cust-biz { font-size:0.9rem; color:var(--muted); margin-top:1px; }
@@ -911,6 +926,7 @@
       <div class="card">
         <div class="card-title"><div class="dot" style="background:var(--accent)"></div>Customers</div>
         <div class="cust-search"><input type="text" id="custSearchInput" placeholder="Search by name, business, or phone…" autocomplete="off"></div>
+        <div id="custAzBar" class="cust-az-bar" aria-label="Jump to letter"></div>
         <div id="custSearchList" class="cust-search-list"></div>
       </div>
     </div>
@@ -6189,32 +6205,88 @@
       $('custListPanel').style.display = 'block';
       ensureCustAllList().then(() => renderCustSearch($('custSearchInput').value || ''));
     }
+    // The name AS DISPLAYED in the list — business name if there is one, else the
+    // person's name. Sorting + the A–Z buckets key off THIS string (so a business
+    // sorts by its business name, a person by their displayed leading name). If
+    // Cris later wants people sorted by last name, that's a change to custSortName.
+    function custDisplayName(c) { return (c.business_name || c.name || '').trim(); }
+    function custSortName(c) { return custDisplayName(c).toLowerCase(); }
+    // Bucket letter: A–Z for a leading letter, else "#" (numbers/symbols/blank).
+    function custBucket(c) {
+      const ch = custDisplayName(c).charAt(0).toUpperCase();
+      return (ch >= 'A' && ch <= 'Z') ? ch : '#';
+    }
+    // Alphabetical by displayed name (case-insensitive); the "#" bucket sinks last.
+    function custAlphaCmp(a, b) {
+      const ha = custBucket(a) === '#' ? 1 : 0, hb = custBucket(b) === '#' ? 1 : 0;
+      if (ha !== hb) return ha - hb;
+      return custSortName(a).localeCompare(custSortName(b), undefined, { sensitivity: 'base', numeric: true });
+    }
+    const custItemHtml = (c) =>
+      `<button type="button" class="cust-search-item" data-cust-id="${esc(c.id)}">` +
+      `<span class="cust-search-name">${esc(custDisplayName(c) || '(no name)')}</span>` +
+      `<span class="cust-search-phone">${esc(custFmtPhone(c.phone_primary))}</span></button>`;
+
+    const AZ_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').concat('#');
+
+    // Render the A–Z jump bar. `present` is the Set of buckets that actually have
+    // customers; the rest render dimmed + non-clickable. Hidden entirely while a
+    // search is active (grouping doesn't apply to filtered results).
+    function renderCustAzBar(present) {
+      const bar = $('custAzBar');
+      if (!bar) return;
+      if (!present) { bar.classList.add('hidden'); bar.innerHTML = ''; return; }
+      bar.classList.remove('hidden');
+      bar.innerHTML = AZ_LETTERS.map(L => {
+        const on = present.has(L);
+        return `<button type="button" class="cust-az-letter${on ? '' : ' disabled'}" data-jump="${esc(L)}"${on ? '' : ' aria-disabled="true" tabindex="-1"'}>${esc(L)}</button>`;
+      }).join('');
+    }
+
+    // Scroll the browse list so the chosen letter's group sits at the top of the
+    // scroll box (the box scrolls, not the page).
+    function custJumpToLetter(L) {
+      const el = $('custSearchList');
+      if (!el) return;
+      const head = el.querySelector('.cust-group-head[data-letter="' + (window.CSS && CSS.escape ? CSS.escape(L) : L) + '"]');
+      if (head) el.scrollTop = Math.max(0, head.offsetTop - 4);
+    }
+
+    // Default (no search): the FULL customer list, alphabetical by displayed name,
+    // grouped by first letter with a sticky letter header per group.
+    function renderCustBrowse() {
+      const el = $('custSearchList');
+      const list = (custAllList || []).slice().sort(custAlphaCmp);
+      el.classList.add('cust-browse');
+      if (!list.length) { el.innerHTML = `<div class="cust-search-empty">No customers.</div>`; renderCustAzBar(null); return; }
+      const present = new Set();
+      let html = '', cur = null;
+      list.forEach(c => {
+        const L = custBucket(c);
+        if (L !== cur) { cur = L; present.add(L); html += `<div class="cust-group-head" data-letter="${esc(L)}">${esc(L)}</div>`; }
+        html += custItemHtml(c);
+      });
+      el.innerHTML = html;
+      renderCustAzBar(present);
+    }
+
     function renderCustSearch(q) {
       const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
       const query = (q || '').trim().toLowerCase();
       const list = custAllList || [];
-      let rows;
-      if (!query) {
-        rows = [...list].sort((a, b) => String(b.last_invoiced || '').localeCompare(String(a.last_invoiced || ''))).slice(0, 30);
-      } else {
-        const qd = query.replace(/\D/g, '');
-        rows = list.filter(c => {
-          const name = ((c.business_name || '') + ' ' + (c.name || '')).toLowerCase();
-          if (name.includes(query)) return true;
-          if (qd.length >= 3) return l10(c.phone_primary).includes(qd) || l10(c.phone_secondary).includes(qd);
-          return false;
-        }).slice(0, 60);
-      }
       const el = $('custSearchList');
-      el.innerHTML = rows.length ? rows.map(c =>
-        `<button type="button" class="cust-search-item" data-cust-id="${esc(c.id)}">` +
-        `<span class="cust-search-name">${esc(c.business_name || c.name || '(no name)')}</span>` +
-        `<span class="cust-search-phone">${esc(custFmtPhone(c.phone_primary))}</span></button>`
-      ).join('') : `<div class="cust-search-empty">${query ? 'No matches.' : 'No customers.'}</div>`;
-      el.querySelectorAll('[data-cust-id]').forEach(b => b.onclick = () => {
-        custBackTarget = { kind: 'list' };
-        showCustomerRecord(b.dataset.custId);
-      });
+      if (!query) { renderCustBrowse(); return; }   // browse mode: sorted A–Z with the jump bar
+      // Search mode: existing behavior, unchanged — flat filtered list, no groups.
+      el.classList.remove('cust-browse');
+      renderCustAzBar(null);                          // hide the jump bar while searching
+      const qd = query.replace(/\D/g, '');
+      const rows = list.filter(c => {
+        const name = ((c.business_name || '') + ' ' + (c.name || '')).toLowerCase();
+        if (name.includes(query)) return true;
+        if (qd.length >= 3) return l10(c.phone_primary).includes(qd) || l10(c.phone_secondary).includes(qd);
+        return false;
+      }).slice(0, 60);
+      el.innerHTML = rows.length ? rows.map(custItemHtml).join('') : `<div class="cust-search-empty">No matches.</div>`;
     }
 
     // ── RECORD panel ──
@@ -6507,6 +6579,21 @@
     // ── wiring ──
     $('custBackBtn').addEventListener('click', custBack);
     $('custSearchInput').addEventListener('input', () => renderCustSearch($('custSearchInput').value));
+    // Delegated clicks — one handler survives the (up to ~2700-row) re-renders.
+    (function wireCustListDelegation() {
+      const el = $('custSearchList');
+      if (el) el.addEventListener('click', (e) => {
+        const item = e.target.closest('[data-cust-id]');
+        if (!item) return;
+        custBackTarget = { kind: 'list' };
+        showCustomerRecord(item.dataset.custId);
+      });
+      const bar = $('custAzBar');
+      if (bar) bar.addEventListener('click', (e) => {
+        const b = e.target.closest('.cust-az-letter');
+        if (b && !b.classList.contains('disabled')) custJumpToLetter(b.dataset.jump);
+      });
+    })();
     // A real "Customers" tab tap shows the LIST (openCustomerById overrides after).
     (function wireCustomerTab() {
       const item = document.querySelector('.sidebar-item[data-view="customer"]');
