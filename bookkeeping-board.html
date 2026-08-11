@@ -617,6 +617,11 @@
 <!-- Cost & Profit — Build Sheet workbench (Step 1 frame). Always on (no
      feature switch — ships via preview → prod). -->
 <script src="shared/build-sheet.js"></script>
+<!-- Shared period-selector date math (→ window.PeriodRange) + Profit by RO
+     (→ window.ProfitByRO). Financial Pulse below delegates its date helpers to
+     PeriodRange, so there is only one copy of the window math. -->
+<script src="shared/period-range.js"></script>
+<script src="shared/profit-by-ro.js"></script>
 <!-- Advisor commission engine (ESM → window.CommissionEngine) + shared cards
      (→ window.CommissionCards). Behind the Advisor Commission switch (default OFF). -->
 <script type="module">
@@ -702,7 +707,7 @@
       <!-- Cost & Profit — always shown (no feature switch). -->
       <div class="sidebar-group">
         <div class="sidebar-group-label">Cost &amp; Profit</div>
-        <div class="sidebar-item" data-view="cockpit" data-label="Cockpit"><span class="icon">🎛️</span>Cockpit</div>
+        <div class="sidebar-item" data-view="profitro" data-label="Profit by RO"><span class="icon">📈</span>Profit by RO</div>
         <div class="sidebar-item" data-view="buildsheet" data-label="Build Sheet"><span class="icon">🔧</span>Build Sheet</div>
       </div>
     </div>
@@ -842,11 +847,10 @@
     <div id="commissionMount" style="max-width:680px"></div>
   </div>
 
-  <!-- ══ COST & PROFIT — COCKPIT ══ (Step 3 placeholder) -->
-  <div class="view" id="view-cockpit">
+  <!-- ══ COST & PROFIT — PROFIT BY RO ══ (shared/profit-by-ro.js) -->
+  <div class="view" id="view-profitro">
     <div class="card">
-      <div class="card-title"><div class="dot"></div>Cockpit</div>
-      <p style="color:var(--muted);font-size:0.9rem;margin:6px 0 0">Coming in Step 3.</p>
+      <div id="profitro-root"></div>
     </div>
   </div>
 
@@ -1195,6 +1199,7 @@
     if (view === 'overview') loadOverview(); // always fetch fresh on open
     if (view === 'commission') renderCommission(); // fresh weekly numbers on open
     if (view === 'buildsheet' && window.BuildSheet) BuildSheet.mount(document.getElementById('buildsheet-root'), { db }); // Build Sheet → Units (fresh on open)
+    if (view === 'profitro' && window.ProfitByRO) ProfitByRO.mount(document.getElementById('profitro-root'), { db }); // Profit by RO → KPIs (fresh on open)
     closeMobileNav(); // no-op on desktop; on mobile, picking a view closes the drawer
   }
 
@@ -3341,11 +3346,13 @@
     const LINE_TYPE_LABEL = { labor: 'Labor', parts: 'Parts', package: 'Package', fee: 'Fee', shop_supply: 'Shop Supply', hazmat: 'Hazmat' };
 
     // ── date helpers — LOCAL dates as 'YYYY-MM-DD' to match invoice_date ──
-    function ymd(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
-    function parseYmd(s) { return s ? new Date(s + 'T00:00:00') : null; }
-    function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
-    function startOfWeek(d) { const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - x.getDay()); return x; } // Sunday
-    function daysBetween(a, b) { return Math.round((b - a) / 86400000); }
+    // These delegate to the shared PeriodRange module (shared/period-range.js) so
+    // Financial Pulse and Profit by RO share ONE copy of the window math.
+    const ymd = (d) => PeriodRange.ymd(d);
+    const parseYmd = (s) => PeriodRange.parseYmd(s);
+    const addDays = (d, n) => PeriodRange.addDays(d, n);
+    const startOfWeek = (d) => PeriodRange.startOfWeek(d);           // Sunday
+    const daysBetween = (a, b) => PeriodRange.daysBetween(a, b);
 
     // preset → [startDate, endDate] (inclusive, local Date objects).
     // Windows MATCH the existing top Overview cards (renderOverviewCards) so the
@@ -3358,29 +3365,9 @@
     // "This month"/"This quarter" are month/quarter-to-date; the top card has no
     // upper bound but real invoice_date values never exceed today, so the sums
     // are identical to the penny. Quarters follow the same calendar convention.
-    function rangeFor(p) {
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      const q = Math.floor(today.getMonth() / 3);
-      switch (p) {
-        case 'this_week':  { const s = startOfWeek(today); return [s, addDays(s, 6)]; }        // Sun–Sat calendar week containing today
-        case 'last_week':  { const s = addDays(startOfWeek(today), -7); return [s, addDays(s, 6)]; } // the prior Sun–Sat calendar week
-        case 'this_month': return [new Date(today.getFullYear(), today.getMonth(), 1), today];
-        case 'last_month': return [new Date(today.getFullYear(), today.getMonth() - 1, 1), new Date(today.getFullYear(), today.getMonth(), 0)];
-        case 'this_quarter': return [new Date(today.getFullYear(), q * 3, 1), today];
-        case 'last_quarter': { let y = today.getFullYear(), lq = q - 1; if (lq < 0) { lq = 3; y -= 1; } return [new Date(y, lq * 3, 1), new Date(y, lq * 3 + 3, 0)]; }
-        case 'custom': {
-          const f = parseYmd(customFrom) || addDays(today, -6);
-          const t = parseYmd(customTo) || today;
-          return f <= t ? [f, t] : [t, f];
-        }
-        default: return [addDays(today, -6), today];
-      }
-    }
-    function currentRange() {
-      const [s, e] = rangeFor(preset);
-      return { start: s, end: e, fromStr: ymd(s), toStr: ymd(e) };
-    }
+    // Delegated to PeriodRange — the closure's customFrom/customTo feed 'custom'.
+    const rangeFor = (p) => PeriodRange.rangeFor(p, { customFrom, customTo });
+    const currentRange = () => PeriodRange.currentRange(preset, { customFrom, customTo });
 
     // ── formatting ──
     function fmtK(n) {
@@ -3389,11 +3376,7 @@
       return (n < 0 ? '-$' : '$') + Math.round(a);
     }
     function fmtDay(d)  { return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }
-    function fmtRangeLabel(s, e) {
-      const y = new Date().getFullYear();
-      const yr = (s.getFullYear() !== y || e.getFullYear() !== y) ? `, ${e.getFullYear()}` : '';
-      return `${s.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${e.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}${yr}`;
-    }
+    const fmtRangeLabel = (s, e) => PeriodRange.fmtRangeLabel(s, e);
 
     // ── INCOME (realized) — the Payments ledger, gated on paid-in-full ──
     // Income is recognized for an RO only when it is fully paid off:
@@ -3403,12 +3386,7 @@
     // (e.g. $200 tendered on a $192.75 invoice counts $192.75). Each paid RO is
     // bucketed by the paid_at date (America/New_York) of its CLOSING (latest)
     // payment. Legacy ALLDATA jobs have no ro_payments row, so they never appear.
-    function nyDate(ts) {
-      if (!ts) return null;
-      // 'en-CA' formats as YYYY-MM-DD; the tz option resolves the shop's date.
-      try { return new Date(ts).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }); }
-      catch (e) { return ymd(new Date(ts)); }
-    }
+    const nyDate = (ts) => PeriodRange.nyDate(ts);   // 'YYYY-MM-DD' in the shop tz
     function buildPaidIncome() {
       const byRo = new Map();   // repair_order_id → { ro, pays: [] }
       (data.payments || []).forEach(p => {

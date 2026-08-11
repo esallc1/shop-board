@@ -1,7 +1,8 @@
 # How the Financial Pulse is wired
 
 > Doc: `/docs/wiring/financial-pulse.md`
-> Last updated: 2026-08-09 — verified vs commit `455693f` (merged to main)
+> Last updated: 2026-08-11 — verified vs branch `profit-by-ro` (date math extracted to the
+> shared `PeriodRange` module; §4 updated. Realized-income logic unchanged.)
 > Status: ✅ Verified vs `bookkeeping-board.html`. Realized income reads the `ro_payments`
 > ledger (paid-in-full gate, capped at the true invoice total, bucketed by `paid_at`); every
 > income view + the income drill-down read that one source. **NEW (Hours-Engine-adjacent, this
@@ -85,6 +86,14 @@ ledger — **it never writes**, and it is **not** QuickBooks.
     no future-dated invoices the sums are identical to the penny). "Last month" / "Last
     quarter" = the full previous calendar month / quarter.
   - **Custom** parses the two `YYYY-MM-DD` inputs (swapped if from > to).
+- **The window math is SHARED, not local.** As of 2026-08-11 the preset → `[start, end]`
+  logic (`rangeFor`/`currentRange`) and the helpers `ymd`/`parseYmd`/`addDays`/`startOfWeek`/
+  `daysBetween`/`fmtRangeLabel`/`nyDate` are **delegated to `shared/period-range.js`**
+  (`window.PeriodRange`) — one copy, so the Financial Pulse and **Profit by RO**
+  ([[profit-by-ro]]) can never disagree on what "last week" means. FinancialPulse keeps thin
+  wrappers of the same names (its closure's `customFrom`/`customTo`/`preset` still feed the
+  shared `rangeFor`), so every call site in §5–§6 is unchanged. Behaviour is byte-identical to
+  the old inline math.
 - The "Showing X – Y" subtitle reflects the **actual** window each preset produces (so
   "This week" shows the full calendar week, e.g. *Aug 2 – Aug 8*, including days after today).
 - Changing the range **re-renders only the range-driven pieces** (Income scorecard, trend,
@@ -279,6 +288,10 @@ surfaced). PO 6009 (open) → provisional. Unmatched PO → "no receipts" empty 
   `incomeRows`, `roTotal`, `renderDrill`), and the `loadOverview()` reads (open ROs; the
   `completed_jobs(po,job_category)` map; and the `ro_payments(...repair_orders(...))` income
   read).
+- **Shared window math:** `shared/period-range.js` (`window.PeriodRange`) — the preset →
+  `[start, end]` logic + `ymd`/`parseYmd`/`addDays`/`startOfWeek`/`daysBetween`/`fmtRangeLabel`/
+  `nyDate`. FinancialPulse's same-named helpers are thin delegates (§4). Also consumed by
+  [[profit-by-ro]] so the two screens share one definition of every window.
 - **Income:** `ro_payments` (`repair_order_id`, `amount`, `method`, `paid_at`, `po`) joined to
   `repair_orders` — `migrations/20260718_ro_payments.sql`; `ro_total` from `ro_line_items` +
   `shop_settings.tax_rate` (`migrations/20260716_ro_foundation.sql`,
@@ -311,6 +324,14 @@ surfaced). PO 6009 (open) → provisional. Unmatched PO → "no receipts" empty 
   GP-vs-cost view — labor+parts-markup per advisor).
 
 ## Session change log
+- 2026-08-11 — **Extracted the date-range math to the shared `PeriodRange` module**
+  (`shared/period-range.js`) so the new **Profit by RO** screen ([[profit-by-ro]]) reuses the
+  exact same windows instead of a forked copy. FinancialPulse's `rangeFor`/`currentRange`/`ymd`/
+  `parseYmd`/`addDays`/`startOfWeek`/`daysBetween`/`fmtRangeLabel`/`nyDate` are now thin
+  delegates to `window.PeriodRange` (its closure still owns `preset`/`customFrom`/`customTo`).
+  **Behaviour byte-identical**; realized-income logic untouched. §4 + "Where it lives" updated.
+  (Bookkeeping is a hard auth gate — the delegation is verified by static reasoning + the owner
+  eyeballs the Pulse logged-in on the `profit-by-ro` preview.)
 - 2026-08-09 — **Refinement pass (D → C → B).** (D) Profit-over-parts now computes on the RO's
   **pre-tax subtotal**, not the tax-included ticket (sales tax isn't shop margin). (C) The RO-detail
   **LEFT pane now embeds the full real invoice** via the shared builder `shared/ro-invoice.js`

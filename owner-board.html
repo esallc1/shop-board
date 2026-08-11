@@ -17,6 +17,10 @@
 <!-- Cost & Profit — Build Sheet workbench (Step 1 frame). Always on (no
      feature switch — ships via preview → prod). -->
 <script src="shared/build-sheet.js"></script>
+<!-- Shared period-selector date math (→ window.PeriodRange) + Profit by RO
+     (→ window.ProfitByRO). Reuse the Financial Pulse windows, no forked copy. -->
+<script src="shared/period-range.js"></script>
+<script src="shared/profit-by-ro.js"></script>
 <!-- Advisor commission engine (ESM → window.CommissionEngine) + shared cards
      (→ window.CommissionCards). Behind the Advisor Commission switch (default OFF). -->
 <script type="module">
@@ -131,7 +135,7 @@
       <!-- Cost & Profit — always shown (no feature switch). -->
       <div class="sidebar-group">
         <div class="sidebar-group-label">Cost &amp; Profit</div>
-        <div class="sidebar-item" data-view="cockpit" data-label="Cockpit"><span class="icon">🎛️</span>Cockpit</div>
+        <div class="sidebar-item" data-view="profitro" data-label="Profit by RO"><span class="icon">📈</span>Profit by RO</div>
         <div class="sidebar-item" data-view="buildsheet" data-label="Build Sheet"><span class="icon">🔧</span>Build Sheet</div>
       </div>
       <!-- Owner master-key switcher: open the other rooms in new tabs. These are
@@ -186,11 +190,10 @@
     <div id="commissionMount" style="max-width:680px"></div>
   </div>
 
-  <!-- ══ COST & PROFIT — COCKPIT ══ (Step 3 placeholder) -->
-  <div class="view" id="view-cockpit">
+  <!-- ══ COST & PROFIT — PROFIT BY RO ══ (shared/profit-by-ro.js) -->
+  <div class="view" id="view-profitro">
     <div class="card">
-      <div class="card-title"><div class="dot"></div>Cockpit</div>
-      <p style="color:var(--muted);font-size:0.9rem;margin:6px 0 0">Coming in Step 3.</p>
+      <div id="profitro-root"></div>
     </div>
   </div>
 
@@ -312,7 +315,7 @@
     onShopSettingsChanged: () => { if (typeof refreshCommissionNav === 'function') refreshCommissionNav(); },
   });
 
-  // ── Cost & Profit sidebar group (Cockpit + Build Sheet) — always shown ──
+  // ── Cost & Profit sidebar group (Profit by RO + Build Sheet) — always shown ──
   function openBuildSheet() {
     const nav = document.querySelector('.sidebar-item[data-view="buildsheet"]');
     if (nav) nav.click();
@@ -321,6 +324,13 @@
     const nav = document.querySelector('.sidebar-item[data-view="buildsheet"]');
     if (nav && window.BuildSheet) {
       nav.addEventListener('click', () => BuildSheet.mount(document.getElementById('buildsheet-root'), { db }));
+    }
+  })();
+  // Profit by RO — per-job profit on closed ROs (fresh numbers on each open).
+  (function () {
+    const nav = document.querySelector('.sidebar-item[data-view="profitro"]');
+    if (nav && window.ProfitByRO) {
+      nav.addEventListener('click', () => ProfitByRO.mount(document.getElementById('profitro-root'), { db }));
     }
   })();
 
