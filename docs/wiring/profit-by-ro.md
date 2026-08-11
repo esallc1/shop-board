@@ -3,9 +3,10 @@
 > Doc: `/docs/wiring/profit-by-ro.md`
 > Last updated: 2026-08-11 — verified vs branch `profit-by-ro` (Step A, in-browser on the
 > owner board; bookkeeping verified by structure + owner eyeball on the preview)
-> Status: 🟡 Step A BUILT (rename + shell + period selector + KPI row on real closed-RO
-> data). Step B (ranked-bar per-RO list + honesty flags) and Step C (donut/split toggle)
-> NOT built. Reads-only — no writes, no migration, no feature switch.
+> Status: 🟡 Step A + Step B BUILT (rename + shell + period selector + KPI row + the
+> ranked-bar per-RO list with honesty flags — all on real closed-RO data). Step C
+> (donut / bars / split toggle) NOT built. Reads-only — no writes, no migration, no
+> feature switch. Not merged to prod — A+B+C ship together after the owner eyeballs C.
 
 ## 0. In one line
 A **"Profit by RO"** screen in the Cost & Profit sidebar group (Owner + Bookkeeping only)
@@ -63,13 +64,39 @@ gross profit in the app. Profit by RO does **not** compute cost its own way.
   `{package_unit_id → unit_cost}` map from `package_units`, exactly as `CommissionEngine.compute`
   builds it.
 
-## 4. The KPI row (Step A — the only content today)
+## 4. The KPI row (Step A)
 Four tiles, computed over the closed ROs in the range:
 - **Week sales** = `Σ RO sale` — badged **real · pre-tax**.
 - **Est. week profit** = `Σ RO profit` — prefixed `~`, badged **estimated cost**.
 - **Avg profit / RO** = `Est. week profit ÷ RO count` — `~`, shows the RO count.
 - **Avg margin** = `Est. week profit ÷ Week sales` — `~`, badged **estimated**.
 Empty period → "No repair orders were closed in this period." (tiles suppressed).
+
+## 4.5 The ranked-bar per-RO list (Step B)
+Under the KPI row, a **"Repair orders, ranked by profit"** section — one horizontal bar per
+closed RO, **biggest profit first**. Both the KPIs and this list read the **same** per-RO array
+(`computeRows` — see §5); there is no second data path.
+- **Each bar:** left = **`RO <ro_number>`** + a subline **`MM-DD · <advisor>`** (the RO's
+  `closed_at` day + the `service_writer_id`'s employee name); middle = a track whose **fill
+  width ∝ that RO's profit** (scaled to the top RO = 100%, min 2px, `0` when profit ≤ 0);
+  right = **`$profit · margin% · $sale`** (profit red when negative).
+- **Honesty flags (colour = cost basis):**
+  - **green fill / green dot** — the RO's **rebuild (package) line uses a CONFIRMED
+    `package_units.unit_cost`** (its `package_unit_id` is in the confirmed-cost map). This is the
+    only "real" state.
+  - **amber fill / amber dot** — **estimated cost** (the assumed-margin fallback fed the profit).
+    Today almost every RO is amber — labor/parts ROs never carry a confirmed unit cost, and
+    package lines fall back to 0.55 until confirmed.
+  - **red `▲ no advisor stamped — wouldn't earn commission`** — the subline turns red/warn when
+    **`service_writer_id` is null** (the RO earns no advisor commission). A legend keyline under
+    the bars spells out all three.
+- **Long-tail collapse:** ROs at/below **5% of the leader's profit** (or ≤ $0) fold into a single
+  line — **`+ N more small ROs (≤ $X each) — <numbers>, and M $0 ROs (<numbers>)`** — with `$0`
+  ROs called out separately. The visible list is also hard-capped at **12 bars** (a big quarter
+  never prints 40), but always shows at least the top 3.
+- **Footnote (`.pro-note`):** the honest "what makes this real" framing — as unit costs are
+  confirmed in the Build Sheet **and** jobs get billed on Package lines, ROs flip green and the
+  board sharpens unit by unit; the real per-RO parts+labor cost feed is still to come.
 
 ## 5. Where it mounts (Owner + Bookkeeping only)
 - **Nav + view:** the Cost & Profit `sidebar-group` item `data-view="profitro"` (📈 "Profit by
@@ -97,13 +124,18 @@ Empty period → "No repair orders were closed in this period." (tiles suppresse
   are confirmed in the Build Sheet ([[cost-profit]] §10).
 - **The "last mile" (real per-RO parts + labor cost) is not wired** — the mockup's own note flags
   it as the next data piece. Until then profit is an estimate by construction.
-- **Not built:** Step B (ranked-bar per-RO list + no-advisor / confirmed-vs-estimated honesty
-  flags) and Step C (donut / bars / split toggle).
+- **The ranked list's confirmed (green) state is essentially unreachable today** — only 1 of 50
+  units has a confirmed cost and jobs rarely use Package lines, so every bar renders amber. This
+  is correct/honest, not a bug; it turns green as data entry shifts (per the owner's Step-A call).
+- **Not built:** Step C (donut / bars / split toggle).
 
 ## Where it lives in the code
 - **`shared/profit-by-ro.js`** — `window.ProfitByRO.mount`; the scoped `.pro-*` styles; the
-  period selector + KPI render; `computeKpis` (closed-RO filter + sale + `roGrossProfit`);
-  `buildOpts` (margins + package-cost map); `loadData` (`CommissionEngine.fetchInputs`).
+  period selector; **`computeRows`** (the ONE closed-RO filter → per-RO `{sale, profit, margin,
+  ro_number, advisor, noAdvisor, basis}`) + `kpisFromRows` (aggregates); `kpiRowHtml` (Step A
+  tiles) + **`rankedBarsHtml`** (Step B bars, tail collapse, keyline, note); `buildOpts` (margins
+  + confirmed package-cost map); `loadData` (`CommissionEngine.fetchInputs` + the label-only
+  `ro_number` map).
 - **`shared/period-range.js`** — `window.PeriodRange`, the shared window math (§2), also used by
   [[financial-pulse]].
 - **`shared/commission-engine.js`** — `roGrossProfit`/`lineGrossProfit` + `DEFAULT_PARTS_MARGIN`
@@ -121,6 +153,19 @@ Empty period → "No repair orders were closed in this period." (tiles suppresse
   that owns the profit math), [[packages]] (the unit list).
 
 ## Session change log
+- 2026-08-11 — **Built Step B — the ranked-bar per-RO list** under the KPI row (§4.5). Refactored
+  the Step-A `computeKpis` into a single **`computeRows(range)`** that both the KPIs and the bars
+  read (no second data path); `kpisFromRows` derives the tiles. Each closed RO renders a bar
+  (width ∝ profit, top = 100%), `RO <ro_number>` + `MM-DD · advisor`, and `$profit · margin% ·
+  $sale`. Honesty flags: **green** fill/dot when a package line uses a confirmed unit cost,
+  **amber** otherwise, **red** "no advisor stamped" when `service_writer_id` is null. Long tail
+  (≤ 5% of the leader, or $0) collapses into "+ N more small ROs (≤ $X each) — …, and M $0 ROs
+  (…)"; visible list capped at 12. Added a label-only `ro_number` fetch + advisor-name map to
+  `loadData` (profit numbers still come solely from `CommissionEngine.fetchInputs`). Kept the
+  owner's Step-A decision: labor stays 100% margin, no COGS haircut. Verified in-browser on the
+  owner board — Aug 2–8: 7 bars + "6 more small ROs (≤ $181) — …, and 3 $0 ROs", RO 5503 flagged
+  no-advisor, KPI roCount (13) = visible (7) + tail (6), preset switch re-renders, quarter caps
+  at 12 bars; no module console errors. Step C (donut/split) NOT built; not merged to prod.
 - 2026-08-11 — **Created. Built Step A** — renamed the dead "Cockpit" nav item + view/route to
   **"Profit by RO"** (Owner + Bookkeeping, same access); added a period selector mirroring the
   Financial Pulse (default Last week) backed by the **new shared `shared/period-range.js`**
