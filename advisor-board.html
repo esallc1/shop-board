@@ -6291,17 +6291,19 @@
     }
 
     // Scroll the browse list so the chosen letter's group sits at the top of the
-    // scroll box (the box scrolls, not the page). We measure the header's CURRENT
-    // position relative to the list and adjust scrollTop by that delta — robust
-    // from any scroll state. (offsetTop is unreliable here: the headers are
-    // position:sticky, so a stuck header reports its stuck position, not its flow
-    // position — every header ends up reading the same offsetTop.)
+    // scroll box (the box scrolls, not the page). We measure the group's non-sticky
+    // .cust-group WRAPPER, not its header, and adjust scrollTop by that delta — robust
+    // from any scroll state and in BOTH directions. (The header itself can't be used:
+    // it's position:sticky, so when you're scrolled INTO its group it reads top:0, and
+    // when you're scrolled PAST the group it rests at the bottom of its wrapper — both
+    // give a wrong delta. The wrapper is never sticky, so its rect is its true position.)
     function custJumpToLetter(L) {
       const el = $('custSearchList');
       if (!el) return;
       const head = el.querySelector('.cust-group-head[data-letter="' + (window.CSS && CSS.escape ? CSS.escape(L) : L) + '"]');
       if (!head) return;
-      const delta = head.getBoundingClientRect().top - el.getBoundingClientRect().top;
+      const group = head.closest('.cust-group') || head;
+      const delta = group.getBoundingClientRect().top - el.getBoundingClientRect().top;
       el.scrollTop = Math.max(0, el.scrollTop + delta - 2);
     }
 

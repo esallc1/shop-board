@@ -90,11 +90,15 @@ then branches on whether the search box has text:
   the whole list — a header you'd scrolled past stayed **stuck at the top** (piled up), and
   `getBoundingClientRect().top` for it read `listTop` → the jump delta computed **0** for any letter
   above the current scroll position (down-jumps worked, up-jumps did nothing after the first). Fix:
-  render each letter as its own **`.cust-group` wrapper** so each sticky header is scoped to its
-  group and returns to flow once scrolled past — `getBoundingClientRect` is then accurate in both
-  directions. No JS change to `custJumpToLetter`/`currentTopLetter` (they still select headers by
-  `data-letter`); the scroll-spy was **not** the cause. Verified R→T→A→M→Z each lands on its group
-  with the active letter following, from any scroll position, on `test.leetransmissionshop.com`.
+  render each letter as its own **`.cust-group` wrapper**, and `custJumpToLetter` now measures that
+  **non-sticky wrapper** (`head.closest('.cust-group')`) instead of the header. The header itself is
+  unusable as a scroll reference: `position:sticky` makes it read `top:0` when you're inside its
+  group and rest at the **bottom of its wrapper** when you're scrolled past it — so a header-based
+  delta was 0 for up-jumps (flat structure) or landed at the group's END (wrapped structure). The
+  wrapper is never sticky, so its rect is its true flow position in both directions. `currentTopLetter`
+  still selects headers by `data-letter` (fine — it wants the stuck header). The scroll-spy was **not**
+  the cause. Verified R→T→A→M→Z each lands on the group's START with the active letter following, from
+  any scroll position, on `test.leetransmissionshop.com`.
 - 2026-08-11 — **Customers LIST polish: "Last, First" rows + active-letter feedback** (§4).
   List rows now display phonebook **"Last, First"** for people (`custListLabel`, "Wyatt Tabb" →
   "Tabb, Wyatt") using the SAME surname split as the sort (extracted to `custSurnameSplit`), so the
