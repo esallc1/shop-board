@@ -36,8 +36,9 @@
 //     engine's package GP — now read this real cost. If the recipe changes after,
 //     the saved cost is kept and a subtle "recipe changed — reconfirm?" hint shows.
 //
-// Not here: the Cockpit (Step 3) or a per-person roster / actual-vs-standard
-// (Step 3). No feature switch — ships via preview → prod.
+// Not here: Profit by RO (the old "Cockpit" slot — now its own screen,
+// shared/profit-by-ro.js) or a per-person roster / actual-vs-standard.
+// No feature switch — ships via preview → prod.
 //
 // Self-contained: injects its own <style> once and relies on BoardSettings
 // (loaded on every board) for the Units editor + its shared button styles.

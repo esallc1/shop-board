@@ -1,8 +1,9 @@
-# How Cost & Profit (Cockpit + Build Sheet) is wired
+# How Cost & Profit (Profit by RO + Build Sheet) is wired
 
 > Doc: `/docs/wiring/cost-profit.md`
-> Last updated: 2026-08-10 — verified vs branch `cost-profit-step2c` (+ this Step-2c persist
-> confirmed unit cost + honest estimate labelling, verified in-browser this session)
+> Last updated: 2026-08-11 — verified vs branch `profit-by-ro` (the dead "Cockpit" slot in
+> this group is now the **Profit by RO** screen — see [[profit-by-ro]]; §0/§2/gaps updated.
+> Build Sheet + cost-layer logic unchanged this session.)
 > Status: ✅ Step 1 (frame + relocation) + ✅ Step 2a (recipe + rates + live
 > profit) + ✅ Step 2b (shared parts library + linked recipe lines + vendor
 > bulk-cost sweep) + ✅ Step 2c (persist confirmed cost + estimate labelling — §10)
@@ -10,13 +11,16 @@
 > (`20260809_costlayer_unit_parts_rates.sql` applied); Step 2b migration
 > `20260809_costlayer_parts_library.sql` is add-only + **NOT yet applied** — hand
 > to Cris. Step 2c needs **no migration** — `package_units.unit_cost` already
-> exists live (confirmed 2026-08-10 via the REST API; nullable, was all-null). NOT
-> built: the Cockpit (Step 3), per-person roster / actual-vs-standard (Step 3).
+> exists live (confirmed 2026-08-10 via the REST API; nullable, was all-null).
+> **The old "Cockpit" Step-3 placeholder is gone** — as of 2026-08-11 that slot is
+> the **Profit by RO** screen ([[profit-by-ro]], its own doc). NOT built here: a
+> per-person roster / actual-vs-standard view.
 
 ## 0. In one line
 A **"Cost & Profit"** sidebar group that **always shows** on the **Owner and
-Bookkeeping boards** with two items — **Cockpit** (Step-3 placeholder) and **Build
-Sheet** — where the Build Sheet is a three-tab workbench: **Units** (the relocated
+Bookkeeping boards** with two items — **Profit by RO** (per-job profit on closed
+ROs — its own doc [[profit-by-ro]]) and **Build Sheet** — where the Build Sheet is
+a three-tab workbench: **Units** (the relocated
 "Rebuild Units & Prices" editor **plus** a per-unit rebuild-parts recipe and live
 cost/profit/margin — §6), **Parts catalog & vendor pricing** (the shared parts
 library + the vendor bulk-cost sweep — §8–§9), and **People & rates** (three
@@ -35,7 +39,8 @@ shop-level standard-cost rates — §7).
 
 ## 2. The sidebar group (Owner + Bookkeeping only)
 - Markup: a plain `sidebar-group` (label "Cost & Profit") with two
-  `sidebar-item`s: `data-view="cockpit"` 🎛️ and `data-view="buildsheet"` 🔧.
+  `sidebar-item`s: `data-view="profitro"` 📈 ([[profit-by-ro]]) and
+  `data-view="buildsheet"` 🔧.
   Present in **`owner-board.html`** and **`bookkeeping-board.html`** only —
   Manager/Advisor boards are untouched. **Always visible** — no `display:none`, no
   reveal function.
@@ -246,8 +251,8 @@ provider) — `board-settings.js` is byte-unchanged, so GM/Advisor stay untouche
 - **Vendor sweep updates row-by-row** (PostgREST anon has no arithmetic UPDATE), so
   a vendor with many parts is several small writes; undo is in-memory (lost on
   reload). Fine at shop scale.
-- **Not built:** the Cockpit (Step 3) and a per-person roster / actual-vs-standard
-  (Step 3).
+- **The Cockpit slot is now Profit by RO** ([[profit-by-ro]], built 2026-08-11, its own
+  doc). Still **not built:** a per-person roster / actual-vs-standard view.
 - **`std_advisor_pct` is a percentage number** (2.5 = 2.5%), divided by 100 in the
   math — distinct from the commission engine's fraction-stored margins.
 - **Dormant column:** `shop_settings.feature_cost_profit` still exists (from the
@@ -293,6 +298,11 @@ provider) — `board-settings.js` is byte-unchanged, so GM/Advisor stay untouche
   [[flat-rate-hours]] (R&R hours = the tech-pay side of a unit).
 
 ## Session change log
+- 2026-08-11 — **The "Cockpit" Step-3 placeholder became the Profit by RO screen.** The
+  Cost & Profit group's first item is no longer a stub — it's the per-job profit screen
+  (`data-view="profitro"` 📈), documented in its own doc [[profit-by-ro]]. This doc's §0/§2,
+  status header, and gaps were updated to point there; the Build Sheet + cost-layer (Steps
+  1/2a/2b/2c) are unchanged. Reads-only, no migration.
 - 2026-08-10 — **Built Step 2c — persist confirmed cost + honest estimate labelling.**
   The live-computed Standard cost is now **savable** to `package_units.unit_cost`
   (the column commission GP / any profit view reads), and every unit shows a badged
