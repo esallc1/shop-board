@@ -58,35 +58,68 @@ vars are never set (fallback = prod).
 3. **Project Settings → Database** → copy the **Connection string (URI)** — this is the
    staging `psql`/`pg_dump` target for Step 3.
 
-### Step 2 — Recreate the schema *(Cris, terminal + staging SQL editor)*
+### Step 2 — Recreate the schema *(Cris, terminal)*
 **Why not an assembled-from-`/migrations` file:** `/migrations` is an *incremental* history
 that assumes a pre-existing base schema — `public.employees` and `public.chat_messages` are
 referenced by the migrations but **created by no migration** (they predate the checked-in
 history). So no `/migrations`-only script can build the DB from empty. Prod's own `public`
-schema is the complete source, so we dump it:
+schema is the complete source.
+
+**Three things a plain `pg_dump --schema-only -n public` restore does NOT handle**, all fixed
+by the procedure below: (1) prod (shared with KiKi) uses **pgvector** and a `--schema-only`
+dump doesn't create extensions → `type public.vector does not exist`; (2) the dump emits
+`CREATE SCHEMA public;` which already exists on a fresh project; (3) `--no-privileges` strips
+the GRANTs `anon`/`authenticated` need, so PostgREST can't read the tables. The procedure
+detects prod's extensions and enables them, resets `public` cleanly (idempotent), sets default
+privileges + grants for the API roles, then applies the schema. Run from the repo root with
+`$PROD_DB`/`$STG_DB` already set:
 ```bash
-# same PROD_DB / STG_DB connection strings as Step 3 (Supabase → Settings → Database → URI)
-# 1) Dump prod's FULL public schema (tables/indexes/functions/triggers/types + RLS), in
-#    dependency order. Read-only on prod.
+( set -euo pipefail
+: "${PROD_DB:?PROD_DB not set}"; : "${STG_DB:?STG_DB not set}"
+
+# 1) DETECT prod's extensions (READ-ONLY on prod) -> a CREATE EXTENSION script.
+psql "$PROD_DB" -Atc "select format('create extension if not exists %I with schema %I;', e.extname, n.nspname) from pg_extension e join pg_namespace n on n.oid=e.extnamespace where e.extname<>'plpgsql' order by 1;" > /tmp/stg_ext.sql
+echo '--- will enable on staging ---'; cat /tmp/stg_ext.sql
+
+# 2) RESET staging public schema + restore grants (idempotent; WIPES staging). Default
+#    privileges make every table the schema step creates readable by anon/authenticated.
+psql "$STG_DB" -v ON_ERROR_STOP=1 <<'SQL'
+drop schema if exists public cascade;
+create schema public;
+grant usage on schema public to anon, authenticated, service_role;
+grant all   on schema public to postgres, service_role;
+alter default privileges in schema public grant all on tables    to anon, authenticated, service_role;
+alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
+alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
+SQL
+
+# 3) ENABLE the extensions on staging (idempotent; present ones no-op). "vector" is the one
+#    the schema needs. If it can't be created here, enable it once in Database -> Extensions.
+psql "$STG_DB" -f /tmp/stg_ext.sql || true
+echo '--- prod extensions still MISSING on staging (want: empty) ---'
+comm -23 <(psql "$PROD_DB" -Atc "select extname from pg_extension order by 1") <(psql "$STG_DB" -Atc "select extname from pg_extension order by 1")
+
+# 4) DUMP prod public schema (READ-ONLY) and APPLY (strip the dump's CREATE SCHEMA public).
 pg_dump "$PROD_DB" --schema-only --no-owner --no-privileges -n public -f prod-schema.sql
-# 2) Apply it to the empty staging DB.
-psql "$STG_DB" -v ON_ERROR_STOP=1 -f prod-schema.sql
+grep -vE '^CREATE SCHEMA (IF NOT EXISTS )?public;' prod-schema.sql > prod-schema-fixed.sql
+psql "$STG_DB" -v ON_ERROR_STOP=1 -f prod-schema-fixed.sql
+
+# 5) Belt-and-suspenders grants on the objects just created.
+psql "$STG_DB" -v ON_ERROR_STOP=1 <<'SQL'
+grant all on all tables    in schema public to anon, authenticated, service_role;
+grant all on all sequences in schema public to anon, authenticated, service_role;
+grant all on all functions in schema public to anon, authenticated, service_role;
+SQL
+echo "OK: schema + extensions + grants done." )
 ```
-Then, in the staging **SQL editor**, run **`staging/staging-rls-and-storage.sql`** from the
-repo — it guarantees **both `anon` and `authenticated`** full-access policies on every public
-table (the dump carries prod's policies, which are mostly `anon`-only) and adds permissive
-**Storage** policies for the app's buckets (the `-n public` dump has no `storage.objects`
-policies). It's idempotent + one transaction.
+Re-runnable from scratch (step 2 drops `public` each time). Then run
+**`staging/staging-rls-and-storage.sql`** against `$STG_DB` (both-roles RLS + storage policies),
+then the data load (Step 3).
 
-Sanity check (SQL editor): `select count(*) from pg_tables where schemaname='public';` should
-be ~40, and every table should have anon + authenticated policies:
-`select tablename, count(*) filter (where 'anon'=any(roles)) anon,
- count(*) filter (where 'authenticated'=any(roles)) auth
- from pg_policies where schemaname='public' group by 1 order by 1;`
-
-*(Restore friction, if any: `--no-owner --no-privileges` handles ownership/grants; if a
-`CREATE EXTENSION` line errors, enable that extension under Database → Extensions and re-run
-`prod-schema.sql`.)*
+Sanity check: `select count(*) from pg_tables where schemaname='public';` ≈ 40, and every table
+has anon + authenticated policies (`select tablename, count(*) filter (where 'anon'=any(roles))
+anon, count(*) filter (where 'authenticated'=any(roles)) auth from pg_policies where
+schemaname='public' group by 1 order by 1;`).
 
 ### Step 3 — Load a one-time data COPY prod → staging *(Cris, terminal)*
 This copy lives **only** in staging, never flows back to prod, and can be dropped anytime
@@ -210,3 +243,10 @@ where lower(email) = lower('<that-email>');
   created by none (they predate the checked-in history). Deleted the assembled file; schema
   now comes from `pg_dump --schema-only -n public` (complete + correctly ordered), with
   `staging/staging-rls-and-storage.sql` as the both-roles-RLS + storage-policy tail.
+- 2026-08-12 — **Schema restore procedure hardened (Step 2).** A bare `--schema-only` restore
+  hit three Supabase gotchas: pgvector (prod is shared with KiKi → `type public.vector does
+  not exist`; `--schema-only` doesn't create extensions), the dump's `CREATE SCHEMA public;`
+  colliding with the fresh project, and `--no-privileges` stripping the `anon`/`authenticated`
+  GRANTs. Step 2 now: detects prod's extensions from `pg_extension` and enables them, resets
+  `public` cleanly (drop+create → idempotent), sets default privileges + grants for the API
+  roles, strips the dump's `CREATE SCHEMA public`, then applies the schema.
