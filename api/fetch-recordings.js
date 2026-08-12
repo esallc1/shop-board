@@ -15,7 +15,7 @@
    NEVER the anon key. Capped per run so the function can't time out.
    ============================================================ */
 
-const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hygemiszxwmyrkmhbjub.supabase.co'; // staging deployments set SUPABASE_URL (Preview env) to the staging project; prod unset -> this fallback
 const BUCKET = 'call-recordings';
 
 // Cap per invocation so a slow batch of large files can't run past the function

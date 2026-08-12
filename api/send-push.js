@@ -51,8 +51,8 @@ function getRequestOrigin(req) {
 
 // Supabase REST (anon publishable key — same public key the boards ship;
 // push_subscriptions RLS is anon-full-access).
-const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
-const SUPABASE_ANON = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hygemiszxwmyrkmhbjub.supabase.co'; // staging deployments set SUPABASE_URL (Preview env) to the staging project; prod unset -> this fallback
+const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo'; // staging Preview env overrides; prod unset -> fallback
 
 const sbHeaders = {
   apikey: SUPABASE_ANON,

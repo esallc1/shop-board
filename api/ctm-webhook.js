@@ -33,7 +33,7 @@ export const config = { api: { bodyParser: false } };
 // Supabase REST — same project as the rest of api/. This table is written with
 // the SERVICE-ROLE key (server-side only, bypasses RLS). ctm_webhook_log is
 // default-deny to anon, so the publishable key the boards ship cannot touch it.
-const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hygemiszxwmyrkmhbjub.supabase.co'; // staging deployments set SUPABASE_URL (Preview env) to the staging project; prod unset -> this fallback
 
 // Vercel's edge injects its OWN infrastructure headers onto the incoming
 // request — including x-vercel-oidc-token (a real signed project JWT) and
