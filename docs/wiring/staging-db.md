@@ -2,11 +2,12 @@
 
 > Doc: `/docs/wiring/staging-db.md`
 > Last updated: 2026-08-12 — created for the staging-DB isolation build (branch
-> `feat/staging-db-isolation`). Console steps NOT yet run — this is the runbook +
-> the code side that's already wired.
+> `feat/staging-db-isolation`). Boards swapped to the switch; schema step revised to
+> `pg_dump --schema-only` after the assembled-migrations file proved unusable (base
+> tables `employees`/`chat_messages` predate the checked-in migrations).
 > Status: 🟡 in progress — code side built & unit-tested (`shared/supabase-config.js`,
-> the `/api/*` env-with-fallback change, `staging/staging-schema.sql`); the Supabase
-> project + data snapshot + Vercel env are owner steps below, then the board swap.
+> the `/api/*` env-with-fallback change, the 12-board swap); the Supabase project +
+> schema/data load + Vercel env are owner steps below.
 
 ## 0. In one line
 `test.leetransmissionshop.com` (and every Vercel preview + localhost) talks to a
@@ -57,20 +58,35 @@ vars are never set (fallback = prod).
 3. **Project Settings → Database** → copy the **Connection string (URI)** — this is the
    staging `psql`/`pg_dump` target for Step 3.
 
-### Step 2 — Recreate the schema *(Cris, staging SQL editor)*
-1. Open **`staging/staging-schema.sql`** from the repo. It's the **entire** `/migrations`
-   history assembled in order — every table, index, function, trigger, and RLS policy —
-   with data inserts removed (data comes in Step 3) and **both `anon` and `authenticated`
-   full-access policies guaranteed on every table**.
-2. Paste it into the staging project's **SQL editor** and **Run**. It's wrapped in one
-   transaction: if anything fails it rolls back cleanly — fix the cause (usually **enable a
-   Postgres extension**: Database → Extensions, e.g. `pgcrypto` is created by the script but
-   any other referenced extension must be on) and re-run the whole file.
-3. Sanity check (SQL editor): `select count(*) from pg_tables where schemaname='public';`
-   should be ~40, and every table should have anon + authenticated policies:
-   `select tablename, count(*) filter (where 'anon'=any(roles)) anon,
-    count(*) filter (where 'authenticated'=any(roles)) auth
-    from pg_policies where schemaname='public' group by 1 order by 1;`
+### Step 2 — Recreate the schema *(Cris, terminal + staging SQL editor)*
+**Why not an assembled-from-`/migrations` file:** `/migrations` is an *incremental* history
+that assumes a pre-existing base schema — `public.employees` and `public.chat_messages` are
+referenced by the migrations but **created by no migration** (they predate the checked-in
+history). So no `/migrations`-only script can build the DB from empty. Prod's own `public`
+schema is the complete source, so we dump it:
+```bash
+# same PROD_DB / STG_DB connection strings as Step 3 (Supabase → Settings → Database → URI)
+# 1) Dump prod's FULL public schema (tables/indexes/functions/triggers/types + RLS), in
+#    dependency order. Read-only on prod.
+pg_dump "$PROD_DB" --schema-only --no-owner --no-privileges -n public -f prod-schema.sql
+# 2) Apply it to the empty staging DB.
+psql "$STG_DB" -v ON_ERROR_STOP=1 -f prod-schema.sql
+```
+Then, in the staging **SQL editor**, run **`staging/staging-rls-and-storage.sql`** from the
+repo — it guarantees **both `anon` and `authenticated`** full-access policies on every public
+table (the dump carries prod's policies, which are mostly `anon`-only) and adds permissive
+**Storage** policies for the app's buckets (the `-n public` dump has no `storage.objects`
+policies). It's idempotent + one transaction.
+
+Sanity check (SQL editor): `select count(*) from pg_tables where schemaname='public';` should
+be ~40, and every table should have anon + authenticated policies:
+`select tablename, count(*) filter (where 'anon'=any(roles)) anon,
+ count(*) filter (where 'authenticated'=any(roles)) auth
+ from pg_policies where schemaname='public' group by 1 order by 1;`
+
+*(Restore friction, if any: `--no-owner --no-privileges` handles ownership/grants; if a
+`CREATE EXTENSION` line errors, enable that extension under Database → Extensions and re-run
+`prod-schema.sql`.)*
 
 ### Step 3 — Load a one-time data COPY prod → staging *(Cris, terminal)*
 This copy lives **only** in staging, never flows back to prod, and can be dropped anytime
@@ -171,15 +187,26 @@ where lower(email) = lower('<that-email>');
 - **API switch:** every `api/*.js` — `SUPABASE_URL = process.env.SUPABASE_URL || '<prod>'`
   (and `SUPABASE_ANON_KEY` in `api/send-push.js`); `SUPABASE_SERVICE_ROLE_KEY` already from
   env.
-- **Assembled schema:** `staging/staging-schema.sql` (generated from `/migrations`; regenerate
-  with the script recorded in this build's commit if migrations change).
+- **Schema source:** prod's `public` schema via `pg_dump --schema-only -n public` (the
+  `/migrations` history is incremental and assumes base tables `employees`/`chat_messages`
+  that it never creates, so it can't build from empty). **Staging RLS + storage tail:**
+  `staging/staging-rls-and-storage.sql`.
 - **Vercel env scoping + domain→branch binding:** see [[hosting-domains]] §3.5 and §5.
 - **Employee ↔ auth mapping:** see [[office-auth]].
 
 ## Session change log
 - 2026-08-12 — Created. Built the runtime creds switch (`shared/supabase-config.js`, hostname
   rule, unit-tested), moved every `/api/*` Supabase URL/anon/service key to env-with-prod-
-  fallback, and generated `staging/staging-schema.sql` (full schema + RLS, data-free, both
-  anon+authenticated policies). Wrote this runbook. Console steps (create project, run schema,
-  snapshot data, buckets, login, Vercel env) + the 12-board swap are pending owner action /
-  the staging creds.
+  fallback. Wrote this runbook.
+- 2026-08-12 — **Swapped all 12 boards** to `window.cdSupabaseCreds()`; verified in-browser
+  (localhost → staging, prod host → production). Filled the staging project's URL + anon key
+  into `shared/supabase-config.js`.
+- 2026-08-12 — **Schema step revised.** The assembled `staging/staging-schema.sql` failed on
+  an empty DB (`relation "public.customers" does not exist`): (a) my preamble ordered the
+  `customers` column re-adds before `customers` is created, (b) intra-day alphabetical file
+  ordering put `phase3_print_fields`/`chat_conversations`/`planning_items`/
+  `costlayer_parts_library` before the migrations that create the tables they touch, and —
+  the real blocker — (c) `employees` + `chat_messages` are referenced by the migrations but
+  created by none (they predate the checked-in history). Deleted the assembled file; schema
+  now comes from `pg_dump --schema-only -n public` (complete + correctly ordered), with
+  `staging/staging-rls-and-storage.sql` as the both-roles-RLS + storage-policy tail.
