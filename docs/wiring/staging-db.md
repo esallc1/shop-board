@@ -1,13 +1,12 @@
 # How the staging database is wired
 
 > Doc: `/docs/wiring/staging-db.md`
-> Last updated: 2026-08-12 — created for the staging-DB isolation build (branch
-> `feat/staging-db-isolation`). Boards swapped to the switch; schema step revised to
-> `pg_dump --schema-only` after the assembled-migrations file proved unusable (base
-> tables `employees`/`chat_messages` predate the checked-in migrations).
-> Status: 🟡 in progress — code side built & unit-tested (`shared/supabase-config.js`,
-> the `/api/*` env-with-fallback change, the 12-board swap); the Supabase project +
-> schema/data load + Vercel env are owner steps below.
+> Last updated: 2026-08-12 — **LIVE.** `test.leetransmissionshop.com` is running on the isolated
+> sandbox project (`efhmefpaijjncwgbvwki`); merged to `staging` at `78e3472`.
+> Status: 🟢 verified in-browser — on test.* the switch resolves to staging (sandbox URL + anon
+> key), it reads the sandbox (2,717 customers), and a tagged write on test.* landed in the sandbox
+> and **not** in prod (then cleaned up). Prod (`main`) is untouched — still on its hardcoded prod DB
+> until a future `staging → main` release brings the switch to prod hostnames.
 
 ## 0. In one line
 `test.leetransmissionshop.com` (and every Vercel preview + localhost) talks to a
@@ -187,21 +186,25 @@ once staging is deployed. To log in as a different role, change `'owner'`.
   `office-login`, `my-numbers`, `shop-board`, `tech-board`, `teardown`, `crisdata-floor`,
   `crisdata-techboard`. Then merge to `staging` (never a bare `staging → main` that would
   carry nothing dangerous — the file is identical either way, that's the point).
-- **Cris (Vercel → shop-board → Settings → Environment Variables):** add, scoped to
-  **Preview** only, pointing at STAGING:
-  `SUPABASE_URL = https://<newref>.supabase.co`,
-  `SUPABASE_ANON_KEY = sb_publishable_<staging>`,
-  `SUPABASE_SERVICE_ROLE_KEY = <staging service_role>`.
-  Optionally set the same three at **Production** scope = the **prod** values (documents
-  intent; behavior is unchanged because the code already falls back to prod). **Never** set
-  Preview to prod values. Redeploy `staging` after saving.
+- **Cris (Vercel env, `Preview`-scoped = STAGING).** The dashboard was 2FA-blocked, so this was
+  done via the already-authed **Vercel CLI** from the repo root (which holds `.vercel/`):
+  `SUPABASE_URL` + `SUPABASE_ANON_KEY` added Preview-only (`vercel env add <NAME> preview`, empty
+  Git-branch = all Preview branches). **Scope gotcha:** `SUPABASE_SERVICE_ROLE_KEY` already existed
+  as `Preview, Production` (prod key leaking into Preview), so it was **detached from Preview**
+  (`vercel env rm SUPABASE_SERVICE_ROLE_KEY preview`) and the **staging** key added back
+  Preview-only. End state: service key = two rows (Production=prod, Preview=staging); URL + anon =
+  Preview=staging. Prod needs no new vars (the `/api/*` code falls back to prod when unset). The
+  service_role key is a secret — set by the owner at the CLI prompt, never shared.
 
-### Step 6 — Verify isolation *(Cris + Claude)*
-1. On `test.leetransmissionshop.com`, open DevTools console: `window.CD_SUPABASE` → `env:
-   "staging"`, url = the new ref. On `board.leetransmissionshop.com`: `env: "production"`.
-2. Make a **harmless write on `test.*`** (e.g. add a To-Do) → it appears in the **staging**
-   project's table and **not** in prod. Do the reverse on prod → not in staging.
-3. Confirm a prod row count is unchanged before/after staging write-testing.
+### Step 6 — Verify isolation — ✅ DONE 2026-08-12
+1. On `test.leetransmissionshop.com`, DevTools console: `window.CD_SUPABASE` → `env:"staging"`,
+   sandbox URL. ✔ **(prod `board.leetransmissionshop.com` has NO switch yet — it's the `main`
+   build — so `window.CD_SUPABASE` is `undefined` there and it uses its hardcoded prod DB; that's
+   the point. The switch reaches prod hostnames only after a `staging → main` release.)**
+2. **Write-isolation ✔** — a uniquely-tagged To-Do written on test.* was `found_in_SANDBOX: 1`,
+   `found_in_PROD: 0`, then deleted. test.* also read the sandbox (2,717 customers).
+3. Owner-side double-check (optional): after any staging write-testing, `psql "$PROD_DB" -c
+   "select count(*) from <table>"` is unchanged vs before.
 
 ## 4. Tear down / refresh the staging DB later
 - **Refresh data** (re-snapshot prod): truncate staging public tables (or re-run Step 2 on a
@@ -260,3 +263,10 @@ once staging is deployed. To log in as a different role, change `'owner'`.
   GRANTs. Step 2 now: detects prod's extensions from `pg_extension` and enables them, resets
   `public` cleanly (drop+create → idempotent), sets default privileges + grants for the API
   roles, strips the dump's `CREATE SCHEMA public`, then applies the schema.
+- 2026-08-12 — **LIVE + isolation verified.** Sandbox `efhmefpaijjncwgbvwki` loaded (schema +
+  2,717-customer data copy + both-roles RLS; storage-policy tail made non-fatal so an ownership
+  error can't roll back the table policies). Preview Vercel env set via CLI (dashboard was
+  2FA-blocked): URL + anon Preview-only; service key detached from Preview and the staging key
+  added Preview-only. Merged `feat/staging-db-isolation` → `staging` (`78e3472`); `main` untouched.
+  Verified on test.*: switch → staging, reads the sandbox, and a tagged write hit the sandbox but
+  **not** prod. Storage buckets + more logins deferred (see gaps).

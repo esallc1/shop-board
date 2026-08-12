@@ -81,10 +81,12 @@ test a change on a stable URL that holds a logged-in session before it goes to p
   bookkeeping / owner. Adding `test.*` to Supabase **Auth → Redirect URLs** is **not required**
   for this password login, but was added as future-proofing for any redirect-based flow
   (magic-link / password-reset email / OAuth) — Site URL left unchanged (see [[office-auth]]).
-- **⚠ Shared DB:** staging points at the **same** Supabase project as prod (`hygemiszxwmyrkmhbjub`).
-  Reads/viewing are safe; **any WRITE on staging mutates real production data** and fires realtime
-  + push to live staff. Isolate write-testing (a separate staging Supabase project, cloned from
-  `/migrations`) before exercising create/edit/delete features there. See §5.
+- **✅ Isolated DB (2026-08-12):** `test.*` now has its **own** Supabase project (sandbox
+  `efhmefpaijjncwgbvwki`) — a one-time copy of prod. **Writes on staging no longer touch prod**
+  (verified: a tagged write on test.* landed in the sandbox, not prod). Which DB a page uses is
+  chosen at runtime by hostname (`shared/supabase-config.js`); `/api/*` uses Preview-scoped Vercel
+  env. Full wiring + teardown/refresh: see [[staging-db]]. (Prod itself is still the shared
+  shop-board+KiKi project — §5.)
 
 ## 4. PARKED — move KiKi to `usekiki.app` later (NOT done; KiKi currently unused)
 Do it in this order so KiKi is never orphaned:
