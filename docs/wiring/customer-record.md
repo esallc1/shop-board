@@ -1,124 +1,197 @@
 # How the customer record is wired
 
 > Doc: `/docs/wiring/customer-record.md`
-> Last updated: 2026-08-11 — verified vs branch `customers-az-index` (added the A–Z browse to
-> the Customers LIST — §4; record detail unchanged from `bea25cf`)
-> Status: ✅ verified — counts, recording union, and navigation re-checked against
-> `shared/customer-record.js` and `#view-customer` in `advisor-board.html`; the new list A–Z
-> browse verified in-browser (2716 customers, all 27 buckets, jump + sticky headers + search).
+> Last updated: 2026-08-12 — verified vs branch `feat/customer-record-two-column`
+> (record detail rebuilt into the two-column layout below; the Customers LIST — §7 —
+> is unchanged from `c9d7c54`)
+> Status: ✅ verified — the two-column record eyeballed in-browser against live Supabase
+> (person + business, open-RO auto-expand, closed-RO lifetime $, per-RO call timeline,
+> unfiled "needs filing" section, accordion toggle, sticky profile); pure logic re-checked
+> against `shared/customer-record.js` + `shared/customer-record.test.js` (22 tests green).
 
 ## 0. In one line
-A full customer view (`#view-customer`) with a top strip, vehicle chips, history, and
-oldest-first recordings, reachable from an RO or a call with a back button — fronted by a
-**Customers LIST** panel that browses everyone A–Z (or filters by the search box).
+A full customer view (`#view-customer`) reached from the **Customers LIST**. Opening a
+customer shows a **two-column record**: a **sticky profile on the left** and the customer's
+**vehicles as a collapsible accordion on the right** — each vehicle's ROs with a calls &
+notes timeline beneath. It is **read-only display** with **one** carried-over write: filing
+a call recording to a vehicle.
 
-## 1. Counts & "customer since"
+## 1. Counts, "customer since" & lifetime $
 - **CrisData-only and labeled as such** — old ALLDATA history isn't imported.
-- `customers.created_at` is useless for this — use `min(repair_orders.created_at)`.
-- `completed_jobs` has **no customer_id** — never use it for history or counts.
+- `customers.created_at` is useless for "since" — use `min(repair_orders.created_at)`
+  (`CustomerRecord.customerCounts().sinceIso`).
+- **Lifetime $** = Σ of the invoice total of the customer's **CLOSED** ROs only
+  (`custLifetimeClosed()` over `custTotals`, which is `CustomerRecord.totalsByRo` of the
+  batched `ro_line_items`). The tile is **omitted** when no closed RO has a total — never
+  shown as `$0` or as a lifetime figure that pretends to include ALLDATA years.
+- **Last activity** = best-available max of `customers.last_invoiced`, latest RO
+  `created_at`, and the most recent call `started_at` (`custLastActivity()`).
+- `completed_jobs` has **no customer_id** — never used for history or counts.
 
-## 2. Which recordings show
-- Confirmed (`calls.customer_id`) **plus** phone-matched unconfirmed (visibly tagged),
-  `not_a_customer_at` excluded, and calls attached to a *different* customer excluded.
+## 2. Which calls & recordings show
+- The calls list is the union of two sources, computed by
+  `CustomerRecord.buildRecordingCalls`: `calls.customer_id == this customer` (**CONFIRMED**)
+  **plus** phone-matched unconfirmed (`caller_bare` last-10 == `phone_primary/secondary`,
+  visibly tagged **unconfirmed**). `not_a_customer_at` excluded; a call attached to a
+  *different* customer excluded.
+- The **whole union** feeds the timelines (calls *and* notes), not only calls with audio. A
+  ▶ recording button appears only when `RecordingPlayer.describeCallId` (fed by
+  `/api/recording-links`) says one exists.
 
-## 3. Navigation
-- Opening a customer from an RO or a call navigates to the **full record** with a back
-  button that returns where you came from. Not a hover preview.
+## 3. How it's reached / navigation
+- From the **Customers LIST** (§7) via `showCustomerRecord`, or from an RO / call / Desk
+  row via `window.openCustomerById(id, origin)` / `window.cdOpenCustomerByPhone(phone)`.
+- A **back button** (`custBackBtn` → `custBack`) returns where you came from
+  (`custBackTarget`: the list, a specific RO, or the prior view). Not a hover preview.
 
-## 4. The Customers LIST panel (`#custListPanel`) — browse + search
+## 4. The record layout — two columns (`#custRecordPanel`)
+`.cust-rec-layout` is a `320px 1fr` grid (single column ≤860px).
+
+**LEFT — sticky profile (`#custProfile`, `renderCustProfile`).** Stays put while the right
+side scrolls (`position:sticky`, static on narrow screens). Renders **only fields that
+exist**:
+- **Name.** A **person** shows phonebook **"Last, First"** (`custListLabel`, the same
+  surname split as the LIST); a **business** shows `business_name`, with a `Contact: <name>`
+  subline when a person name is also on file. A **Person / Business** badge sits above it.
+- **Contact rows:** `phone_primary`, `phone_secondary` (+ `learned` tag when
+  `isSecondaryLearned`), `email`, and an address block assembled from `address_line1/2` +
+  `city, state postal_code` (`custAddrLines` — partial addresses render cleanly, e.g. state
+  only). A row is skipped entirely when its field is blank.
+- **Customer since** (§1) and **Last activity** (§1).
+- **Stat tiles:** `# vehicles`, `# repair orders`, and **lifetime $** (only when derivable —
+  §1). An **Open now — RO #… button** appears when an RO is open (jumps to the RO).
+- The **CrisData-only** caveat line.
+
+**RIGHT — vehicles accordion (`#custVehicles`, `renderCustVehicles` → `vehRowHtml`).**
+- One collapsible row per vehicle, **sorted by most-recent activity** (`vehActivity` = latest
+  of the vehicle's RO `created_at` and its linked calls' `started_at`).
+- **Row header:** `year make model`, a `VIN … · Plate …` subline, counts (`N ROs · M calls`
+  — the call count is shown only when linkable), and a **status chip**: green
+  **`Open · <stage>`** when the vehicle has an open/active RO (`status != 'closed'` and not
+  `declined_at`), else **`Last <date>`** or **`No visits`**.
+- **Accordion is single-open** (`custOpenVeh`; `toggleVeh` re-renders). It **auto-opens the
+  most-recent vehicle that has an open/active RO** (`pickAutoOpenVeh`); if none is open, all
+  start collapsed.
+- **Expanded body (`vehBodyHtml`):** that vehicle's ROs **newest-first** — each an RO block
+  with `RO #` (click → opens the RO), stage, date, invoice total, and the **`complaint`**
+  service summary — and **beneath each RO its own calls & notes timeline** (the calls whose
+  `ro_id` is this RO). A per-RO timeline **caps at 260px and scrolls inside the card**. Below
+  the ROs, a **"Calls & notes · this vehicle"** timeline holds any vehicle-linked calls not
+  tied to a specific RO (§5).
+
+**Timeline entry (`callEntryHtml`):** time (`started_at`), caller-ID (`cnam` / `caller_formatted`
+/ formatted phone), a **disposition** chip from `calls.next_step`
+(`NEXT_STEP_LABEL`), the advisor **note**, a ▶ recording when one exists, and an **unconfirmed**
+tag for phone-matched calls. A confirmed entry has an accent left border; unconfirmed is amber.
+
+## 5. Calls granularity — bucketing to the finest link the schema supports
+`computeCallGroups()` puts every union call into exactly one bucket:
+1. **`byRo[roId]`** — the call's **`ro_id`** points at one of THIS customer's ROs. This is a
+   **real, human-set link** (the "checking on their car" RO picker, or an attach) — *not* the
+   deferred auto-attach — so the call is shown **under that RO** (and thus that vehicle).
+2. **`byVehNoRo[vehId]`** — no RO link, but the call's **recording is assigned to a vehicle**
+   (`custRecVehId`, §6) → shown at the **vehicle** level, under "Calls & notes · this vehicle".
+3. **`unfiled[]`** — links only to the customer → the **customer-level "needs filing"**
+   section (`#custUnfiledCard`, `renderCustUnfiled`).
+
+Calls carry **no vehicle_id of their own**; the only call→vehicle paths are (1) via `ro_id`→RO
+and (2) via an assigned recording. **Deferred to Phase 2 (call auto-attach):** automatically
+linking more calls to ROs — which will move calls up from `unfiled`/`byVehNoRo` into `byRo`.
+
+## 6. The one write — filing a recording to a vehicle
+Carried over unchanged from the old record view (it's the crew's current way to attach a
+recording; Phase 2 auto-attach will replace it). It lives **only in the unfiled "needs
+filing" section** — the natural home for a recording nobody has filed yet:
+- A **confirmed** recording that is currently unassigned gets a **`<select>`** of the
+  customer's vehicles ("File to vehicle…"); an **unconfirmed** one gets a hint (attach the
+  person link first — the server enforces this too).
+- Change → `assignRecVehicle` POSTs **`/api/recording-assign`** (service-role; anon can't
+  write recordings). On success it remembers the assignment for the session and
+  **re-buckets** (`rerenderCustBody`), so the recording moves out of "needs filing" into its
+  vehicle immediately.
+- A recording's vehicle resolves in precedence order (`custRecVehId`): (1) this session's
+  explicit assignment; (2) the **persisted** `recordings.vehicle_id` (via the links
+  endpoint — survives reload, incl. on a call with no RO); (3) the call's linked RO's
+  vehicle; (4) null.
+
+Everything else on the page is **read-only display** — no NEW writes, no migration, no schema
+change this phase.
+
+## 7. The Customers LIST panel (`#custListPanel`) — browse + search
 The Customers tab opens a list panel with a search box, an **A–Z index bar** (`#custAzBar`),
 and the list (`#custSearchList`). `ensureCustAllList()` loads **every** customer once via the
 paginated `window.cdFetchAllCustomers` (past the 1000-row API cap — ~2700 rows). `renderCustSearch(q)`
 then branches on whether the search box has text:
 - **Empty box → browse mode (`renderCustBrowse`).** The full list, **sorted alphabetically** by
-  the **sort key `custSortName`** (case-insensitive `localeCompare`, `sensitivity: 'base'`, so
-  punctuation sorts before letters — "A/C Quality Electric" precedes "ACTION…"):
-  - a **business** (has `business_name`) sorts by its **business name**;
-  - a **person** sorts by **LAST NAME** — the last token of `name` moved to the front
-    ("Aaron Coleman" → `coleman aaron`), skipping a trailing **Jr/Sr/II/III/IV/V** suffix
-    ("Bob Smith Jr" → `smith bob jr`, bucket **S**). A single-token name sorts as-is.
-  **Row display = phonebook "Last, First"** for people (`custListLabel`): "Wyatt Tabb" shows as
-  **"Tabb, Wyatt"**, "Bob Smith Jr" as **"Smith, Bob Jr"** — the SAME surname split as the sort
-  (`custSurnameSplit`, the one place the surname is computed), so the label matches where the row
-  sorts/jumps. Businesses show **as-is** (no comma flip); a single-token name, or a junk last token
-  that isn't a real letter (`\p{L}` guard, e.g. "SANDRA ."), shows as-is with **no trailing comma**.
-  The **record header** still shows the person's normal **First Last** (`custDisplayName`) — the
-  flip is LIST-only. Names whose sort key starts with a non-letter fall in a **"#" bucket that sorts
-  last** (`custBucket` derives from `custSortName`, so a group's header letter always matches where
-  its rows actually sort). Each letter renders as its **own `.cust-group` wrapper** (header + its
-  rows) with a **sticky letter header** (`.cust-group-head`, bold accent "T"-style divider) —
-  wrapping is what scopes each sticky header to its group so headers don't **pile up** at the top
-  (flat siblings share one sticky range → past headers stay stuck at `top:0`, which silently broke
-  upward letter jumps). The list gets a `cust-browse` class making it its own scroll box.
-  ⚠ Multi-word surnames (e.g. "De La Cruz") key off the **last token** only, so they bucket/label
-  under that token's letter ("Cruz, Maria De La") — a known limitation of the naive last-name split.
-- **A–Z bar (`renderCustAzBar`).** One button per letter A–Z + "#". A letter with customers is
-  clickable and **jumps** the scroll box so that group's header sits at the top
-  (`custJumpToLetter` — scrolls by the header's live `getBoundingClientRect` delta, robust vs.
-  the sticky-header `offsetTop` trap); a letter with **no** customers renders **dimmed +
-  non-clickable** (`.disabled`). **Active-letter feedback:** the current group's letter is
-  filled/accent (`.active`) — set on click and kept in step with scrolling by a rAF-throttled
-  scroll-spy (`custAzScrollSpy` → `currentTopLetter` → `setActiveAzLetter`). The bar is **hidden
-  while a search is active** (grouping doesn't apply to filtered results).
-- **Non-empty box → search mode (unchanged).** Exactly the prior behavior: a flat filtered list
-  (name/business substring, or last-10 phone when ≥3 digits), capped at 60, no group headers.
-- **Clicks are delegated** on `#custSearchList` (one listener survives the ~2700-row re-render) →
-  `showCustomerRecord`; the A–Z bar has its own delegated listener. Additive, reads-only.
+  the **sort key `custSortName`** (case-insensitive `localeCompare`, `sensitivity: 'base'`):
+  a **business** sorts by its **business name**; a **person** sorts by **LAST NAME** (last token
+  of `name` moved to the front, skipping a trailing **Jr/Sr/II/III/IV/V** suffix). **Row display
+  = phonebook "Last, First"** for people (`custListLabel`), businesses **as-is**, single-token /
+  junk-last-token names as-is (no trailing comma). Names whose sort key starts with a non-letter
+  fall in a **"#" bucket that sorts last**. Each letter renders as its **own `.cust-group`
+  wrapper** with a **sticky letter header**, which is what scopes each sticky header to its group.
+- **A–Z bar (`renderCustAzBar`).** One button per letter A–Z + "#"; a letter with customers
+  **jumps** the scroll box so that group's header sits at the top (`custJumpToLetter` — measures
+  the non-sticky `.cust-group` wrapper), empty letters render **dimmed + non-clickable**. The
+  current group's letter is **active** (scroll-spy `custAzScrollSpy`). Hidden while searching.
+- **Non-empty box → search mode.** A flat filtered list (name/business substring, or last-10
+  phone when ≥3 digits), capped at 60, no group headers.
+- **Clicks delegated** on `#custSearchList` → `showCustomerRecord`; the A–Z bar has its own
+  delegated listener. Additive, reads-only.
+  ⚠ Multi-word surnames (e.g. "De La Cruz") key off the **last token** only.
 
-## Known gaps & open questions (as of 2026-07-30)
-- _(fill in as they arise)_
+## Known gaps & open questions (as of 2026-08-12)
+- Most inbound calls have no `ro_id`, so they land in **`unfiled`** ("needs filing") rather
+  than under a vehicle/RO. That's honest to the schema today; **Phase 2 auto-attach** is what
+  fills in `byRo`.
+- ▶ recording playback and the file-to-vehicle `<select>` need the Vercel `/api/*` functions,
+  so they don't render under a bare static preview (they light up on staging/prod).
+- **Duplicate customers/vehicles** from the ALLDATA import can split a person's history across
+  two rows (e.g. same VIN on two vehicle rows). The page renders each gracefully; the dedupe
+  is a separate effort (`customer-dedupe.md`).
 
 ## Where it lives in the code
-- `#view-customer` view (`advisor-board.html:852`) + Customers tab; `custBackBtn` back button
-  (`advisor-board.html:864`), return target tracked by `custBackTarget` (`advisor-board.html:5606`)
-- **List panel (§4):** `#custListPanel` markup — `#custSearchInput`, `#custAzBar`, `#custSearchList`
-  (`advisor-board.html:~911`); `.cust-az-*` / `.cust-group-head` / `.cust-search-list.cust-browse`
-  CSS; the JS `custSurnameSplit` (shared surname split) → `custSortName`/`custListLabel`
-  ("Last, First"), `custDisplayName` (record header, First Last), `custBucket`/`custAlphaCmp`,
-  `renderCustBrowse`, `renderCustAzBar`, `custJumpToLetter`, the active-letter helpers
-  (`setActiveAzLetter`/`currentTopLetter`/`custAzScrollSpy`), and `renderCustSearch` (browse/search
-  branch) — all in the `advisor-board.html` customer IIFE; the delegated click + scroll wiring in
-  `wireCustListDelegation`. Full-list load via `window.cdFetchAllCustomers` (paginated past the
-  1000-row cap).
-- The tested reasoning — `buildRecordingCalls`, `customerCounts` (uses `min(repair_orders.created_at)`),
-  `openRosOf`, `filterRecordingsByVehicle`, `canAssignRecording`, `roInvoiceTotal` — is in
-  `shared/customer-record.js` (tested by `shared/customer-record.test.js`)
+- **Record markup:** `#custRecordPanel` in `advisor-board.html` — `.cust-rec-layout`,
+  `#custProfile` (left), `#custVehicles` (accordion), `#custUnfiledCard`/`#custUnfiledBody`
+  (needs filing), the single reused `#custRecAudio`. `.cust-*` CSS in the same file.
+- **Record JS (advisor-board customer IIFE):** `loadCustomerRecord` (fetches customer incl.
+  contact fields, vehicles, ROs incl. `complaint`, `ro_line_items` totals, the two call
+  sources); `renderCustProfile`; `renderCustVehicles`/`vehRowHtml`/`vehBodyHtml`;
+  `timelineHtml`/`callEntryHtml`; `renderCustUnfiled`; `computeCallGroups`, `vehActivity`,
+  `vehCallCount`, `custVehiclesSorted`, `pickAutoOpenVeh`; `custRecVehId`, `assignRecVehicle`,
+  `rerenderCustBody`, `toggleVeh`; format helpers `custFmtDate`/`custFmtWhen`/`custAddrLines`/
+  `custLastActivity`/`custLifetimeClosed`. Delegated events: `wireCustRecordDelegation`
+  (play / open-RO / accordion toggle / file-to-vehicle). Recording playback reuses
+  `window.RecordingPlayer` + `/api/recording-links`; filing uses `/api/recording-assign`.
+- **List JS (§7):** `custSurnameSplit`/`custSortName`/`custListLabel`/`custDisplayName`,
+  `custBucket`/`custAlphaCmp`, `renderCustBrowse`/`renderCustAzBar`/`custJumpToLetter`, the
+  active-letter helpers, `renderCustSearch`, `wireCustListDelegation`; full-list load via
+  `window.cdFetchAllCustomers`.
+- **Pure logic:** `shared/customer-record.js` (`buildRecordingCalls`, `customerCounts`,
+  `openRosOf`, `sortNewestFirst`, `totalsByRo`/`roInvoiceTotal`, `canAssignRecording`,
+  `isSecondaryLearned`), tested by `shared/customer-record.test.js`. `filterByVehicle` /
+  `filterRecordingsByVehicle` remain exported + tested but are **no longer called by the
+  board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
-- 2026-08-11 — **Fixed the A–Z letter jump (upward jumps were dead).** Every group header was
-  `position:sticky; top:0` as a **flat sibling** of the one scroll box, so their sticky range was
-  the whole list — a header you'd scrolled past stayed **stuck at the top** (piled up), and
-  `getBoundingClientRect().top` for it read `listTop` → the jump delta computed **0** for any letter
-  above the current scroll position (down-jumps worked, up-jumps did nothing after the first). Fix:
-  render each letter as its own **`.cust-group` wrapper**, and `custJumpToLetter` now measures that
-  **non-sticky wrapper** (`head.closest('.cust-group')`) instead of the header. The header itself is
-  unusable as a scroll reference: `position:sticky` makes it read `top:0` when you're inside its
-  group and rest at the **bottom of its wrapper** when you're scrolled past it — so a header-based
-  delta was 0 for up-jumps (flat structure) or landed at the group's END (wrapped structure). The
-  wrapper is never sticky, so its rect is its true flow position in both directions. `currentTopLetter`
-  still selects headers by `data-letter` (fine — it wants the stuck header). The scroll-spy was **not**
-  the cause. Verified R→T→A→M→Z each lands on the group's START with the active letter following, from
-  any scroll position, on `test.leetransmissionshop.com`.
-- 2026-08-11 — **Customers LIST polish: "Last, First" rows + active-letter feedback** (§4).
-  List rows now display phonebook **"Last, First"** for people (`custListLabel`, "Wyatt Tabb" →
-  "Tabb, Wyatt") using the SAME surname split as the sort (extracted to `custSurnameSplit`), so the
-  A–Z jump visibly lands where expected; businesses + single-token/junk names show as-is (no flip),
-  and the **record header keeps First Last**. The A–Z bar now shows an **active letter** (filled
-  accent) set on click and updated by a scroll-spy; the sticky group divider is bigger/bolder
-  (accent "T"-style heading). Sort order, jump, and search behavior otherwise unchanged. Additive,
-  reads-only. Name logic verified by a node harness (label ↔ sort/bucket agree; Jr/Sr + accented
-  surnames + "SANDRA ." guard); UI eyeballed on `test.leetransmissionshop.com`.
-- 2026-08-11 — **Added an A–Z quick lookup to the Customers LIST** (§4). The default (no-search)
-  view now renders **every** customer sorted alphabetically (businesses by business name, **people
-  by LAST name** — `custSortName`, Jr/Sr/III suffixes skipped; "#" bucket last) instead of the old
-  top-30-by-recency; added a clickable **A–Z index bar** (dimmed for empty letters) that jumps the
-  list to a letter, and sticky per-letter group headers. The list became its own scroll box in
-  browse mode; clicks are now delegated. The **search box behavior is unchanged** (bar hidden while
-  searching). Additive, reads-only, no migration. Verified: browse render + A–Z jump + sticky +
-  search + record-open + back in-browser at 2716 customers (first-name sort build); the last-name
-  sort key verified by a deterministic harness (businesses by biz name, people by surname, suffix
-  skip) and on the live prod deploy.
+- 2026-08-12 — **Rebuilt the record detail into the two-column layout** (§0, §4–§6): a
+  sticky left profile ("Last, First" / business, Person·Business badge, contact fields shown
+  only when present, since/last-activity, vehicles/ROs/**lifetime $** tiles) and a right-side
+  **vehicle accordion** (sorted by activity, status chip, auto-open the open-RO vehicle) whose
+  expanded rows show each RO with a **calls & notes timeline** beneath. Added **call
+  granularity bucketing** (`computeCallGroups` → byRo / byVehNoRo / unfiled, §5) using the
+  real `calls.ro_id` link, and moved the **recording→vehicle assign control** (the one write,
+  §6) into the unfiled "needs filing" section — kept working, not dropped. Vehicle filter-chips
+  and the flat History/Recordings columns are gone. Read-only otherwise; no migration. Verified
+  in-browser against live Supabase; module tests green. The LIST (§7) is unchanged.
+- 2026-08-11 — **Fixed the A–Z letter jump (upward jumps were dead)** and **Customers LIST
+  polish: "Last, First" rows + active-letter feedback** (§7). List rows display phonebook
+  "Last, First" for people; the A–Z bar shows an active letter via a scroll-spy; jump measures
+  the non-sticky `.cust-group` wrapper. Verified in-browser at 2716 customers.
+- 2026-08-11 — **Added an A–Z quick lookup to the Customers LIST** (§7): full alphabetical
+  browse (people by last name), a clickable A–Z bar, sticky per-letter headers; search
+  behavior unchanged.
+- 2026-07-30 — Verified vs `bea25cf`: CrisData-only counts, the confirmed+phone-matched
+  recording union, and full-record-with-back-button navigation confirmed against code. Added
+  `shared/customer-record.js` to "where it lives".
 - 2026-07-29 — Customer record view shipped (`4ef6544`).
-- 2026-07-30 — Verified vs `bea25cf`: CrisData-only counts, the confirmed+phone-matched recording union
-  (with `not_a_customer_at` and other-customer exclusions), and full-record-with-back-button navigation
-  all confirmed against code. Added `shared/customer-record.js` to "where it lives" (the tested logic lives there).

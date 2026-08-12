@@ -523,6 +523,64 @@
   .cust-rec-hint { font-size:0.7rem; font-style:italic; color:var(--muted); margin-top:3px; }
   .cust-rec-play { margin-top:6px; }
   .cust-rec-play:empty { display:none; }
+
+  /* ── Customer record — two-column layout (Phase 1 rebuild) ───────────── */
+  .cust-rec-layout { display:grid; grid-template-columns:320px 1fr; gap:18px; align-items:start; }
+  @media (max-width: 860px) { .cust-rec-layout { grid-template-columns:1fr; } }
+  .cust-profile { position:sticky; top:16px; align-self:start; }
+  @media (max-width: 860px) { .cust-profile { position:static; } }
+  .cust-badge { display:inline-block; font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; color:var(--accent); background:var(--surface-2); border:1px solid var(--border); border-radius:999px; padding:2px 9px; margin-bottom:8px; }
+  .cust-contact { margin-top:10px; display:flex; flex-direction:column; gap:7px; font-size:0.84rem; color:var(--text); }
+  .cust-contact .row { display:flex; gap:8px; align-items:baseline; }
+  .cust-contact .lbl { color:var(--muted); font-weight:700; min-width:62px; flex-shrink:0; font-size:0.78rem; }
+  .cust-contact .val { word-break:break-word; }
+  .cust-since { margin-top:14px; display:flex; gap:20px; }
+  .cust-since .k { font-size:0.6rem; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); }
+  .cust-since .v { font-size:0.85rem; font-weight:700; color:var(--text); margin-top:2px; }
+  .cust-tiles { display:flex; gap:9px; margin-top:15px; }
+  .cust-tile { flex:1; border:1px solid var(--border); border-radius:9px; padding:9px 6px; text-align:center; background:var(--surface-2); }
+  .cust-tile .n { font-size:1.05rem; font-weight:800; color:var(--text); }
+  .cust-tile .k { font-size:0.58rem; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); margin-top:2px; }
+
+  /* Vehicle accordion */
+  .cust-veh-accordion { display:flex; flex-direction:column; gap:10px; }
+  .cust-veh-row { border:1px solid var(--border); border-radius:10px; background:#fff; overflow:hidden; }
+  .cust-veh-row.open { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+  .cust-veh-head { display:flex; align-items:center; gap:11px; width:100%; text-align:left; background:none; border:none; cursor:pointer; padding:12px 14px; }
+  .cust-veh-head:hover { background:var(--surface-2); }
+  .cust-veh-chev { transition:transform .15s ease; color:var(--muted); font-size:0.8rem; flex-shrink:0; }
+  .cust-veh-row.open .cust-veh-chev { transform:rotate(90deg); color:var(--accent); }
+  .cust-veh-main { flex:1; min-width:0; }
+  .cust-veh-title { font-size:0.95rem; font-weight:800; color:var(--text); }
+  .cust-veh-sub { font-size:0.74rem; color:var(--muted); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cust-veh-meta { display:flex; flex-direction:column; align-items:flex-end; gap:4px; flex-shrink:0; }
+  .cust-veh-counts { font-size:0.72rem; color:var(--muted); font-weight:700; white-space:nowrap; }
+  .cust-chip-status { font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; border-radius:999px; padding:2px 9px; white-space:nowrap; }
+  .cust-chip-open { color:#166534; background:#f0fdf4; border:1px solid var(--green); }
+  .cust-chip-idle { color:var(--muted); background:var(--surface-2); border:1px solid var(--border); }
+  .cust-veh-body { padding:2px 14px 14px; border-top:1px solid var(--border); }
+
+  .cust-ro-block { margin-top:12px; }
+  .cust-ro-head { display:flex; align-items:baseline; gap:8px; }
+  .cust-ro-num { font-size:0.85rem; font-weight:800; color:var(--text); cursor:pointer; }
+  .cust-ro-num:hover { color:var(--accent); text-decoration:underline; }
+  .cust-ro-stage { font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); }
+  .cust-ro-total { margin-left:auto; font-size:0.85rem; font-weight:700; color:var(--text); white-space:nowrap; }
+  .cust-ro-when { font-size:0.72rem; color:var(--muted); margin-top:1px; }
+  .cust-ro-summary { font-size:0.8rem; color:var(--text); margin-top:4px; }
+
+  .cust-timeline-cap { font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); margin-top:12px; }
+  .cust-timeline { margin-top:8px; display:flex; flex-direction:column; gap:8px; max-height:260px; overflow-y:auto; padding-right:4px; }
+  .cust-tl-empty { font-size:0.76rem; color:var(--muted); font-style:italic; padding:5px 0; }
+  .cust-tl-entry { border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:8px; padding:7px 10px; background:#fff; }
+  .cust-tl-entry.unconfirmed { border-left-color:var(--amber); }
+  .cust-tl-top { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .cust-tl-when { font-size:0.74rem; font-weight:700; color:var(--text); }
+  .cust-tl-who { font-size:0.74rem; color:var(--muted); }
+  .cust-tl-disp { font-size:0.58rem; font-weight:800; text-transform:uppercase; letter-spacing:0.3px; color:var(--accent); background:var(--surface-2); border-radius:999px; padding:1px 7px; }
+  .cust-tl-note { font-size:0.8rem; color:var(--text); margin-top:3px; }
+  .cust-tl-play { margin-top:5px; }
+  .cust-tl-play:empty { display:none; }
   /* clickable customer links into the record view */
   .cd-cust-link { color:var(--accent); text-decoration:none; font-weight:700; cursor:pointer; }
   .cd-cust-link:hover { text-decoration:underline; }
@@ -936,38 +994,41 @@
       </div>
     </div>
 
-    <!-- RECORD panel -->
+    <!-- RECORD panel — TWO-COLUMN customer record (Phase 1: read-only display).
+         LEFT = sticky profile; RIGHT = vehicles as a collapsible accordion, each
+         vehicle's ROs with a calls & notes timeline beneath, plus an "unfiled"
+         calls section that carries the existing recording→vehicle assign control. -->
     <div id="custRecordPanel" style="display:none">
       <button class="btn btn-ghost" id="custBackBtn" style="font-size:0.78rem;padding:6px 12px;margin-bottom:12px">← Back</button>
 
-      <!-- TOP STRIP — Josh's five seconds, no clicks. -->
-      <div class="card">
-        <div id="custTopStrip"></div>
-      </div>
+      <div class="cust-rec-layout">
+        <!-- LEFT — sticky customer profile -->
+        <div class="card cust-profile" id="custProfile"></div>
 
-      <!-- VEHICLE CHIPS — filter History + Recordings. -->
-      <div id="custVehChips" class="cust-chips"></div>
-
-      <div class="cust-cols">
-        <!-- HISTORY (newest first) -->
-        <div class="card">
-          <div class="card-title"><div class="dot" style="background:var(--green)"></div>History
-            <span class="cust-card-note">CrisData ROs · newest first</span>
+        <!-- RIGHT — vehicles (accordion) + unfiled calls -->
+        <div class="cust-rec-right">
+          <div class="card">
+            <div class="card-title"><div class="dot" style="background:var(--green)"></div>Vehicles &amp; history
+              <span class="cust-card-note" id="custVehNote"></span>
+            </div>
+            <div id="custVehicles" class="cust-veh-accordion"></div>
           </div>
-          <div id="custHistoryBody" class="cust-hist-list"></div>
-        </div>
 
-        <!-- RECORDINGS (oldest first — the original complaint) -->
-        <div class="card">
-          <div class="card-title"><div class="dot" style="background:var(--amber)"></div>Recordings
-            <span class="cust-card-note">Oldest first · the first call</span>
+          <!-- Calls with no vehicle link yet — the "needs filing" spot. Confirmed
+               recordings here get the vehicle-assign control (an existing write,
+               carried forward from the old record view). -->
+          <div class="card" id="custUnfiledCard" style="display:none;margin-top:16px">
+            <div class="card-title"><div class="dot" style="background:var(--amber)"></div>Calls &amp; notes — not linked to a vehicle
+              <span class="cust-card-note">needs filing</span>
+            </div>
+            <div id="custUnfiledBody"></div>
           </div>
-          <div id="custRecBody" class="cust-rec-list"></div>
-          <!-- ONE reused audio element for this section; a second play replaces
-               the source so the first stops. -->
-          <audio id="custRecAudio" preload="none" style="display:none"></audio>
         </div>
       </div>
+
+      <!-- ONE reused audio element for the whole record; a second play replaces
+           the source so the first stops. -->
+      <audio id="custRecAudio" preload="none" style="display:none"></audio>
     </div>
   </div>
 
@@ -6192,9 +6253,12 @@
     let custCustomer = null, custVehicles = [], custRos = [], custVehById = {}, custRoById = {};
     let custTotals = {}, custRecCallsAll = [], custRecIdx = {}, custSecondaryLearned = false;
     let custRecAssigned = {};   // call id → session vehicle assignment (via api/recording-assign)
-    let custSelectedVehicle = 'all';
+    let custOpenVeh = null;     // which vehicle accordion row is expanded (id string, or null)
+    let custCallGroups = { byRo: {}, byVehNoRo: {}, unfiled: [] };  // calls bucketed to the finest link
     let custBackTarget = { kind: 'list' };
     let custAllList = null, custLoadSeq = 0;
+    // Disposition labels for the calls & notes timeline (calls.next_step).
+    const NEXT_STEP_LABEL = { quoted_callback: 'Quoted — callback', dropping_off: 'Dropping off', checking_on_car: 'Checking on car', price_shopper: 'Price shopper' };
     const custFmtPhone = (p) => (window.formatPhone ? window.formatPhone(p) : (p || ''));
 
     async function ensureCustAllList() {
@@ -6416,27 +6480,30 @@
     async function loadCustomerRecord(id) {
       const seq = ++custLoadSeq;
       const a = $('custRecAudio'); if (a && !a.paused) a.pause();
-      $('custTopStrip').innerHTML = '<div style="color:var(--muted);font-size:0.85rem">Loading…</div>';
-      $('custVehChips').innerHTML = ''; $('custHistoryBody').innerHTML = ''; $('custRecBody').innerHTML = '';
-      custSelectedVehicle = 'all';
+      $('custProfile').innerHTML = '<div style="color:var(--muted);font-size:0.85rem">Loading…</div>';
+      $('custVehicles').innerHTML = ''; $('custUnfiledCard').style.display = 'none'; $('custUnfiledBody').innerHTML = '';
+      $('custVehNote').textContent = '';
+      custOpenVeh = null;
+      custCallGroups = { byRo: {}, byVehNoRo: {}, unfiled: [] };
       custRecAssigned = {};
-      // customer row
+      // customer row (contact fields shown only if present — the ALLDATA import +
+      // intake both populate email/address_*/city/state/postal_code)
       const custResp = await db.from('customers')
-        .select('id, name, business_name, phone_primary, phone_secondary, tax_exempt, last_invoiced')
+        .select('id, name, business_name, phone_primary, phone_secondary, email, address_line1, address_line2, city, state, postal_code, tax_exempt, last_invoiced')
         .eq('id', id).maybeSingle();
       if (seq !== custLoadSeq) return;
       const cust = custResp.data;
       if (custResp.error || !cust) {
-        $('custTopStrip').innerHTML = `<div style="color:var(--red);font-size:0.85rem">Couldn't load customer.</div>`;
+        $('custProfile').innerHTML = `<div style="color:var(--red);font-size:0.85rem">Couldn't load customer.</div>`;
         return;
       }
       custCustomer = cust;
-      // vehicles (oldest-first is fine for chips; order stable)
+      // vehicles (order stable; the accordion re-sorts by recent activity)
       const vehResp = await db.from('vehicles').select('id, year, make, model, vin, plate').eq('customer_id', id).order('created_at', { ascending: true });
       // repair_orders (declined_at may be absent pre-migration → fall back)
-      let roResp = await db.from('repair_orders').select('id, ro_number, po, status, declined_at, created_at, vehicle_id').eq('customer_id', id);
+      let roResp = await db.from('repair_orders').select('id, ro_number, po, status, declined_at, created_at, vehicle_id, complaint').eq('customer_id', id);
       if (roResp.error && isMissingColumn(roResp.error)) {
-        roResp = await db.from('repair_orders').select('id, ro_number, po, status, created_at, vehicle_id').eq('customer_id', id);
+        roResp = await db.from('repair_orders').select('id, ro_number, po, status, created_at, vehicle_id, complaint').eq('customer_id', id);
       }
       if (seq !== custLoadSeq) return;
       custVehicles = vehResp.data || [];
@@ -6461,70 +6528,270 @@
       custRecCallsAll = CR().buildRecordingCalls(idCalls, phoneCalls, { customerId: id });
       custSecondaryLearned = CR().isSecondaryLearned({ phoneSecondary: cust.phone_secondary, calls: idCalls, last10: l10 });
 
-      renderCustTopStrip();
-      renderCustChips();
-      renderCustHistory();
-      // recordings: ONE batched links fetch for all union calls, then render
-      $('custRecBody').innerHTML = '<div class="cust-rec-empty">Loading recordings…</div>';
+      renderCustProfile();
+      $('custVehicles').innerHTML = '<div class="cust-tl-empty">Loading history…</div>';
+      // recordings: ONE batched links fetch for all union calls, then bucket + render
       custRecIdx = await fetchCustRecLinks(custRecCallsAll.map(c => c.id));
       if (seq !== custLoadSeq) return;
-      renderCustRecordings();
+      custCallGroups = computeCallGroups();
+      custOpenVeh = pickAutoOpenVeh();
+      renderCustVehicles();
+      renderCustUnfiled();
     }
 
-    function renderCustTopStrip() {
+    // ── Formatting + derivation helpers (all pure, display-only) ──
+    // A date-only string ("YYYY-MM-DD", e.g. last_invoiced) is parsed at NOON so it
+    // can't slip a day across a timezone; timestamps parse as-is.
+    function custFmtDate(iso) {
+      if (!iso) return '—';
+      const s = String(iso);
+      const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + 'T12:00:00') : new Date(s);
+      return (d && !isNaN(d)) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+    }
+    function custFmtWhen(iso) {
+      const d = iso ? new Date(iso) : null;
+      if (!d || isNaN(d)) return '—';
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' · ' +
+             d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    }
+    // Address lines (only the parts that exist): street(s), then "City, ST 12345".
+    function custAddrLines(c) {
+      const lines = [c.address_line1, c.address_line2].map(x => (x || '').trim()).filter(Boolean);
+      const cityState = [(c.city || '').trim(), [(c.state || '').trim(), (c.postal_code || '').trim()].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+      if (cityState) lines.push(cityState);
+      return lines;
+    }
+    // Last activity across the whole record — best-available: last_invoiced, latest
+    // RO created_at, or the most recent call. Returns a formatted date or '—'.
+    function custLastActivity() {
+      let t = '';
+      const consider = (s) => { s = String(s || ''); if (s > t) t = s; };
+      if (custCustomer) consider(custCustomer.last_invoiced);
+      custRos.forEach(r => consider(r.created_at));
+      custRecCallsAll.forEach(c => consider(c.started_at));
+      return t ? custFmtDate(t) : '—';
+    }
+    // Lifetime $ from CLOSED ROs only (else null → tile omitted). CrisData-only,
+    // like every count here — earlier ALLDATA invoices aren't imported.
+    function custLifetimeClosed() {
+      let sum = 0, any = false;
+      custRos.forEach(r => { if (r.status === 'closed') { const t = custTotals[String(r.id)]; if (t != null) { sum += Number(t) || 0; any = true; } } });
+      return any ? sum : null;
+    }
+
+    // Bucket every union call to the FINEST link the schema supports:
+    //   byRo[roId]        — call.ro_id points at one of THIS customer's ROs (a real,
+    //                       human-set link; RO carries the vehicle);
+    //   byVehNoRo[vehId]  — no RO link, but the recording is assigned to a vehicle
+    //                       (custRecVehId) — shown at vehicle level, not under an RO;
+    //   unfiled[]         — links only to the customer → the "needs filing" section.
+    // Phase 2 (call auto-attach) is what will move more calls up into byRo.
+    function computeCallGroups() {
+      const byRo = {}, byVehNoRo = {}, unfiled = [];
+      (custRecCallsAll || []).forEach(c => {
+        const roId = (c.ro_id != null && custRoById[String(c.ro_id)]) ? String(c.ro_id) : null;
+        if (roId) { (byRo[roId] = byRo[roId] || []).push(c); return; }
+        const vid = custRecVehId(c);
+        if (vid != null && custVehById[String(vid)]) { (byVehNoRo[String(vid)] = byVehNoRo[String(vid)] || []).push(c); return; }
+        unfiled.push(c);
+      });
+      return { byRo, byVehNoRo, unfiled };
+    }
+
+    // A vehicle's most-recent-activity timestamp (for sorting + the "last visit"
+    // chip): the latest of its ROs' created_at and its linked calls' started_at.
+    function vehActivity(v) {
+      let t = '';
+      const consider = (s) => { s = String(s || ''); if (s > t) t = s; };
+      const push = (arr) => (arr || []).forEach(c => consider(c.started_at || c.noted_at));
+      custRos.forEach(r => { if (String(r.vehicle_id) === String(v.id)) { consider(r.created_at); push(custCallGroups.byRo[String(r.id)]); } });
+      push(custCallGroups.byVehNoRo[String(v.id)]);
+      return t;
+    }
+    function vehCallCount(v, ros) {
+      let n = 0;
+      (ros || []).forEach(r => n += (custCallGroups.byRo[String(r.id)] || []).length);
+      n += (custCallGroups.byVehNoRo[String(v.id)] || []).length;
+      return n;
+    }
+    function custVehiclesSorted() {
+      return custVehicles.slice().sort((a, b) =>
+        vehActivity(b).localeCompare(vehActivity(a)) || (vehDesc(a) || '').localeCompare(vehDesc(b) || ''));
+    }
+    // Auto-open the (most-recent) vehicle that has an OPEN/active RO; else none.
+    function pickAutoOpenVeh() {
+      for (const v of custVehiclesSorted()) {
+        if (custRos.some(r => String(r.vehicle_id) === String(v.id) && r.status !== 'closed' && !r.declined_at)) return String(v.id);
+      }
+      return null;
+    }
+
+    // ── LEFT: sticky customer profile ──
+    // Person → "Last, First" (custListLabel); business → business_name (+ contact
+    // person subline if a `name` is also on file). Only fields that EXIST render.
+    function renderCustProfile() {
       const c = custCustomer; if (!c) return;
+      const isBiz = !!(c.business_name && c.business_name.trim());
+      const title = isBiz ? c.business_name.trim() : custListLabel(c);
       const counts = CR().customerCounts(custRos);
       const open = CR().openRosOf(custRos)[0];
       const sec = c.phone_secondary;
       const learned = (sec && custSecondaryLearned) ? '<span class="cust-learned">learned</span>' : '';
       const since = counts.sinceIso ? new Date(counts.sinceIso).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '—';
-      $('custTopStrip').innerHTML =
-        `<div class="cust-name">${esc(c.business_name || c.name || '(no name)')}</div>` +
-        (c.business_name && c.name ? `<div class="cust-biz">${esc(c.name)}</div>` : '') +
-        `<div class="cust-phones">` +
-          (c.phone_primary ? `<span><span class="lbl">Primary</span>${esc(custFmtPhone(c.phone_primary))}</span>` : '') +
-          (sec ? `<span><span class="lbl">Secondary</span>${esc(custFmtPhone(sec))}${learned}</span>` : '') +
-        `</div>` +
+      const addr = custAddrLines(c);
+      const lifetime = custLifetimeClosed();
+      const row = (lbl, valHtml) => `<div class="row"><span class="lbl">${esc(lbl)}</span><span class="val">${valHtml}</span></div>`;
+      const contact = [];
+      if (c.phone_primary) contact.push(row('Primary', esc(custFmtPhone(c.phone_primary))));
+      if (sec) contact.push(row('Secondary', esc(custFmtPhone(sec)) + learned));
+      if (c.email && c.email.trim()) contact.push(row('Email', esc(c.email.trim())));
+      if (addr.length) contact.push(row('Address', addr.map(esc).join('<br>')));
+      const tiles =
+        `<div class="cust-tile"><div class="n">${esc(custVehicles.length)}</div><div class="k">Vehicles</div></div>` +
+        `<div class="cust-tile"><div class="n">${esc(custRos.length)}</div><div class="k">Repair orders</div></div>` +
+        (lifetime != null ? `<div class="cust-tile"><div class="n">$${esc(Number(lifetime).toFixed(0))}</div><div class="k">Lifetime</div></div>` : '');
+      $('custProfile').innerHTML =
+        `<span class="cust-badge">${isBiz ? 'Business' : 'Person'}</span>` +
+        `<div class="cust-name">${esc(title)}</div>` +
+        (isBiz && c.name && c.name.trim() ? `<div class="cust-biz">Contact: ${esc(c.name.trim())}</div>` : '') +
+        (contact.length ? `<div class="cust-contact">${contact.join('')}</div>` : '') +
         (open ? `<button type="button" class="cust-openro" data-open-ro="${esc(open.id)}">Open now — RO #${esc(open.ro_number)} · ${esc(STATUS_LABEL[open.status] || open.status)}</button>` : '') +
-        `<div class="cust-stats">` +
-          `<div class="cust-stat"><div class="n">${esc(counts.visits)}</div><div class="k">Visits</div></div>` +
-          `<div class="cust-stat"><div class="n">${esc(since)}</div><div class="k">Customer since</div></div>` +
+        `<div class="cust-since">` +
+          `<div><div class="k">Customer since</div><div class="v">${esc(since)}</div></div>` +
+          `<div><div class="k">Last activity</div><div class="v">${esc(custLastActivity())}</div></div>` +
         `</div>` +
-        `<div class="cust-crisdata-note">CrisData records only — earlier ALLDATA history isn't imported, so this is not a lifetime total.</div>`;
-      const b = $('custTopStrip').querySelector('[data-open-ro]');
-      if (b) b.onclick = () => openRoFromCustomer(b.dataset.openRo);
+        `<div class="cust-tiles">${tiles}</div>` +
+        `<div class="cust-crisdata-note">CrisData records only — earlier ALLDATA history isn't imported, so counts and lifetime $ are not lifetime totals.</div>`;
     }
 
-    function renderCustChips() {
-      const el = $('custVehChips');
-      const chips = [{ id: 'all', label: 'All vehicles' }].concat(custVehicles.map(v => ({ id: String(v.id), label: vehDesc(v) || 'Vehicle' })));
-      el.innerHTML = chips.map(ch =>
-        `<button type="button" class="cust-chip${String(custSelectedVehicle) === String(ch.id) ? ' active' : ''}" data-veh="${esc(ch.id)}">${esc(ch.label)}</button>`
-      ).join('');
-      el.querySelectorAll('[data-veh]').forEach(b => b.onclick = () => {
-        custSelectedVehicle = b.dataset.veh;
-        renderCustChips(); renderCustHistory(); renderCustRecordings();
-      });
+    // ── RIGHT: vehicles as a collapsible accordion ──
+    function renderCustVehicles() {
+      const host = $('custVehicles');
+      if (!custVehicles.length) { host.innerHTML = `<div class="cust-tl-empty">No vehicles on file.</div>`; $('custVehNote').textContent = ''; return; }
+      const vehs = custVehiclesSorted();
+      $('custVehNote').textContent = vehs.length + ' vehicle' + (vehs.length === 1 ? '' : 's');
+      host.innerHTML = vehs.map(vehRowHtml).join('');
     }
 
-    function renderCustHistory() {
-      const el = $('custHistoryBody');
-      const rows = CR().sortNewestFirst(CR().filterByVehicle(custRos, custSelectedVehicle, r => r.vehicle_id));
-      if (!rows.length) { el.innerHTML = `<div class="cust-hist-empty">No repair orders${custSelectedVehicle !== 'all' ? ' for this vehicle' : ''} yet.</div>`; return; }
-      el.innerHTML = rows.map(r => {
-        const v = custVehById[String(r.vehicle_id)];
-        const veh = v ? (vehDesc(v) || 'Vehicle') : 'Vehicle';
-        const d = r.created_at ? new Date(r.created_at) : null;
-        const date = d && !isNaN(d) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+    function vehRowHtml(v) {
+      const vid = String(v.id);
+      const ros = CR().sortNewestFirst(custRos.filter(r => String(r.vehicle_id) === vid));
+      const openRo = ros.find(r => r.status !== 'closed' && !r.declined_at);
+      const isOpen = custOpenVeh === vid;
+      const callCount = vehCallCount(v, ros);
+      const sub = [v.vin ? ('VIN ' + v.vin) : '', v.plate ? ('Plate ' + v.plate) : ''].filter(Boolean).join(' · ');
+      const counts = `${ros.length} RO${ros.length === 1 ? '' : 's'}` + (callCount ? ` · ${callCount} call${callCount === 1 ? '' : 's'}` : '');
+      let chip;
+      if (openRo) chip = `<span class="cust-chip-status cust-chip-open">Open · ${esc(STATUS_LABEL[openRo.status] || openRo.status)}</span>`;
+      else { const la = vehActivity(v); chip = `<span class="cust-chip-status cust-chip-idle">${la ? ('Last ' + esc(custFmtDate(la))) : 'No visits'}</span>`; }
+      return `<div class="cust-veh-row${isOpen ? ' open' : ''}">
+        <button type="button" class="cust-veh-head" data-veh="${esc(vid)}" aria-expanded="${isOpen}">
+          <span class="cust-veh-chev">▶</span>
+          <span class="cust-veh-main">
+            <span class="cust-veh-title">${esc(vehDesc(v) || 'Vehicle')}</span>
+            ${sub ? `<span class="cust-veh-sub">${esc(sub)}</span>` : ''}
+          </span>
+          <span class="cust-veh-meta">${chip}<span class="cust-veh-counts">${esc(counts)}</span></span>
+        </button>
+        ${isOpen ? `<div class="cust-veh-body">${vehBodyHtml(v, ros)}</div>` : ''}
+      </div>`;
+    }
+
+    // A vehicle's expanded body: each RO (newest first) with its own calls & notes
+    // timeline beneath, then any vehicle-level calls not tied to a specific RO.
+    function vehBodyHtml(v, ros) {
+      let html = '';
+      if (!ros.length) html += `<div class="cust-tl-empty">No repair orders for this vehicle.</div>`;
+      ros.forEach(r => {
         const total = custTotals[String(r.id)];
         const totalStr = total != null ? '$' + Number(total).toFixed(2) : '—';
-        return `<div class="cust-hist-row" data-open-ro="${esc(r.id)}">
-          <div class="cust-hist-top"><span class="cust-hist-num">RO #${esc(r.ro_number)}</span><span class="cust-hist-stage">${esc(STATUS_LABEL[r.status] || r.status || '')}</span><span class="cust-hist-total">${esc(totalStr)}</span></div>
-          <div class="cust-hist-veh">${esc(veh)}</div>
-          <div class="cust-hist-when">${esc(date)}</div>
+        const summary = (r.complaint && String(r.complaint).trim()) ? `<div class="cust-ro-summary">${esc(String(r.complaint).trim())}</div>` : '';
+        html += `<div class="cust-ro-block">
+          <div class="cust-ro-head">
+            <span class="cust-ro-num" data-open-ro="${esc(r.id)}">RO #${esc(r.ro_number)}</span>
+            <span class="cust-ro-stage">${esc(STATUS_LABEL[r.status] || r.status || '')}</span>
+            <span class="cust-ro-total">${esc(totalStr)}</span>
+          </div>
+          <div class="cust-ro-when">${esc(custFmtDate(r.created_at))}</div>
+          ${summary}
+          ${timelineHtml(custCallGroups.byRo[String(r.id)], 'No calls or notes on this RO.', false)}
         </div>`;
-      }).join('');
-      el.querySelectorAll('[data-open-ro]').forEach(b => b.onclick = () => openRoFromCustomer(b.dataset.openRo));
+      });
+      const vc = custCallGroups.byVehNoRo[String(v.id)] || [];
+      if (vc.length) html += `<div class="cust-timeline-cap">Calls &amp; notes · this vehicle</div>` + timelineHtml(vc, '', false);
+      return html;
+    }
+
+    // A calls & notes timeline (chronological, oldest first). allowAssign shows the
+    // recording→vehicle "file it" control on unfiled confirmed recordings.
+    function timelineHtml(calls, emptyMsg, allowAssign) {
+      const list = (calls || []).slice().sort((a, b) =>
+        String(a.started_at || a.noted_at || '').localeCompare(String(b.started_at || b.noted_at || '')));
+      if (!list.length) return emptyMsg ? `<div class="cust-tl-empty">${esc(emptyMsg)}</div>` : '';
+      return `<div class="cust-timeline">` + list.map(c => callEntryHtml(c, allowAssign)).join('') + `</div>`;
+    }
+
+    // One call/note timeline entry: time · caller-id · disposition, an advisor note,
+    // a ▶ recording if one exists, and (unfiled only) the vehicle-assign control.
+    function callEntryHtml(c, allowAssign) {
+      const RP = window.RecordingPlayer;
+      const who = c.cnam || c.caller_formatted || (c.caller_bare ? custFmtPhone(c.caller_bare) : '');
+      const disp = NEXT_STEP_LABEL[c.next_step];
+      const unconf = c.confirmed ? '' : '<span class="cust-rec-unconf">unconfirmed</span>';
+      const dsc = RP ? RP.describeCallId(custRecIdx, c.id) : { render: false };
+      let play = '';
+      if (dsc && dsc.render) {
+        custRecState[String(c.id)] = dsc;
+        if (dsc.state === 'ready') play = `<button type="button" class="rec-btn rec-ready" data-rec-play="${esc(c.id)}" aria-label="${esc(dsc.aria)}">${esc(dsc.label)}</button>`;
+        else if (dsc.state === 'pending') play = `<span class="rec-btn rec-pending" title="${esc(dsc.aria)}">${esc(dsc.label)}</span>`;
+        else play = `<span class="rec-marker" title="${esc(dsc.aria)}">${esc(dsc.label)}</span>`;
+      }
+      const note = (c.note && String(c.note).trim()) ? `<div class="cust-tl-note">${esc(String(c.note).trim())}</div>` : '';
+      // Vehicle-assign control (carried from the old record view) — only where a
+      // recording exists AND we're in the unfiled/"needs filing" section. Confirmed
+      // → picker; unconfirmed → hint (attach the person link before the vehicle one).
+      let assign = '';
+      if (allowAssign && dsc && dsc.render) {
+        if (CR().canAssignRecording(c)) {
+          const vid = custRecVehId(c);
+          const opts = [`<option value=""${vid == null ? ' selected' : ''}>— File to vehicle… —</option>`]
+            .concat(custVehicles.map(v => `<option value="${esc(v.id)}"${String(vid) === String(v.id) ? ' selected' : ''}>${esc(vehDesc(v) || 'Vehicle')}</option>`))
+            .join('');
+          assign = `<select class="cust-rec-vehsel" data-rec-call="${esc(c.id)}" aria-label="File this recording to a vehicle">${opts}</select>`;
+        } else {
+          assign = `<div class="cust-rec-hint">Attach the call to a customer to file its recording to a vehicle</div>`;
+        }
+      }
+      return `<div class="cust-tl-entry${c.confirmed ? '' : ' unconfirmed'}">
+        <div class="cust-tl-top"><span class="cust-tl-when">${esc(custFmtWhen(c.started_at))}</span>${who ? `<span class="cust-tl-who">${esc(who)}</span>` : ''}${disp ? `<span class="cust-tl-disp">${esc(disp)}</span>` : ''}${unconf}</div>
+        ${note}
+        ${assign}
+        <div class="cust-tl-play">${play}</div>
+      </div>`;
+    }
+
+    // ── Unfiled calls (customer-level, no vehicle link) — the "needs filing" spot ──
+    function renderCustUnfiled() {
+      const card = $('custUnfiledCard'), body = $('custUnfiledBody');
+      const list = (custCallGroups && custCallGroups.unfiled) || [];
+      if (!list.length) { card.style.display = 'none'; body.innerHTML = ''; return; }
+      card.style.display = 'block';
+      // no max-height here — this section is the page's, not a card-in-card scroll
+      body.innerHTML = timelineHtml(list, '', true).replace('class="cust-timeline"', 'class="cust-timeline" style="max-height:none"');
+    }
+
+    // Recompute buckets + re-render the vehicle accordion and unfiled section (after
+    // a recording is filed to a vehicle). Profile is unaffected, so it's left alone.
+    function rerenderCustBody() {
+      custCallGroups = computeCallGroups();
+      renderCustVehicles();
+      renderCustUnfiled();
+    }
+
+    // Toggle an accordion row (single-open); re-render so bodies mount/unmount.
+    function toggleVeh(vid) {
+      custOpenVeh = (custOpenVeh === String(vid)) ? null : String(vid);
+      renderCustVehicles();
     }
 
     // A recording's vehicle, in precedence order — a human's word beats a
@@ -6546,56 +6813,12 @@
     }
 
     let custRecState = {}, custRecPlayingBtn = null;
-    function renderCustRecordings() {
-      const el = $('custRecBody'); const RP = window.RecordingPlayer;
-      if (!RP) { el.innerHTML = '<div class="cust-rec-empty">Recordings unavailable.</div>'; return; }
-      // only calls that actually HAVE a recording (present in the links index)
-      const withRec = (custRecCallsAll || []).filter(c => RP.describeCallId(custRecIdx, c.id).render);
-      // Recordings filter: an UNASSIGNED (unknown-vehicle) recording shows under
-      // EVERY chip, not only "All" — the original-complaint call has no vehicle.
-      const rows = CR().filterRecordingsByVehicle(withRec, custSelectedVehicle, custRecVehId);
-      if (!rows.length) { el.innerHTML = `<div class="cust-rec-empty">No recordings${custSelectedVehicle !== 'all' ? ' for this vehicle' : ''}.</div>`; return; }
-      custRecState = {};
-      el.innerHTML = rows.map(c => {
-        const d = c.started_at ? new Date(c.started_at) : null;
-        const date = d && !isNaN(d) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' · ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '—';
-        const vid = custRecVehId(c);
-        const dsc = RP.describeCallId(custRecIdx, c.id); custRecState[String(c.id)] = dsc;
-        let play;
-        if (dsc.state === 'ready') play = `<button type="button" class="rec-btn rec-ready" data-rec-play="${esc(c.id)}" aria-label="${esc(dsc.aria)}">${esc(dsc.label)}</button>`;
-        else if (dsc.state === 'pending') play = `<span class="rec-btn rec-pending" title="${esc(dsc.aria)}">${esc(dsc.label)}</span>`;
-        else play = `<span class="rec-marker" title="${esc(dsc.aria)}">${esc(dsc.label)}</span>`;
-        const note = (c.note && String(c.note).trim()) ? `<div class="cust-rec-note">${esc(String(c.note).trim())}</div>` : '';
-        const unconf = c.confirmed ? '' : '<span class="cust-rec-unconf">unconfirmed</span>';
-        // Vehicle CONTROL. Confirmed → a picker (this customer's vehicles +
-        // "Unassigned"); the label itself becomes the control. Unconfirmed → the
-        // picker is disabled with a hint (attach the call first): the person link
-        // comes before the vehicle link.
-        let vehControl;
-        if (CR().canAssignRecording(c)) {
-          const opts = [`<option value=""${vid == null ? ' selected' : ''}>— Unassigned —</option>`]
-            .concat(custVehicles.map(v => `<option value="${esc(v.id)}"${String(vid) === String(v.id) ? ' selected' : ''}>${esc(vehDesc(v) || 'Vehicle')}</option>`))
-            .join('');
-          vehControl = `<select class="cust-rec-vehsel" data-rec-call="${esc(c.id)}" aria-label="Assign a vehicle to this recording">${opts}</select>`;
-        } else {
-          vehControl = `<span class="cust-rec-veh">vehicle unknown</span>`;
-        }
-        const hint = CR().canAssignRecording(c) ? '' : `<div class="cust-rec-hint">Attach the call to a customer to assign a vehicle</div>`;
-        return `<div class="cust-rec-row${c.confirmed ? '' : ' unconfirmed'}">
-          <div class="cust-rec-top"><span class="cust-rec-when">${esc(date)}</span>${vehControl}${unconf}</div>
-          ${note}
-          ${hint}
-          <div class="cust-rec-play">${play}</div>
-        </div>`;
-      }).join('');
-      el.querySelectorAll('[data-rec-play]').forEach(b => b.addEventListener('click', () => playCustRec(b.dataset.recPlay, b)));
-      el.querySelectorAll('.cust-rec-vehsel[data-rec-call]').forEach(sel =>
-        sel.addEventListener('change', () => assignRecVehicle(sel.dataset.recCall, sel.value || null)));
-    }
 
     // Assign (or clear) a recording's vehicle via the service-role endpoint (the
-    // board can't write recordings directly). On success, remember it for the
-    // session and re-render so the chips filter correctly immediately.
+    // board can't write recordings directly) — the ONE write this read-only page
+    // keeps, the crew's current way to file a call recording to a vehicle (Phase 2
+    // auto-attach will replace it). On success, remember it for the session and
+    // re-bucket so the recording moves out of "needs filing" into its vehicle.
     async function assignRecVehicle(callId, vehicleId) {
       try {
         const r = await fetch('/api/recording-assign', {
@@ -6603,10 +6826,10 @@
           body: JSON.stringify({ call_id: Number(callId), vehicle_id: vehicleId || null }),
         });
         const j = await r.json().catch(() => ({}));
-        if (!r.ok) { alert('Could not assign vehicle: ' + (j.error || ('HTTP ' + r.status))); renderCustRecordings(); return; }
+        if (!r.ok) { alert('Could not assign vehicle: ' + (j.error || ('HTTP ' + r.status))); rerenderCustBody(); return; }
         custRecAssigned[String(callId)] = (j.vehicle_id != null ? String(j.vehicle_id) : null);
-        renderCustRecordings();
-      } catch (e) { console.error('[cust] assign vehicle failed', e); alert('Could not assign vehicle: ' + e.message); renderCustRecordings(); }
+        rerenderCustBody();
+      } catch (e) { console.error('[cust] assign vehicle failed', e); alert('Could not assign vehicle: ' + e.message); rerenderCustBody(); }
     }
 
     // Batched links fetch (chunked by the endpoint's 50 cap so the 31-vehicle
@@ -6694,6 +6917,25 @@
           setActiveAzLetter(b.dataset.jump);   // immediate feedback on click
           custJumpToLetter(b.dataset.jump);
         }
+      });
+    })();
+    // Delegated wiring for the RECORD panel — one pair of listeners survives every
+    // re-render (accordion toggles, re-bucketing). Handles: play a recording, open
+    // an RO, expand/collapse a vehicle row, and file a recording to a vehicle.
+    (function wireCustRecordDelegation() {
+      const panel = $('custRecordPanel');
+      if (!panel) return;
+      panel.addEventListener('click', (e) => {
+        const play = e.target.closest('[data-rec-play]');
+        if (play) { playCustRec(play.dataset.recPlay, play); return; }
+        const ro = e.target.closest('[data-open-ro]');
+        if (ro) { openRoFromCustomer(ro.dataset.openRo); return; }
+        const head = e.target.closest('.cust-veh-head');
+        if (head) { toggleVeh(head.dataset.veh); return; }
+      });
+      panel.addEventListener('change', (e) => {
+        const sel = e.target.closest('.cust-rec-vehsel[data-rec-call]');
+        if (sel) assignRecVehicle(sel.dataset.recCall, sel.value || null);
       });
     })();
     // A real "Customers" tab tap shows the LIST (openCustomerById overrides after).
