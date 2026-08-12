@@ -1,16 +1,15 @@
 -- ============================================================================
--- STAGING TAIL — run AFTER restoring the prod public schema (pg_dump --schema-only)
--- and BEFORE (or after) the data load. Two jobs the -n public schema dump can't do:
+-- STAGING TAIL — run AFTER restoring the prod public schema. Two jobs the schema
+-- restore can't do:
 --   (1) guarantee BOTH {anon} and {authenticated} full-access policies on every
---       public table (prod only sets `authenticated` on a handful);
---   (2) give staging permissive Storage policies for the app's buckets, so anon +
---       authenticated can upload/read during write-testing (the schema dump is
---       -n public, so it carries no storage.objects policies).
--- Idempotent + wrapped in one transaction. Safe to re-run.
+--       public table;
+--   (2) give staging permissive Storage policies for the app's buckets.
+-- PART 1 (public tables) commits on its own. PART 2 (storage.objects) is best-effort:
+-- an ownership error is caught per-policy so it can NEVER roll back PART 1. Idempotent.
 -- ============================================================================
-begin;
 
--- (1) Public tables: ensure anon + authenticated permissive FOR ALL policies.
+-- PART 1 — public tables: anon + authenticated permissive FOR ALL. (Own transaction.)
+begin;
 do $$
 declare r record; role_name text; pol_name text;
 begin
@@ -34,10 +33,11 @@ begin
     end loop;
   end loop;
 end $$;
+commit;
 
--- (2) Storage: permissive anon + authenticated access on the app's buckets.
--- (Full access is fine on a practice DB and matches the {anon}+{authenticated}
--- convention; RLS on storage.objects is already enabled by Supabase.)
+-- PART 2 — storage.objects: permissive anon + authenticated per bucket. Best-effort:
+-- each create is wrapped so an ownership error becomes a NOTICE, not a fatal rollback.
+-- If this part is skipped, create the bucket policies in the Storage -> Policies UI.
 do $$
 declare b text; role_name text; pol_name text;
   buckets text[] := array[
@@ -48,14 +48,16 @@ begin
   foreach b in array buckets loop
     foreach role_name in array array['anon','authenticated'] loop
       pol_name := format('staging_%s_storage_%s', role_name, b);
-      if not exists (select 1 from pg_policies
-                     where schemaname='storage' and tablename='objects' and policyname=pol_name) then
-        execute format(
-          'create policy %I on storage.objects for all to %I using (bucket_id = %L) with check (bucket_id = %L)',
-          pol_name, role_name, b, b);
-      end if;
+      begin
+        if not exists (select 1 from pg_policies
+                       where schemaname='storage' and tablename='objects' and policyname=pol_name) then
+          execute format(
+            'create policy %I on storage.objects for all to %I using (bucket_id = %L) with check (bucket_id = %L)',
+            pol_name, role_name, b, b);
+        end if;
+      exception when others then
+        raise notice 'storage policy % skipped (%): %', pol_name, sqlstate, sqlerrm;
+      end;
     end loop;
   end loop;
 end $$;
-
-commit;
