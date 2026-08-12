@@ -39,8 +39,8 @@
   // is intentional: better a loud failure than a silent fall-through to prod.
   var STAGING = {
     env: 'staging',
-    url: '__STAGING_SUPABASE_URL__',
-    key: '__STAGING_SUPABASE_ANON_KEY__',
+    url: 'https://efhmefpaijjncwgbvwki.supabase.co',
+    key: 'sb_publishable_XuOUl1VGwI1kHx3MAET6MA_PjBzbGNX',
   };
 
   // Known prod Vercel aliases (the custom domain is the everyday prod surface;

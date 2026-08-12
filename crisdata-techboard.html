@@ -199,6 +199,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="shared/supabase-config.js"></script>
   <!-- Work-status floor-mirror (ESM). Assigns window.StatusMirror — the same
        pickup-aware floor resolver advisor-board.html uses, so assignTechCore's
        floor lookup is identical on both boards. -->
@@ -208,8 +209,7 @@
   </script>
   <script>
   (function () {
-    const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
-    const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+    const { url: SUPABASE_URL, key: SUPABASE_KEY } = window.cdSupabaseCreds();
     const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     const $ = (id) => document.getElementById(id);

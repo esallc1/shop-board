@@ -156,6 +156,7 @@
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="shared/supabase-config.js"></script>
 <script src="shared/office-identity.js"></script>
 </head>
 <body>
@@ -174,8 +175,7 @@ const ROLE_LABEL = { tech:'Technician', advisor:'Service Advisor', manager:'Mana
 const ROLE_DEST  = { tech:'my-numbers.html', advisor:'advisor-board.html', manager:'gm-board.html', owner:'owner-board.html', bookkeeping:'bookkeeping-board.html' };
 
 /* ---------------- Supabase ---------------- */
-const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+const { url: SUPABASE_URL, key: SUPABASE_KEY } = window.cdSupabaseCreds();
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: {
     persistSession: true,       // session survives reloads (localStorage) — same as office-login.html

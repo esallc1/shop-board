@@ -130,10 +130,10 @@
   <div class="td-card"><div class="td-card-header"><span class="td-table-label">TABLE 4</span></div><div class="td-info" style="padding:12px 10px"><div class="skeleton" style="width:60%;margin-bottom:6px"></div><div class="skeleton" style="width:80%;margin-bottom:4px"></div><div class="skeleton" style="width:50%"></div></div></div>
 </div>
 
+<script src="shared/supabase-config.js"></script>
 <script>
   /* ── SUPABASE ── */
-  const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
-  const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+  const { url: SUPABASE_URL, key: SUPABASE_KEY } = window.cdSupabaseCreds();
 
   function sbFetch(path) {
     return fetch(SUPABASE_URL + '/rest/v1/' + path, {

@@ -27,6 +27,7 @@
   ============================================================
 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="shared/supabase-config.js"></script>
 <style>
   :root{
     --ink:#1c2333; --muted:#6b7688; --line:#e6e9f0;
@@ -169,8 +170,7 @@
 <script>
   // ── CrisData's own project + PUBLISHABLE key (public by design; same as the boards).
   //    No service-role key here — user creation happens in the Supabase dashboard.
-  const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
-  const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+  const { url: SUPABASE_URL, key: SUPABASE_KEY } = window.cdSupabaseCreds();
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
     auth: {
       persistSession: true,       // session lives in localStorage → survives reloads

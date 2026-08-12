@@ -12,6 +12,7 @@
 <script src="/shared/pwa-register.js"></script>
 <script src="/shared/version-check.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="shared/supabase-config.js"></script>
 <script src="shared/office-identity.js"></script>
 <script src="shared/board-settings.js"></script>
 <!-- Cost & Profit — Build Sheet workbench (Step 1 frame). Always on (no
@@ -297,8 +298,7 @@
 
 <script>
   // ── Supabase
-  const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
-  const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+  const { url: SUPABASE_URL, key: SUPABASE_KEY } = window.cdSupabaseCreds();
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
   BoardSettings.init({
