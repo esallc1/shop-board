@@ -153,14 +153,24 @@ The bucket **policies** are already created by Step 2; create the **buckets** th
 empty on staging unless you upload a test file.)
 
 ### Step 4b — Create a staging test login *(Cris, staging → Authentication)*
-`auth.users` isn't copied, so make a fresh login: **Authentication → Users → Add user**
-(email + password, "auto-confirm"). Then, because the boards map a session to an employee
-via `employees.auth_user_id` (see [[office-auth]]), point one employee row at the new user
-in the **staging** SQL editor:
-```sql
-update public.employees set auth_user_id = '<new-staging-user-uuid>'
-where lower(email) = lower('<that-email>');
+`auth.users` isn't copied, so make a fresh login: **Authentication → Users → Add user →
+Create new user** (email + password of your choice; **Auto Confirm User ON** so
+`signInWithPassword` works immediately). Then link that auth user to an employee row so the
+boards recognize the session (`office-identity.js` / `office-login.html` resolve identity by
+`employees.auth_user_id`, and `role` drives board access — `owner` gets the most). From the
+terminal (matches the auth user by the email you chose; links exactly one `owner` row):
+```bash
+psql "$STG_DB" -v ON_ERROR_STOP=1 -c "
+update public.employees
+set auth_user_id = (select id from auth.users where lower(email) = lower('YOUR_TEST_EMAIL')),
+    active = true
+where id = (select id from public.employees where role = 'owner' order by id limit 1)
+returning id, name, role, auth_user_id;"
 ```
+`returning` prints the linked row (one row = success). The copied prod `employees` carry stale
+prod `auth_user_id` values (prod's `auth.users` weren't copied, so they match nothing on
+staging); this overwrites one of them. Sign in at `test.leetransmissionshop.com/office-login.html`
+once staging is deployed. To log in as a different role, change `'owner'`.
 
 ### Step 5 — Point staging at the new project *(Claude wires code; Cris sets Vercel env)*
 - **Claude (once you send the staging Project URL + anon key from Step 1):** fill those two
