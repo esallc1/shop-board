@@ -13,7 +13,7 @@
 
 import { mapRecordingRow } from './ctm-webhook.js';
 
-const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hygemiszxwmyrkmhbjub.supabase.co'; // staging deployments set SUPABASE_URL (Preview env) to the staging project; prod unset -> this fallback
 
 // Keep only the FIRST body per ctm_call_id — the log holds a row per delivery,
 // so retries mean several `end` rows share one id. Pure + exported for a test.

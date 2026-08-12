@@ -25,7 +25,7 @@
      ids-only stance above is what keeps it safe to expose.
    ============================================================ */
 
-const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hygemiszxwmyrkmhbjub.supabase.co'; // staging deployments set SUPABASE_URL (Preview env) to the staging project; prod unset -> this fallback
 const BUCKET = 'call-recordings';
 
 // Cap the batch so a caller can't ask us to sign an unbounded number of URLs in

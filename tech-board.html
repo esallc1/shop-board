@@ -215,10 +215,10 @@
   <div class="pool-grid" id="poolGrid"></div>
 </div>
 
+<script src="shared/supabase-config.js"></script>
 <script>
   /* ---- SUPABASE CONFIG ---- */
-  const SUPABASE_URL = 'https://hygemiszxwmyrkmhbjub.supabase.co';
-  const SUPABASE_KEY = 'sb_publishable_8o9Df7K_DGpQ3s6yUCDq-A_HMh4Zllo';
+  const { url: SUPABASE_URL, key: SUPABASE_KEY } = window.cdSupabaseCreds();
 
   async function sbFetch(path) {
     const res = await fetch(SUPABASE_URL + path, {

@@ -48,6 +48,7 @@ window.FileCabinet = (function () {
     { id: 'settings',  file: 'settings.md',         icon: '⚙️', title: 'Settings hub (storage · roles · enforcement)' },
     { id: 'officeauth', file: 'office-auth.md',      icon: '🔐', title: 'Office auth (Supabase Auth adoption)' },
     { id: 'hosting',   file: 'hosting-domains.md',   icon: '🌐', title: 'Hosting & domains (Vercel · DNS · Supabase)' },
+    { id: 'stagingdb', file: 'staging-db.md',        icon: '🧪', title: 'Staging database (isolated test.* DB)' },
     { id: 'todo',     file: 'todo-list.md',         icon: '✅', title: 'To-Do list' },
     { id: 'requests', file: 'change-requests.md',   icon: '🚩', title: 'Requests & Feedback intake' },
     { id: 'cabinet',  file: 'file-cabinet.md',      icon: '🗄️', title: 'File Cabinet tab (this screen)' },
