@@ -2,8 +2,9 @@
 
 > Doc: `/docs/wiring/customer-record.md`
 > Last updated: 2026-08-18 — verified vs branch `feat/call-auto-attach` (base `78e3472`)
-> (§5/§6 rewritten: Phase 2 auto-attach is BUILT, not deferred — see [[call-auto-attach]].
-> The two-column record itself and the Customers LIST — §7 — are unchanged from `420871c`.)
+> (§0/§5/§6 rewritten: Phase 2 auto-attach is BUILT, and the page now has a SECOND write —
+> the "File to RO…" manual re-file in the needs-filing section, §6b. The two-column layout
+> and the Customers LIST — §7 — are unchanged from `420871c`.)
 > Status: ✅ verified — the two-column record eyeballed in-browser against live Supabase
 > (person + business, open-RO auto-expand, closed-RO lifetime $, per-RO call timeline,
 > unfiled "needs filing" section, accordion toggle, sticky profile); pure logic re-checked
@@ -13,8 +14,9 @@
 A full customer view (`#view-customer`) reached from the **Customers LIST**. Opening a
 customer shows a **two-column record**: a **sticky profile on the left** and the customer's
 **vehicles as a collapsible accordion on the right** — each vehicle's ROs with a calls &
-notes timeline beneath. It is **read-only display** with **one** carried-over write: filing
-a call recording to a vehicle.
+notes timeline beneath. It is **read-only display** except in the **"needs filing"** section,
+which carries the page's **two writes**: filing a call **recording to a vehicle** (§6) and
+filing a **call to an RO** (§6b).
 
 ## 1. Counts, "customer since" & lifetime $
 - **CrisData-only and labeled as such** — old ALLDATA history isn't imported.
@@ -109,7 +111,7 @@ It never guesses: 0 or 2+ matches leave the call in `unfiled`, and on the sandbo
 **~69% of the pile** (strangers whose number matches no customer). The "needs filing" section
 is not going away — it is getting smaller.
 
-## 6. The one write — filing a recording to a vehicle
+## 6. Write 1 — filing a recording to a vehicle
 Carried over unchanged from the old record view. It is the crew's way to attach a **recording
 to a vehicle**, and it is **still the only write on this page** — auto-attach ([[call-auto-attach]])
 turned out to be a different axis (call → customer → RO, written by the webhook and the Desk,
@@ -128,8 +130,32 @@ has filed yet:
   endpoint — survives reload, incl. on a call with no RO); (3) the call's linked RO's
   vehicle; (4) null.
 
-Everything else on the page is **read-only display** — no NEW writes, no migration, no schema
-change this phase.
+## 6b. Write 2 — "File to RO…" (the manual re-file)
+The Phase 2 companion: a `<select>` on each **needs-filing** entry that files the call to one
+of **this customer's** ROs (`fileCallToRo`). It sits beside the recording→vehicle picker so
+the two read as one filing block.
+
+- **All of the customer's ROs, newest first, stage-labelled** — `#6009 · RO`, `#5451 · Closed`.
+  **Closed ROs are included on purpose**: the real case is a customer ringing a week after
+  pickup about the job that just closed, which auto-attach's "open at the time of the call"
+  rule can never catch.
+- **Confirmed calls only.** An unconfirmed phone match isn't established as this customer's
+  call yet, so filing it to their RO would invent a link — the same gate the recording picker
+  uses (`canAssignRecording`).
+- On change it writes `ro_id`, **clears `auto_ro_filed_at` + `auto_attach_run_id`** (a human's
+  choice leaves the robot's namespace, so no batch undo can revoke it — [[call-auto-attach]] §3),
+  and stamps `noted_by_name`/`noted_at` when the call was never noted. Then `rerenderCustBody()`
+  re-buckets and the entry **visibly jumps** out of "needs filing" up under its RO.
+- Uses the existing anon/authenticated UPDATE policy on `calls` — no new RLS, no migration.
+
+## 6c. The "auto" chip
+A small neutral **`auto`** chip on any timeline entry whose `auto_attached_at` **or**
+`auto_ro_filed_at` is set, next to the amber `unconfirmed` tag. Its tooltip says which half the
+machine did (customer, RO, or both). Deliberately calmer than `unconfirmed` — it is
+information, not a warning — but present so the crew can see a machine's guess and distrust it.
+
+Everything outside the needs-filing section is **read-only display** — no other writes, no
+migration, no schema change from this page.
 
 ## 7. The Customers LIST panel (`#custListPanel`) — browse + search
 The Customers tab opens a list panel with a search box, an **A–Z index bar** (`#custAzBar`),
@@ -188,6 +214,14 @@ then branches on whether the search box has text:
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
+- 2026-08-18 — **Added the manual re-file control + the auto chip** (§0, §6b, §6c). The
+  needs-filing section gained a "File to RO…" `<select>` (all of the customer's ROs newest-first,
+  **closed included**, confirmed calls only) that re-buckets the entry on change; and timeline
+  entries now show an `auto` chip where the machine made the link. The page is no longer a
+  one-write page — §0 and §6 said "one write" and now say two. Verified in-browser against the
+  sandbox: 25 selects rendered on a customer with 25 unfiled confirmed calls, the closed RO
+  #6001 listed, the patch carried `auto_ro_filed_at: null` + `auto_attach_run_id: null`, and the
+  entry left needs-filing (25 → 24).
 - 2026-08-18 — **§5/§6 corrected: Phase 2 auto-attach shipped.** §5 no longer calls the
   `byRo` link "human-set" or auto-attach "deferred" — `byRo` is now filled by the machine as
   well as by hand, and the new [[call-auto-attach]] doc owns the rules. §6 drops the stale

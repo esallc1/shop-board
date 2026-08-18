@@ -154,11 +154,25 @@ export function autoFileRoPatch(roId, nowISO, runId) {
   };
 }
 
-// Everything the robot ever stamped, cleared. Folded into a human's un-attach
-// and into any manual re-file: the moment a person touches the row it leaves
-// the robot's namespace, so no undo can ever revoke a human decision.
+// Everything the robot ever stamped, cleared. Folded into a human's UN-ATTACH:
+// the call is no longer this person, so nothing the machine derived from that
+// link survives.
 export function clearAutoTagsPatch() {
   return { auto_attached_at: null, auto_ro_filed_at: null, auto_attach_run_id: null };
+}
+
+// What a MANUAL RE-FILE clears. A person has chosen the RO, so the row leaves
+// the robot's namespace entirely — dropping auto_attach_run_id detaches it from
+// every batch undo, which is the point: no reverse statement can revoke a human
+// decision. `auto_attached_at` deliberately SURVIVES: it is a factual record
+// that the machine picked the customer, and with the run id gone it is no
+// longer an undo key, just history (and what the "auto" chip reads).
+//
+// The trade this makes, on purpose: once a human re-files, that row's ORIGINAL
+// machine attach is no longer reversible as part of a batch either. Un-attach
+// still clears it by hand. Safety beats completeness here.
+export function clearAutoFileTagsPatch() {
+  return { auto_ro_filed_at: null, auto_attach_run_id: null };
 }
 
 // True when the robot — not a person — put this customer on the call. Drives

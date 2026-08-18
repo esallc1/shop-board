@@ -3,9 +3,10 @@
 > Doc: `/docs/wiring/call-auto-attach.md`
 > Last updated: 2026-08-18 — created for the Phase 2 auto-attach build (branch
 > `feat/call-auto-attach`, base `78e3472`).
-> Status: 🟡 **live code built + unit-tested; the two hand-run backfills are DONE on the
-> sandbox.** The going-forward path needs `migrations/20260818_customers_phone_l10.sql`
-> run by hand before it can match anybody (§6). Not on prod — `main` has none of this.
+> Status: 🟡 **live code + both manual re-file controls built and exercised in-browser; the
+> two hand-run backfills are DONE on the sandbox.** The going-forward webhook path still needs
+> `migrations/20260818_customers_phone_l10.sql` run by hand before it can match anybody (§6).
+> Not on prod — `main` has none of this.
 > Related: [[customer-record]], [[call-window-desk]], [[customer-dedupe]], [[staging-db]].
 
 ## 0. In one line
@@ -148,13 +149,13 @@ so new columns are covered automatically.
 - **Ambiguity is the duplicate backlog.** Every one of the 9 ambiguous sandbox calls is the
   *same* person on two rows (`IAN GEQUELIN` / `ian gequelin`). They unlock for free when
   [[customer-dedupe]] phases B–D run. Auto-attach and dedupe are the same 9 calls.
-- **The manual re-file control is still gated.** The `checking_on_car` RO picker already offers
-  **all** of a customer's ROs, open or closed (`buildRoPickerOptions` is status-agnostic), but
-  it only renders under that one disposition and `ro_id` is force-cleared for every other step
-  ([[call-window-desk]] §4). Decoupling it, and adding a "File to RO…" control to the Customer
-  Record's "needs filing" section, is designed but **not built**.
-- **No "auto" chip yet.** `isAutoAttached()` exists and the columns are selected, but nothing
-  renders a badge distinguishing a machine link from a human one on screen.
+- **Unconfirmed calls can't be filed to an RO.** The Customer Record's "File to RO…" is offered
+  on **confirmed** calls only (§7). A phone-matched unconfirmed call has to be attached to the
+  customer first — correct, but it means the calls that arrive on a record via a *learned*
+  secondary number (see the warning in §8) can't be filed straight from the record.
+- **`noted_by_name` is "who handled the call", not "who filed it".** A manual re-file stamps it
+  only when the call was never noted; re-filing a call someone else noted leaves their name.
+  There is no separate filed-by column and this build did not invent one.
 - **Call site 1 is unverified against a real CTM call** — it can only be exercised by an actual
   inbound call after the §6 migration runs.
 
@@ -174,7 +175,57 @@ so new columns are covered automatically.
 - **Consumer:** the Customer Record's `computeCallGroups` — every call this fills moves from
   `unfiled` up into `byRo`. See [[customer-record]] §5.
 
+## 7. The manual re-file — two controls, one rule
+Auto-attach can only ever file to an RO that was **open at the time of the call**. Everything
+else is a human's job, so both surfaces where a call is visible got a picker. Both reuse
+`RoCalls.buildRoPickerOptions` **untouched** — already status-agnostic, already stage-labelled,
+so **closed ROs are listed**, which is precisely the case the robot cannot handle.
+
+| | Call card (`.cc-filed`, `renderFiledRo`) | Customer Record (`fileCallToRo`) |
+|---|---|---|
+| Where | a persistent **"Filed to RO"** row on the popup | a `<select>` on each **needs-filing** entry |
+| When | any disposition, or none | **confirmed** calls only |
+| Writes via | `saveNote({ ro_id })` | direct `calls` update |
+| After | picker re-renders | `rerenderCustBody()` — the entry jumps out of needs-filing |
+
+**The rule both obey (non-negotiable): a human's touch clears the robot's file tags.**
+`clearAutoFileTagsPatch()` sets `auto_ro_filed_at = null` **and `auto_attach_run_id = null`.
+Dropping the run id is the point** — it detaches the row from every batch undo, so no reverse
+statement can revoke a decision a person made. `auto_attached_at` deliberately survives: it is
+a factual record that the machine picked the customer, and with the run id gone it is no longer
+an undo key, just history (and what the `auto` chip reads).
+
+⚠️ **The trade this makes, on purpose:** once a human re-files a call, that row's *original*
+machine attach is no longer reversible as part of a batch either — the live-undo statement will
+skip it. Un-attaching by hand still clears it. Safety beats completeness.
+
+**Un-attach is different** and still clears everything (`clearAutoTagsPatch`), plus `ro_id`
+itself when `auto_ro_filed_at` was set: the call is no longer that person, so nothing the
+machine derived from that link survives.
+
+## 8. ⚠️ Attaching a call can silently teach a customer a new phone number
+Not part of auto-attach — the robot never learns phones (§2) — but it is the blast radius a
+manual attach has, and it interacts with this subsystem, so it is recorded here.
+
+`performAttach` runs `attachPhoneLearn`: if the caller's number is new and the customer's
+`phone_secondary` slot is **empty**, the attach writes it there and sets `learned_phone = true`.
+Because the Customer Record unions **phone-matched** calls (customer-record §2), every other
+call from that number then appears on that customer's record as **unconfirmed**.
+
+Observed on the sandbox 2026-08-18: attaching one call from `305-393-9103` to `JOSE RAMIREZ`
+wrote that number into his empty `phone_secondary`, and **six** calls from it surfaced on his
+record. Reversing the *call* by raw SQL did **not** undo it — only the in-app un-attach does
+(`unattachClearsSecondary`, guarded so it only ever clears a number that same attach wrote).
+
 ## Session change log
+- 2026-08-18 — **Built the manual re-file (§7) and the auto chip.** Decoupled `ro_id` from
+  `next_step` on the call card — the RO picker is now its own persistent "Filed to RO" row
+  under every disposition, and the chip handler no longer wipes the link
+  ([[call-window-desk]] §2b/§3). Added "File to RO…" to the Customer Record's needs-filing
+  section ([[customer-record]] §6b) and an `auto` chip to timeline entries (§6c). Added
+  `clearAutoFileTagsPatch` so both controls take a re-filed row out of the robot's namespace.
+  Documented the phone-learning blast radius in §8. Verified in-browser against the sandbox
+  with the writes intercepted — nothing was mutated.
 - 2026-08-18 — **Created. Built the going-forward path.** Added the pure rules module +
   23 tests; wired call site 1 (CTM webhook, best-effort, atomic DB-side guard) and call site 2
   (re-run rule 2 on every human attach, from all three attach paths); added the LIVE run-id

@@ -1,8 +1,13 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-07-30 — verified vs commit `932950b`
-> Status: ✅ verified vs commit `932950b` — checked against `advisor-board.html` (the `callerCard` and `desk` IIFEs, the refresh safety net), `api/desk-appointment.js`, and the `calls` migrations.
+> Last updated: 2026-08-18 — verified vs branch `feat/call-auto-attach` (base `78e3472`)
+> (§2 + §3 rewritten: `ro_id` is no longer a property of the disposition — the RO picker
+> is now its own persistent "Filed to RO" row. See [[call-auto-attach]] §7.)
+> Status: ✅ verified — the decoupling exercised in-browser on a dry-run card: filing to an
+> RO then switching to `price_shopper` and `dropping_off` leaves `ro_id` intact, and the
+> step patch no longer contains `ro_id` at all. The rest of the doc is unchanged from
+> commit `932950b`.
 
 ## 0. In one line
 An inbound call pops a card where the advisor picks **what happens next**; that choice
@@ -40,7 +45,7 @@ via `next_step` + `due_at`). Written by `api/desk-appointment.js` (§8).
   |---|---|---|---|
   | Quoted — will call back | `quoted_callback` | quick buttons (Tomorrow / In 3 days / Next week) + date; all-day | **Callbacks** lane |
   | Dropping off | `dropping_off` | date + optional time (Morning = all-day) | **Coming in** lane + **drop-off calendar** |
-  | Checking on their car | `checking_on_car` | RO picker (`ro_id`), no date | (not a Desk lane) |
+  | Checking on their car | `checking_on_car` | none (see the RO row below) | (not a Desk lane) |
   | Price shopper | `price_shopper` | none | (not a Desk lane) |
 
 - **All-day dates** are stored as **noon local** (`toDueAt(date, null)` → `new Date(y,m-1,d,12,0,0)`),
@@ -69,12 +74,31 @@ via `next_step` + `due_at`). Written by `api/desk-appointment.js` (§8).
 - A card dismissed **without being touched** (× or **Close**) records its `ctm_call_id` in
   an in-memory `dismissedCardIds` set, so backfill won't re-pop it.
 
+## 2b. "Filed to RO" — its own persistent row (`.cc-filed`, `renderFiledRo`)
+**Which RO a call is about is independent of what happens next**, so the RO picker is a
+permanent row on the card, shown under **every** disposition and under none. It renders as
+soon as a customer resolves (single match or a pick); with no customer it stays empty, and
+with a customer who has no ROs it says so.
+
+Options come from `RoCalls.buildRoPickerOptions` **unchanged** — already status-agnostic and
+already stage-labelled, so **closed ROs are listed** (`#5451 · Closed`). That is the case
+that matters: a customer ringing a week after pickup about the job that just closed.
+
+Choosing an RO goes through `saveNote({ ro_id })`, which also **clears the auto-attach tags**
+(`auto_ro_filed_at`, `auto_attach_run_id`) — a human's choice leaves the robot's namespace so
+no batch undo can revoke it ([[call-auto-attach]] §3).
+
+⚠️ **This used to be gated.** The picker rendered only under `checking_on_car`, and the chip
+handler force-cleared `ro_id` for every other step — so a call filed to an RO lost that link
+the moment the advisor picked a different disposition, and a customer calling about a closed
+job had nowhere to file it at all. Both behaviours are gone.
+
 ## 3. Switching chips clears the date (no stale carryover)
 A chip switch **always** resets the date: the handler writes
-`{ next_step, due_at: null, due_all_day: true }` (and clears `ro_id` for every step
-except `checking_on_car`). This exists because a date entered under one step used to
-ride across into the next — a callback date silently became a drop-off date. After a
-switch the advisor re-picks the date from scratch.
+`{ next_step, due_at: null, due_all_day: true }`. This exists because a date entered under
+one step used to ride across into the next — a callback date silently became a drop-off
+date. After a switch the advisor re-picks the date from scratch.
+**`ro_id` is NOT touched by a chip switch** (§2b) — it survives every disposition change.
 
 ## 4. The outcome echo (guardrail)
 Under the chips, `.cc-echo` (via `updateEcho`) states **the lane + the weekday** the
@@ -166,6 +190,11 @@ service-role key (same posture as `api/recording-assign.js`).
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- 2026-08-18 — **Decoupled `ro_id` from `next_step`** (§2, §2b, §3). The RO picker moved out
+  of the `checking_on_car` branch of `renderWhen` into its own persistent `.cc-filed` row
+  (`renderFiledRo`), shown under every disposition and under none; the chip handler no longer
+  clears `ro_id`. A manual pick now also clears the auto-attach tags. Nothing else on the card
+  changed. See [[call-auto-attach]] §7.
 - 2026-07-30 — Documented the subsystem while adding three fixes after Josh's mis-routed
   drop-off: the outcome echo (§4), Close-vs-Mark-done (§5), and clearing the date on a
   chip switch (§3).
