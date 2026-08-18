@@ -550,6 +550,22 @@
   .cust-tile .k { font-size:0.58rem; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); margin-top:2px; }
 
   /* Vehicle accordion */
+  /* ── Fleet filter (shown only above CustomerRecord.VEHICLE_FILTER_MIN) ── */
+  .cust-veh-filter { display:flex; align-items:center; gap:6px; margin:0 0 10px; }
+  .cust-veh-filter input {
+    flex:1 1 auto; min-width:0;                     /* min-width:0 lets it shrink inside the flex row */
+    font-size:0.84rem; color:var(--text); background:#fff;
+    border:1px solid var(--border); border-radius:8px; padding:7px 10px;
+  }
+  .cust-veh-filter input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 2px rgba(99,102,241,0.15); }
+  .cust-veh-filter input::-webkit-search-cancel-button { display:none; }   /* one clear affordance, not two */
+  .cust-veh-filter-clear {
+    flex:0 0 auto; width:30px; height:30px; line-height:1;
+    font-size:1.1rem; color:var(--muted); background:#fff;
+    border:1px solid var(--border); border-radius:8px; cursor:pointer;
+  }
+  .cust-veh-filter-clear:hover { color:var(--text); border-color:var(--accent); }
+  @media (max-width: 860px) { .cust-veh-filter input { font-size:16px; } }  /* 16px stops iOS zooming the page on focus */
   .cust-veh-accordion { display:flex; flex-direction:column; gap:10px; }
   .cust-veh-row { border:1px solid var(--border); border-radius:10px; background:#fff; overflow:hidden; }
   .cust-veh-row.open { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
@@ -1026,6 +1042,14 @@
           <div class="card">
             <div class="card-title"><div class="dot" style="background:var(--green)"></div>Vehicles &amp; history
               <span class="cust-card-note" id="custVehNote"></span>
+            </div>
+            <!-- Fleet filter. Hidden unless the customer has enough vehicles to be
+                 worth searching (CustomerRecord.shouldShowVehicleFilter). Lives
+                 OUTSIDE #custVehicles on purpose: re-rendering the accordion must
+                 never blow away the input or the caret while someone is typing. -->
+            <div class="cust-veh-filter" id="custVehFilter" style="display:none">
+              <input type="search" id="custVehSearch" placeholder="Find a vehicle — plate, VIN, year, make, model" autocomplete="off" aria-label="Filter this customer's vehicles">
+              <button type="button" class="cust-veh-filter-clear" id="custVehClear" title="Clear the filter" aria-label="Clear the filter">×</button>
             </div>
             <div id="custVehicles" class="cust-veh-accordion"></div>
           </div>
@@ -6266,6 +6290,7 @@
     // ══════════════════════════════════════════════════════════════
     const CR = () => window.CustomerRecord;
     let custCustomer = null, custVehicles = [], custRos = [], custVehById = {}, custRoById = {};
+    let custVehQuery = '';        // the fleet-filter text; display-only, never persisted
     let custTotals = {}, custRecCallsAll = [], custRecIdx = {}, custSecondaryLearned = false;
     let custRecAssigned = {};   // call id → session vehicle assignment (via api/recording-assign)
     let custOpenVeh = null;     // which vehicle accordion row is expanded (id string, or null)
@@ -6498,6 +6523,11 @@
       $('custProfile').innerHTML = '<div style="color:var(--muted);font-size:0.85rem">Loading…</div>';
       $('custVehicles').innerHTML = ''; $('custUnfiledCard').style.display = 'none'; $('custUnfiledBody').innerHTML = '';
       $('custVehNote').textContent = '';
+      // A new customer starts unfiltered — a query left over from the last one
+      // would silently hide vehicles on this record.
+      custVehQuery = '';
+      const vehSearchEl = $('custVehSearch'); if (vehSearchEl) vehSearchEl.value = '';
+      $('custVehFilter').style.display = 'none';
       custOpenVeh = null;
       custCallGroups = { byRo: {}, byVehNoRo: {}, unfiled: [] };
       custRecAssigned = {};
@@ -6682,10 +6712,31 @@
     // ── RIGHT: vehicles as a collapsible accordion ──
     function renderCustVehicles() {
       const host = $('custVehicles');
-      if (!custVehicles.length) { host.innerHTML = `<div class="cust-tl-empty">No vehicles on file.</div>`; $('custVehNote').textContent = ''; return; }
-      const vehs = custVehiclesSorted();
-      $('custVehNote').textContent = vehs.length + ' vehicle' + (vehs.length === 1 ? '' : 's');
-      host.innerHTML = vehs.map(vehRowHtml).join('');
+      if (!custVehicles.length) {
+        host.innerHTML = `<div class="cust-tl-empty">No vehicles on file.</div>`;
+        $('custVehNote').textContent = '';
+        $('custVehFilter').style.display = 'none';
+        return;
+      }
+      // Sort FIRST, filter SECOND. filterVehicles only drops rows, so the
+      // activity sort survives a filter untouched — and so does custOpenVeh:
+      // an expanded vehicle stays expanded, and if the filter hides it, it is
+      // still open when the filter clears. Filtering changes what is VISIBLE
+      // and nothing else. No query, no write, no state beyond custVehQuery.
+      const sorted = custVehiclesSorted();
+      const showFilter = CR().shouldShowVehicleFilter(sorted.length);
+      $('custVehFilter').style.display = showFilter ? '' : 'none';
+      const vehs = showFilter ? CR().filterVehicles(sorted, custVehQuery) : sorted;
+
+      const total = sorted.length;
+      const filtering = showFilter && vehs.length !== total;
+      $('custVehNote').textContent = filtering
+        ? `${vehs.length} of ${total}`
+        : `${total} vehicle${total === 1 ? '' : 's'}`;
+
+      host.innerHTML = vehs.length
+        ? vehs.map(vehRowHtml).join('')
+        : `<div class="cust-tl-empty">No vehicles match “${esc(custVehQuery)}”.</div>`;
     }
 
     function vehRowHtml(v) {
@@ -7000,6 +7051,19 @@
         if (ro) { openRoFromCustomer(ro.dataset.openRo); return; }
         const head = e.target.closest('.cust-veh-head');
         if (head) { toggleVeh(head.dataset.veh); return; }
+      });
+      // The filter box is static markup (not re-rendered), so it takes direct
+      // listeners — which is also what keeps focus and the caret alive while
+      // the accordion below it re-renders on every keystroke.
+      const vehSearch = $('custVehSearch'), vehClear = $('custVehClear');
+      if (vehSearch) vehSearch.addEventListener('input', () => {
+        custVehQuery = vehSearch.value;
+        renderCustVehicles();
+      });
+      if (vehClear) vehClear.addEventListener('click', () => {
+        vehSearch.value = ''; custVehQuery = '';
+        renderCustVehicles();
+        vehSearch.focus();
       });
       panel.addEventListener('change', (e) => {
         const sel = e.target.closest('.cust-rec-vehsel[data-rec-call]');

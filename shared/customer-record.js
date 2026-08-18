@@ -150,3 +150,50 @@ export function totalsByRo(lines, opts) {
   for (const k of Object.keys(byRo)) out[k] = roInvoiceTotal(byRo[k], opts);
   return out;
 }
+
+// ── Vehicle SEARCH (the accordion filter) ───────────────────────────────
+// Distinct from filterByVehicle above: that one narrows history to ONE chosen
+// vehicle by id; this one is a free-text find across a long vehicle LIST.
+//
+// WHY IT EXISTS: the accordion sorts by most-recent activity, which is a good
+// order for a customer with a handful of cars and a MEANINGLESS one for a fleet
+// where nothing has ever come in — Mint Motors has 31 vehicles all reading
+// "No visits · 0 ROs", so "most recent" puts them in no discernible order and
+// finding one van means eyeballing 31 near-identical rows.
+export const VEHICLE_FILTER_MIN = 6;
+
+// Show the filter box only once the list is long enough to be worth searching.
+// Below this a customer can see every vehicle at once and a search box is just
+// another control in the way.
+export function shouldShowVehicleFilter(count) {
+  return Number(count) >= VEHICLE_FILTER_MIN;
+}
+
+// One lowercase haystack per vehicle. Field ORDER matters: "year make model"
+// first means a natural phrase like "2015 ford" matches as one contiguous run,
+// and plate/VIN follow for identifier lookups.
+export function vehicleSearchText(v) {
+  if (!v) return '';
+  return [v.year, v.make, v.model, v.plate, v.vin]
+    .map((x) => (x == null ? '' : String(x).trim()))
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+// Filter a vehicle list by free text. PARTIAL match anywhere in the haystack —
+// "1267" finds plate "X1267 00" — and whitespace splits the query into tokens
+// that must ALL match (AND), so "ford 2015" works as well as "2015 ford".
+//
+// ORDER IS PRESERVED: this only ever drops entries from the list it is handed,
+// so the caller's sort survives untouched. An empty/whitespace query returns a
+// copy of everything.
+export function filterVehicles(vehicles, query) {
+  const list = vehicles || [];
+  const tokens = String(query == null ? '' : query).toLowerCase().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return list.slice();
+  return list.filter((v) => {
+    const hay = vehicleSearchText(v);
+    return tokens.every((t) => hay.includes(t));
+  });
+}
