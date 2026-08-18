@@ -8,6 +8,34 @@ update-in-place-in-the-same-commit, end-of-session cabinet pass). The short vers
 **if you change how a subsystem works, rewrite its doc in the same commit — and verify
 every claim against the real code before writing it.**
 
+## ⚠️ Recurring hazard — the 1,000-row API cap
+
+**PostgREST silently truncates an unbounded `select()` at 1,000 rows.** No error, no warning —
+just fewer rows than you asked for. Any code that reads a whole table and filters the result in
+JavaScript is wrong the moment that table passes 1,000.
+
+This has bitten us for real. `lookupPhone` in the intake wizard did an unbounded
+`db.from('customers').select(...)` against a 2,717-row table, so **1,700 customers (62.6%) could
+not be found by phone** and the advisor was walked into creating a duplicate — on every intake,
+every day. `JOSE RAMIREZ` is literally the last row in the table and did not resolve. Fixed
+2026-08-18 ([[intake-wizard]] §4).
+
+**The rule:** a read that drives a **MATCH or a SEARCH** must never be an unbounded select.
+A truncated display list is ugly; a truncated match **invents a duplicate**.
+
+Three acceptable shapes, in order of preference:
+1. **Filter server-side** — `.eq()` / `.in()` / `.or(...ilike...)`. Best: the DB does the work
+   and the payload stays small as the shop grows.
+2. **Page it** — `.range(from, from + 999)` in a loop, like `window.cdFetchAllCustomers`
+   (`advisor-board.html`). Use when you genuinely need every row (the A–Z browse does).
+3. **Bound it explicitly** — `.limit(n)` where a cap is the intended behaviour, so the
+   truncation is a decision rather than an accident.
+
+Tables already over the cap: **`vehicles` (3,251)**, **`customers` (2,717)**. Growing toward it:
+`calls`, `invoice_queue`, `recordings`, `repair_orders`, `completed_jobs`.
+
+An audit of every unbounded read is in [[intake-wizard]] §5.
+
 ## Index
 
 | Subsystem | Doc | Status |
@@ -16,7 +44,7 @@ every claim against the real code before writing it.**
 | Recordings / audio | [recordings-audio.md](recordings-audio.md) | ✅ verified vs `bea25cf` |
 | Customer record | [customer-record.md](customer-record.md) | ✅ verified vs `bea25cf` |
 | Customer duplicates & multi-phone | [customer-dedupe.md](customer-dedupe.md) | ⚠ investigation + design vs `c2a180d` (not built) |
-| Intake wizard | [intake-wizard.md](intake-wizard.md) | ✅ verified vs `bea25cf` (partial — customer/phone steps still thin) |
+| Intake wizard | [intake-wizard.md](intake-wizard.md) | ✅ verified vs `7652c65` · incl. §3 vehicle dup guard, §4 the phone-lookup row-cap fix, §5 the full unbounded-read audit |
 | Floor tags & lanes | [floor-tags.md](floor-tags.md) | ✅ verified vs `bea25cf` (partial — full lane taxonomy still thin) |
 | Call window & Desk | [call-window-desk.md](call-window-desk.md) | ✅ verified vs the commit that adds it |
 | Announcement banner | [announcements.md](announcements.md) | ✅ verified vs the commit that adds it |

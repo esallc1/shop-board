@@ -716,6 +716,13 @@
   import * as VehicleMatch from './shared/vehicle-match.js';
   window.VehicleMatch = VehicleMatch;
 </script>
+<!-- Customer-by-phone lookup (ESM). Assigns window.PhoneLookup; used by the
+     intake wizard's lookupPhone. Server-side narrowing + exact re-check — see
+     docs/wiring/intake-wizard.md §4 for the 1,000-row cap this fixes. -->
+<script type="module">
+  import * as PhoneLookup from './shared/phone-lookup.js';
+  window.PhoneLookup = PhoneLookup;
+</script>
 <!-- Call-recording play-button render-state logic (ESM). Assigns
      window.RecordingPlayer; used by the call-log slide-out. Pure/DOM-free —
      the server (api/recording-links.js) is the ONLY thing that reads recordings. -->
@@ -3352,11 +3359,29 @@
       const btn = $('cdPhoneNextBtn');
       btn.disabled = true; btn.textContent = 'Looking up…';
       try {
+        // ⚠️ FILTER ON THE SERVER. This used to be an UNBOUNDED select filtered
+        // in JS — PostgREST caps that at 1,000 rows against a 2,717-row table,
+        // so ~63% of customers could not be found by phone and the advisor was
+        // walked into creating a duplicate. See docs/wiring/intake-wizard.md §4.
+        //
+        // Phone numbers are stored AS TYPED (three shapes live in the table), so
+        // no equality filter finds them all; PhoneLookup builds an end-anchored
+        // ilike pattern from the last 10 digits that matches every shape. It
+        // deliberately does NOT use phone_primary_l10/phone_secondary_l10 —
+        // those generated columns exist on the SANDBOX ONLY, and naming them
+        // here would make this return nothing for everyone on prod.
+        //
+        // The pattern only NARROWS; confirmPhoneMatches re-checks exact last-10
+        // on every row, so an over-broad pattern cannot produce a wrong match.
+        const PL = window.PhoneLookup;
+        const orFilter = PL && PL.phoneOrFilter(key);
+        if (!orFilter) throw new Error('Enter a full phone number.');
         const { data, error } = await db
           .from('customers')
-          .select('id, name, business_name, phone_primary, phone_secondary');
+          .select('id, name, business_name, phone_primary, phone_secondary')
+          .or(orFilter);
         if (error) throw error;
-        const matches = (data || []).filter(c => last10(c.phone_primary) === key || last10(c.phone_secondary) === key);
+        const matches = PL.confirmPhoneMatches(data, key);
 
         if (matches.length === 0) {
           // new customer — prefill the phone as entered
