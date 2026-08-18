@@ -263,6 +263,15 @@
     margin-bottom: 8px; cursor: pointer; font-size: 0.84rem;
   }
   .cd-pick-item:hover { border-color: var(--accent); background: var(--bg); }
+  /* Intake duplicate guard — amber "look at this", part of the form, not a
+     modal. It gates the save, so it must read as a decision, not a warning. */
+  .cd-veh-match { margin: 10px 0 4px; padding: 11px 12px; border: 1px solid var(--amber); border-radius: 10px; background: #fffaf0; }
+  .cd-veh-match-title { font-size: 0.86rem; color: #7c2d12; line-height: 1.45; }
+  .cd-veh-match-id { font-size: 0.78rem; color: #92400e; margin-top: 4px; }
+  .cd-veh-match-why { font-size: 0.72rem; color: var(--muted); margin-top: 5px; font-style: italic; }
+  .cd-veh-match-more { font-style: normal; }
+  .cd-veh-match-acts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .cd-veh-match-acts .modal-btn { margin: 0; }
   .cd-done-badge {
     text-align: center; font-size: 1.6rem; font-weight: 800; color: var(--accent);
     margin: 8px 0 4px;
@@ -699,6 +708,13 @@
 <script type="module">
   import * as RoCalls from './shared/ro-calls.js';
   window.RoCalls = RoCalls;
+</script>
+<!-- Intake duplicate guard (ESM). Assigns window.VehicleMatch; used only by
+     saveVehicle, which runs long after this module executes. Customer-scoped
+     matching — see docs/wiring/intake-wizard.md §3. -->
+<script type="module">
+  import * as VehicleMatch from './shared/vehicle-match.js';
+  window.VehicleMatch = VehicleMatch;
 </script>
 <!-- Call-recording play-button render-state logic (ESM). Assigns
      window.RecordingPlayer; used by the call-log slide-out. Pure/DOM-free —
@@ -1986,6 +2002,10 @@
         <input type="text" id="cdVehUnit" placeholder="Fleet unit #" autocomplete="off">
       </div>
       <div class="intake-form-error" id="cdVehError"></div>
+      <!-- Duplicate guard. Filled by saveVehicle when the typed vehicle matches
+           one already on this customer by VIN or plate; hidden otherwise. A
+           make+model-only match never renders here (see shared/vehicle-match.js). -->
+      <div class="cd-veh-match" id="cdVehMatch" style="display:none"></div>
       <button class="modal-btn" id="cdVehSaveBtn">Save &amp; continue</button>
       <button class="modal-btn sec" id="cdVehCancelBtn">Cancel</button>
     </div>
@@ -3251,6 +3271,7 @@
     const BLANK_STATE = {
       customerId: null, customerName: null, customerBusiness: null, customerPhone: null,
       vehicleId: null, vehicleDesc: null, parentRoId: null, priorRo: null, roId: null,
+      customerVehicles: [],   // this customer's vehicles, for the duplicate guard (no extra query)
     };
     let state = { ...BLANK_STATE };
 
@@ -3267,6 +3288,7 @@
       $('cdDecodeMsg').textContent = '';
       $('cdDecodeMsg').className = 'cd-decode-msg';
       $('cdVehError').textContent = '';
+      clearVehMatch();
     }
 
     function resetAll() {
@@ -3413,6 +3435,7 @@
         return;
       }
       const vehicles = data || [];
+      state.customerVehicles = vehicles;   // the duplicate guard reads this — no second query
       if (vehicles.length === 0) {
         listEl.innerHTML = '<div style="color:var(--muted);font-size:0.82rem;padding:6px 0">No vehicles on file yet — add one below.</div>';
         return;
@@ -3626,6 +3649,30 @@
         return;
       }
 
+      // ── DUPLICATE GUARD ──────────────────────────────────────────
+      // Does this customer already have this vehicle? Matched against the rows
+      // renderCustomerVehicles already loaded — CUSTOMER-SCOPED, never global
+      // (35 VINs in the table sit under 2+ customers, ~23 of them duplicate
+      // CUSTOMERS rather than resold cars).
+      //
+      // Gating the insert is right here, unlike the phone-learning confirm:
+      // there the attach was the user's goal and had to complete either way;
+      // here the insert IS the thing in question, so asking after writing would
+      // create the very duplicate we are preventing.
+      //
+      // ONLY a VIN or plate hit is a question. A make+model-only match saves
+      // silently — on a fleet customer it would fire on every intake and train
+      // the crew to click straight through it. `vehMatchAcked` is the "no, this
+      // is a different vehicle" answer, so the second press goes through.
+      const VM = window.VehicleMatch;
+      if (VM && !vehMatchAcked) {
+        const match = VM.findVehicleMatch(state.customerVehicles, row);
+        if (VM.shouldPromptForMatch(match)) {
+          await showVehMatch(match);
+          return;                       // nothing inserted — the advisor decides
+        }
+      }
+
       const btn = $('cdVehSaveBtn');
       btn.disabled = true; btn.textContent = 'Saving…';
       try {
@@ -3635,6 +3682,7 @@
         state.vehicleId = data.id;
         state.vehicleDesc = vehDesc(data);
         state.parentRoId = null; state.priorRo = null;
+        state.customerVehicles = [...(state.customerVehicles || []), data];   // keep the guard current
         goToMint();
       } catch (err) {
         console.error('[CdRO] save vehicle failed', err);
@@ -3642,6 +3690,56 @@
       } finally {
         btn.disabled = false; btn.textContent = 'Save & continue';
       }
+    }
+
+    // ── The duplicate-guard panel ────────────────────────────────────
+    // Set by "No, this is a different vehicle": the next press of Save skips the
+    // check. Reset whenever the form is reset, so it can never leak into the
+    // next vehicle the advisor types.
+    let vehMatchAcked = false;
+    function clearVehMatch() {
+      vehMatchAcked = false;
+      const el = $('cdVehMatch');
+      if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+    }
+
+    async function showVehMatch(match) {
+      const VM = window.VehicleMatch;
+      const el = $('cdVehMatch');
+      // RO counts for the matched rows only (1–2 rows) — the ONE query this
+      // guard adds, and only on the rare path where a match actually fires.
+      // It decides which row to offer AND is the number that makes the choice
+      // obvious: a match with history is almost certainly the one they want.
+      const ids = match.matches.map(v => v.id);
+      const counts = {};
+      try {
+        const { data, error } = await db.from('repair_orders').select('id, vehicle_id').in('vehicle_id', ids);
+        if (!error) (data || []).forEach(r => { counts[String(r.vehicle_id)] = (counts[String(r.vehicle_id)] || 0) + 1; });
+      } catch (e) { console.warn('[CdRO] match RO count failed', e); }
+      const best = VM.pickBestMatch(match.matches, v => counts[String(v.id)] || 0);
+      const n = counts[String(best.id)] || 0;
+      const idLine = vehIdLine(best);
+      const who = state.customerBusiness || state.customerName || 'this customer';
+      const roLine = n === 0 ? 'no repair orders yet' : (n === 1 ? '1 repair order' : n + ' repair orders');
+      const alsoN = match.matches.length > 1 ? ` <span class="cd-veh-match-more">(${match.matches.length} rows on file match — this is the one with the history)</span>` : '';
+      el.innerHTML =
+        `<div class="cd-veh-match-title">This looks like the <b>${escapeHtml(vehDesc(best))}</b> already on <b>${escapeHtml(who)}</b></div>` +
+        (idLine ? `<div class="cd-veh-match-id">${escapeHtml(idLine)} (${escapeHtml(roLine)})</div>` : `<div class="cd-veh-match-id">${escapeHtml(roLine)}</div>`) +
+        `<div class="cd-veh-match-why">Matched on ${escapeHtml(VM.matchReasonLabel(match.on))}.${alsoN}</div>` +
+        `<div class="cd-veh-match-acts">` +
+          `<button type="button" class="modal-btn" id="cdVehUseExisting">Use that vehicle</button>` +
+          `<button type="button" class="modal-btn sec" id="cdVehDifferent">No, this is a different vehicle</button>` +
+        `</div>`;
+      el.style.display = 'block';
+      // "Use that vehicle" hands off to the EXISTING path, so the comeback check
+      // still runs exactly as it does when the advisor picks from the list.
+      $('cdVehUseExisting').addEventListener('click', () => { clearVehMatch(); selectExistingVehicle(best); });
+      // "Different" records the answer and re-presses Save — inserts as typed.
+      $('cdVehDifferent').addEventListener('click', () => {
+        vehMatchAcked = true;
+        const el2 = $('cdVehMatch'); el2.style.display = 'none'; el2.innerHTML = '';
+        saveVehicle();
+      });
     }
 
     // ── STEP 4: mint the repair_order ─────────────────────────
