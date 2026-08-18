@@ -309,9 +309,14 @@ async function autoAttachCall(row) {
     // RULE 1 — the phone lookup, on the generated last-10 columns
     // (migrations/20260818_customers_phone_l10.sql). limit=2 is all we need:
     // two rows already means ambiguous, and we stop caring how many more.
-    const cr = await fetch(
-      `${SUPABASE_URL}/rest/v1/customers?select=id&or=(phone_primary_l10.eq.${k},phone_secondary_l10.eq.${k})&limit=2`,
-      { headers });
+    // Merged-away customers are excluded — auto-attaching a call to a row a
+    // human already merged into another would undo their cleanup. Retried
+    // without the filter if archived_at isn't on this project yet, so the
+    // webhook keeps working before the merge migration is run.
+    const custUrl = (archFilter) =>
+      `${SUPABASE_URL}/rest/v1/customers?select=id&or=(phone_primary_l10.eq.${k},phone_secondary_l10.eq.${k})${archFilter ? '&archived_at=is.null' : ''}&limit=2`;
+    let cr = await fetch(custUrl(true), { headers });
+    if (!cr.ok) cr = await fetch(custUrl(false), { headers });
     if (!cr.ok) {
       // The most likely cause is the l10 migration not having been run on this
       // project yet. Say so plainly rather than failing silently every call.

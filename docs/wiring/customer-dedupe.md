@@ -1,11 +1,12 @@
 # Customer duplicates & multi-phone (investigation + design)
 
 > Doc: `/docs/wiring/customer-dedupe.md`
-> Last updated: 2026-08-18 — verified vs branch `feat/vehicle-dup-guard` (base `3d61620`)
-> (§5b added: the VEHICLE half, which this doc never covered — §5's intake guard was designed
-> for customers only. Vehicle numbers re-measured live 2026-08-18. §1–§4, §6–§7 unchanged from
-> `c2a180d`.)
-> Status: 🟡 DESIGN APPROVED · **Phase A migration WRITTEN (hand-run pending), nothing else built.**
+> Last updated: 2026-08-19 — verified vs branch `feat/customer-merge-slice1` (base `85ffc5b`)
+> (§3 re-measured; §6 corrected — the FK list and the `is_primary` collision were both wrong;
+> §7 corrected — **Phase A HAS been run, on sandbox AND prod**; §8 added — the merge as built.)
+> Status: 🟡 **Phase A RUN (sandbox + prod). Phase C DONE (both intake guards + the phone-lookup
+> fix). Phase B NOT built. Phase D slice 1 written + the app-side archive filtering built —
+> the SQL is hand-run and NOT yet applied.**
 > §1–§3 (today's wiring + the live dupe scope) verified against `migrations/*.sql`,
 > `advisor-board.html`, `shared/*.js`, and **live rows** (anon read, 2026-07-31). §4–§7 are the
 > approved design; Phase A is `migrations/20260731_customer_phones.sql` (additive, inert — nothing
@@ -73,7 +74,16 @@ ALLDATA import already brought in. Proposal: a **multi-phone table**, an **intak
   `shared/call-attach.js:26`, `shared/format.js:18`) — read-only on both sides; **stored values are
   never normalized in place.**
 
-## 3. The live dupe scope (anon read, 2026-07-31)
+## 3. The live dupe scope
+> ⚠️ **The 2026-07-31 figures below are superseded.** Re-measured 2026-08-19 on the sandbox:
+> **2,717 customers** (2,666 ALLDATA + **51** CrisData) and **3,251 vehicles**.
+> **59** high-confidence clusters (123 rows), not 61/126. Vehicle VIN clusters are now
+> **25 same-customer + 35 cross-customer**. And the 7/31 claim that the high-confidence set was
+> **"all within the ALLDATA import (0 mix import+call-in)" is NO LONGER TRUE** — there are now
+> 3 CrisData-only clusters and 2 mixed. See §8 for the current classification and why that
+> matters.
+
+_(original 2026-07-31 reading, kept for the record:)_
 - **2,700 customers** — **2,666 ALLDATA import**, **34 CrisData-created** (null `source`). **3,238 vehicles.**
 - **Phone-sharing:** 130 clusters / **277 records** share a phone. Includes a junk **`1234567890`
   placeholder** (5 records) — must be excluded as a match key.
@@ -195,15 +205,22 @@ At the single insert (`createCustomer`, `advisor-board.html:3331`) and its wizar
   a merged loser is repointed then archived (its row survives → rollback + audit; and
   `repair_orders`'s RESTRICT means a delete would fail anyway). Search/match filter out archived.
 - **Per-cluster merge** {keeper K, losers L…}, in order:
-  1. Repoint the 4 FK children to K: `vehicles`, `repair_orders`, `interactions`, `calls`
-     (`update … set customer_id = K where customer_id in (L)`). Repoint ROs **before** archiving
-     (RESTRICT).
+  1. Repoint the FK children to K. ⚠️ **There are FIVE, not four** (re-verified 2026-08-19):
+     `vehicles`, `repair_orders`, `calls`, `interactions`, **`customer_phones`** — the last one
+     added by Phase A after this section was written. `interactions` exists but is **empty
+     (0 rows)**, so it is a no-op in practice. Repoint ROs **before** archiving (RESTRICT).
+     ⚠️ **`customer_phones` has a partial-unique index `(customer_id) where is_primary`.**
+     Merging two customers who each have a primary row **violates it**. The loser's primary must
+     be demoted BEFORE the repoint — see §8.
   2. **Collapse duplicate vehicles** within K (same VIN): pick a survivor `vehicle_id`, repoint
      `repair_orders.vehicle_id` + `recordings.vehicle_id` to it, then archive/remove the dup vehicle
      rows. (Handles the 24 same-customer VIN dups.)
-  3. Merge phones/data into K: add losers' numbers to `customer_phones`; keep K's primary; fill blank
-     K fields from losers.
-  4. Best-effort reconcile `completed_jobs.customer/.customer_phone` (free-text; informational).
+  3. ~~Fill blank K fields from losers~~ — **DROPPED 2026-08-19.** The merge log records which
+     ROWS moved; it cannot record that a field used to be blank, so this step is not reversible.
+     Revisit only if it turns out to matter. (Phone rows still move — they are a repoint, §8.)
+  4. ~~Best-effort reconcile `completed_jobs.customer/.customer_phone`~~ — **DROPPED
+     2026-08-19.** It is free text, nothing joins on it, and every edit is an unreversible guess.
+     Leave it alone.
   5. Set `merged_into = K, archived_at = now()` on each loser.
 - **Delivered as reviewable SQL per cluster**, run by hand, each with a matching **rollback**
   (repoint back + un-archive — feasible because nothing is deleted).
@@ -213,8 +230,12 @@ At the single insert (`createCustomer`, `advisor-board.html:3331`) and its wizar
   confirms the keeper per cluster before I generate that cluster's SQL** — no blind bulk merge.
 
 ## 7. Phasing + risk
-- **Phase A (additive, safe, anytime) — ✅ WRITTEN (`migrations/20260731_customer_phones.sql`,
-  hand-run pending):** the `customer_phones` table + indexes + one-primary partial-unique + anon RLS
+- **Phase A — ✅ RUN, on SANDBOX *and* PROD** (`migrations/20260731_customer_phones.sql`).
+  ⚠️ This doc said "hand-run pending" until 2026-08-19; that was wrong. `customer_phones` holds
+  **2,766 rows** (2,682 `backfill_primary` + 84 `backfill_secondary`, zero `callin`/`attach`).
+  Since the sandbox was built from a prod schema dump + data copy, its presence there proves it
+  is on prod too. It is still **inert** — nothing in the codebase reads it, so Phase B really is
+  unbuilt. What it was: the `customer_phones` table + indexes + one-primary partial-unique + anon RLS
   (mirrors `customers`) + the two backfills + verify/rollback. **Inert — nothing reads it yet.**
   Sync during transition: **no trigger** (by decision) — the backfill is a snapshot; at the Phase B
   cutover we re-run the idempotent insert-missing backfill and Phase B dual-writes so the legacy
@@ -237,6 +258,105 @@ At the single insert (`createCustomer`, `advisor-board.html:3331`) and its wizar
 
 **Recommended order: A → B → C (stop the leak) → D (clean up, off-hours).**
 
+**Where we actually are (2026-08-19):** **A done.** **C done** — the vehicle guard
+([[intake-wizard]] §3) and, far more importantly, the phone-lookup row-cap fix
+([[intake-wizard]] §4) which was the real leak. **B still not built.** **D slice 1 written**
+(§8). B was skipped ahead of D deliberately: the leak is plugged without it, and dual-read
+matching is easier to reason about once the duplicates are gone.
+
+## 8. The merge as BUILT — slice 1 (2026-08-19)
+
+### The clusters, re-measured 2026-08-19
+| Bucket | Clusters | Rows | History on >1 row |
+|---|---:|---:|---:|
+| **A. High-confidence** — same phone **and** same normalized name | **59** | 123 | **2** |
+| **B. Same phone, names differ but same party** | 40 | 90 | 0 |
+| **C. Families / shared lines — NEVER merge** | 6 | 12 | 0 |
+| **D. Same phone, truly ambiguous** | 28 | 56 | 0 |
+| **E. Same name, different phones** | 31 | 72 | 0 |
+
+⚠️ **A single name-similarity threshold is NOT a family/duplicate discriminator.** It files
+`JUAN CARRILLO-LOPEZ / Juan Carrillo` and `STANS COFFEE / Stan's Coffee Service` as families.
+Four independent signals, in priority order: **shared VIN** (definitive, 14) → **token subset**,
+one name's words ⊆ the other's (15) → **whole-string edit distance ≤15%** (24) → **same surname,
+different first name = FAMILY** (6). Anything else is human adjudication (28). Even the family
+rule needs eyes: it caught `Maira Contino / MYRA CONTINO`, almost certainly one person.
+
+**Only 2 clusters in the whole set have history on more than one row** — `ANTHONY` (1 RO vs
+2 ROs) and `ANDREA RUIZ` (an RO on one row, a call + recording on another). Every other merge is
+a clean repoint. Those two are hand-adjudicated last.
+
+### Where they came from — and why the phone-lookup fix mattered
+88 of the 93 mergeable clusters are pure ALLDATA-import collisions. But normalize by volume:
+**only 22 customers have been created since the import, and 7 of them (32%) landed in a
+duplicate cluster.** `KEVIN CRUZ` and `IAN GEQUELIN` were each created **twice on the same day**
+— the signature of an advisor looking a number up, getting nothing because of the 1,000-row cap
+([[intake-wizard]] §4), and creating the customer. The import contributed the bulk; the wizard
+was out-producing it per-customer.
+
+### The survivor rule
+`most history (ROs + calls + recordings)` → `most vehicles` → **`richest record`** → `oldest row`.
+Rule 3 sits **above** rule 4 on purpose, so a fuller name beats an older stub
+(`Jessie Capper` over `Jessie .`).
+
+### What a merge touches — re-verified against the live schema
+**Direct `customer_id` FKs (five):** `vehicles` (CASCADE — why a loser is never deleted),
+`repair_orders` (RESTRICT), `calls`, `interactions` (**empty**), `customer_phones` (**new**).
+**Indirect, moves for free:** `ro_line_items`, `ro_payments`, `ro_diagnostic_codes` (keyed by
+`repair_order_id`); `recordings` (keyed by `vehicle_id`/`call_id`/`ro_id`). RO and vehicle ids
+don't change, so these follow silently.
+**NOT linked to customers — removed from the plan:** `invoice_queue`, `parts_orders`,
+`core_charges` (keyed by free-text `po`), `marketing_content` (no customer column at all), and
+`comeback_capture` (**does not exist**).
+**`attachments`** is polymorphic (`entity_type` + `entity_id`), currently 2 rows, both
+`repair_order`. A customer merge cannot orphan them — but nothing *enforces* that, so every
+merge transaction **asserts zero `entity_type='customer'` rows** before touching anything.
+
+### Reversibility — `customer_merge_log`
+`customers` gains `merged_into` / `archived_at` / `merge_run_id`, and every repointed row is
+logged to **`customer_merge_log`** (`run_id`, `cluster_id`, `table_name`, `row_id`,
+`from_customer_id`, `to_customer_id`, `demoted_primary`).
+- **Why a log and not run-id columns on the four hot tables:** `merged_into` records *that* a
+  merge happened, not *which rows moved* — without that you cannot un-merge a loser who already
+  shared a vehicle with the keeper. The log also buys **per-cluster** undo, which a run-id column
+  cannot: one bad cluster reverses without touching the other two in the same run.
+- ⚠️ `row_id` is **text**, not uuid: `calls.id` is a BIGSERIAL while everything else is uuid, and
+  one log table has to hold both. The reverse casts (`l.row_id = t.id::text`).
+- **The `is_primary` collision** (a real bug in the old §6): the loser's primary is demoted
+  **only if the keeper already has one**, and the demotion is logged in `demoted_primary` so the
+  reverse restores it. Unconditional demotion would needlessly leave a keeper with no primary —
+  which is exactly what would have happened to `Shanika Brimmer`, whose keeper has no phone row.
+
+### Archiving only means something if the app stops returning the row
+This is the half that isn't SQL. **Every read that SEARCHES or MATCHES excludes archived rows;
+every read BY ID does not.**
+
+| Surface | Where | How |
+|---|---|---|
+| A–Z Customers list, `matchCustomers` (caller card), Desk attach picker, `cdOpenCustomerByPhone` | `fetchAllCustomers` | one function covers all four |
+| New RO wizard phone match | `lookupPhone` | `.is('archived_at', null)` |
+| Auto-attach on call arrival | `api/ctm-webhook.js` | `&archived_at=is.null` |
+| **Customer Record opened by id** | `loadCustomerRecord` | **NOT filtered** — renders with a "merged into …" banner + a button to the survivor |
+
+Every one of those degrades safely: the server-side filter is tried first, and on a
+missing-column error (`42703`, a project where the merge migration hasn't run) it retries
+unfiltered and `CustomerArchive.filterActive` becomes a no-op. One shape, both projects.
+
+### Slice 1 — three clusters
+`IAN GEQUELIN` · `KEVIN CRUZ` · `Shanika Brimmer`. All three are wizard-minted duplicates from
+the last two weeks with history on exactly one row. SQL:
+`migrations/20260819_customer_merge.sql` (schema) + `migrations/20260819_customer_merge_slice1.sql`
+(preview → 3 per-cluster transactions → both reverses → verify). **Hand-run, not yet applied.**
+Then: the 54 zero-history high-confidence clusters, then bucket B, then the 2 risky ones by hand.
+
+## Known gaps & open questions (as of 2026-08-19)
+- **Phase B is still unbuilt** — nothing reads `customer_phones`, so the "learn unlimited
+  numbers" half of the design isn't live and `phone_secondary` is still a single slot.
+- The 28 truly-ambiguous shared-phone clusters have no automatic answer and are parked.
+- A merge does not de-duplicate the resulting `customer_phones` rows (no unique on
+  `(customer_id, phone_norm)`), so a keeper can end up with the same number twice. Harmless, and
+  left alone so the log stays a faithful record of what moved.
+
 ## Known gaps & open questions (as of 2026-07-31)
 - Are the 72 shared-phone/different-name clusters all families (keep separate), or do some hide a
   real dupe? → the review report surfaces them; Cris adjudicates.
@@ -255,6 +375,12 @@ At the single insert (`createCustomer`, `advisor-board.html:3331`) and its wizar
 - Attach/learn-a-number: `shared/call-attach.js` (`phone_secondary` single slot).
 
 ## Session change log
+- 2026-08-19 — **Slice 1 of the merge built (§8), and four stale claims corrected.** §7's
+  "Phase A hand-run pending" was **wrong — it has been run on sandbox AND prod** (2,766 rows).
+  §3's counts and its "0 mix import+call-in" claim were stale. §6's FK list was missing
+  `customer_phones` and missed the `is_primary` partial-unique collision entirely; its "fill
+  blank keeper fields" and `completed_jobs` reconcile steps are dropped as unreversible. Added
+  the app-side archive filtering — without it archiving changes nothing a human can see.
 - 2026-08-18 — **Added §5a.** The intake wizard's phone lookup was blind to 62.6% of customers
   (the 1,000-row API cap), so the "call-in leak" this doc modelled was running far hotter than
   §3 estimated. Fixed; recorded here because it changes the read on where the 64 clusters came
