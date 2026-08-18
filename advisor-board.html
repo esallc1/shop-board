@@ -645,6 +645,14 @@
   import * as CallAttach from './shared/call-attach.js';
   window.CallAttach = CallAttach;
 </script>
+<!-- Auto-attach (Phase 2) decision logic (ESM). Assigns window.CallAutoAttach;
+     used only by event-driven attach handlers (Desk + caller card), which run
+     long after this module executes. Same rules the CTM webhook and the
+     hand-run backfills use — see docs/wiring/call-auto-attach.md. -->
+<script type="module">
+  import * as CallAutoAttach from './shared/call-auto-attach.js';
+  window.CallAutoAttach = CallAutoAttach;
+</script>
 <!-- Warranty / Comeback floor-mirror decision (ESM). Assigns
      window.WarrantyMirror; used only by the event-driven RO warranty toggle. -->
 <script type="module">
@@ -7140,6 +7148,48 @@
   })();
 
   // ══════════════════════════════════════════════════════════
+  // AUTO-FILE THE RO AFTER A HUMAN ATTACH (auto-attach Phase 2, call site 2)
+  //
+  // Rule 2 can't be a one-shot at call arrival: a call is very often matched to
+  // its customer minutes or days AFTER it came in — by Josh on the caller card,
+  // or from the Desk pick-list. At arrival there may have been no customer to
+  // check ROs for at all. So the open-RO check re-runs at the moment a HUMAN
+  // attaches, which is exactly what the pass-2 backfill did for the backlog.
+  //
+  // Shared by both attach paths (Desk performAttach + caller-card
+  // persistCustomer/saveNote), so it lives at script top level rather than in
+  // either IIFE. Best effort: any failure just leaves ro_id null.
+  //
+  // The `.is('ro_id', null)` guard makes this ATOMIC in the database — it fills
+  // an empty slot only. A human who has already filed this call to an RO can
+  // never be overwritten by the robot, no matter the ordering.
+  // ══════════════════════════════════════════════════════════
+  async function autoFileRoForCall(call) {
+    const AA = window.CallAutoAttach;
+    if (!AA || !call || call.id == null) return null;
+    const customerId = call.customer_id;
+    if (!customerId || !call.started_at) return null;
+    if (call.ro_id != null) return null;                 // already filed — leave it alone
+    try {
+      const { data, error } = await db.from('repair_orders')
+        .select('id, status, created_at, closed_at, declined_at')
+        .eq('customer_id', customerId);
+      if (error) { console.error('[auto-attach] RO lookup failed', error); return null; }
+      const roId = AA.pickOpenRoAt(data || [], call.started_at);
+      if (!roId) return null;                            // 0 or 2+ open at call time → never guess
+      const patch = AA.autoFileRoPatch(roId, new Date().toISOString());
+      const w = await db.from('calls').update(patch).eq('id', call.id).is('ro_id', null).select('id');
+      if (w.error) { console.error('[auto-attach] RO file failed', w.error); return null; }
+      if (!(w.data || []).length) return null;           // lost the race to a human — fine
+      Object.assign(call, patch);
+      return roId;
+    } catch (e) {
+      console.error('[auto-attach] RO file threw', e);
+      return null;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════
   // DESK (slice 3b) — callbacks + declined estimates + cars coming in,
   // plus a week drop-off calendar. Reads calls (slices 2/3a) and the existing
   // declined-estimate query on repair_orders. Owns its own realtime channel.
@@ -7688,6 +7738,13 @@
     // pre-migration DB the extended select 42703s and we fall back to LOG_COLS
     // with the attach actions + unattached filter dormant (attachColsAvailable).
     const LOG_COLS_ATTACH = LOG_COLS + ', attached_by_name, attached_at, learned_phone, not_a_customer_at, not_a_customer_by_name';
+    // Auto-attach (Phase 2) columns — a THIRD tier on top of LOG_COLS_ATTACH,
+    // tried first and falling back independently. It has to be its own tier:
+    // folding these into LOG_COLS_ATTACH would make the whole extended select
+    // 42703 on a project without the auto-attach migration (prod today) and
+    // silently switch the existing attach UI off. Un-attach needs
+    // auto_ro_filed_at to know whether an ro_id was the robot's to clear.
+    const LOG_COLS_AUTO = LOG_COLS_ATTACH + ', ro_id, auto_attached_at, auto_ro_filed_at, auto_attach_run_id';
     let attachColsAvailable = true;
     let logOpen = false;
     let logDay = startOfToday();
@@ -7733,9 +7790,11 @@
       const sel = (cols) => db.from('calls').select(cols)
         .gte('started_at', startISO).lt('started_at', endISO)
         .order('started_at', { ascending: false });   // newest first
-      // Try the extended select; if the attach columns aren't migrated in yet
-      // (42703) fall back to the base select with actions + filter dormant.
-      let resp = await sel(LOG_COLS_ATTACH);
+      // Try the widest select first and step down one tier at a time, so a
+      // project missing the auto-attach columns keeps the full attach UI, and a
+      // project missing the attach columns still loads the log.
+      let resp = await sel(LOG_COLS_AUTO);
+      if (resp.error && isMissingCol(resp.error)) resp = await sel(LOG_COLS_ATTACH);
       if (resp.error && isMissingCol(resp.error)) {
         attachColsAvailable = false;
         resp = await sel(LOG_COLS);
@@ -7967,6 +8026,10 @@
       const { error } = await db.from('calls').update(patch).eq('id', call.id);
       if (error) { console.error('[desk] attach failed', error); alert('Could not attach: ' + error.message); return; }
       Object.assign(call, patch);
+      // 3. Auto-attach call site 2 — now that we know WHO, re-run the open-RO
+      //    check for the moment the call came in. Best effort; ro_id stays null
+      //    unless exactly one RO was open. Never blocks or fails the attach.
+      await autoFileRoForCall(call);
       custIdx = null;                 // rebuild the phone index (a number may have been learned)
       attachAllCust = null;           // and drop the picker's snapshot so it can't feed a stale slot next time
       logLoad();
@@ -7976,6 +8039,12 @@
       // Decide BEFORE we overwrite learned_phone. Clears phone_secondary ONLY if
       // this attach learned it — a pre-existing number is never deleted.
       const clearsSecondary = CA.unattachClearsSecondary(call);
+      // The robot's marks come off with the attach. Un-attaching means "this
+      // call is not this person", so anything the machine derived from that
+      // link — including an ro_id IT filed — must go too. An ro_id a HUMAN
+      // filed is left standing (auto_ro_filed_at is null in that case).
+      const AA = window.CallAutoAttach;
+      const autoPatch = AA ? { ...AA.clearAutoTagsPatch(), ...(call.auto_ro_filed_at ? { ro_id: null } : {}) } : {};
       if (clearsSecondary && call.customer_id) {
         // Conditional delete: clear ONLY when phone_secondary STILL holds the
         // exact number this attach wrote (canonical 10 digits). If it changed
@@ -7986,7 +8055,7 @@
           .eq('id', call.customer_id).eq('phone_secondary', key).select('id');
         if (error) { console.error('[desk] un-learn phone failed', error); alert('Could not update the customer: ' + error.message); return; }
       }
-      const patch = CA.unattachCallPatch();
+      const patch = { ...CA.unattachCallPatch(), ...autoPatch };
       const { error } = await db.from('calls').update(patch).eq('id', call.id);
       if (error) { console.error('[desk] un-attach failed', error); alert('Could not un-attach: ' + error.message); return; }
       Object.assign(call, patch);
@@ -8269,7 +8338,11 @@
       const id = card._call && card._call.id;
       if (id == null) return;                       // dry-run card
       const { error } = await db.from('calls').update({ customer_id: customerId }).eq('id', id);
-      if (error) { console.error('[callerCard] customer save failed', error); card._customerPersisted = false; }
+      if (error) { console.error('[callerCard] customer save failed', error); card._customerPersisted = false; return; }
+      card._call.customer_id = customerId;
+      // Auto-attach call site 2 — a human just said who this is, so re-run the
+      // open-RO check. Best effort; the picker below still overrides it freely.
+      await autoFileRoForCall(card._call);
     }
 
     // Note / next_step / date / ro_id saves. On the FIRST such save we stamp
@@ -8277,14 +8350,21 @@
     // not-yet-persisted customer_id (single match). Idempotent per field.
     async function saveNote(card, patch) {
       const p = { ...patch };
+      // A human touching ro_id (the checking_on_car picker) takes that field out
+      // of the robot's namespace, so an auto-attach undo can never revoke it.
+      // ONLY auto_ro_filed_at is cleared — if the robot attached the CUSTOMER,
+      // auto_attached_at stays true, because it is still true.
+      if ('ro_id' in p && card._call && card._call.auto_ro_filed_at) p.auto_ro_filed_at = null;
       if (!card._noted) {
         p.noted_by_name = (CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
         p.noted_at = new Date().toISOString();
         card._noted = true;
       }
+      let foldedCustomer = false;
       if (card._customerId != null && !card._customerPersisted) {
         p.customer_id = card._customerId;
         card._customerPersisted = true;
+        foldedCustomer = true;
       }
       Object.assign(card._call, p);
       card._lastPatch = p;                          // exposed for local verification
@@ -8295,6 +8375,10 @@
       const { error } = await db.from('calls').update(p).eq('id', id);
       if (error) { console.error('[callerCard] note save failed', error); setSaved(card, 'error'); return; }
       setSaved(card, 'saved');
+      // Auto-attach call site 2 — only when THIS save is what first attached the
+      // customer, and only when the save didn't itself set ro_id (the
+      // checking_on_car picker). A human's explicit pick always wins.
+      if (foldedCustomer && !('ro_id' in p)) await autoFileRoForCall(card._call);
     }
 
     function headHtml(call) {

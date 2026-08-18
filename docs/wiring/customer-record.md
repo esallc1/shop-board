@@ -1,9 +1,9 @@
 # How the customer record is wired
 
 > Doc: `/docs/wiring/customer-record.md`
-> Last updated: 2026-08-12 — verified vs branch `feat/customer-record-two-column`
-> (record detail rebuilt into the two-column layout below; the Customers LIST — §7 —
-> is unchanged from `c9d7c54`)
+> Last updated: 2026-08-18 — verified vs branch `feat/call-auto-attach` (base `78e3472`)
+> (§5/§6 rewritten: Phase 2 auto-attach is BUILT, not deferred — see [[call-auto-attach]].
+> The two-column record itself and the Customers LIST — §7 — are unchanged from `420871c`.)
 > Status: ✅ verified — the two-column record eyeballed in-browser against live Supabase
 > (person + business, open-RO auto-expand, closed-RO lifetime $, per-RO call timeline,
 > unfiled "needs filing" section, accordion toggle, sticky profile); pure logic re-checked
@@ -86,22 +86,36 @@ tag for phone-matched calls. A confirmed entry has an accent left border; unconf
 
 ## 5. Calls granularity — bucketing to the finest link the schema supports
 `computeCallGroups()` puts every union call into exactly one bucket:
-1. **`byRo[roId]`** — the call's **`ro_id`** points at one of THIS customer's ROs. This is a
-   **real, human-set link** (the "checking on their car" RO picker, or an attach) — *not* the
-   deferred auto-attach — so the call is shown **under that RO** (and thus that vehicle).
+1. **`byRo[roId]`** — the call's **`ro_id`** points at one of THIS customer's ROs, so the call
+   is shown **under that RO** (and thus that vehicle). The link is either **human-set** (the
+   "checking on their car" RO picker, or an attach) or **machine-set** by auto-attach — the
+   page renders both identically; which one it was is recorded on the row
+   (`auto_ro_filed_at`), see [[call-auto-attach]] §3.
 2. **`byVehNoRo[vehId]`** — no RO link, but the call's **recording is assigned to a vehicle**
    (`custRecVehId`, §6) → shown at the **vehicle** level, under "Calls & notes · this vehicle".
 3. **`unfiled[]`** — links only to the customer → the **customer-level "needs filing"**
    section (`#custUnfiledCard`, `renderCustUnfiled`).
 
 Calls carry **no vehicle_id of their own**; the only call→vehicle paths are (1) via `ro_id`→RO
-and (2) via an assigned recording. **Deferred to Phase 2 (call auto-attach):** automatically
-linking more calls to ROs — which will move calls up from `unfiled`/`byVehNoRo` into `byRo`.
+and (2) via an assigned recording.
+
+**Phase 2 (call auto-attach) is BUILT — see [[call-auto-attach]].** It is what fills `byRo`
+without anybody typing: a call matching **exactly one** customer by phone is attached
+automatically, and if that customer had **exactly one RO open at the time of the call**, its
+`ro_id` is set too. It runs on arrival (CTM webhook) **and** re-runs whenever a human attaches
+a call. Two hand-run backfills already applied it to the sandbox backlog — calls carrying an
+`ro_id` went **4 → 46**, which is why the right column now has timelines under ROs at all.
+It never guesses: 0 or 2+ matches leave the call in `unfiled`, and on the sandbox that is still
+**~69% of the pile** (strangers whose number matches no customer). The "needs filing" section
+is not going away — it is getting smaller.
 
 ## 6. The one write — filing a recording to a vehicle
-Carried over unchanged from the old record view (it's the crew's current way to attach a
-recording; Phase 2 auto-attach will replace it). It lives **only in the unfiled "needs
-filing" section** — the natural home for a recording nobody has filed yet:
+Carried over unchanged from the old record view. It is the crew's way to attach a **recording
+to a vehicle**, and it is **still the only write on this page** — auto-attach ([[call-auto-attach]])
+turned out to be a different axis (call → customer → RO, written by the webhook and the Desk,
+never by this page), so it does **not** replace this control as §5 previously predicted. It
+lives **only in the unfiled "needs filing" section** — the natural home for a recording nobody
+has filed yet:
 - A **confirmed** recording that is currently unassigned gets a **`<select>`** of the
   customer's vehicles ("File to vehicle…"); an **unconfirmed** one gets a hint (attach the
   person link first — the server enforces this too).
@@ -174,6 +188,13 @@ then branches on whether the search box has text:
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
+- 2026-08-18 — **§5/§6 corrected: Phase 2 auto-attach shipped.** §5 no longer calls the
+  `byRo` link "human-set" or auto-attach "deferred" — `byRo` is now filled by the machine as
+  well as by hand, and the new [[call-auto-attach]] doc owns the rules. §6 drops the stale
+  prediction that auto-attach would replace the recording→vehicle control: it is a different
+  axis (call→customer→RO) written by the webhook and the Desk, never by this page, so that
+  control stands unchanged and remains this page's only write. No code changed in the record
+  view this session.
 - 2026-08-12 — **Rebuilt the record detail into the two-column layout** (§0, §4–§6): a
   sticky left profile ("Last, First" / business, Person·Business badge, contact fields shown
   only when present, since/last-activity, vehicles/ROs/**lifetime $** tiles) and a right-side
