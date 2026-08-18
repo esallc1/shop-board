@@ -1,13 +1,13 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-08-18 — verified vs branch `feat/call-auto-attach` (base `78e3472`)
-> (§2 + §3 rewritten: `ro_id` is no longer a property of the disposition — the RO picker
-> is now its own persistent "Filed to RO" row. See [[call-auto-attach]] §7.)
-> Status: ✅ verified — the decoupling exercised in-browser on a dry-run card: filing to an
-> RO then switching to `price_shopper` and `dropping_off` leaves `ro_id` intact, and the
-> step patch no longer contains `ro_id` at all. The rest of the doc is unchanged from
-> commit `932950b`.
+> Last updated: 2026-08-18 — verified vs branch `feat/confirm-phone-learn` (base `7860272`)
+> (§2c added: attaching a call no longer writes a phone number silently — it asks. §2 + §3
+> already carried the `ro_id`/disposition decoupling. See [[call-auto-attach]] §7 and §8.)
+> Status: ✅ verified — the confirm-before-learning flow (§2c) driven end-to-end in the real
+> Desk call log with every write intercepted (default-NO, default-YES, decline + no re-ask,
+> accept + `learned_phone`); the `ro_id` decoupling exercised on a dry-run card. The rest of
+> the doc is unchanged from commit `932950b`.
 
 ## 0. In one line
 An inbound call pops a card where the advisor picks **what happens next**; that choice
@@ -93,6 +93,48 @@ handler force-cleared `ro_id` for every other step — so a call filed to an RO 
 the moment the advisor picked a different disposition, and a customer calling about a closed
 job had nowhere to file it at all. Both behaviours are gone.
 
+## 2c. Attaching asks before it saves a phone number (`.log-learn`)
+Attaching a call in the **Desk call log** can also write the caller's number into the
+customer's empty `phone_secondary`. That used to happen **silently**, with nothing on screen
+to say so — and because the Customer Record unions phone-matched calls, a wrong attach then
+dragged every call from that number onto that customer's record ([[call-auto-attach]] §8 has
+the incident). The learning is wanted; the silence was the bug. So now it asks.
+
+**When it asks.** Only when a write would genuinely happen — `wouldLearnPhone`: the number
+isn't already on the customer, and the `phone_secondary` slot is empty. If nothing would be
+learned there is **no prompt** and the attach proceeds exactly as before.
+
+**How it asks.** Inline in the call's own row — *"Also save (305) 393-9103 as a second number
+for JOSE RAMIREZ?"* — never a blocking `confirm()`/`alert()`. It renders **from state**
+(`pendingLearn`), not injected into the DOM, so a `logLoad()` (realtime, day change, another
+attach) redraws the prompt instead of wiping it.
+
+**Which way it starts.** **NO** when that number already has other calls that aren't this
+customer's (`phoneLearnDefaultYes` / `countForeignCalls`), with the count shown as the reason.
+**Both kinds count as foreign**: a call attached to a *different* customer, and an
+**unattached** call — the second is the case that actually bit us (all six of Hector's calls
+were unattached). Otherwise **YES**. It is only a default; the advisor can answer either way.
+⚠️ A repeat caller from a genuinely new number will therefore default to NO once a couple of
+their calls have piled up unattached. Deliberate: declining costs a number nobody typed,
+accepting wrongly rewrites a customer record.
+
+**The attach is never blocked.** The call is linked **first**, with `learned_phone` false, and
+the evidence lookup runs *concurrently* with that write. Declining, dismissing, navigating
+away, or the lookup failing all leave the call attached. Only the phone write is in question.
+
+**Answering yes** runs the same atomic `attachPhoneLearn` as before (`setSecondaryIfNull` —
+writes only `WHERE phone_secondary IS NULL`, so a stale snapshot can never overwrite an
+occupied slot), then stamps `learned_phone = true` on the call, which is what lets **un-attach
+clear the number again** (§unchanged — `unattachClearsSecondary`).
+
+**Declining is remembered** in `localStorage` (`cdPhoneLearnDeclined`), keyed on the
+**(customer, number) pair** and capped at 200 entries, so the same question isn't asked again
+on the next call from that number.
+⚠️ **The cost of that choice, stated plainly:** `localStorage` is **per-browser**, not
+shop-wide. Josh declining on the front desk machine does not stop the question appearing for
+Kevin on his. A durable shop-wide decline needs a new table (or a column) and therefore a
+hand-run migration — which is why it isn't built. Say the word and it becomes one.
+
 ## 3. Switching chips clears the date (no stale carryover)
 A chip switch **always** resets the date: the handler writes
 `{ next_step, due_at: null, due_all_day: true }`. This exists because a date entered under
@@ -172,6 +214,14 @@ service-role key (same posture as `api/recording-assign.js`).
   done anyway?" confirm is an option if it ever bites.
 
 ## Where it lives in the code
+- **Confirm-before-learning (§2c):** decision logic in `shared/call-attach.js` —
+  `wouldLearnPhone`, `countForeignCalls`, `phoneLearnDefaultYes`, `phoneLearnDeclineKey`,
+  `isPhoneLearnDeclined`, `rememberPhoneLearnDecline` (tested in `shared/call-attach.test.js`).
+  Board side in the `desk` IIFE of `advisor-board.html`: `pendingLearn`, `planPhoneLearn`,
+  `answerPhoneLearn`, the hoisted `setSecondaryIfNull`, `loadLearnDeclines` /
+  `rememberLearnDecline` (localStorage `cdPhoneLearnDeclined`), the `.log-learn` block in the
+  row renderer, and the `learn-yes` / `learn-no` cases in the `.log-act` handler. CSS
+  `.log-learn*`.
 - Call window: `advisor-board.html` — `callerCard` IIFE (`formShellHtml`, `renderWhen`,
   `updateEcho`, `wireForm`, `saveNote`, `resolveCallCard`, `handleNewCall`; the realtime
   `subscribeCalls` + `backfillRecentCalls` + the `window.cdCallsHealthy /
@@ -190,6 +240,15 @@ service-role key (same posture as `api/recording-assign.js`).
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- 2026-08-18 — **Confirm before learning a phone number** (§2c). Attaching no longer performs a
+  silent second write to `customers`: when a number would be learned the row shows an inline
+  question, defaulted to NO when other calls from that number aren't this customer's. The attach
+  itself is unconditional and runs first (`learned_phone` false), the evidence lookup runs
+  concurrently with it, and a yes then does the same atomic `setSecondaryIfNull` + stamps
+  `learned_phone`. Declines are remembered per-browser in `localStorage`. Verified in-browser
+  with every write intercepted: default-NO case (5 foreign calls, warning shown), default-YES
+  case, decline → no `customers` write and no re-ask on the next attach, accept → atomic write
+  then `learned_phone: true`.
 - 2026-08-18 — **Decoupled `ro_id` from `next_step`** (§2, §2b, §3). The RO picker moved out
   of the `checking_on_car` branch of `renderWhen` into its own persistent `.cc-filed` row
   (`renderFiledRo`), shown under every disposition and under none; the chip handler no longer

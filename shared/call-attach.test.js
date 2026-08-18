@@ -12,6 +12,8 @@ import assert from 'node:assert/strict';
 import {
   isMissingColumn, phoneLearningPlan, attachPhoneLearn, attachCallPatch, unattachCallPatch,
   unattachClearsSecondary, notACustomerPatch, clearNotACustomerPatch, isUnattached,
+  wouldLearnPhone, countForeignCalls, phoneLearnDefaultYes, phoneLearnDeclineKey,
+  isPhoneLearnDeclined, rememberPhoneLearnDecline, PHONE_LEARN_DECLINE_CAP,
 } from './call-attach.js';
 
 // A fake `customers` table backed by one row, with an ATOMIC setSecondaryIfNull
@@ -215,4 +217,114 @@ test('isMissingColumn detects the pre-migration errors', () => {
   assert.ok(isMissingColumn({ message: 'column "learned_phone" does not exist' }));
   assert.ok(!isMissingColumn({ code: '23503' }));
   assert.ok(!isMissingColumn(null));
+});
+
+// ── CONFIRM BEFORE LEARNING ──────────────────────────────────
+// The real incident these lock in: attaching one call from 305-393-9103
+// (Hector's number, 6 unattached calls already in the table) to JOSE RAMIREZ
+// silently wrote it into Jose's empty phone_secondary, and every one of those
+// calls then surfaced on Jose's record as "unconfirmed".
+const JOSE = { id: 'jose', name: 'JOSE RAMIREZ', phone_primary: '8135909459', phone_secondary: null };
+const HECTOR_NUM = '3053939103';
+
+// ── wouldLearnPhone: ask ONLY when a write would really happen ──
+test('wouldLearnPhone is true only when a number would actually be saved', () => {
+  assert.equal(wouldLearnPhone(HECTOR_NUM, JOSE), true);                       // new number, empty slot
+  assert.equal(wouldLearnPhone('8135909459', JOSE), false);                    // already the primary
+  assert.equal(wouldLearnPhone('(813) 590-9459', JOSE), false);                // same number, formatted
+  assert.equal(wouldLearnPhone(HECTOR_NUM, { ...JOSE, phone_secondary: HECTOR_NUM }), false);  // already the secondary
+  assert.equal(wouldLearnPhone(HECTOR_NUM, { ...JOSE, phone_secondary: '2395551234' }), false); // slot occupied — never overwrite
+  assert.equal(wouldLearnPhone('12345', JOSE), false);                         // not 10 digits
+  assert.equal(wouldLearnPhone(null, JOSE), false);
+  assert.equal(wouldLearnPhone(HECTOR_NUM, null), false);
+});
+
+test('wouldLearnPhone agrees with phoneLearningPlan — one source of truth', () => {
+  // The prompt must never appear when the writer would decline to write, and
+  // never be skipped when it would write. Same gate, asserted together.
+  const cases = [
+    [HECTOR_NUM, JOSE], ['8135909459', JOSE], [HECTOR_NUM, { ...JOSE, phone_secondary: '2395551234' }],
+    ['', JOSE], [HECTOR_NUM, {}],
+  ];
+  for (const [num, cust] of cases) {
+    assert.equal(wouldLearnPhone(num, cust), !!phoneLearningPlan(num, cust).customerPatch);
+  }
+});
+
+// ── countForeignCalls / phoneLearnDefaultYes: which way the prompt starts ──
+test('UNATTACHED calls from the number count as foreign — the case that bit us', () => {
+  // Hector's other 5 calls are all customer_id null. "Nobody has claimed these"
+  // is still evidence the number may not be Jose's.
+  const others = [{ customer_id: null }, { customer_id: null }, { customer_id: null }, { customer_id: null }, { customer_id: null }];
+  assert.equal(countForeignCalls(others, 'jose'), 5);
+  assert.equal(phoneLearnDefaultYes(others, 'jose'), false, 'must default to NO');
+});
+
+test('calls attached to a DIFFERENT customer count as foreign', () => {
+  assert.equal(countForeignCalls([{ customer_id: 'someone-else' }], 'jose'), 1);
+  assert.equal(phoneLearnDefaultYes([{ customer_id: 'someone-else' }], 'jose'), false);
+});
+
+test('calls already belonging to THIS customer are not foreign', () => {
+  const others = [{ customer_id: 'jose' }, { customer_id: 'jose' }];
+  assert.equal(countForeignCalls(others, 'jose'), 0);
+  assert.equal(phoneLearnDefaultYes(others, 'jose'), true, 'a number they already call from → default YES');
+});
+
+test('no other calls at all → default YES (a genuinely new number)', () => {
+  assert.equal(phoneLearnDefaultYes([], 'jose'), true);
+  assert.equal(phoneLearnDefaultYes(null, 'jose'), true);
+  assert.equal(countForeignCalls(null, 'jose'), 0);
+});
+
+test('one foreign call among this customer\'s own is enough to default NO', () => {
+  const others = [{ customer_id: 'jose' }, { customer_id: 'jose' }, { customer_id: null }];
+  assert.equal(countForeignCalls(others, 'jose'), 1);
+  assert.equal(phoneLearnDefaultYes(others, 'jose'), false);
+});
+
+test('countForeignCalls ignores junk rows and compares ids as strings', () => {
+  assert.equal(countForeignCalls([null, undefined, { customer_id: 'jose' }], 'jose'), 0);
+  assert.equal(countForeignCalls([{ customer_id: 7 }], 7), 0);      // number vs number
+  assert.equal(countForeignCalls([{ customer_id: '7' }], 7), 0);    // string vs number id
+});
+
+// ── the decline memo ──
+test('phoneLearnDeclineKey scopes a decline to the (customer, number) PAIR', () => {
+  const k = phoneLearnDeclineKey('jose', '(305) 393-9103');
+  assert.equal(k, 'jose|3053939103');                               // normalized to last-10
+  assert.notEqual(k, phoneLearnDeclineKey('other-cust', HECTOR_NUM), 'a different customer is a different question');
+  assert.notEqual(k, phoneLearnDeclineKey('jose', '2395551234'), 'a different number is a different question');
+  assert.equal(phoneLearnDeclineKey(null, HECTOR_NUM), null);
+  assert.equal(phoneLearnDeclineKey('jose', '12345'), null);        // not a usable number
+});
+
+test('isPhoneLearnDeclined works with an Array or a Set, and is false when unknown', () => {
+  const k = phoneLearnDeclineKey('jose', HECTOR_NUM);
+  assert.equal(isPhoneLearnDeclined([k], 'jose', HECTOR_NUM), true);
+  assert.equal(isPhoneLearnDeclined(new Set([k]), 'jose', HECTOR_NUM), true);
+  assert.equal(isPhoneLearnDeclined([], 'jose', HECTOR_NUM), false);
+  assert.equal(isPhoneLearnDeclined(null, 'jose', HECTOR_NUM), false);
+  assert.equal(isPhoneLearnDeclined([k], 'other-cust', HECTOR_NUM), false);
+  assert.equal(isPhoneLearnDeclined([k], 'jose', '2395551234'), false);
+});
+
+test('rememberPhoneLearnDecline appends, de-dupes, caps, and never mutates', () => {
+  const k1 = 'jose|3053939103', k2 = 'jose|2395551234';
+  const start = [k1];
+  const out = rememberPhoneLearnDecline(start, k2);
+  assert.deepEqual(out, [k1, k2]);
+  assert.deepEqual(start, [k1], 'input must not be mutated');
+  assert.deepEqual(rememberPhoneLearnDecline([k1, k2], k1), [k2, k1], 're-declining moves it to newest, no duplicate');
+  const many = Array.from({ length: 5 }, (_, i) => 'c|' + i);
+  assert.deepEqual(rememberPhoneLearnDecline(many, 'c|new', 3), ['c|3', 'c|4', 'c|new'], 'capped to the newest N');
+  assert.equal(PHONE_LEARN_DECLINE_CAP, 200);
+});
+
+test('a decline is remembered but NEVER blocks the attach itself', () => {
+  // The memo only suppresses the QUESTION. attachCallPatch — the thing that
+  // actually links the call — has no knowledge of it and no learned flag set.
+  const p = attachCallPatch('jose', 'Josh', '2026-08-18T00:00:00.000Z', false);
+  assert.equal(p.customer_id, 'jose');
+  assert.equal(p.learned_phone, false);
 });
