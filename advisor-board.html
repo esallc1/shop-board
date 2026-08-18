@@ -530,6 +530,10 @@
   .cust-rec-vehsel { font-size:0.74rem; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:2px 6px; background:#fff; max-width:60%; cursor:pointer; }
   .cust-rec-vehsel:focus { outline:none; border-color:var(--accent); }
   .cust-rec-hint { font-size:0.7rem; font-style:italic; color:var(--muted); margin-top:3px; }
+  /* "This record was merged into …" — an archived loser opened by id still
+     renders; this is the pointer to the survivor (customer-dedupe.md §8). */
+  .cust-merged-note { margin:0 0 12px; padding:10px 12px; border:1px solid var(--amber); border-radius:9px; background:#fffaf0; font-size:0.78rem; color:#7c2d12; line-height:1.45; }
+  .cust-merged-go { display:block; margin-top:8px; font-size:0.74rem; font-weight:700; color:var(--accent); background:#fff; border:1px solid var(--accent); border-radius:7px; padding:4px 10px; cursor:pointer; }
   /* "auto" chip — a machine made this link. Neutral slate, deliberately calmer
      than the amber "unconfirmed" tag: auto is informational, not a warning. */
   .cust-rec-auto { font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:#475569; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:999px; padding:1px 7px; cursor:help; }
@@ -722,6 +726,13 @@
 <script type="module">
   import * as PhoneLookup from './shared/phone-lookup.js';
   window.PhoneLookup = PhoneLookup;
+</script>
+<!-- Post-merge visibility (ESM). Assigns window.CustomerArchive. Every read
+     that SEARCHES or MATCHES customers excludes archived rows through this;
+     reads BY ID do not. See docs/wiring/customer-dedupe.md §8. -->
+<script type="module">
+  import * as CustomerArchive from './shared/customer-archive.js';
+  window.CustomerArchive = CustomerArchive;
 </script>
 <!-- Call-recording play-button render-state logic (ESM). Assigns
      window.RecordingPlayer; used by the call-log slide-out. Pure/DOM-free —
@@ -3374,14 +3385,27 @@
         // The pattern only NARROWS; confirmPhoneMatches re-checks exact last-10
         // on every row, so an over-broad pattern cannot produce a wrong match.
         const PL = window.PhoneLookup;
+        const CAR = window.CustomerArchive;
         const orFilter = PL && PL.phoneOrFilter(key);
         if (!orFilter) throw new Error('Enter a full phone number.');
-        const { data, error } = await db
-          .from('customers')
-          .select('id, name, business_name, phone_primary, phone_secondary')
-          .or(orFilter);
+        // Exclude MERGED-AWAY customers. Archiving a loser is pointless if the
+        // wizard still matches it — the advisor would be handed the dead row.
+        // The filter is server-side where the migration has run, and falls back
+        // to an unfiltered read + client-side filter where it hasn't, so this
+        // works on a project with or without the columns.
+        const SEL = 'id, name, business_name, phone_primary, phone_secondary';
+      // isMissingColumn lives in a different IIFE; use the shared one.
+      const missingColX = (e) => (window.CallAttach && window.CallAttach.isMissingColumn)
+        ? window.CallAttach.isMissingColumn(e)
+        : !!(e && (e.code === '42703' || e.code === 'PGRST204' || /column .* does not exist/i.test(e.message || '')));
+        let resp = await db.from('customers').select(SEL + ', ' + CAR.MERGE_COLS)
+          .or(orFilter).is(CAR.ARCHIVED_COL, null);
+        if (resp.error && missingColX(resp.error)) {
+          resp = await db.from('customers').select(SEL).or(orFilter);
+        }
+        const { data, error } = resp;
         if (error) throw error;
-        const matches = PL.confirmPhoneMatches(data, key);
+        const matches = PL.confirmPhoneMatches(CAR.filterActive(data), key);
 
         if (matches.length === 0) {
           // new customer — prefill the phone as entered
@@ -6422,6 +6446,7 @@
     const CR = () => window.CustomerRecord;
     let custCustomer = null, custVehicles = [], custRos = [], custVehById = {}, custRoById = {};
     let custVehQuery = '';        // the fleet-filter text; display-only, never persisted
+    let custMergedKeeper = null;  // the survivor row, when this record was merged away (§8)
     let custTotals = {}, custRecCallsAll = [], custRecIdx = {}, custSecondaryLearned = false;
     let custRecAssigned = {};   // call id → session vehicle assignment (via api/recording-assign)
     let custOpenVeh = null;     // which vehicle accordion row is expanded (id string, or null)
@@ -6657,6 +6682,7 @@
       // A new customer starts unfiltered — a query left over from the last one
       // would silently hide vehicles on this record.
       custVehQuery = '';
+      custMergedKeeper = null;
       const vehSearchEl = $('custVehSearch'); if (vehSearchEl) vehSearchEl.value = '';
       $('custVehFilter').style.display = 'none';
       custOpenVeh = null;
@@ -6664,9 +6690,19 @@
       custRecAssigned = {};
       // customer row (contact fields shown only if present — the ALLDATA import +
       // intake both populate email/address_*/city/state/postal_code)
-      const custResp = await db.from('customers')
-        .select('id, name, business_name, phone_primary, phone_secondary, email, address_line1, address_line2, city, state, postal_code, tax_exempt, last_invoiced')
+      // BY ID — deliberately NOT filtered on archived_at. A merged-away record
+      // opened directly still renders, with a pointer to the survivor (§8); a
+      // 404 on a link that worked yesterday would be worse than a stale page.
+      const CUST_SEL = 'id, name, business_name, phone_primary, phone_secondary, email, address_line1, address_line2, city, state, postal_code, tax_exempt, last_invoiced';
+      let custResp = await db.from('customers')
+        .select(CUST_SEL + ', ' + (window.CustomerArchive ? window.CustomerArchive.MERGE_COLS : 'id'))
         .eq('id', id).maybeSingle();
+      const missingColC = (e) => (window.CallAttach && window.CallAttach.isMissingColumn)
+        ? window.CallAttach.isMissingColumn(e)
+        : !!(e && (e.code === '42703' || e.code === 'PGRST204' || /column .* does not exist/i.test(e.message || '')));
+      if (custResp.error && missingColC(custResp.error)) {
+        custResp = await db.from('customers').select(CUST_SEL).eq('id', id).maybeSingle();
+      }
       if (seq !== custLoadSeq) return;
       const cust = custResp.data;
       if (custResp.error || !cust) {
@@ -6674,6 +6710,18 @@
         return;
       }
       custCustomer = cust;
+      // If this record was merged away, load the survivor so the banner can name
+      // it and link to it. Best effort — a failed lookup just drops the button.
+      custMergedKeeper = null;
+      const CARm = window.CustomerArchive;
+      const keeperId = CARm && CARm.mergedIntoId(cust);
+      if (keeperId) {
+        try {
+          const k = await db.from('customers').select('id, name, business_name').eq('id', keeperId).maybeSingle();
+          if (!k.error && k.data) custMergedKeeper = k.data;
+        } catch (e) { console.warn('[cust] merged-keeper lookup failed', e); }
+        if (seq !== custLoadSeq) return;
+      }
       // vehicles (order stable; the accordion re-sorts by recent activity)
       const vehResp = await db.from('vehicles').select('id, year, make, model, vin, plate').eq('customer_id', id).order('created_at', { ascending: true });
       // repair_orders (declined_at may be absent pre-migration → fall back)
@@ -6826,7 +6874,16 @@
         `<div class="cust-tile"><div class="n">${esc(custVehicles.length)}</div><div class="k">Vehicles</div></div>` +
         `<div class="cust-tile"><div class="n">${esc(custRos.length)}</div><div class="k">Repair orders</div></div>` +
         (lifetime != null ? `<div class="cust-tile"><div class="n">$${esc(Number(lifetime).toFixed(0))}</div><div class="k">Lifetime</div></div>` : '');
+      // "This record was merged into …" — shown only on an archived row that has
+      // a keeper. custMergedKeeper is filled by loadCustomerRecord.
+      const CAR = window.CustomerArchive;
+      const mergedBanner = (CAR && CAR.shouldShowMergedBanner(c))
+        ? `<div class="cust-merged-note">${esc(CAR.mergedBannerText(custMergedKeeper && (custMergedKeeper.business_name || custMergedKeeper.name)))}` +
+          (custMergedKeeper ? `<button type="button" class="cust-merged-go" data-open-cust="${esc(custMergedKeeper.id)}">Open ${esc(custMergedKeeper.business_name || custMergedKeeper.name)}</button>` : '') +
+          `</div>`
+        : '';
       $('custProfile').innerHTML =
+        mergedBanner +
         `<span class="cust-badge">${isBiz ? 'Business' : 'Person'}</span>` +
         `<div class="cust-name">${esc(title)}</div>` +
         (isBiz && c.name && c.name.trim() ? `<div class="cust-biz">Contact: ${esc(c.name.trim())}</div>` : '') +
@@ -7182,6 +7239,8 @@
         if (ro) { openRoFromCustomer(ro.dataset.openRo); return; }
         const head = e.target.closest('.cust-veh-head');
         if (head) { toggleVeh(head.dataset.veh); return; }
+        const goCust = e.target.closest('[data-open-cust]');
+        if (goCust) { showCustomerRecord(goCust.dataset.openCust); return; }
       });
       // The filter box is static markup (not re-rendered), so it takes direct
       // listeners — which is also what keeps focus and the caret alive while
@@ -8571,19 +8630,42 @@
     // paged reads per ring is fine; no migration/index needed at this size.
     const CUST_FULL = 'id, name, business_name, phone_primary, phone_secondary, last_invoiced, city, state';
     const CUST_CORE = 'id, name, business_name, phone_primary, phone_secondary';
+    // Every SEARCH/MATCH surface reads through this one function — the A–Z
+    // Customers list, matchCustomers on the caller card, the Desk attach picker,
+    // and cdOpenCustomerByPhone — so excluding merged-away customers HERE
+    // covers all four. Archived rows are dropped server-side where the merge
+    // migration has run; where it hasn't, the select 42703s and we fall back to
+    // the plain column list, and filterActive is then a no-op. Reads BY ID
+    // (loadCustomerRecord) deliberately do NOT filter — see §8.
+    let custArchiveCols = true;                            // false once we learn the columns aren't there
+    // The RO-wizard IIFE has its own isMissingColumn; this IIFE doesn't, so use
+    // the shared one from call-attach.js (with an inline fallback so a module
+    // that failed to load can't break the customer list).
+    const missingCol = (e) => (window.CallAttach && window.CallAttach.isMissingColumn)
+      ? window.CallAttach.isMissingColumn(e)
+      : !!(e && (e.code === '42703' || e.code === 'PGRST204' || /column .* does not exist/i.test(e.message || '')));
     async function fetchAllCustomers() {
       const PAGE = 1000;
+      const CAR = window.CustomerArchive;
       let cols = CUST_FULL, all = [], from = 0;
+      const read = (c, f) => {
+        const q = db.from('customers').select(custArchiveCols && CAR ? c + ', ' + CAR.MERGE_COLS : c);
+        return (custArchiveCols && CAR ? q.is(CAR.ARCHIVED_COL, null) : q).range(f, f + PAGE - 1);
+      };
       for (;;) {
-        let resp = await db.from('customers').select(cols).range(from, from + PAGE - 1);
+        let resp = await read(cols, from);
+        if (resp.error && custArchiveCols && missingCol(resp.error)) {
+          custArchiveCols = false;                         // pre-migration project → stop asking
+          resp = await read(cols, from);
+        }
         if (resp.error && cols === CUST_FULL) {            // missing column → downgrade once
           cols = CUST_CORE;
-          resp = await db.from('customers').select(cols).range(from, from + PAGE - 1);
+          resp = await read(cols, from);
         }
         if (resp.error) { console.error('[callerCard] customer page load failed', resp.error); break; }
-        const batch = resp.data || [];
+        const batch = CAR ? CAR.filterActive(resp.data) : (resp.data || []);
         all = all.concat(batch);
-        if (batch.length < PAGE) break;
+        if ((resp.data || []).length < PAGE) break;
         from += PAGE;
         if (from > 100000) break;                          // safety valve
       }
