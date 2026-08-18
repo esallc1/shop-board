@@ -1,7 +1,10 @@
 # Customer duplicates & multi-phone (investigation + design)
 
 > Doc: `/docs/wiring/customer-dedupe.md`
-> Last updated: 2026-07-31 — verified vs commit `c2a180d`
+> Last updated: 2026-08-18 — verified vs branch `feat/vehicle-dup-guard` (base `3d61620`)
+> (§5b added: the VEHICLE half, which this doc never covered — §5's intake guard was designed
+> for customers only. Vehicle numbers re-measured live 2026-08-18. §1–§4, §6–§7 unchanged from
+> `c2a180d`.)
 > Status: 🟡 DESIGN APPROVED · **Phase A migration WRITTEN (hand-run pending), nothing else built.**
 > §1–§3 (today's wiring + the live dupe scope) verified against `migrations/*.sql`,
 > `advisor-board.html`, `shared/*.js`, and **live rows** (anon read, 2026-07-31). §4–§7 are the
@@ -108,6 +111,57 @@ ALLDATA import already brought in. Proposal: a **multi-phone table**, an **intak
   household) shows a small picker instead of guessing. This is what makes "wife's number" resolve to
   the husband's record instead of minting a dupe.
 
+## 5b. VEHICLE duplicates — the other half of the leak ✅ GUARD SHIPPED
+This doc's §5 designs the intake guard for **customers**. Vehicles have the same leak and it was
+never written down anywhere until now.
+
+### The leak (fixed 2026-08-18)
+`saveVehicle` inserted **unconditionally** — re-typing a truck on "+ Add a different vehicle"
+minted a second row. The guard is now built and lives in [[intake-wizard]] §3: customer-scoped
+matching on VIN → plate → make+model, the insert gated on a VIN or plate hit, and a make+model-only
+match saving silently (the fleet failure mode). `saveVehicle` is the **only** vehicle insert site
+in the codebase — verified 2026-08-18.
+
+### The backlog (measured live 2026-08-18, NOT cleaned)
+| Signal, same customer | Groups | Rows |
+|---|---:|---:|
+| Same normalized VIN | 25 | 50 |
+| Same normalized plate (trailing `" 00"` removed) | 27 | 54 |
+| Same make+model with ≥1 row missing the year — **raw** | 165 | 371 |
+| …of which genuinely different vehicles (conflicting VINs/plates — fleets) | 140 | 321 |
+| …of which real duplicate candidates | 25 | 50 |
+| **Union of all signals** | **29** | **58** |
+
+⚠️ The raw make+model count is **85% noise** — the biggest "group" is eleven Ford Transit
+Connects at one fleet customer with ten distinct VINs. Any rule keyed on make+model alone would
+flag fleets constantly. This is why the guard never prompts on it.
+
+**Two findings that change the priority:**
+1. **History is never actually split.** In all 29 groups the ROs and recordings sit on **exactly
+   one** row; the twin is always empty. So the damage is a confusing phantom row, not lost
+   history — and every cleanup is a clean repoint with **nothing to reconcile**.
+2. **Every existing duplicate is an IMPORT COLLISION, not advisor re-typing.** 27 of the 58 rows
+   were typed into CrisData during the 07-16→07-27 pilot and 31 arrived with the import on 07-28;
+   **zero** were created after it. 18 vehicles have been added since and not one duplicates an
+   existing row. The code leak was real but had not fired in three weeks of live use.
+
+### VIN is NOT globally unique — 35 VINs under 2+ customers
+| What they actually are | VINs |
+|---|---:|
+| Same normalized customer name → duplicate CUSTOMER | 9 |
+| Different name but shared phone → almost certainly also a dup customer | 14 |
+| Genuinely different people → resale, or a harder dup | 12 |
+
+Even the last bucket is mostly dup customers on inspection (`Guardian Hurricane Protection` /
+`GUARDIAN HURRRICANE PROTECTION`; `Aristocrat Plumbing` / `Aristocrat Plumbing Inc.`). True
+resales are likely 3–5 VINs in the whole table. **Never scope a vehicle rule globally.**
+
+### Cleanup order
+**Run the customer merge (§6) FIRST.** ~23 of the 35 cross-customer VIN collisions are duplicate
+customers, and §6 step 2 already collapses same-VIN vehicles *within* the keeper — so merging
+customers first collapses a chunk of the vehicle duplicates for free, and shrinks the standalone
+vehicle cleanup to whatever is left.
+
 ## 5. Intake dedupe guard — stop the leak (client-side, no schema change beyond §4)
 At the single insert (`createCustomer`, `advisor-board.html:3331`) and its wizard pre-check
 (`lookupPhone:3116`):
@@ -186,6 +240,12 @@ At the single insert (`createCustomer`, `advisor-board.html:3331`) and its wizar
 - Attach/learn-a-number: `shared/call-attach.js` (`phone_secondary` single slot).
 
 ## Session change log
+- 2026-08-18 — **Added §5b, the vehicle half.** This doc only ever covered customer duplicates;
+  the vehicle equivalent existed nowhere. Recorded the `saveVehicle` leak (now guarded — see
+  [[intake-wizard]] §3), the re-measured backlog (29 groups / 58 rows, union of VIN + plate +
+  consistent make/model), the two findings that de-prioritize it (history is never split; every
+  existing duplicate is an import collision and none post-date it), the 35 cross-customer VIN
+  breakdown, and the cleanup order (customers first — it collapses vehicle dups for free).
 - 2026-07-31 — Created during the "customer duplicates & multi-phone" investigation. Verified the
   two-phone-slot model + no-unique-constraint, the 4 `customer_id` FK child tables (vehicles/ROs/
   interactions/calls) + their ON DELETE, the phone-only match + the single dupe-minting insert
