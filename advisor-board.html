@@ -1223,6 +1223,14 @@
     .log-act:hover { border-color:var(--accent); background:var(--surface-2); }
     .log-act.primary { border-color:var(--accent); color:var(--accent); }
     .log-act.suggest { border-color:var(--accent); background:var(--accent); color:#fff; }
+    /* "Also save this number?" — the confirm that replaced a silent write.
+       Amber like the other "look at this" treatments on the row, and visually
+       part of the row it belongs to, not a floating dialog. */
+    .log-learn { margin-top:8px; padding:9px 10px; border:1px solid var(--amber); border-radius:9px; background:#fffaf0; }
+    .log-learn-q { font-size:0.76rem; color:#7c2d12; line-height:1.45; }
+    .log-learn-why { font-size:0.7rem; color:#92400e; margin-top:5px; line-height:1.4; }
+    .log-learn-acts { display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap; }
+    .log-learn-foot { font-size:0.66rem; color:var(--muted); margin-top:6px; font-style:italic; }
     .log-attached { font-size:0.72rem; font-weight:800; color:#166534; }
     .log-nac { font-size:0.72rem; font-weight:800; color:var(--muted); }
     .desk-attach { position:absolute; inset:0; background:#fff; display:flex; flex-direction:column; transform:translateX(100%); transition:transform .18s ease; z-index:2; }
@@ -8005,6 +8013,27 @@
           }
         }
 
+        // The "also save this number?" question, rendered FROM STATE so a
+        // re-render (realtime, refresh, another attach) redraws it instead of
+        // wiping it. The call is already attached at this point — this asks
+        // about the phone write only, and dismissing it changes nothing.
+        let learnAsk = '';
+        if (pendingLearn && String(pendingLearn.callId) === String(c.id)) {
+          const p = pendingLearn;
+          const why = p.foreign
+            ? `<div class="log-learn-why">⚠ ${esc(p.foreign)} other call${p.foreign === 1 ? '' : 's'} from this number ${p.foreign === 1 ? 'is' : 'are'} not ${esc(p.customerLabel)}'s — it may be someone else's phone.</div>`
+            : '';
+          learnAsk = `<div class="log-learn">
+            <div class="log-learn-q">Also save <b>${esc(p.numberLabel)}</b> as a second number for <b>${esc(p.customerLabel)}</b>?</div>
+            ${why}
+            <div class="log-learn-acts">
+              <button type="button" class="log-act${p.defaultYes ? ' primary' : ''}" data-act="learn-yes" data-id="${esc(c.id)}">Save the number</button>
+              <button type="button" class="log-act${p.defaultYes ? '' : ' primary'}" data-act="learn-no" data-id="${esc(c.id)}">No — don't save it</button>
+            </div>
+            <div class="log-learn-foot">The call stays attached either way.</div>
+          </div>`;
+        }
+
         return `<div class="log-row${untouched ? ' untouched' : ''}" data-open-phone="${esc(c.caller_bare || '')}">
           <div class="log-row-top">
             <span class="log-time">${esc(t)}</span>
@@ -8013,7 +8042,7 @@
           </div>
           ${cnam}${newcaller}${note}${nextstep}${untouchedTag}
           <div class="log-rec" data-rec-call="${esc(c.id)}"></div>
-          ${actions}
+          ${actions}${learnAsk}
         </div>`;
       }).join('');
       // Row click → open the customer (matched) or the create-customer step
@@ -8031,6 +8060,8 @@
         else if (act === 'unattach') performUnattach(call);
         else if (act === 'nac') performNotACustomer(call);
         else if (act === 'clear-nac') performClearNotACustomer(call);
+        else if (act === 'learn-yes') answerPhoneLearn(true);
+        else if (act === 'learn-no') answerPhoneLearn(false);
       }));
       // Recording play buttons — ONE batched call for every visible row (not one
       // request per row). Async, so it can't hold up the log paint.
@@ -8122,41 +8153,117 @@
     // All go through the tested shared/call-attach.js. customer_id is written
     // ONLY here (deliberate confirmation), never on passive render.
     const l10Local = (s) => (window.cdLast10 ? window.cdLast10(s) : String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
-    async function performAttach(call, customer) {
-      const CA = window.CallAttach; if (!CA || !call || !customer) return;
-      const l10 = window.cdLast10;
-      const byName = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
-      // 1. Phone learning — ATOMIC. The `customer` handed in here is a cached
-      //    snapshot (from custIdx / attachAllCust, loaded before earlier attaches),
-      //    so its phone_secondary can read empty when the real slot is already
-      //    full. The empty/occupied decision therefore CANNOT live in JS: this
-      //    writer sets phone_secondary only WHERE it is currently NULL, in the DB.
-      //    A stale "empty" read matches zero rows → nothing is overwritten, and
-      //    learned_phone is derived from the row count, never from the snapshot.
-      //    phone_primary is never a write target (enforced in call-attach.js).
-      const setSecondaryIfNull = async (custId, value) => {
-        const r = await db.from('customers').update({ phone_secondary: value })
-          .eq('id', custId).is('phone_secondary', null).select('id');
-        if (r.error) throw r.error;
-        return (r.data || []).length;          // 1 = claimed the empty slot, 0 = already occupied
-      };
-      let learn;
+
+    // ── Phone learning: ATOMIC writer ──────────────────────────────────
+    // The `customer` snapshot handed around here (from custIdx / attachAllCust)
+    // can read phone_secondary empty when the real slot is already full, so the
+    // empty/occupied decision CANNOT live in JS: this writer sets the column
+    // only WHERE it is currently NULL, in the DB. A stale "empty" read matches
+    // zero rows → nothing is overwritten, and learned_phone is derived from the
+    // row count, never from the snapshot. phone_primary is never a write target
+    // (enforced in call-attach.js).
+    const setSecondaryIfNull = async (custId, value) => {
+      const r = await db.from('customers').update({ phone_secondary: value })
+        .eq('id', custId).is('phone_secondary', null).select('id');
+      if (r.error) throw r.error;
+      return (r.data || []).length;          // 1 = claimed the empty slot, 0 = already occupied
+    };
+
+    // ── The "also save this number?" question ──────────────────────────
+    // Attaching a call used to ALSO write the caller's number into the
+    // customer's empty phone_secondary, silently. Because the customer record
+    // unions phone-matched calls, a wrong attach then dragged every call from
+    // that number onto that customer's record — and un-doing the call did not
+    // un-do the phone. The learning is wanted; the silence was the bug.
+    //
+    // pendingLearn is rendered by the row renderer, NOT injected into the DOM
+    // here, so a logLoad() (realtime, refresh, another attach) re-renders the
+    // prompt instead of wiping it.
+    let pendingLearn = null;
+    const LEARN_DECLINE_STORE = 'cdPhoneLearnDeclined';
+    function loadLearnDeclines() {
+      try { const v = JSON.parse(localStorage.getItem(LEARN_DECLINE_STORE) || '[]'); return Array.isArray(v) ? v : []; }
+      catch (e) { return []; }
+    }
+    function rememberLearnDecline(customerId, callerBare) {
+      const CA = window.CallAttach; if (!CA) return;
+      const key = CA.phoneLearnDeclineKey(customerId, callerBare, window.cdLast10);
+      if (!key) return;
+      try { localStorage.setItem(LEARN_DECLINE_STORE, JSON.stringify(CA.rememberPhoneLearnDecline(loadLearnDeclines(), key))); }
+      catch (e) { /* storage full / disabled → we just ask again next time */ }
+    }
+
+    // Decide whether to ask, and which way the prompt starts. Read-only; runs
+    // CONCURRENTLY with the attach write so the question never delays the link.
+    async function planPhoneLearn(call, customer) {
+      const CA = window.CallAttach;
+      if (!CA || !CA.wouldLearnPhone(call.caller_bare, customer, window.cdLast10)) return null;
+      if (CA.isPhoneLearnDeclined(loadLearnDeclines(), customer.id, call.caller_bare, window.cdLast10)) return null;
+      // Other calls from this number that aren't this customer's — the evidence
+      // for the default. The day-scoped log in memory isn't enough; this asks the
+      // whole table. If it fails we simply have no evidence and default to yes.
+      let others = [];
       try {
-        learn = await CA.attachPhoneLearn({ callerBare: call.caller_bare, customer, last10: l10, setSecondaryIfNull });
+        const r = await db.from('calls').select('id, customer_id')
+          .eq('caller_bare', call.caller_bare).neq('id', call.id);
+        if (!r.error) others = r.data || [];
+      } catch (e) { console.warn('[desk] phone-learn evidence lookup failed', e); }
+      return {
+        callId: call.id,
+        customer,
+        customerLabel: customer.business_name || customer.name || 'this customer',
+        numberLabel: numberLabel(call),
+        foreign: CA.countForeignCalls(others, customer.id),
+        defaultYes: CA.phoneLearnDefaultYes(others, customer.id),
+      };
+    }
+
+    // Answer it. Either way the call STAYS attached — only the phone write is
+    // in question here.
+    async function answerPhoneLearn(yes) {
+      const p = pendingLearn; if (!p) return;
+      pendingLearn = null;
+      if (!yes) { rememberLearnDecline(p.customer.id, logCallsById[p.callId] ? logCallsById[p.callId].caller_bare : null); logLoad(); return; }
+      const CA = window.CallAttach;
+      const call = logCallsById[p.callId];
+      try {
+        const learn = await CA.attachPhoneLearn({
+          callerBare: call ? call.caller_bare : null, customer: p.customer,
+          last10: window.cdLast10, setSecondaryIfNull,
+        });
+        if (learn.learnedPhone) {
+          // learned_phone is what lets un-attach clear the number again later.
+          const { error } = await db.from('calls').update({ learned_phone: true }).eq('id', p.callId);
+          if (error) console.error('[desk] learned_phone flag failed', error);
+          else if (call) call.learned_phone = true;
+          custIdx = null; attachAllCust = null;   // a number changed — drop the cached indexes
+        }
       } catch (error) {
         console.error('[desk] phone learn failed', error);
-        alert('Could not save the phone number: ' + (error.message || 'unknown error')); return;
+        alert('Could not save the phone number: ' + (error.message || 'unknown error'));
       }
-      // 2. Attach the call (customer_id + attribution + the AUTHORITATIVE learned flag).
-      const patch = CA.attachCallPatch(customer.id, byName, new Date().toISOString(), learn.learnedPhone);
+      logLoad();
+    }
+
+    async function performAttach(call, customer) {
+      const CA = window.CallAttach; if (!CA || !call || !customer) return;
+      const byName = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
+      // Work out the phone question CONCURRENTLY with the attach write. The
+      // attach is unconditional: it is never gated on the question, on the
+      // answer, or on that lookup succeeding.
+      const learnQ = planPhoneLearn(call, customer).catch(() => null);
+      // Attach the call. learned_phone starts FALSE — nothing has been learned
+      // yet, and it only becomes true if the advisor says yes (answerPhoneLearn).
+      const patch = CA.attachCallPatch(customer.id, byName, new Date().toISOString(), false);
       const { error } = await db.from('calls').update(patch).eq('id', call.id);
       if (error) { console.error('[desk] attach failed', error); alert('Could not attach: ' + error.message); return; }
       Object.assign(call, patch);
-      // 3. Auto-attach call site 2 — now that we know WHO, re-run the open-RO
-      //    check for the moment the call came in. Best effort; ro_id stays null
-      //    unless exactly one RO was open. Never blocks or fails the attach.
+      // Auto-attach call site 2 — now that we know WHO, re-run the open-RO check
+      // for the moment the call came in. Best effort; ro_id stays null unless
+      // exactly one RO was open. Never blocks or fails the attach.
       await autoFileRoForCall(call);
-      custIdx = null;                 // rebuild the phone index (a number may have been learned)
+      pendingLearn = await learnQ;    // null = nothing to learn, or already declined
+      custIdx = null;                 // rebuild the phone index
       attachAllCust = null;           // and drop the picker's snapshot so it can't feed a stale slot next time
       logLoad();
     }

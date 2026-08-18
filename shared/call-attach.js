@@ -136,3 +136,86 @@ export function clearNotACustomerPatch() {
 export function isUnattached(call) {
   return !!call && call.customer_id == null && call.not_a_customer_at == null;
 }
+
+// ── CONFIRM BEFORE LEARNING ─────────────────────────────────────────────
+// Attaching a call used to perform a SECOND, SILENT write to a different
+// table: it saved the caller's number into the customer's empty
+// phone_secondary slot with nothing on screen to say so. Because the customer
+// record unions phone-matched calls, a wrong attach then retroactively pulled
+// every call from that number onto that customer's record — and un-doing the
+// call did not undo the phone.
+//
+// The learning itself is wanted (the shop really does collect second numbers).
+// What was wrong was that it was invisible. So: when an attach WOULD learn a
+// number, ask first. Everything below is the decision logic for that prompt.
+//
+// NOTE what this does NOT change: the write itself is still the atomic
+// setSecondaryIfNull in attachPhoneLearn, and un-attach still clears a learned
+// number via unattachClearsSecondary. This layer only decides whether to ask.
+
+// Would attaching this call to this customer actually learn a number? True only
+// when a write would really happen — the caller's number isn't already on the
+// customer AND the phone_secondary slot is empty. When this is false there is
+// nothing to confirm and the attach proceeds silently, exactly as before.
+export function wouldLearnPhone(callerBare, customer, last10) {
+  return !!phoneLearningPlan(callerBare, customer, last10).customerPatch;
+}
+
+// Other calls from this number that are NOT this customer's. Both kinds count:
+// a call attached to a DIFFERENT customer (obvious), and an UNATTACHED call
+// (customer_id null) — which is the case that actually bit us. Six unattached
+// calls from Hector's number were sitting in the table when one of them was
+// attached to Jose; "nobody has claimed these yet" is still evidence the number
+// may not be Jose's.
+//
+// `others` must already EXCLUDE the call being attached — the caller filters by
+// id, because that one call is about to belong to this customer by definition.
+export function countForeignCalls(others, customerId) {
+  const mine = customerId == null ? '' : String(customerId);
+  return (others || []).filter((c) => {
+    if (!c) return false;
+    return c.customer_id == null || String(c.customer_id) !== mine;
+  }).length;
+}
+
+// Which way the prompt is pre-answered. NO when this number already has other
+// calls that aren't this customer's — the signal that it's someone else's
+// phone. YES otherwise (a genuinely new number the customer just rang from).
+//
+// It is only a DEFAULT: the advisor can always answer the other way. Erring
+// toward NO is deliberate — declining costs a number nobody typed, accepting
+// wrongly rewrites a customer record and drags in a stranger's call history.
+export function phoneLearnDefaultYes(others, customerId) {
+  return countForeignCalls(others, customerId) === 0;
+}
+
+// Memo key for a decline. Scoped to the (customer, number) PAIR: declining
+// "this is not Jose's phone" must not suppress the question for a different
+// customer, or for Jose on a different number.
+export function phoneLearnDeclineKey(customerId, callerBare, last10) {
+  const key = (last10 || last10Default)(callerBare);
+  if (!customerId || key.length !== 10) return null;
+  return String(customerId) + '|' + key;
+}
+
+// Has this exact question already been declined? `declined` is any array/Set of
+// keys (the board persists them in localStorage — see the cost note in
+// docs/wiring/call-window-desk.md §2c: per-browser, not shop-wide, because a
+// durable shop-wide decline would need a new table and a hand-run migration).
+export function isPhoneLearnDeclined(declined, customerId, callerBare, last10) {
+  const k = phoneLearnDeclineKey(customerId, callerBare, last10);
+  if (!k || !declined) return false;
+  if (typeof declined.has === 'function') return declined.has(k);
+  return Array.prototype.indexOf.call(declined, k) !== -1;
+}
+
+// Add a decline to the memo, newest last, capped so the list can't grow without
+// bound. Returns a NEW array (never mutates the one handed in).
+export const PHONE_LEARN_DECLINE_CAP = 200;
+export function rememberPhoneLearnDecline(declined, key, cap) {
+  const limit = cap || PHONE_LEARN_DECLINE_CAP;
+  const list = (declined ? Array.from(declined) : []).filter((k) => k !== key);
+  if (!key) return list;
+  list.push(key);
+  return list.slice(-limit);
+}

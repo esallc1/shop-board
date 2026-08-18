@@ -203,21 +203,34 @@ skip it. Un-attaching by hand still clears it. Safety beats completeness.
 itself when `auto_ro_filed_at` was set: the call is no longer that person, so nothing the
 machine derived from that link survives.
 
-## 8. ⚠️ Attaching a call can silently teach a customer a new phone number
+## 8. Attaching a call can teach a customer a phone number — and now it ASKS FIRST
 Not part of auto-attach — the robot never learns phones (§2) — but it is the blast radius a
 manual attach has, and it interacts with this subsystem, so it is recorded here.
 
-`performAttach` runs `attachPhoneLearn`: if the caller's number is new and the customer's
-`phone_secondary` slot is **empty**, the attach writes it there and sets `learned_phone = true`.
-Because the Customer Record unions **phone-matched** calls (customer-record §2), every other
-call from that number then appears on that customer's record as **unconfirmed**.
+**What it used to do (the incident, 2026-08-18).** `performAttach` ran `attachPhoneLearn`
+unconditionally: if the caller's number was new and the customer's `phone_secondary` slot was
+**empty**, the attach silently wrote it there. Because the Customer Record unions
+**phone-matched** calls ([[customer-record]] §2), every other call from that number then
+appeared on that customer's record as **unconfirmed**. Attaching one call from `305-393-9103`
+to `JOSE RAMIREZ` wrote that number into his empty slot and **six** calls surfaced on his
+record. Reversing the *call* by raw SQL did **not** undo it — only the in-app un-attach does.
 
-Observed on the sandbox 2026-08-18: attaching one call from `305-393-9103` to `JOSE RAMIREZ`
-wrote that number into his empty `phone_secondary`, and **six** calls from it surfaced on his
-record. Reversing the *call* by raw SQL did **not** undo it — only the in-app un-attach does
-(`unattachClearsSecondary`, guarded so it only ever clears a number that same attach wrote).
+**What it does now.** The learning is still wanted; the silence was the bug. When an attach
+*would* learn a number, the Desk call log asks inline first — see [[call-window-desk]] §2c for
+the full behaviour. The parts that matter here:
+- **the attach is never gated on the answer** — the call is linked first, `learned_phone` false;
+- the question **defaults to NO** when other calls from that number aren't this customer's,
+  which is exactly the Hector/Jose shape;
+- un-attach still clears a learned number, unchanged (`unattachClearsSecondary`).
+
+This does not change anything the robot does: auto-attach still never writes a phone under any
+circumstances, so no prompt ever appears for a machine attach.
 
 ## Session change log
+- 2026-08-18 — **Confirm-before-learning** (§8 rewritten). The silent phone write on attach is
+  gone: the Desk call log now asks inline, defaulting to NO when the number has other calls that
+  aren't this customer's. The attach itself is never blocked by the question. Rules +
+  11 tests in `shared/call-attach.js`; see [[call-window-desk]] §2c.
 - 2026-08-18 — **Built the manual re-file (§7) and the auto chip.** Decoupled `ro_id` from
   `next_step` on the call card — the RO picker is now its own persistent "Filed to RO" row
   under every disposition, and the chip handler no longer wipes the link
