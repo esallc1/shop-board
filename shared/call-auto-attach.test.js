@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import {
   AUTO_ATTACH_LIVE_RUN_ID, last10Key, isJunkNumber, shouldAutoAttach, isOpenRoAt,
   pickCustomer, pickOpenRoAt, autoAttachCallPatch, autoFileRoPatch,
-  clearAutoTagsPatch, isAutoAttached,
+  clearAutoTagsPatch, clearAutoFileTagsPatch, isAutoAttached,
 } from './call-auto-attach.js';
 
 // The columns the robot must never write, in any patch, ever.
@@ -179,6 +179,7 @@ test('NO robot patch can write a human-only column', () => {
     autoAttachCallPatch('cust-1', 'now'),
     autoFileRoPatch('ro-1', 'now'),
     clearAutoTagsPatch(),
+    clearAutoFileTagsPatch(),
   ];
   for (const p of patches) {
     for (const col of HUMAN_ONLY) {
@@ -192,6 +193,18 @@ test('clearAutoTagsPatch clears every robot mark and nothing else', () => {
   assert.deepEqual(p, { auto_attached_at: null, auto_ro_filed_at: null, auto_attach_run_id: null });
   assert.ok(!('customer_id' in p), 'clearing robot tags must never null a customer attach');
   assert.ok(!('ro_id' in p), 'ro_id is cleared explicitly by the caller, not implied here');
+});
+
+test('clearAutoFileTagsPatch detaches a manually re-filed row from every batch undo', () => {
+  const p = clearAutoFileTagsPatch();
+  assert.deepEqual(p, { auto_ro_filed_at: null, auto_attach_run_id: null });
+  // The run id is the undo key. Dropping it is what makes a human's re-file
+  // unreachable by any reverse statement — that is the whole point.
+  assert.equal(p.auto_attach_run_id, null);
+  // auto_attached_at SURVIVES a re-file: it stays true because it is true.
+  assert.ok(!('auto_attached_at' in p), 'a re-file must not erase the record that the machine picked the customer');
+  assert.ok(!('customer_id' in p), 're-filing an RO must never touch the customer');
+  assert.ok(!('ro_id' in p), 'ro_id is set by the caller alongside this patch');
 });
 
 test('isAutoAttached distinguishes the robot from the crew', () => {

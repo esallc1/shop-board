@@ -521,6 +521,13 @@
   .cust-rec-vehsel { font-size:0.74rem; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:2px 6px; background:#fff; max-width:60%; cursor:pointer; }
   .cust-rec-vehsel:focus { outline:none; border-color:var(--accent); }
   .cust-rec-hint { font-size:0.7rem; font-style:italic; color:var(--muted); margin-top:3px; }
+  /* "auto" chip — a machine made this link. Neutral slate, deliberately calmer
+     than the amber "unconfirmed" tag: auto is informational, not a warning. */
+  .cust-rec-auto { font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:#475569; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:999px; padding:1px 7px; cursor:help; }
+  /* "File to RO…" — the manual re-file control. Sits above the vehicle picker
+     in the same entry, so the two selects read as one filing block. */
+  .cust-ro-filesel { font-size:0.74rem; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:2px 6px; background:#fff; max-width:60%; cursor:pointer; margin-top:4px; }
+  .cust-ro-filesel:focus { outline:none; border-color:var(--accent); }
   .cust-rec-play { margin-top:6px; }
   .cust-rec-play:empty { display:none; }
 
@@ -6755,6 +6762,18 @@
         else play = `<span class="rec-marker" title="${esc(dsc.aria)}">${esc(dsc.label)}</span>`;
       }
       const note = (c.note && String(c.note).trim()) ? `<div class="cust-tl-note">${esc(String(c.note).trim())}</div>` : '';
+      // "auto" chip — this link was made by the machine, not by the crew. Shown
+      // for either half: auto_attached_at (it picked the customer) or
+      // auto_ro_filed_at (it picked the RO). Deliberately visible so the crew can
+      // distrust it; the title says which half it was.
+      const AA = window.CallAutoAttach;
+      let autoChip = '';
+      if (c.auto_attached_at || c.auto_ro_filed_at) {
+        const which = c.auto_attached_at && c.auto_ro_filed_at ? 'Customer and RO matched automatically'
+                    : c.auto_attached_at ? 'Customer matched automatically'
+                    : 'Filed to this RO automatically';
+        autoChip = `<span class="cust-rec-auto" title="${esc(which)} — check it if it looks wrong">auto</span>`;
+      }
       // Vehicle-assign control (carried from the old record view) — only where a
       // recording exists AND we're in the unfiled/"needs filing" section. Confirmed
       // → picker; unconfirmed → hint (attach the person link before the vehicle one).
@@ -6770,12 +6789,53 @@
           assign = `<div class="cust-rec-hint">Attach the call to a customer to file its recording to a vehicle</div>`;
         }
       }
+      // "File to RO…" — the manual re-file control, in the "needs filing" section
+      // where the unfiled pile actually is. Lists the customer's ROs NEWEST FIRST
+      // and INCLUDES CLOSED ONES: the real case is a customer ringing a week after
+      // pickup about the job that just closed. Only offered on a CONFIRMED call —
+      // an unconfirmed phone match isn't this customer's call yet, so filing it to
+      // their RO would be inventing a link (same gate the recording picker uses).
+      let fileRo = '';
+      if (allowAssign && custRos.length && c.confirmed) {
+        const cur = c.ro_id == null ? '' : String(c.ro_id);
+        const opts = [`<option value=""${cur === '' ? ' selected' : ''}>— File to RO… —</option>`]
+          .concat(CR().sortNewestFirst(custRos).map(r =>
+            `<option value="${esc(r.id)}"${cur === String(r.id) ? ' selected' : ''}>#${esc(r.ro_number ?? '?')} · ${esc(STATUS_LABEL[r.status] || r.status || '')}</option>`))
+          .join('');
+        fileRo = `<select class="cust-ro-filesel" data-file-call="${esc(c.id)}" aria-label="File this call to a repair order">${opts}</select>`;
+      }
       return `<div class="cust-tl-entry${c.confirmed ? '' : ' unconfirmed'}">
-        <div class="cust-tl-top"><span class="cust-tl-when">${esc(custFmtWhen(c.started_at))}</span>${who ? `<span class="cust-tl-who">${esc(who)}</span>` : ''}${disp ? `<span class="cust-tl-disp">${esc(disp)}</span>` : ''}${unconf}</div>
+        <div class="cust-tl-top"><span class="cust-tl-when">${esc(custFmtWhen(c.started_at))}</span>${who ? `<span class="cust-tl-who">${esc(who)}</span>` : ''}${disp ? `<span class="cust-tl-disp">${esc(disp)}</span>` : ''}${unconf}${autoChip}</div>
         ${note}
+        ${fileRo}
         ${assign}
         <div class="cust-tl-play">${play}</div>
       </div>`;
+    }
+
+    // File (or un-file) a call to one of THIS customer's ROs, by hand.
+    // A human's choice takes the row out of the robot's namespace —
+    // clearAutoFileTagsPatch drops auto_attach_run_id so no batch undo can
+    // revoke it — and stamps noted_by_name if the call was never noted, so the
+    // record says who touched it. Then re-bucket: computeCallGroups moves the
+    // call out of "needs filing" and up under its RO immediately.
+    async function fileCallToRo(callId, roId) {
+      const AA = window.CallAutoAttach;
+      const call = (custRecCallsAll || []).find(x => String(x.id) === String(callId));
+      const patch = { ro_id: roId || null, ...(AA ? AA.clearAutoFileTagsPatch() : {}) };
+      if (call && !call.noted_at) {
+        patch.noted_by_name = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
+        patch.noted_at = new Date().toISOString();
+      }
+      const { error } = await db.from('calls').update(patch).eq('id', callId);
+      if (error) {
+        console.error('[cust] file to RO failed', error);
+        alert('Could not file this call: ' + error.message);
+        rerenderCustBody();
+        return;
+      }
+      if (call) Object.assign(call, patch);
+      rerenderCustBody();
     }
 
     // ── Unfiled calls (customer-level, no vehicle link) — the "needs filing" spot ──
@@ -6943,7 +7003,9 @@
       });
       panel.addEventListener('change', (e) => {
         const sel = e.target.closest('.cust-rec-vehsel[data-rec-call]');
-        if (sel) assignRecVehicle(sel.dataset.recCall, sel.value || null);
+        if (sel) { assignRecVehicle(sel.dataset.recCall, sel.value || null); return; }
+        const roSel = e.target.closest('.cust-ro-filesel[data-file-call]');
+        if (roSel) fileCallToRo(roSel.dataset.fileCall, roSel.value || null);
       });
     })();
     // A real "Customers" tab tap shows the LIST (openCustomerById overrides after).
@@ -8343,6 +8405,7 @@
       // Auto-attach call site 2 — a human just said who this is, so re-run the
       // open-RO check. Best effort; the picker below still overrides it freely.
       await autoFileRoForCall(card._call);
+      renderFiledRo(card);          // reflect an auto-filed RO in the picker
     }
 
     // Note / next_step / date / ro_id saves. On the FIRST such save we stamp
@@ -8350,11 +8413,15 @@
     // not-yet-persisted customer_id (single match). Idempotent per field.
     async function saveNote(card, patch) {
       const p = { ...patch };
-      // A human touching ro_id (the checking_on_car picker) takes that field out
-      // of the robot's namespace, so an auto-attach undo can never revoke it.
-      // ONLY auto_ro_filed_at is cleared — if the robot attached the CUSTOMER,
-      // auto_attached_at stays true, because it is still true.
-      if ('ro_id' in p && card._call && card._call.auto_ro_filed_at) p.auto_ro_filed_at = null;
+      // A HUMAN touching ro_id takes the whole row out of the robot's namespace:
+      // clearing auto_attach_run_id detaches it from every batch undo, so no
+      // reverse statement can revoke a decision a person made. auto_attached_at
+      // is LEFT AS-IS — it is a factual record that the machine picked the
+      // customer, and it is no longer an undo key once the run id is gone.
+      // Same rule in the Customer Record's "File to RO…" (fileCallToRo).
+      if ('ro_id' in p && card._call && window.CallAutoAttach) {
+        Object.assign(p, window.CallAutoAttach.clearAutoFileTagsPatch());
+      }
       if (!card._noted) {
         p.noted_by_name = (CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
         p.noted_at = new Date().toISOString();
@@ -8441,14 +8508,15 @@
       if (el) el.innerHTML = html;
     }
 
-    // After a customer's detail loads, remember their open ROs on the card so
-    // the checking_on_car RO picker can offer them, and refresh that picker if
-    // it's currently showing.
+    // After a customer's detail loads, remember their ROs on the card so the
+    // "Filed to RO" picker can offer them, and (re)render that picker — it is
+    // persistent now, so it refreshes on every detail load rather than only
+    // when one particular disposition happens to be selected.
     function applyLoadedDetail(card, ros) {
       // ALL of the customer's ROs (not just active) — a call may be about a
       // finished/closed job. Ordering + labelling happen in the picker render.
       card._ros = ros || [];
-      if (card._call.next_step === 'checking_on_car') renderWhen(card);
+      renderFiledRo(card);
     }
 
     function renderPickList(card, call, matches) {
@@ -8496,6 +8564,7 @@
           ${NEXT_STEPS.map(s => `<button type="button" data-next="${s.key}">${esc(s.label)}</button>`).join('')}
         </div>
         <div class="cc-when"></div>
+        <div class="cc-filed"></div>
         <div class="cc-echo" aria-live="polite"></div>
         <div class="cc-footer">
           <span class="cc-saved" aria-live="polite"></span>
@@ -8601,28 +8670,36 @@
         // both input and change so a custom time is never missed.
         custom.addEventListener('input', save);
         custom.addEventListener('change', save);
-      } else if (step === 'checking_on_car') {
-        const ros = card._ros || [];
-        if (!ros.length) {
-          when.innerHTML = `<div class="call-card-muted">No ROs to link</div>`;
-          return;
-        }
-        // ALL of the customer's ROs, ordered (active first) and stage-labelled
-        // via shared/ro-calls.js so a closed RO is never shown as current work.
-        const RC = window.RoCalls;
-        const opts = RC
-          ? RC.buildRoPickerOptions(ros, card._call.ro_id)
-          : ros.map(r => ({ id: String(r.id), label: `#${r.ro_number ?? '?'} · ${r.status}`, selected: String(r.id) === String(card._call.ro_id || '') }));
-        when.innerHTML =
-          `<select class="cc-ro">
-             <option value="">— link an RO —</option>
-             ${opts.map(o => `<option value="${esc(o.id)}" ${o.selected ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}
-           </select>`;
-        when.querySelector('.cc-ro').addEventListener('change', (e) =>
-          saveNote(card, { ro_id: e.target.value || null }));
       } else {
-        when.innerHTML = '';   // price_shopper (or none) → no date, no RO
+        when.innerHTML = '';   // checking_on_car / price_shopper / none → no date
       }
+    }
+
+    // ── "Filed to RO" — the PERSISTENT manual re-file control ──────────────
+    // Its own row, shown under EVERY disposition (and under none), because
+    // which RO a call is about has nothing to do with what happens next. The
+    // options come from buildRoPickerOptions untouched: it is already
+    // status-agnostic and already lists CLOSED ROs stage-labelled — which is
+    // the case that matters, a customer ringing a week after pickup about the
+    // job that just closed.
+    function renderFiledRo(card) {
+      const host = card.querySelector('.cc-filed');
+      if (!host) return;
+      const ros = card._ros || [];
+      if (!card._customerId && !card._call.customer_id) { host.innerHTML = ''; return; }  // no customer yet → nothing to file to
+      if (!ros.length) { host.innerHTML = `<div class="call-card-muted">No ROs to file this call to</div>`; return; }
+      const RC = window.RoCalls;
+      const opts = RC
+        ? RC.buildRoPickerOptions(ros, card._call.ro_id)
+        : ros.map(r => ({ id: String(r.id), label: `#${r.ro_number ?? '?'} · ${r.status}`, selected: String(r.id) === String(card._call.ro_id || '') }));
+      host.innerHTML =
+        `<div class="cc-label">Filed to RO</div>
+         <select class="cc-ro" aria-label="File this call to a repair order">
+           <option value="">— not filed —</option>
+           ${opts.map(o => `<option value="${esc(o.id)}" ${o.selected ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}
+         </select>`;
+      host.querySelector('.cc-ro').addEventListener('change', (e) =>
+        saveNote(card, { ro_id: e.target.value || null }));
     }
 
     function wireForm(card) {
@@ -8667,11 +8744,16 @@
           card.querySelectorAll('.cc-next button').forEach(x => x.classList.toggle('active', x === b));
           // Single-select next_step. A step switch ALWAYS starts the date fresh —
           // a due_at from the previous step must never ride across (a callback
-          // date silently carried into a drop-off pick once). ro_id applies only
-          // to checking_on_car; clear it for every other step.
-          const patch = { next_step: step, due_at: null, due_all_day: true };
-          if (step !== 'checking_on_car') patch.ro_id = null;
-          saveNote(card, patch);
+          // date silently carried into a drop-off pick once).
+          //
+          // ro_id is NO LONGER touched here. It used to be cleared for every
+          // step but checking_on_car, which made "which RO is this call about"
+          // a property of the disposition — so a customer who called about a
+          // job that had just closed had nowhere to file the call, and picking
+          // any other step silently threw the link away. Which RO a call is
+          // about is independent of what happens next; the picker is now its
+          // own persistent row (renderFiledRo).
+          saveNote(card, { next_step: step, due_at: null, due_all_day: true });
           renderWhen(card);
         }));
     }
@@ -8733,6 +8815,7 @@
         renderWhen(card);
       }
       wireForm(card);
+      renderFiledRo(card);   // persistent "Filed to RO" row (empty until a customer resolves)
       updateEcho(card);   // reflect any hydrated step/date + "Mark done" visibility
 
       try {
