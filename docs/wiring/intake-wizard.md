@@ -1,13 +1,16 @@
 # How the intake wizard (New RO flow) is wired
 
 > Doc: `/docs/wiring/intake-wizard.md`
-> Last updated: 2026-08-18 — verified vs branch `feat/vehicle-dup-guard` (base `3d61620`)
-> (§3 added: the vehicle duplicate guard on `saveVehicle`. §1–§2 unchanged from `bea25cf`.)
+> Last updated: 2026-08-18 — verified vs branch `fix/intake-phone-lookup-cap` (base `7652c65`)
+> (§4 added: `lookupPhone` FIXED — it was silently blind to 62.6% of customers. §5 added: the
+> full unbounded-read audit. §3 = the vehicle dup guard; §1–§2 unchanged from `bea25cf`.)
 > Status: ✅ verified — the guard driven end-to-end in the wizard against the sandbox with every
 > write intercepted: prompt on a VIN re-type, "Use that vehicle" reaches the comeback step with
 > zero writes, "different vehicle" inserts, and a make+model-only save stays silent.
-> Still partial — the customer/phone-match steps aren't fully documented (but see the ⚠️ in
-> Known gaps: the phone lookup has a hard 1,000-row ceiling).
+> The phone-lookup fix verified in-browser against the sandbox: `8135909459` (JOSE RAMIREZ — the
+> LAST row in the table) resolves; a dashed entry resolves; a customer stored as
+> `(239) 785-8879` and outside the old 1,000 resolves to its duplicate pair; an unknown number
+> still goes to create-customer. The query now pulls 2 rows where it used to pull 1,000.
 
 ## 0. In one line
 The New RO wizard: phone → customer → vehicle → (comeback check, if the vehicle has history) → open the RO.
@@ -73,16 +76,84 @@ thing in question, so asking after writing would create the very duplicate being
 There is deliberately **no default-to-no heuristic and no decline memo**: the evidence is the
 match itself, shown in full, and every save is its own decision.
 
+## 4. The phone lookup (`lookupPhone` → `shared/phone-lookup.js`) — FIXED 2026-08-18
+**This was the real duplicate-customer leak, and it was much bigger than the vehicle one.**
+
+`lookupPhone` did an **unbounded** `db.from('customers').select(...)` and filtered in JS.
+PostgREST caps that at **1,000 rows**; the table has **2,717**. Measured on the sandbox:
+**1,700 customers — 62.6% — were invisible to the wizard**, so the advisor was walked straight
+into *create a new customer* for most of the shop's book. On every intake, every day.
+`JOSE RAMIREZ` (813-590-9459) is literally the **last row** in the table and did not resolve.
+
+⚠️ The cruel part: the caller card's `matchCustomers` has always used `fetchAllCustomers()`,
+which **pages properly** with `.range()`. The correct helper existed the whole time; the wizard
+just never used it.
+
+**The fix: narrow on the SERVER, confirm in the client.** Paging 2,717 rows into the browser to
+search them is the wrong shape and gets worse as the shop grows, so the query filters server-side.
+
+Phone numbers are stored **as typed** — three shapes live in the table (`8135909459` ×2750,
+`(786) 531-5419` ×32, `786-531-5419` ×1) — so no equality filter finds them all.
+`PhoneLookup.ilikePatternFor` builds an **end-anchored** wildcard pattern from the last 10 digits
+(`*813*590*9459`); the area code, exchange and line number are contiguous runs in every standard
+format, whatever punctuation sits between them. **Verified against all 2,783 stored values: zero
+misses.** Both phone columns are covered in one request via `or=`.
+
+🚩 **It deliberately does NOT use `phone_primary_l10` / `phone_secondary_l10`.** Those generated
+columns come from `migrations/20260818_customers_phone_l10.sql`, which has been run on the
+**SANDBOX ONLY**. Filtering on them would make this lookup return **nothing for every customer on
+prod**. The ilike pattern needs no migration and works on both projects today. A test asserts the
+filter string never contains `_l10`.
+
+The pattern only **narrows**. `PhoneLookup.confirmPhoneMatches` re-checks **exact last-10** on
+every returned row and de-dupes by id, so an over-broad pattern can never produce a wrong match.
+The query now returns 2 rows where it used to return 1,000.
+
+⚠️ A leading-wildcard `ilike` cannot use the `idx_customers_phone_primary` index, so this is a
+sequential scan server-side — trivial at 2,717 rows, and still far cheaper than shipping the
+table to the browser. If it ever matters, the fix is to run the `_l10` migration on prod and
+switch to an indexed equality filter.
+
+## 5. Audit — every unbounded read in the codebase (2026-08-18)
+159 `select()` call sites were checked against their table's live row count. **No other read
+that drives a MATCH or a SEARCH is unbounded** — the remaining full-table reads are display or
+rollup queries on small tables. Ranked by what breaks when the table passes 1,000:
+
+| File:line | Table | Rows now | Can exceed 1,000? | What silently breaks |
+|---|---|---:|---|---|
+| ~~`advisor-board.html:3380` `lookupPhone`~~ | `customers` | 2,717 | **ALREADY OVER** | **FIXED (§4)** — was inventing duplicate customers |
+| `bookkeeping-board.html:3098` | `completed_jobs` | 49 | yes, slowly | Financial Pulse job-category rollup — **wrong TOTALS**, silently understated. Worst of the survivors: a number, not a list |
+| `gm-board.html:1788` | `completed_jobs` | 49 | yes, slowly | GM comeback/warranty stats under-count |
+| `advisor-board.html:4075/4080` | `repair_orders` | 54 | yes | RO Board stops showing older ROs (ordered newest-first, so the tail drops first) |
+| `owner-board.html:785` | `marketing_content` | 11 | eventually | Marketing tab loses the oldest items |
+| `shared/report-change.js:1067` | `change_requests` | 23 | eventually | Requests list truncates |
+| `bookkeeping-board.html:1461/1468/1516/1517` | `expense_categories`, `invoice_types` | 7 / 4 | no | — |
+| `shared/board-settings.js:225/264` | `payment_methods`, `package_units` | 5 / 50 | no | — |
+| `shared/build-sheet.js:289/304/614` | `unit_parts`, `parts_library` | 4 / 1 | unlikely | Build-sheet parts library truncates |
+| `gm-board.html:2218/4270`, `shared/commission-engine.js:295` | `employees` | 10 | no | — |
+| `shopboard_*`, `tech_whiteboard` (many sites) | floor tables | 2–12 | no | — |
+| `gm-board.html:1630`, `bookkeeping:3088` | `core_charges` | 1 | unlikely | — |
+| `gm-board.html:4047` | `transmissions` | 7 | no | — |
+| `advisor-board.html:2449`, `bookkeeping:2684` | `parts_orders` | 1 | eventually | Parts list truncates |
+
+**Already safe, worth knowing why:**
+- `vehicles` (3,251 — over the cap) is **never** read unbounded; every site is
+  `.eq('customer_id', …)`.
+- `customers` A–Z browse uses the **paged** `window.cdFetchAllCustomers`; the caller card's
+  `matchCustomers` and the Desk attach picker use the same helper.
+- `calls` reads are all narrowed by `customer_id`, `caller_bare`, `ro_id`, or a date window.
+  ⚠️ One to watch: `advisor-board.html:7533` (the Desk) selects unresolved
+  `quoted_callback`/`dropping_off` calls with no limit — bounded only by the crew resolving them.
+- `api/ctm-webhook.js:313` uses the `_l10` columns **plus `limit=2`** — correct there, because
+  the webhook only runs where that migration has been applied.
+
+**FIX ONLY `lookupPhone` shipped in this commit** — the rest is reported for a decision.
+
 ## Known gaps & open questions (as of 2026-08-18)
-- ⚠️ **`lookupPhone` only sees the FIRST 1,000 customers.** It does an unbounded
-  `db.from('customers').select(...)`, which PostgREST caps at 1,000 rows — the table has **2,717**.
-  So ~63% of customers cannot be found by phone in the wizard and fall through to the
-  **create-new-customer** step. That is a duplicate-CUSTOMER generator, and it is why
-  `JOSE RAMIREZ` (813-590-9459) cannot be reached through the wizard at all today. Fix is to page
-  like `window.cdFetchAllCustomers` does, or to filter server-side. **Found 2026-08-18, not fixed
-  — out of scope for the vehicle guard.** Related: [[customer-dedupe]] §5.
-- The guard cannot catch a duplicate typed with **no VIN and a different plate** — nothing links
-  the two rows. Measured cost: 4 rows in the whole table have neither identifier.
+- The vehicle guard cannot catch a duplicate typed with **no VIN and a different plate** —
+  nothing links the two rows. Measured cost: 4 rows in the whole table have neither identifier.
+- The `completed_jobs` rollups (§5) are the highest-value survivors: they produce **totals**, so
+  truncation is invisible rather than merely ugly. Not fixed.
 - **RESOLVED (verified `bea25cf`):** the comeback question is gated on a **prior RO for that exact
   vehicle** existing — no prior → no question, by design (see step 2 above). Intended, not a bug.
   Corollary: a returning customer bringing a **new** vehicle gets no comeback question.
@@ -92,6 +163,9 @@ match itself, shown in full, and every save is its own decision.
 ## Where it lives in the code
 - `advisor-board.html` — wizard steps array (~2837), `selectExistingVehicle` (~3011),
   `goToMint` (~3046), legacy-PO field (~1720) + mint write (~3265)
+- **Phone lookup (§4):** `shared/phone-lookup.js` (`last10`, `ilikePatternFor`, `phoneOrFilter`,
+  `matchesLast10`, `confirmPhoneMatches`), tested by `shared/phone-lookup.test.js` (12 tests).
+  Board side: `lookupPhone` in `advisor-board.html`.
 - **Duplicate guard (§3):** `shared/vehicle-match.js` (`normVin`/`normPlate`/`normMakeModel`,
   `findVehicleMatch`, `shouldPromptForMatch`, `pickBestMatch`, `matchReasonLabel`), tested by
   `shared/vehicle-match.test.js` (16 tests). Board side: `saveVehicle`'s pre-insert check,
@@ -102,6 +176,13 @@ match itself, shown in full, and every save is its own decision.
   one field-level update on an existing `vehicle_id`.
 
 ## Session change log
+- 2026-08-18 — **FIXED the phone lookup's 1,000-row blindness** (§4) and **audited every
+  unbounded read** (§5). `lookupPhone` now filters server-side with an end-anchored ilike pattern
+  over both phone columns, re-checked on exact last-10 in the client — no dependency on the
+  sandbox-only `_l10` columns. Verified: JOSE RAMIREZ (the last row in the table) resolves, a
+  formatted-storage customer outside the old 1,000 resolves to its duplicate pair, an unknown
+  number still creates. The query pulls 2 rows instead of 1,000. New module + 12 tests. The
+  row-cap hazard is now written up in the File Cabinet README so it can't be reintroduced.
 - 2026-08-18 — **Added the vehicle duplicate guard** (§3). `saveVehicle` now matches the typed
   vehicle against that customer's existing rows before inserting — VIN, then normalized plate,
   then make+model — and gates the insert on a VIN or plate hit, showing the match inline with its

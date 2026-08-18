@@ -162,6 +162,21 @@ customers, and §6 step 2 already collapses same-VIN vehicles *within* the keepe
 customers first collapses a chunk of the vehicle duplicates for free, and shrinks the standalone
 vehicle cleanup to whatever is left.
 
+## 5a. ⚠️ The BIGGEST leak was not the one this doc describes — FIXED 2026-08-18
+§3's leak analysis ("a caller from a new number spawns a duplicate") was right about the
+mechanism but understated the scale, because it assumed the wizard could FIND an existing
+customer by phone. It could not.
+
+`lookupPhone` did an unbounded `db.from('customers').select(...)`, which PostgREST caps at 1,000
+rows against a 2,717-row table. **1,700 customers — 62.6% — were invisible to the intake wizard**,
+so the advisor was walked into *create a new customer* for most of the shop's book, on every
+intake. That is very likely a larger source of the 64 duplicate clusters than the ALLDATA import.
+`JOSE RAMIREZ` is the last row in the table and did not resolve.
+
+Fixed in [[intake-wizard]] §4 (server-side filtering, no migration needed). **The §5 intake
+dedupe guard below is still worth building** — it catches near-misses that an exact phone match
+never will — but the single highest-value fix was making the exact match actually work.
+
 ## 5. Intake dedupe guard — stop the leak (client-side, no schema change beyond §4)
 At the single insert (`createCustomer`, `advisor-board.html:3331`) and its wizard pre-check
 (`lookupPhone:3116`):
@@ -240,6 +255,10 @@ At the single insert (`createCustomer`, `advisor-board.html:3331`) and its wizar
 - Attach/learn-a-number: `shared/call-attach.js` (`phone_secondary` single slot).
 
 ## Session change log
+- 2026-08-18 — **Added §5a.** The intake wizard's phone lookup was blind to 62.6% of customers
+  (the 1,000-row API cap), so the "call-in leak" this doc modelled was running far hotter than
+  §3 estimated. Fixed; recorded here because it changes the read on where the 64 clusters came
+  from.
 - 2026-08-18 — **Added §5b, the vehicle half.** This doc only ever covered customer duplicates;
   the vehicle equivalent existed nowhere. Recorded the `saveVehicle` leak (now guarded — see
   [[intake-wizard]] §3), the re-measured backlog (29 groups / 58 rows, union of VIN + plate +
