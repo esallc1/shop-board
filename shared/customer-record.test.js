@@ -8,6 +8,7 @@ import {
   ALL_VEHICLES, buildRecordingCalls, isSecondaryLearned, filterByVehicle,
   filterRecordingsByVehicle, canAssignRecording,
   customerCounts, openRosOf, sortNewestFirst, roInvoiceTotal, totalsByRo,
+  VEHICLE_FILTER_MIN, shouldShowVehicleFilter, vehicleSearchText, filterVehicles,
 } from './customer-record.js';
 
 const last10 = (s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10);
@@ -163,4 +164,87 @@ test('totalsByRo groups lines by repair_order_id', () => {
   const t = totalsByRo(lines, { rate: 0, exempt: false });
   assert.equal(t.A, 20);
   assert.equal(t.B, 99);
+});
+
+// ── Vehicle SEARCH (the accordion filter) ─────────────────────
+// A slice of the real Mint Motors fleet: 31 vehicles, no activity on any of
+// them, several near-identical Transit Connects. Plates carry the ALLDATA
+// import's trailing " 00" on purpose — the filter has to cope with the data as
+// it actually is, not as it should be.
+const FLEET = [
+  { id: 1, year: null, make: 'Ford',      model: 'Transit Connect', plate: 'X1267 00', vin: '1FMZU73K05UA12345' },
+  { id: 2, year: null, make: 'Ford',      model: 'Transit Connect', plate: 'X1269 00', vin: '1FMZU73K05UA99999' },
+  { id: 3, year: null, make: 'Ram',       model: 'ProMaster 2500',  plate: 'X837 00',  vin: '3C6TRVDG5JE100200' },
+  { id: 4, year: 2015, make: 'Ford',      model: 'Explorer',        plate: 'ABC123',   vin: '1FM5K7B84FGA00001' },
+  { id: 5, year: null, make: 'Chevrolet', model: 'Silverado 1500',  plate: null,       vin: null },
+];
+const ids = (list) => list.map((v) => v.id);
+
+test('shouldShowVehicleFilter: hidden for a short list, shown once it is worth searching', () => {
+  assert.equal(VEHICLE_FILTER_MIN, 6);
+  assert.equal(shouldShowVehicleFilter(2), false);   // Jose has 2 — never sees it
+  assert.equal(shouldShowVehicleFilter(5), false);   // "more than 5" → 5 is still hidden
+  assert.equal(shouldShowVehicleFilter(6), true);
+  assert.equal(shouldShowVehicleFilter(31), true);   // Mint Motors
+  assert.equal(shouldShowVehicleFilter(0), false);
+});
+
+test('vehicleSearchText joins year/make/model/plate/vin lowercase, skipping blanks', () => {
+  assert.equal(vehicleSearchText(FLEET[3]), '2015 ford explorer abc123 1fm5k7b84fga00001');
+  assert.equal(vehicleSearchText(FLEET[4]), 'chevrolet silverado 1500');   // no plate, no vin, no year
+  assert.equal(vehicleSearchText(null), '');
+  assert.equal(vehicleSearchText({}), '');
+});
+
+test('filterVehicles matches PARTIALLY, not prefix-only', () => {
+  // The headline case: the plate is "X1267 00" and the advisor types the digits.
+  assert.deepEqual(ids(filterVehicles(FLEET, '1267')), [1]);
+  assert.deepEqual(ids(filterVehicles(FLEET, 'X1267')), [1]);
+  assert.deepEqual(ids(filterVehicles(FLEET, 'promaster')), [3]);   // mid-string model
+  assert.deepEqual(ids(filterVehicles(FLEET, '99999')), [2]);       // mid-string VIN
+});
+
+test('filterVehicles is case-insensitive', () => {
+  assert.deepEqual(ids(filterVehicles(FLEET, 'PROMASTER')), [3]);
+  assert.deepEqual(ids(filterVehicles(FLEET, 'PrOmAsTeR')), [3]);
+  assert.deepEqual(ids(filterVehicles(FLEET, 'x1267')), [1]);
+});
+
+test('filterVehicles ANDs whitespace-separated tokens, in any order', () => {
+  assert.deepEqual(ids(filterVehicles(FLEET, '2015 ford')), [4]);
+  assert.deepEqual(ids(filterVehicles(FLEET, 'ford 2015')), [4]);   // order must not matter
+  assert.deepEqual(ids(filterVehicles(FLEET, 'ford transit')), [1, 2]);
+  assert.deepEqual(ids(filterVehicles(FLEET, 'ford nope')), []);    // every token must match
+});
+
+test('filterVehicles: an empty or whitespace query returns everything', () => {
+  assert.deepEqual(ids(filterVehicles(FLEET, '')), [1, 2, 3, 4, 5]);
+  assert.deepEqual(ids(filterVehicles(FLEET, '   ')), [1, 2, 3, 4, 5]);
+  assert.deepEqual(ids(filterVehicles(FLEET, null)), [1, 2, 3, 4, 5]);
+  assert.deepEqual(ids(filterVehicles(FLEET, undefined)), [1, 2, 3, 4, 5]);
+});
+
+test('filterVehicles PRESERVES the caller\'s order — it only drops rows', () => {
+  // The accordion sorts by recent activity before filtering; the filter must
+  // never reshuffle what it is handed.
+  const reversed = FLEET.slice().reverse();
+  assert.deepEqual(ids(filterVehicles(reversed, 'ford')), [4, 2, 1]);
+  assert.deepEqual(ids(filterVehicles(FLEET, 'ford')), [1, 2, 4]);
+});
+
+test('filterVehicles never mutates the input and copes with junk rows', () => {
+  const before = JSON.stringify(FLEET);
+  const out = filterVehicles(FLEET, 'ford');
+  assert.equal(JSON.stringify(FLEET), before, 'input list must be untouched');
+  assert.notEqual(out, FLEET, 'returns a new array, never the original reference');
+  assert.deepEqual(filterVehicles([], 'ford'), []);
+  assert.deepEqual(filterVehicles(null, 'ford'), []);
+  assert.deepEqual(ids(filterVehicles([null, undefined, FLEET[0]], 'ford')), [1]);
+});
+
+test('filterVehicles finds the ALLDATA trailing " 00" both with and without it', () => {
+  assert.deepEqual(ids(filterVehicles(FLEET, 'X1267 00')), [1]);   // typed exactly as stored
+  assert.deepEqual(ids(filterVehicles(FLEET, 'x1267')), [1]);      // typed as the advisor thinks of it
+  // "00" alone is a substring of every " 00" plate — deliberately not special-cased.
+  assert.deepEqual(ids(filterVehicles(FLEET, '00')), [1, 2, 3, 4, 5]);
 });

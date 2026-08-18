@@ -1,14 +1,16 @@
 # How the customer record is wired
 
 > Doc: `/docs/wiring/customer-record.md`
-> Last updated: 2026-08-18 — verified vs branch `feat/call-auto-attach` (base `78e3472`)
-> (§0/§5/§6 rewritten: Phase 2 auto-attach is BUILT, and the page now has a SECOND write —
-> the "File to RO…" manual re-file in the needs-filing section, §6b. The two-column layout
-> and the Customers LIST — §7 — are unchanged from `420871c`.)
+> Last updated: 2026-08-18 — verified vs branch `feat/customer-record-veh-filter` (base `bd1f445`)
+> (§4a added: the fleet filter on the vehicles accordion. §0/§5/§6 already carried the Phase 2
+> auto-attach rewrite and the "File to RO…" second write. The Customers LIST — §7 — is
+> unchanged from `420871c`.)
 > Status: ✅ verified — the two-column record eyeballed in-browser against live Supabase
 > (person + business, open-RO auto-expand, closed-RO lifetime $, per-RO call timeline,
-> unfiled "needs filing" section, accordion toggle, sticky profile); pure logic re-checked
-> against `shared/customer-record.js` + `shared/customer-record.test.js` (22 tests green).
+> unfiled "needs filing" section, accordion toggle, sticky profile), and the §4a fleet filter
+> exercised on Mint Motors' 31 vehicles (match, count, sort/expansion preservation, clear,
+> 375px); pure logic re-checked against `shared/customer-record.js` +
+> `shared/customer-record.test.js` (31 tests green).
 
 ## 0. In one line
 A full customer view (`#view-customer`) reached from the **Customers LIST**. Opening a
@@ -80,6 +82,36 @@ exist**:
   `ro_id` is this RO). A per-RO timeline **caps at 260px and scrolls inside the card**. Below
   the ROs, a **"Calls & notes · this vehicle"** timeline holds any vehicle-linked calls not
   tied to a specific RO (§5).
+
+### 4a. The fleet filter (`#custVehFilter`, `renderCustVehicles`)
+A search box above the accordion, rendered **only when the customer has ≥
+`CustomerRecord.VEHICLE_FILTER_MIN` (6) vehicles** (`shouldShowVehicleFilter`). Below that a
+customer can see every vehicle at once and a search box is just another control in the way —
+Jose has 2 and never sees it; Mint Motors has 31 and does.
+
+**Why it exists:** the accordion sorts by most-recent activity, which is a sensible order for a
+few cars and a **meaningless** one for a fleet where nothing has ever come in. Mint Motors' 31
+vehicles all read `No visits · 0 ROs`, so "most recent" puts them in no discernible order and
+finding one van meant eyeballing 31 near-identical rows.
+
+- **Client-side only.** Filters the already-loaded `custVehicles`. **No new query, no db call,
+  no write** — `custVehQuery` is the only state, and it is display-only and never persisted.
+- **Matching** (`filterVehicles` / `vehicleSearchText` in `shared/customer-record.js`): one
+  lowercase haystack per vehicle of `year make model plate vin`, **partial match anywhere** —
+  `1267` finds plate `X1267 00`. Whitespace splits the query into tokens that must **all**
+  match, so `2015 ford` and `ford 2015` both work. Field order puts `year make model` first so a
+  natural phrase matches as one contiguous run.
+- **Sort FIRST, filter SECOND.** `filterVehicles` only ever drops rows, so the activity sort
+  survives untouched — and so does `custOpenVeh`: a vehicle the user expanded stays expanded,
+  and if the filter hides it, **it is still open when the filter clears**. Filtering changes what
+  is visible and nothing else.
+- **Count** lands in the card note (`#custVehNote`): `3 of 31` while filtering, `31 vehicles`
+  otherwise. An empty result says `No vehicles match "…"`.
+- The box lives **outside `#custVehicles`** on purpose — the accordion re-renders on every
+  keystroke, and re-rendering the input would kill focus and the caret mid-word.
+- Switching customers resets the query (`loadCustomerRecord`), so a leftover filter can never
+  silently hide vehicles on the next record.
+- At ≤860px the input goes to `16px` so iOS doesn't zoom the page on focus.
 
 **Timeline entry (`callEntryHtml`):** time (`started_at`), caller-ID (`cnam` / `caller_formatted`
 / formatted phone), a **disposition** chip from `calls.next_step`
@@ -180,7 +212,18 @@ then branches on whether the search box has text:
   delegated listener. Additive, reads-only.
   ⚠ Multi-word surnames (e.g. "De La Cruz") key off the **last token** only.
 
-## Known gaps & open questions (as of 2026-08-12)
+## Known gaps & open questions (as of 2026-08-18)
+- **1,203 of 3,235 plated vehicle rows have a literal trailing `" 00"` in `plate`** —
+  `"X1267 00"`, `"X837 00"`. It is **stored data, not display**: every one of the 1,203 has
+  `vehicles.source = 'alldata'` and an `alldata_code`, all created on the import date
+  (2026-07-28); zero CrisData-created rows have it, and `" 00"` is the *only* trailing token in
+  the whole table. Untouched by design — the filter matches partially, so `x1267` finds it
+  either way. Cleaning it is a separate data decision, not a display fix.
+- **The `Contact:` subline is redundant for every business on file.** All **54** customers with
+  a `business_name` also have `name` set to the *same* string, so §4's contact subline renders
+  as `Contact: Mint Motors` under the title `Mint Motors`. There are **zero** businesses with a
+  genuine contact person, so the line currently carries no information for anyone. Not changed —
+  suppressing it when `name == business_name` is a one-line fix whenever you want it.
 - Most inbound calls have no `ro_id`, so they land in **`unfiled`** ("needs filing") rather
   than under a vehicle/RO. That's honest to the schema today; **Phase 2 auto-attach** is what
   fills in `byRo`.
@@ -207,13 +250,28 @@ then branches on whether the search box has text:
   `custBucket`/`custAlphaCmp`, `renderCustBrowse`/`renderCustAzBar`/`custJumpToLetter`, the
   active-letter helpers, `renderCustSearch`, `wireCustListDelegation`; full-list load via
   `window.cdFetchAllCustomers`.
+- **Fleet filter (§4a):** markup `#custVehFilter` / `#custVehSearch` / `#custVehClear` +
+  `.cust-veh-filter*` CSS in `advisor-board.html`; state `custVehQuery`; applied in
+  `renderCustVehicles`, reset in `loadCustomerRecord`, listeners in
+  `wireCustRecordDelegation`. Rules in `shared/customer-record.js`.
 - **Pure logic:** `shared/customer-record.js` (`buildRecordingCalls`, `customerCounts`,
   `openRosOf`, `sortNewestFirst`, `totalsByRo`/`roInvoiceTotal`, `canAssignRecording`,
-  `isSecondaryLearned`), tested by `shared/customer-record.test.js`. `filterByVehicle` /
+  `isSecondaryLearned`, and the §4a filter: `VEHICLE_FILTER_MIN`, `shouldShowVehicleFilter`,
+  `vehicleSearchText`, `filterVehicles`), tested by `shared/customer-record.test.js`. `filterByVehicle` /
   `filterRecordingsByVehicle` remain exported + tested but are **no longer called by the
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
+- 2026-08-18 — **Added the fleet filter to the vehicles accordion** (§4a). A search box over
+  plate / VIN / year / make / model, shown only at ≥6 vehicles, filtering the already-loaded
+  list client-side with no new query and no write. Sort and expansion state are both preserved
+  by construction (filter only drops rows). New pure logic + 8 tests in
+  `shared/customer-record.js`: `VEHICLE_FILTER_MIN`, `shouldShowVehicleFilter`,
+  `vehicleSearchText`, `filterVehicles`. Verified in-browser on Mint Motors (31 vehicles):
+  `promaster` → 3 of 31, `1267` → the one van with plate `X1267 00`, `ford transit` → 13 of 31,
+  mixed case fine, no-match message fine; Jose (2 vehicles) never sees the box; an expanded row
+  filtered away came back **still expanded**; order after clearing was byte-identical to before;
+  focus survived typing; no horizontal overflow at 375px.
 - 2026-08-18 — **Added the manual re-file control + the auto chip** (§0, §6b, §6c). The
   needs-filing section gained a "File to RO…" `<select>` (all of the customer's ROs newest-first,
   **closed included**, confirmed calls only) that re-buckets the entry on change; and timeline
