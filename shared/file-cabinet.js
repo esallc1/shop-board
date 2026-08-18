@@ -37,6 +37,7 @@ window.FileCabinet = (function () {
     { id: 'wizard',   file: 'intake-wizard.md',     icon: '🧾', title: 'Intake wizard (New RO flow)' },
     { id: 'floor',    file: 'floor-tags.md',        icon: '🚩', title: 'Floor tags & board lanes' },
     { id: 'calldesk', file: 'call-window-desk.md',  icon: '📞', title: 'Call window & Desk' },
+    { id: 'autoattach', file: 'call-auto-attach.md', icon: '🤖', title: 'Call auto-attach (Phase 2)' },
     { id: 'announce', file: 'announcements.md',     icon: '📣', title: 'Announcement banner' },
     { id: 'checkin',  file: 'ro-checkin-tech.md',   icon: '🔧', title: 'RO check-in / tech assign' },
     { id: 'techboard', file: 'tech-board.md',       icon: '🔧', title: 'Tech Board (dispatcher)' },

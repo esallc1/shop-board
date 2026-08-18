@@ -11,6 +11,14 @@
    ON CONFLICT and updates the same row instead of duplicating) and lets a
    future `end` trigger update that same row.
 
+   Auto-attach (Phase 2): after that upsert, try to file the call — match the
+   caller to a customer by last-10 phone, and if that customer had exactly one
+   RO open at call time, set ro_id too. Rules live in shared/call-auto-attach.js
+   (the same predicate as the hand-run backfills). STRICTLY BEST EFFORT: it
+   runs after the row exists, it is wrapped so it can never throw into the
+   handler, and every failure path leaves the call sitting in the pile for a
+   human. A call is never lost because attach failed.
+
    STILL out of scope: audio download, transcription, field extraction,
    estimate creation, spam/scam flag (no such field in the payload).
 
@@ -24,6 +32,10 @@
    ============================================================ */
 
 import crypto from 'node:crypto';
+import {
+  AUTO_ATTACH_LIVE_RUN_ID, last10Key, shouldAutoAttach, pickCustomer, pickOpenRoAt,
+  autoAttachCallPatch, autoFileRoPatch,
+} from '../shared/call-auto-attach.js';
 
 // Vercel's default body parser consumes and re-serializes the request, which
 // destroys the exact bytes signature verification needs. Turn it off and read
@@ -250,21 +262,98 @@ async function upsertCall(body) {
   try {
     // PostgREST upsert: POST + Prefer: resolution=merge-duplicates, conflict
     // target = the unique ctm_call_id. A CTM retry updates the same row.
+    // return=representation so auto-attach can work from the row that actually
+    // landed (its id, and whether a human already claimed it on a retry).
     const r = await fetch(`${SUPABASE_URL}/rest/v1/calls?on_conflict=ctm_call_id`, {
       method: 'POST',
       headers: {
         apikey: key,
         Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json',
-        Prefer: 'resolution=merge-duplicates',
+        Prefer: 'resolution=merge-duplicates,return=representation',
       },
       body: JSON.stringify(row),
     });
     if (!r.ok) {
       console.error('[ctm-webhook] calls upsert failed', r.status, await r.text());
+      return null;
     }
+    const rows = await r.json().catch(() => null);
+    return (Array.isArray(rows) && rows.length) ? rows[0] : null;
   } catch (e) {
     console.error('[ctm-webhook] calls upsert threw', e);
+  }
+  return null;
+}
+
+// ── AUTO-ATTACH (Phase 2) ───────────────────────────────────────────────
+// Best effort, service-role, and deliberately timid:
+//   RULE 1  exactly one customer matches the caller's last 10 → attach.
+//           0 or 2+ → leave it in the pile for a human. Never guess.
+//   RULE 2  that customer had exactly ONE RO open at the time of the call →
+//           also set ro_id. 0 or 2+ → leave ro_id null.
+// The decision logic is shared/call-auto-attach.js — the same predicate the
+// hand-run backfills used. Nothing here writes phone_primary, phone_secondary,
+// learned_phone, attached_by_name or attached_at.
+//
+// Never throws. Every early return leaves the call exactly where it was.
+async function autoAttachCall(row) {
+  if (!shouldAutoAttach(row) || row.id == null) return;
+
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) return;                                    // already logged by the caller
+  const headers = { apikey: key, Authorization: `Bearer ${key}` };
+  const k = last10Key(row.caller_bare);
+
+  try {
+    // RULE 1 — the phone lookup, on the generated last-10 columns
+    // (migrations/20260818_customers_phone_l10.sql). limit=2 is all we need:
+    // two rows already means ambiguous, and we stop caring how many more.
+    const cr = await fetch(
+      `${SUPABASE_URL}/rest/v1/customers?select=id&or=(phone_primary_l10.eq.${k},phone_secondary_l10.eq.${k})&limit=2`,
+      { headers });
+    if (!cr.ok) {
+      // The most likely cause is the l10 migration not having been run on this
+      // project yet. Say so plainly rather than failing silently every call.
+      console.error('[ctm-webhook] auto-attach customer lookup failed', cr.status, await cr.text(),
+        '— has migrations/20260818_customers_phone_l10.sql been run on this project?');
+      return;
+    }
+    const customerId = pickCustomer(await cr.json());
+    if (!customerId) return;                           // stranger or ambiguous → stays in the pile
+
+    // RULE 2 — was exactly one RO open when this call came in?
+    let roId = null;
+    if (row.started_at) {
+      const rr = await fetch(
+        `${SUPABASE_URL}/rest/v1/repair_orders?select=id,status,created_at,closed_at,declined_at&customer_id=eq.${encodeURIComponent(customerId)}`,
+        { headers });
+      if (rr.ok) roId = pickOpenRoAt(await rr.json(), row.started_at);
+      else console.error('[ctm-webhook] auto-attach RO lookup failed', rr.status, await rr.text());
+    }
+
+    // Write it. The customer_id=is.null & not_a_customer_at=is.null filters make
+    // this atomic in the DATABASE: if a human attached (or dismissed) the call
+    // between our read and this write, the PATCH matches zero rows and we lose
+    // the race harmlessly. The robot can never overwrite a person's decision.
+    const nowISO = new Date().toISOString();
+    const patch = {
+      ...autoAttachCallPatch(customerId, nowISO, AUTO_ATTACH_LIVE_RUN_ID),
+      ...(roId ? autoFileRoPatch(roId, nowISO, AUTO_ATTACH_LIVE_RUN_ID) : {}),
+    };
+    const pr = await fetch(
+      `${SUPABASE_URL}/rest/v1/calls?id=eq.${encodeURIComponent(row.id)}&customer_id=is.null&not_a_customer_at=is.null`,
+      {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify(patch),
+      });
+    if (!pr.ok) console.error('[ctm-webhook] auto-attach write failed', pr.status, await pr.text());
+    else console.log('[ctm-webhook] auto-attached call', row.id, '→ customer', customerId, roId ? `+ RO ${roId}` : '(no single open RO)');
+  } catch (e) {
+    // Swallowed on purpose. The call row already exists and is visible on the
+    // board; the worst case is that it stays unattached, which is the status quo.
+    console.error('[ctm-webhook] auto-attach threw', e);
   }
 }
 
@@ -345,7 +434,11 @@ export default async function handler(req, res) {
     //    • anything else     → nothing (already logged above).
     //    body is null on a parse failure; both branches no-op safely then.
     if (trigger === null) {
-      await upsertCall(body);
+      const call = await upsertCall(body);
+      // 5b. Auto-attach, AFTER the row exists. Best effort by construction:
+      //     autoAttachCall never throws, and a null row (upsert skipped or
+      //     failed) simply means there is nothing to attach yet.
+      if (call) await autoAttachCall(call);
     } else if (trigger === 'end') {
       if (body) await insertRecording(body);
     }
