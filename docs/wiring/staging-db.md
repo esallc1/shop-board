@@ -144,11 +144,27 @@ Spot-check parity, e.g. `select count(*) from customers;` in each project's SQL 
 `pg_dump --data-only` copies **only `public`** — it does **not** copy `auth.users` or
 Storage objects (handled in Steps 4a/4b).
 
-### Step 4a — Create the Storage buckets *(Cris, staging → Storage)*
-The bucket **policies** are already created by Step 2; create the **buckets** themselves
-(empty is fine). Mirror prod's bucket list + public/private flags (prod's are private):
-`crisdata-attachments`, `attachments`, `employee-photos`, `board-backgrounds`,
-`call-recordings`, `invoice-images`, `marketing-content`.
+### Step 4a — Create the Storage buckets *(run one migration)*
+**Run `migrations/20260819_storage_buckets.sql` against the staging project.** It creates all
+six buckets with prod's exact public/private flags and all 22 `storage.objects` policies, is
+idempotent, and is safe on any environment. That is the whole step.
+
+> ⚠️ **This step used to say "create the buckets by hand in the dashboard", and that is what
+> went wrong.** The sandbox was built on 2026-08-12 with **zero** buckets and nobody noticed
+> until 2026-08-19, when RO photo upload tried to write. Every storage-dependent feature on
+> `test.leetransmissionshop.com` was silently dead for a week — catch-moment, Capture Invoice,
+> To-Do and chat attachments, Requests screenshots, diagnosis audio, employee photos. Two
+> compounding reasons, both fixed above and in Step 6:
+> 1. **A manual step that nothing verifies is a step that silently does not happen.** Step 6
+>    checked table reads and writes and never once looked at storage.
+> 2. **Step 2 creates storage POLICIES but not BUCKETS**, so this step reading "policies are
+>    already created" implied storage was mostly handled. A policy naming a bucket that does
+>    not exist does nothing at all.
+
+The old instruction also asked you to mirror a bucket list that included **`attachments`** —
+which is not a bucket in this system and never has been (see the note in §5 below). Mirroring
+a list from memory is exactly the failure the migration removes.
+
 (The recordings cron runs only on the Production deployment, so `call-recordings` stays
 empty on staging unless you upload a test file.)
 
@@ -202,6 +218,19 @@ once staging is deployed. To log in as a different role, change `'owner'`.
 2. Make a **harmless write on `test.*`** (e.g. add a To-Do) → it appears in the **staging**
    project's table and **not** in prod. Do the reverse on prod → not in staging.
 3. Confirm a prod row count is unchanged before/after staging write-testing.
+4. **STORAGE EXISTS — do not skip this one.** Tables can be perfect while storage is empty,
+   and that combination looks completely healthy until a feature tries to upload:
+   ```sql
+   select count(*) as buckets from storage.buckets;          -- must be >= 6, NEVER 0
+   select id, public from storage.buckets order by id;       -- flags must match prod
+   ```
+   Then prove it end to end in the browser, because a bucket can exist while its policies
+   don't: on `test.*`, open any board and use **📸 Catch this moment** to save one photo. It
+   should appear in the Owner board's Marketing Content tab. If the bucket row exists but the
+   upload 400s, the `storage.objects` policies are missing — re-run
+   `migrations/20260819_storage_buckets.sql` and read its NOTICEs (it is best-effort per
+   policy, because `storage.objects` is owned by `supabase_storage_admin` and some projects
+   refuse policy DDL from the SQL editor).
 
 ## 4. Tear down / refresh the staging DB later
 - **Refresh data** (re-snapshot prod): truncate staging public tables (or re-run Step 2 on a

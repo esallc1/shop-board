@@ -2,9 +2,9 @@
 
 > Doc: `/docs/wiring/hosting-domains.md`
 > Last updated: 2026-08-19 — **corrected §3.5 and §5 for the sandbox split** (writes on staging are
-> safe) and added **§3.6: deploys happen by PUSH, never by CLI** — the old `vercel --prod` rule was
-> false and was the direct cause of the public-file exposure and the missing commit SHA.
-> Verified vs commit `c26bca9`.
+> safe), added **§3.6: deploys happen by PUSH, never by CLI**, and added **§5.5: the six storage
+> buckets**, which this doc never covered — the gap that let the staging sandbox run for a week
+> with no buckets at all. Verified vs commit `c26bca9` + the photo-buckets branch.
 > Status: 🟢 current. §3.5/§5 re-verified this session against `shared/supabase-config.js`,
 > `api/*`, and all 12 pages. Vercel/DNS facts carried forward from the 2026-08-03 session
 > (`vercel` CLI as `esallc1-5351`, team `leetransmission-kiki`, live `curl`). Items I could not
@@ -188,6 +188,46 @@ returns nothing):
   same-origin `getSession()`; no board hardcodes an auth redirect URL (unlike kiki's two
   `REDIRECT` constants in §4).
 
+## 5.5 Storage — the six buckets (added 2026-08-19)
+Storage lives in the **same Supabase project** as the tables, so it splits prod/staging exactly
+the same way (§5). Six buckets, defined in one place:
+**`migrations/20260819_storage_buckets.sql`** — idempotent, safe on any environment, and the
+single answer to "how do I give a new environment storage".
+
+| Bucket | Public | Read as | Used by |
+|---|---|---|---|
+| `crisdata-attachments` | no | `createSignedUrl` | chat + To-Do attachments, Requests screenshots, RO diagnosis audio, **RO photos** |
+| `invoice-images` | no | `createSignedUrl` | Capture Invoice, bookkeeping |
+| `marketing-content` | no | `createSignedUrl` | the "Catch this moment" FAB → owner Marketing tab |
+| `call-recordings` | no | **server-side** signing | recordings cron + `api/recording-links.js` |
+| `board-backgrounds` | **yes** | `getPublicUrl` | board settings, shop logo |
+| `employee-photos` | **yes** | `getPublicUrl` | employee avatars (`gm-board.html`) |
+
+Two things worth knowing before touching any of it:
+- **`call-recordings` carries NO `storage.objects` policies, deliberately.** It is service-role
+  only: `api/recording-links.js` signs playback URLs server-side and never accepts or returns a
+  `storage_path`. Adding an anon policy there would undo that.
+- **`crisdata-attachments` is INSERT + SELECT only** — no delete, for anon or authenticated.
+  The boards delete an `attachments` ROW without removing the storage object, so objects
+  accumulate. That is the current posture, not an oversight to "fix" casually.
+
+**Buckets do NOT travel with a schema dump.** `pg_dump --schema-only` of `public` does not carry
+`storage.buckets` rows, and neither does the data copy. A new environment has *zero* buckets
+until something creates them — which is exactly what bit the staging sandbox on 2026-08-19
+(built 2026-08-12 with no buckets; every storage feature on `test.*` silently dead for a week
+until RO photo upload tried to write). Run the migration; do not create them by hand. See
+[[staging-db]] Step 4a and its Step 6 storage check.
+
+⚠️ **`staging/staging-rls-and-storage.sql` has a phantom bucket in its list.** Its PART 2 loop
+iterates `'crisdata-attachments','attachments','employee-photos','board-backgrounds',
+'call-recordings','invoice-images','marketing-content'` — and **`attachments` is not a bucket
+in this system and never has been.** The table `public.attachments` exists; the *bucket* those
+rows point into is `crisdata-attachments`. The stray entry is harmless (it creates a policy for
+a bucket that will never exist) but it is a tell that the list was written from memory rather
+than from the migrations, and it is the same list Step 4a used to ask you to mirror by hand.
+The file is still useful — it grants the permissive sandbox-wide table policies — but the
+bucket layout should now come from `migrations/20260819_storage_buckets.sql`, not from there.
+
 ## Known gaps & open questions (as of 2026-08-03)
 - **[verify]** Remove the stale apex + `www` attachment from the **kiki** Vercel project
   (§2) so only shop-board owns them.
@@ -205,6 +245,17 @@ returns nothing):
 - Client-side idle logout: `shared/office-identity.js` (`armIdleLogout`) — see [[office-auth]] §8.8.
 
 ## Session change log
+- 2026-08-19 — **§5.5 added: storage buckets.** This doc described the Supabase project but never
+  its STORAGE, and nothing else did either — buckets were side-effects of five unrelated feature
+  migrations plus one made by hand in the dashboard (`employee-photos`). The staging sandbox was
+  consequently built with ZERO buckets and stayed that way for a week: `staging-rls-and-storage.sql`
+  creates storage POLICIES but not BUCKETS, and a policy naming a nonexistent bucket does nothing.
+  Every storage feature on `test.*` was silently dead until RO photo upload tried to write. §5.5 now
+  lists all six with their flags, read mechanism and consumers, records the two deliberate oddities
+  (`call-recordings` has no policies; `crisdata-attachments` has no delete), states that buckets do
+  not travel with a schema dump, and flags the phantom `attachments` entry in
+  `staging/staging-rls-and-storage.sql`'s bucket list. Fix ships as
+  `migrations/20260819_storage_buckets.sql`. Docs only.
 - 2026-08-19 — **§3.6 added: deploy by PUSH, never by CLI.** The standing rule said the
   GitHub→Vercel webhook "intermittently stops firing" and to fall back to `vercel --prod`. It is
   false: pushes to `main` build production automatically (observed twice this session, no CLI run),
