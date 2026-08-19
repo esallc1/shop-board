@@ -197,6 +197,7 @@
 
   .photo-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px; }
   .photo-thumb{
+    display:block;                 /* it's an <a> now — inline would ignore aspect-ratio */
     aspect-ratio:1; border-radius:8px; overflow:hidden; background:var(--panel-raised);
     border:1px solid var(--stroke); position:relative;
   }
@@ -318,6 +319,14 @@
 <script src="shared/supabase-config.js"></script>
 <script src="shared/office-identity.js"></script>
 <script src="shared/catch-moment.js"></script>
+<!-- Photo downscale + EXIF orientation (ESM). Assigns window.PhotoCompress.
+     Module scripts are deferred, so this lands after the inline script below
+     defines its functions — fine, because nothing touches it until a tech taps
+     Add Photo. Every use is still guarded. -->
+<script type="module">
+  import * as PhotoCompress from './shared/photo-compress.js';
+  window.PhotoCompress = PhotoCompress;
+</script>
 </head>
 <body>
 <div id="app"></div>
@@ -400,8 +409,6 @@ function sbRowToJob(row, table) {
     status: sbStatusToLocal(row, table),
     flagHours: row.flag_hours != null ? Number(row.flag_hours) : null,
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
-    beforePhotos: [],
-    partPhotos: [],
     assignedTechId: STATE ? STATE.currentTechId : null,
   };
 }
@@ -518,6 +525,9 @@ const I18N = {
     partPhotosLabel: "Part / Repair Photos",
     addPhotoLabel: "Add Photo",
     toastPhotoAdded: "Photo added",
+    toastPhotoUploading: "Uploading photo…",
+    toastPhotoFailed: "Photo failed to upload",
+    toastPhotoNoBucket: "Photo saved without a bucket",
     toastNeedDiagnosis: "Add your diagnostic notes first",
     toastSentWriter: "Sent to service writer",
     toastJobComplete: "Job marked complete",
@@ -600,6 +610,9 @@ const I18N = {
     partPhotosLabel: "Fotos de Piezas / Reparación",
     addPhotoLabel: "Agregar Foto",
     toastPhotoAdded: "Foto agregada",
+    toastPhotoUploading: "Subiendo foto…",
+    toastPhotoFailed: "No se pudo subir la foto",
+    toastPhotoNoBucket: "Foto guardada sin categoría",
     toastNeedDiagnosis: "Agrega tus notas de diagnóstico primero",
     toastSentWriter: "Enviado al asesor de servicio",
     toastJobComplete: "Trabajo marcado como completo",
@@ -682,6 +695,9 @@ const I18N = {
     partPhotosLabel: "Foto Pyès / Reparasyon",
     addPhotoLabel: "Ajoute Foto",
     toastPhotoAdded: "Foto ajoute",
+    toastPhotoUploading: "Y ap voye foto a…",
+    toastPhotoFailed: "Foto a pa t ka telechaje",
+    toastPhotoNoBucket: "Foto sove san kategori",
     toastNeedDiagnosis: "Ajoute nòt dyagnostik ou anvan",
     toastSentWriter: "Voye bay konseye sèvis la",
     toastJobComplete: "Travay make fini",
@@ -943,14 +959,20 @@ function jobsFlaggedThisWeekCount(){
 }
 
 // Re-pull this tech's jobs from Supabase (read-only) without dropping the
-// session or clobbering any not-yet-submitted diagnosis text / local-only photos.
+// session or clobbering any not-yet-submitted diagnosis text.
+//
+// Photos are NOT in this snapshot any more. They used to be two in-memory
+// arrays of data URLs on the shopboard job (beforePhotos / partPhotos) that
+// were never uploaded and never left the tab. RO photos now live on the
+// REPAIR ORDER, in Supabase, and are re-read from there — so there is nothing
+// local left to preserve across a refetch.
 async function refreshData(){
   const tech = STATE.currentTech;
   if(!tech) return;
 
   const drafts = {};
   STATE.jobs.forEach(j => {
-    drafts[j.id] = { diagnosis: j.diagnosis, beforePhotos: j.beforePhotos, partPhotos: j.partPhotos };
+    drafts[j.id] = { diagnosis: j.diagnosis };
   });
 
   await loadSupabaseData(tech.name);
@@ -959,8 +981,6 @@ async function refreshData(){
     const draft = drafts[j.id];
     if(!draft) return;
     if(draft.diagnosis && draft.diagnosis !== j.diagnosis) j.diagnosis = draft.diagnosis;
-    if(draft.beforePhotos && draft.beforePhotos.length) j.beforePhotos = draft.beforePhotos;
-    if(draft.partPhotos && draft.partPhotos.length) j.partPhotos = draft.partPhotos;
   });
 }
 
@@ -1331,28 +1351,6 @@ function bindList(){
 /* ---------------- DETAIL ---------------- */
 function getActiveJob(){ return STATE.jobs.find(j => j.id === STATE.activeJobId); }
 
-function fileToDataUrl(file){
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.readAsDataURL(file);
-  });
-}
-
-function renderPhotoGrid(photos, addId, label){
-  return `
-    <h3>${label} (${photos.length})</h3>
-    <div class="photo-grid">
-      ${photos.map(p => `<div class="photo-thumb"><img src="${p}"></div>`).join('')}
-      <label class="photo-add" for="${addId}">
-        <div class="plus">+</div>
-        <div>${t('addPhotoLabel')}</div>
-      </label>
-    </div>
-    <input type="file" accept="image/*" capture="environment" id="${addId}">
-  `;
-}
-
 function renderDetail(){
   const job = getActiveJob();
   const priorJobs = STATE.jobs.filter(j => j.vin === job.vin && j.id !== job.id);
@@ -1406,18 +1404,10 @@ function renderDetail(){
       </div>` : ''}
 
       <div class="section">
-        ${renderPhotoGrid(job.beforePhotos, 'beforePhotoInput', t('beforePhotosLabel'))}
-      </div>
-
-      <div class="section">
         <h3>${t('diagnosticLabel')}</h3>
         <textarea id="diagText" placeholder="${t('diagnosticPlaceholder')}" ${job.status==='new'?'disabled':''}>${job.diagnosis}</textarea>
       </div>
 
-      ${['approved','in_progress','done'].includes(job.status) ? `
-      <div class="section" style="border-bottom:none;">
-        ${renderPhotoGrid(job.partPhotos, 'partPhotoInput', t('partPhotosLabel'))}
-      </div>` : ''}
     </div>
     <div class="sticky-cta">${cta}</div>
   `;
@@ -1431,30 +1421,6 @@ function bindDetail(){
   const diagText = document.getElementById('diagText');
   if(diagText){
     diagText.addEventListener('input', (e) => { job.diagnosis = e.target.value; });
-  }
-
-  // Photos stay local-only (no Supabase photo storage yet)
-  const beforeInput = document.getElementById('beforePhotoInput');
-  if(beforeInput){
-    beforeInput.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if(!file) return;
-      const dataUrl = await fileToDataUrl(file);
-      job.beforePhotos.push(dataUrl);
-      render();
-      showToast(t('toastPhotoAdded'));
-    });
-  }
-  const partInput = document.getElementById('partPhotoInput');
-  if(partInput){
-    partInput.addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if(!file) return;
-      const dataUrl = await fileToDataUrl(file);
-      job.partPhotos.push(dataUrl);
-      render();
-      showToast(t('toastPhotoAdded'));
-    });
   }
 
   // new → diagnosing: stamp diagnosing_at, status stays waiting-tech in Supabase
@@ -1520,11 +1486,13 @@ let RO_DIAG = null;
 async function openRoDiag(roId){
   const ro = STATE.roJobs.find(r => r.id === roId);
   if(!ro) return;
-  RO_DIAG = { ro, codes: [], clips: [], recommendation: ro.diagnosis_recommendation || '',
+  RO_DIAG = { ro, codes: [], clips: [], photos: [], recommendation: ro.diagnosis_recommendation || '',
               recorder: null, chunks: [], recording: false, recSeconds: 0, recTimer: null };
   STATE.activeRoId = roId;
   await loadRoCodes(roId);
   await loadRoClips(roId);
+  await loadPhotoBuckets();
+  await loadRoPhotos(roId);
   STATE.view = 'roDiag';
   render();
 }
@@ -1552,6 +1520,179 @@ async function loadRoClips(roId){
     clips.push({ id: a.id, file_path: a.file_path, url });
   }
   RO_DIAG.clips = clips;
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   RO PHOTOS — real, RO-scoped, bucketed.
+
+   Replaces the old local-only grids on the shopboard job screen (data URLs in
+   an in-memory array that never left the tab). Photos now hang off the REPAIR
+   ORDER, exactly like the diagnosis voice clips beside them: same private
+   bucket (crisdata-attachments), same `attachments` table, same signed-URL
+   read-back. The only additions are kind='ro_photo' and bucket_id.
+
+   The bucket is IMPLIED by which grid was tapped — no picker in this slice.
+   It is resolved by NAME against photo_buckets where archived_at is null, so
+   a renamed or archived bucket simply stops matching and the photo lands
+   unbucketed ("No bucket") rather than failing or guessing.
+   ════════════════════════════════════════════════════════════════════ */
+
+// name -> id, live buckets only. Loaded once per roDiag open.
+let PHOTO_BUCKETS = {};
+
+async function loadPhotoBuckets(){
+  const { data, error } = await db.from('photo_buckets')
+    .select('id, name').is('archived_at', null).order('sort_order', { ascending: true });
+  if(error){
+    // Pre-migration project, or the table isn't there yet: photos still upload,
+    // they just land unbucketed. Never block the capture on this.
+    console.warn('[RoPhotos] bucket load failed (photos will be unbucketed):', error.message);
+    PHOTO_BUCKETS = {};
+    return;
+  }
+  PHOTO_BUCKETS = {};
+  (data || []).forEach(b => { PHOTO_BUCKETS[b.name] = b.id; });
+}
+
+// Private bucket -> short-lived signed URLs, same as loadRoClips.
+async function loadRoPhotos(roId){
+  const { data, error } = await db.from('attachments')
+    .select('id, file_path, bucket_id').eq('entity_type', 'repair_order').eq('entity_id', roId)
+    .eq('kind', 'ro_photo').order('created_at', { ascending: true });
+  if(error){ console.warn('[RoPhotos] load failed:', error.message); RO_DIAG.photos = []; return; }
+  const photos = [];
+  for(const a of (data || [])){
+    let url = '';
+    try {
+      const { data: sg } = await db.storage.from('crisdata-attachments').createSignedUrl(a.file_path, 3600);
+      url = (sg && sg.signedUrl) || '';
+    } catch(e){ /* leave url empty; the tile still renders as a placeholder */ }
+    photos.push({ id: a.id, file_path: a.file_path, bucket_id: a.bucket_id, url });
+  }
+  RO_DIAG.photos = photos;
+}
+
+// The photos currently in one named bucket. Unknown/archived bucket -> the
+// tiles that carry no bucket_id, i.e. "No bucket".
+function photosInBucket(bucketName){
+  const id = PHOTO_BUCKETS[bucketName] || null;
+  return (RO_DIAG.photos || []).filter(p => (p.bucket_id || null) === id);
+}
+
+function roPhotoGridHtml(bucketName, inputId, label){
+  const photos = photosInBucket(bucketName);
+  return `
+    <h3>${label} (${photos.length})</h3>
+    <div class="photo-grid">
+      ${photos.map(p => p.url
+        ? `<a class="photo-thumb" href="${escRo(p.url)}" target="_blank" rel="noopener"><img src="${escRo(p.url)}" loading="lazy" alt=""></a>`
+        : `<div class="photo-thumb"></div>`).join('')}
+      <label class="photo-add" for="${inputId}">
+        <div class="plus">+</div>
+        <div>${t('addPhotoLabel')}</div>
+      </label>
+    </div>
+    <input type="file" accept="image/*" capture="environment" id="${inputId}">
+  `;
+}
+
+function refreshPhotosUI(){
+  const wrap = document.getElementById('roPhotosWrap');
+  if(wrap){ wrap.innerHTML = roPhotosHtml(); bindPhotoInputs(); }
+}
+
+function roPhotosHtml(){
+  return `
+    <div class="section">
+      ${roPhotoGridHtml('Before', 'roBeforePhotoInput', t('beforePhotosLabel'))}
+    </div>
+    <div class="section" style="border-bottom:none">
+      ${roPhotoGridHtml('Part / Repair', 'roPartPhotoInput', t('partPhotosLabel'))}
+    </div>
+  `;
+}
+
+// One upload: downscale -> storage -> attachments row -> re-render.
+// Mirrors uploadClip() exactly, plus compression and the bucket.
+let roPhotoBusy = false;
+async function uploadRoPhoto(file, bucketName){
+  if(!file || roPhotoBusy) return;
+  if(!file.type || !file.type.startsWith('image/')){ showToast(t('toastPhotoFailed')); return; }
+  // Camera-captured files can arrive zero-byte — Supabase Storage rejects that
+  // with "No content provided" only once the request lands. Catch it here.
+  // (Same guard as advisor-board's Capture Invoice.)
+  if(!file.size){ showToast(t('toastPhotoFailed')); return; }
+
+  const ro = RO_DIAG && RO_DIAG.ro;
+  if(!ro) return;
+
+  roPhotoBusy = true;
+  showToast(t('toastPhotoUploading'));
+  try {
+    // Downscale + fix EXIF orientation before a single byte goes over shop
+    // wifi. Falls back to the original file if the browser can't decode it,
+    // so a photo is never lost to a compression failure.
+    const PC = window.PhotoCompress;
+    const out = PC ? await PC.compressImage(file) : null;
+    const blob = out ? out.blob : file;
+    const mime = out ? out.mime : (file.type || 'image/jpeg');
+    const ext  = out ? out.ext  : 'jpg';
+    if(out && out.usedOriginal) console.warn('[RoPhotos] uploaded original (', out.why, ')');
+
+    // Same path shape as the voice clips: repair_order/<ro id>/photos/<ts>.<ext>.
+    // A short random suffix on top of the timestamp — a tech can fire two
+    // captures inside the same millisecond, and upsert:false would drop the
+    // second one on a collision.
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const path = `repair_order/${ro.id}/photos/${stamp}.${ext}`;
+
+    const { error: upErr } = await db.storage.from('crisdata-attachments')
+      .upload(path, blob, { contentType: mime, upsert: false });
+    if(upErr){ console.error('[RoPhotos] upload failed', upErr); showToast(t('toastPhotoFailed')); return; }
+
+    const bucketId = PHOTO_BUCKETS[bucketName] || null;
+    const { data: row, error: insErr } = await db.from('attachments')
+      .insert({ entity_type: 'repair_order', entity_id: ro.id, kind: 'ro_photo',
+                file_path: path, bucket_id: bucketId })
+      .select('id').single();
+    if(insErr){ console.error('[RoPhotos] attach-row failed', insErr); showToast(t('toastPhotoFailed')); return; }
+
+    let url = '';
+    try {
+      const { data: sg } = await db.storage.from('crisdata-attachments').createSignedUrl(path, 3600);
+      url = (sg && sg.signedUrl) || '';
+    } catch(e){ /* tile renders empty until the next open */ }
+
+    RO_DIAG.photos.push({ id: row.id, file_path: path, bucket_id: bucketId, url });
+    refreshPhotosUI();
+    showToast(bucketId ? t('toastPhotoAdded') : t('toastPhotoNoBucket'));
+  } finally {
+    roPhotoBusy = false;
+  }
+}
+
+// The input-reset ordering is COPIED VERBATIM from advisor-board.html's
+// Capture Invoice (and the note catch-moment.js carries):
+//   Reset AFTER the upload attempt finishes, not before. Resetting the input's
+//   value while the upload is still in flight was found to be able to
+//   invalidate a camera-captured File's underlying data on some mobile
+//   browsers — the File object still looks valid (correct .type/.name) but
+//   Supabase Storage receives a request with no file content at all.
+// Hence `await uploadRoPhoto(...)` BEFORE `e.target.value = ''`.
+function bindPhotoInputs(){
+  const pairs = [
+    ['roBeforePhotoInput', 'Before'],
+    ['roPartPhotoInput',   'Part / Repair'],
+  ];
+  for(const [id, bucketName] of pairs){
+    const el = document.getElementById(id);
+    if(!el) continue;
+    el.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if(file) await uploadRoPhoto(file, bucketName);
+      e.target.value = '';
+    });
+  }
 }
 
 function roCodesHtml(){
@@ -1623,6 +1764,8 @@ function renderRoDiag(){
         </div>
         <div id="roClipsWrap">${roClipsHtml()}</div>
       </div>
+
+      <div id="roPhotosWrap">${roPhotosHtml()}</div>
     </div>
     <div class="sticky-cta">
       <button class="btn btn-primary" id="btnRoSubmit">${t('ctaSubmitRoDiag')}</button>
@@ -1631,6 +1774,8 @@ function renderRoDiag(){
 }
 
 function bindRoDiag(){
+  bindPhotoInputs();
+
   document.getElementById('btnRoBack').addEventListener('click', () => {
     if(RO_DIAG && RO_DIAG.recording && RO_DIAG.recorder){ try { RO_DIAG.recorder.stop(); } catch(e){} }
     STATE.view = 'list'; STATE.activeTab = 'ro_diag'; render();
