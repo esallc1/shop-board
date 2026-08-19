@@ -1,5 +1,31 @@
 # CrisData — CC project instructions
 
+## Deploying — PUSH, never CLI (READ THIS)
+
+**You deploy by pushing to a branch. Never run `vercel` to deploy.**
+
+| Push to | Builds | Serves |
+|---|---|---|
+| `main` | **production** | `leetransmissionshop.com`, `www`, `board.*` |
+| `staging` | preview bound to `gitBranch: staging` | `test.leetransmissionshop.com` |
+| any other branch | preview | its own `shop-board-git-<branch>-…` alias |
+
+Both are automatic and both are live (verified 2026-08-19).
+
+1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
+   ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.
+2. **After a push, wait for the build before checking `/api/version`.** Checking immediately
+   returns the **previous** SHA and reads exactly like "the deploy didn't happen". Give it
+   ~30–60s, or watch `vercel ls shop-board --prod` for a `● Ready` row newer than the push.
+3. **If a push doesn't deploy, fix the integration — don't route around it with the CLI.**
+
+**Why the CLI is banned** (both diagnosed 2026-08-19 — see [[hosting-domains]] §3.6):
+- `vercel --prod` uploads the **working directory**, not the git tree. Untracked files not named
+  in `.vercelignore` ship to a public origin — that is exactly how session handoff notes, a
+  business-model doc, `setup_shopboard.sql` and `.claude/` became publicly readable on prod.
+- It stamps `/api/version` from whatever local HEAD happens to be, so the version an installed
+  PWA sees may match no reviewed commit — and a deploy from a dirty tree would stamp a lie.
+
 ## File Cabinet — living wiring docs (READ THIS)
 
 CrisData keeps **one living doc per subsystem** under `/docs/wiring/`. These are the

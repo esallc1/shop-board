@@ -1,9 +1,10 @@
 # How hosting & domains are wired
 
 > Doc: `/docs/wiring/hosting-domains.md`
-> Last updated: 2026-08-19 — **corrected §3.5 and §5 for the sandbox split**: `test.*` runs on its
-> own Supabase project, so writes on staging are safe (the doc previously said the opposite).
-> Verified vs commit `c17db7e`.
+> Last updated: 2026-08-19 — **corrected §3.5 and §5 for the sandbox split** (writes on staging are
+> safe) and added **§3.6: deploys happen by PUSH, never by CLI** — the old `vercel --prod` rule was
+> false and was the direct cause of the public-file exposure and the missing commit SHA.
+> Verified vs commit `c26bca9`.
 > Status: 🟢 current. §3.5/§5 re-verified this session against `shared/supabase-config.js`,
 > `api/*`, and all 12 pages. Vercel/DNS facts carried forward from the 2026-08-03 session
 > (`vercel` CLI as `esallc1-5351`, team `leetransmission-kiki`, live `curl`). Items I could not
@@ -55,12 +56,13 @@ test a change on a stable URL that holds a logged-in session before it goes to p
   Vercel project with **`gitBranch: staging`** (set via the Vercel API — `POST
   /v10/projects/{id}/domains` with `{name, gitBranch:"staging"}`; ownership `verified:true`,
   inherited from the apex). Vercel auto-aliases the domain to the **latest `staging` deployment**.
-- **New flow:** feature branch → **merge to `staging`** → GitHub→Vercel integration auto-builds
+- **The flow:** feature branch → **merge to `staging`** → GitHub→Vercel integration auto-builds
   → **`test.leetransmissionshop.com`** (and the stable alias
   `shop-board-git-staging-leetransmission-kiki.vercel.app`) → Cris eyeballs → **merge to `main`**
-  → `vercel --prod` → **sync `staging` up to `main`** (next bullet). (`staging` is long-lived; the
-  production branch is still `main`.)
-- **Keep staging mirroring prod (post-release sync).** After every prod deploy, staging is brought
+  → the integration auto-builds **production** → **sync `staging` up to `main`** (next bullet).
+  (`staging` is long-lived; the production branch is `main`.) **No CLI step anywhere** — see §3.6.
+- **Keep staging mirroring prod (post-release sync).** After every push to `main` has finished
+  building, staging is brought
   up to main so it always equals **production + whatever feature is still under test**:
   ```
   git checkout staging && git merge --ff-only main && git push origin staging && git checkout main
@@ -100,6 +102,53 @@ test a change on a stable URL that holds a logged-in session before it goes to p
   > ⚠ **This bullet previously said the opposite** — that staging shared the prod project and that
   > any write mutated real production data. That was true only before the sandbox split landed
   > (2026-08-18) and is now wrong; it was discouraging exactly the testing staging exists for.
+
+## 3.6 How deploys actually happen — PUSH, NEVER CLI (corrected 2026-08-19)
+
+**The rule, in one line: you deploy by pushing to a branch. Never by running `vercel` on your
+own machine.**
+
+| Push to | Builds | Serves |
+|---|---|---|
+| **`main`** | production | `leetransmissionshop.com`, `www`, `board.*`, the prod Vercel aliases |
+| **`staging`** | preview bound to `gitBranch: staging` | `test.leetransmissionshop.com` + `shop-board-git-staging-…vercel.app` |
+| any other branch | preview | its own `shop-board-git-<branch>-…` alias only |
+
+**Both are live and automatic. Verified 2026-08-19:**
+- **`main` → prod: observed directly.** Two pushes to `main` produced two production deployments,
+  seconds after each push, with no `vercel` command run at all.
+- **`staging` → `test.*`: verified by SHA.** `test.leetransmissionshop.com/api/version` returns the
+  **`staging` branch tip** (`cdea645`) while `main` is far ahead (`c26bca9`). `/api/version` reports
+  `VERCEL_GIT_COMMIT_SHA`, and a CLI deploy stamps the *local* HEAD — so a SHA that matches the
+  branch and matches no local state can only have come from a git-integration build of that branch.
+
+**Consequences that bite if you forget them:**
+1. **Anything pushed to `main` goes live.** There is no "push now, deploy later". Work that must
+   not ship yet belongs on a feature branch, not on `main`.
+2. **After a push, wait for the build to finish before checking `/api/version`.** Checking
+   immediately gives a **false reading** — it returns the *previous* SHA because the new build has
+   not swapped in yet, which reads exactly like "the deploy didn't happen". That misreading is what
+   made this session believe prod was being held while it was in fact deploying. Give it ~30–60s,
+   or watch `vercel ls shop-board --prod` for a `● Ready` row newer than the push.
+
+### Why the old `vercel --prod` habit was wrong — do not bring it back
+The previous rule said the GitHub→Vercel webhook "intermittently stops firing" and told you to fall
+back to `vercel --prod`. Deploying that way caused two real problems, both diagnosed 2026-08-19:
+
+- **It published internal files.** A CLI deploy uploads the **working directory**, not the git tree.
+  Every untracked file not named in `.vercelignore` shipped to a public origin — session handoff
+  notes, a marketing business-model doc, `setup_shopboard.sql`, `.claude/`. All were confirmed
+  readable at `https://www.leetransmissionshop.com/...` (HTTP 200) before being ignored in `c17db7e`.
+  No credential values were exposed, but nothing in that set was app content. A git-integration
+  build ships only what is committed and cannot do this.
+- **It broke the version stamp.** `/api/version` exists so an installed PWA can detect a new deploy
+  ([[page-map]] §3, `shared/version-check.js`). It reads `VERCEL_GIT_COMMIT_SHA`, which a CLI deploy
+  populates from whatever your local HEAD happens to be — so it reported a SHA that matched no
+  reviewed commit, and a deploy from a dirty or stale tree would have stamped a lie.
+
+If a push genuinely does not produce a deployment, **fix the integration** — do not route around it
+with the CLI. `vercel ls shop-board --prod` shows whether a build started; the Vercel dashboard's
+Git settings show whether the repo is still connected.
 
 ## 4. PARKED — move KiKi to `usekiki.app` later (NOT done; KiKi currently unused)
 Do it in this order so KiKi is never orphaned:
@@ -156,6 +205,16 @@ returns nothing):
 - Client-side idle logout: `shared/office-identity.js` (`armIdleLogout`) — see [[office-auth]] §8.8.
 
 ## Session change log
+- 2026-08-19 — **§3.6 added: deploy by PUSH, never by CLI.** The standing rule said the
+  GitHub→Vercel webhook "intermittently stops firing" and to fall back to `vercel --prod`. It is
+  false: pushes to `main` build production automatically (observed twice this session, no CLI run),
+  and pushes to `staging` build `test.leetransmissionshop.com` (verified by `/api/version` on
+  `test.*` returning the `staging` tip while `main` was far ahead). The old habit caused two real
+  failures, both recorded in §3.6 so the reason is not forgotten: a CLI deploy uploads the WORKING
+  DIRECTORY, which is how untracked internal notes became publicly readable on prod (fixed in
+  `c17db7e`), and it stamps `/api/version` from local HEAD rather than a reviewed commit. Also
+  documented the false-reading trap: checking `/api/version` immediately after a push returns the
+  PREVIOUS SHA and reads exactly like "no deploy happened" — wait for the build. Docs only.
 - 2026-08-19 — **Corrected the shared-DB claim (§3.5) and rewrote §5 for two projects.** The doc
   still said staging pointed at the prod Supabase project and that "any WRITE on staging mutates
   real production data" — false since the sandbox split (2026-08-18), and actively discouraging
@@ -175,7 +234,7 @@ returns nothing):
   **Update (same day): both done by Cris — `test.leetransmissionshop.com` is LIVE** (valid
   Let's Encrypt cert; all four boards + front door 200 over HTTPS; origin renders in-browser).
   Final "log in once, session holds on all four" is the owner's to run (password entry).
-- 2026-08-11 — **Post-release staging sync** added to the flow (§3.5): after each `vercel --prod`,
+- 2026-08-11 — **Post-release staging sync** added to the flow (§3.5): after each prod release,
   `staging` is fast-forwarded/merged up to `main` so test.leetransmissionshop.com keeps mirroring
   prod. Manual step for now (CC memory `feedback_staging_sync_on_release`); the GitHub Action to
   automate it couldn't be committed (git PAT missing `workflow` scope) — file handed to Cris.
