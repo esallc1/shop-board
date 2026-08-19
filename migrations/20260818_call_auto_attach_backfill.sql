@@ -20,9 +20,17 @@
 --    `having count(distinct ck.customer_id) = 1` never held. Merging removed the
 --    ambiguity and the re-run picked them up. A re-run is safe: pass 1 only ever
 --    fills columns that are still NULL, so it cannot disturb the earlier 87.
---    Net on prod: calls carrying an ro_id went 9 -> 76 across the day (the
---    backfills account for 36 + 20 + 6; the remainder is the LIVE path, run id
---    00000000-0000-4000-8000-000000000000, working the same day).
+--    Net on prod: calls carrying an ro_id went 9 -> 71 across the day.
+--    VERIFIED breakdown (grouped by auto_attach_run_id on 2026-08-19):
+--        1111…      36   pass 1
+--        2222…      20   pass 2
+--        3333…       6   post-merge re-run
+--        untagged    9   human-filed, pre-existing
+--        ────────────────
+--        total      71
+--    The live run id 00000000-0000-4000-8000-000000000000 does NOT appear:
+--    as of 2026-08-19 the going-forward path had filed nothing yet. Every
+--    filed row on prod is accounted for by a backfill batch or a human.
 --
 -- ⚠️ THE ARCHIVED FILTER IN cust_keys IS LOAD-BEARING AND WAS ADDED LATE.
 --    The original predicate had no `archived_at` filter — harmless while nothing

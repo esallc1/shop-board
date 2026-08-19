@@ -6,7 +6,7 @@
 > Status: 🟢 **LIVE ON PROD** (`hygemiszxwmyrkmhbjub`). `migrations/20260818_customers_phone_l10.sql`
 > and `20260818_call_auto_attach.sql` are applied and verified there, so the going-forward
 > webhook path can match; the hand-run backfills are DONE on both projects. Calls carrying an
-> `ro_id` on prod went 9 → 76 on 2026-08-19.
+> `ro_id` on prod went 9 → 71 on 2026-08-19 (verified breakdown by run id in §3).
 > ⚠ The prod DEPLOY of the board code is `c17db7e`; anything committed after that is not
 > serving yet.
 > Related: [[customer-record]], [[call-window-desk]], [[customer-dedupe]], [[staging-db]].
@@ -107,9 +107,25 @@ performed to unblock, with no error. `and cu.archived_at is null` was added to
 `migrations/20260818_call_auto_attach_backfill.sql` and is what the re-run used. The live path
 never had this bug — `api/ctm-webhook.js` has always filtered `&archived_at=is.null`.
 
-Net effect on prod across 2026-08-19: calls carrying an `ro_id` went **9 → 76**. The three
-backfill batches account for 36 + 20 + 6 = 62 of that; the remainder is the live path
-(`0000…`) working the same day.
+Net effect on prod across 2026-08-19: calls carrying an `ro_id` went **9 → 71**, verified by
+grouping `calls` on `auto_attach_run_id`:
+
+| Run id | Filed | What |
+|---|---|---|
+| `1111…` | 36 | pass 1 |
+| `2222…` | 20 | pass 2 |
+| `3333…` | 6 | post-merge re-run |
+| *(untagged)* | 9 | human-filed, pre-existing |
+| **total** | **71** | |
+
+`0000…` (the live sentinel) **does not appear** — as of 2026-08-19 the going-forward path had
+filed nothing yet. Every filed row on prod is accounted for by a backfill batch or a human;
+there is no unexplained remainder. Re-run this to check coverage at any time:
+
+```sql
+select coalesce(auto_attach_run_id::text, '(human / no tag)') as run, count(*)
+  from public.calls where ro_id is not null group by 1 order by 2 desc;
+```
 
 **A human's touch takes the row out of the robot's namespace** — this is what stops an undo
 from revoking a person's decision:
@@ -265,7 +281,8 @@ circumstances, so no prompt ever appears for a machine attach.
   id `33333333-4444-4555-8666-777777777777` picked up 11 more (6 filed). §3 rewritten: the
   run-id table now carries an Env column with both projects, plus why the re-run needed its own
   id (reusing `1111…` would have fused two batches into one undo unit). Prod `ro_id` coverage
-  9 → 76 across the day. Also added the load-bearing `and cu.archived_at is null` to `cust_keys`
+  9 → 71 across the day, verified by run id (36 + 20 + 6 + 9 human; the live sentinel
+  `0000…` has filed nothing yet). Also added the load-bearing `and cu.archived_at is null` to `cust_keys`
   in the backfill — without it the merge would have made RULE 1 skip, silently, the very calls
   the merge existed to unblock. Audited every other customer-by-phone path for the same gap;
   all were already filtering (see below).
