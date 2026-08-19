@@ -1,0 +1,40 @@
+# The shop-board Vercel project deploys the root static site + api/ + shared/.
+# Everything below is untracked local cruft that the git-integration deploys
+# already exclude (they only ship git-tracked files); this makes `vercel --prod`
+# CLI deploys upload the same set instead of the whole working tree.
+
+# kiki/ is a SEPARATE Next.js project with its own deployment — not part of
+# shop-board. Its build cache + bundled manual PDF blow past Vercel's 100 MB
+# per-file upload limit.
+kiki
+
+# Dependencies + build caches — Vercel installs from package.json at build time.
+node_modules
+.next
+
+# Local test data + OS junk.
+parking-test-20.csv
+*.DS_Store
+.DS_Store
+
+# ── Internal working documents — NOT app content (added 2026-08-19) ────────
+# A CLI `vercel --prod` uploads the working tree, so without these lines each
+# of these was served publicly on prod (verified http 200 on the live domain).
+# No credential VALUES were exposed — only internal notes — but none of this is
+# app content. Verified 2026-08-19: no reference to any of these names exists in
+# api/, shared/, *.html, *.css or vercel.json.
+SESSION_HANDOFF_2026-07-29.md
+SESSION_HANDOFF_2026-07-30.md
+SESSION_HANDOFF_*.md
+lee_transmission_shop_board_session_memory.txt
+lee-transmission-marketplace-model.md
+setup_shopboard.sql
+shop-lot-map.svg
+.claude
+
+# migrations/ — hand-run SQL, applied by a human in the Supabase SQL editor.
+# Verified 2026-08-19 that NOTHING reads these at runtime: every occurrence of
+# "migrations/" in api/ and shared/ is a comment or an error-message string,
+# there is no fetch/readFile/require/import of a .sql file anywhere in served
+# code, and vercel.json neither routes nor includes them.
+migrations
