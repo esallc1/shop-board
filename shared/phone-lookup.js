@@ -25,12 +25,27 @@
    are contiguous runs in any standard format, whatever sits between them.
    Verified against all 2,783 stored values: zero misses.
 
-   ⚠️ DELIBERATELY DOES NOT USE `phone_primary_l10` / `phone_secondary_l10`.
-   Those generated columns exist on the SANDBOX only
-   (`migrations/20260818_customers_phone_l10.sql` has not been run on prod), so
-   filtering on them would make this fix silently return NOTHING for every
-   customer on production. The ilike pattern needs no migration and works on
-   both projects today.
+   DOES NOT USE `phone_primary_l10` / `phone_secondary_l10`, and does not need
+   to. Those generated columns now exist on BOTH projects
+   (`migrations/20260818_customers_phone_l10.sql` ran on the sandbox 2026-08-18
+   and on prod 2026-08-19) — the original reason for avoiding them, that prod
+   lacked the columns and a filter on them would silently return NOTHING, is
+   gone. The ilike pattern is kept because it needs no migration to be correct
+   and `matchesLast10` is the authority either way; switching to the indexed
+   columns would be a performance change, not a correctness one. The auto-attach
+   webhook does use them (`api/ctm-webhook.js`), because PostgREST cannot filter
+   on a function expression and that path has no client-side re-check.
+
+   ⚠️ ARCHIVED CUSTOMERS ARE NOT THIS MODULE'S JOB — AND IT IS NOT OPTIONAL.
+   Nothing here filters merged-away rows: `phoneOrFilter` builds only the phone
+   predicate, and `matchesLast10` / `confirmPhoneMatches` decide on digits alone.
+   Since prod has archived customers (customer-merge slice 1, 2026-08-19),
+   a caller that skips the archive filter will offer the advisor a dead row and
+   quietly undo a merge. Every call site MUST pair this module with
+   `shared/customer-archive.js`: filter `archived_at` server-side, fall back to
+   an unfiltered read on a missing-column error, then run `filterActive()` on
+   the result. `advisor-board.html` (the intake wizard's `lookupPhone`) is the
+   worked example.
 
    The pattern is a NARROWING device, not the decision. `matchesLast10` is the
    authority: every row the server returns is re-checked on exact last-10

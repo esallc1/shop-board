@@ -1,12 +1,14 @@
 # How call auto-attach is wired
 
 > Doc: `/docs/wiring/call-auto-attach.md`
-> Last updated: 2026-08-18 — created for the Phase 2 auto-attach build (branch
-> `feat/call-auto-attach`, base `78e3472`).
-> Status: 🟡 **live code + both manual re-file controls built and exercised in-browser; the
-> two hand-run backfills are DONE on the sandbox.** The going-forward webhook path still needs
-> `migrations/20260818_customers_phone_l10.sql` run by hand before it can match anybody (§6).
-> Not on prod — `main` has none of this.
+> Last updated: 2026-08-19 — **shipped to prod**: all three migrations run, both backfills run
+> (pass 1 twice — see §3), and the run-id namespace now records both environments.
+> Status: 🟢 **LIVE ON PROD** (`hygemiszxwmyrkmhbjub`). `migrations/20260818_customers_phone_l10.sql`
+> and `20260818_call_auto_attach.sql` are applied and verified there, so the going-forward
+> webhook path can match; the hand-run backfills are DONE on both projects. Calls carrying an
+> `ro_id` on prod went 9 → 76 on 2026-08-19.
+> ⚠ The prod DEPLOY of the board code is `c17db7e`; anything committed after that is not
+> serving yet.
 > Related: [[customer-record]], [[call-window-desk]], [[customer-dedupe]], [[staging-db]].
 
 ## 0. In one line
@@ -74,11 +76,40 @@ Three additive columns on `calls` (`migrations/20260818_call_auto_attach.sql`):
 attaches share a fixed sentinel so they are reversible as a class but are never swept up by a
 backfill undo:
 
-| Run | Id | What it did |
-|---|---|---|
-| Backfill pass 1 | `11111111-2222-4333-8444-555555555555` | attached 64 calls, filed 25 |
-| Backfill pass 2 | `22222222-3333-4444-8555-666666666666` | filed 17 ROs on **human**-attached calls |
-| **Live** | `00000000-0000-4000-8000-000000000000` (`AUTO_ATTACH_LIVE_RUN_ID`) | everything from here on |
+| Run | Id | Env | What it did |
+|---|---|---|---|
+| Backfill pass 1 | `11111111-2222-4333-8444-555555555555` | **sandbox** `efhmefpaijjncwgbvwki` (2026-08-18) | attached 64 calls, filed 25 |
+| Backfill pass 2 | `22222222-3333-4444-8555-666666666666` | **sandbox** (2026-08-18) | filed 17 ROs on **human**-attached calls |
+| Backfill pass 1 | `11111111-2222-4333-8444-555555555555` | **prod** `hygemiszxwmyrkmhbjub` (2026-08-19) | attached 87 calls, filed 36 |
+| Backfill pass 2 | `22222222-3333-4444-8555-666666666666` | **prod** (2026-08-19) | filed 20 ROs on **human**-attached calls |
+| Backfill pass 1 **re-run** | `33333333-4444-4555-8666-777777777777` | **prod** (2026-08-19, after the merges) | attached 11 more, filed 6 |
+| **Live** | `00000000-0000-4000-8000-000000000000` (`AUTO_ATTACH_LIVE_RUN_ID`) | both | everything from here on |
+
+**The ids are per-run, not per-environment.** Passes 1 and 2 reuse the same two ids on prod
+that they used on the sandbox — harmless, because the two projects are separate databases and
+an undo is always scoped to one of them. The id that had to be *new* is the prod pass-1
+**re-run**: reusing `1111…` would have fused 87 rows and 11 rows into a single undo unit, so
+reversing either would have reversed both. One batch = one id = one reversible unit.
+
+**Why a second pass 1 on prod.** Ian Gequelin's and Kevin Cruz's calls were being skipped by
+RULE 1: two customer rows shared each phone number, so `count(distinct customer_id) = 1` never
+held and the robot correctly refused to guess. Customer-merge slice 1 (run
+`bbbbbbbb-0001-4b01-8b01-000000000001`, three clusters — see [[customer-dedupe]]) archived the
+duplicates, removing the ambiguity, and the re-run picked the calls up. Re-running pass 1 is
+safe by construction: it only ever fills columns that are still `NULL`, so it cannot disturb
+rows an earlier batch already stamped.
+
+**The archived filter that had to land with it.** The backfill's `cust_keys` had no
+`archived_at` filter. That was harmless while nothing was archived — it is how the 87 were
+attached — but the merge turned it into a silent trap: a keeper and its archived loser still
+share a phone key, so RULE 1 would see two customers and skip exactly the calls the merge was
+performed to unblock, with no error. `and cu.archived_at is null` was added to
+`migrations/20260818_call_auto_attach_backfill.sql` and is what the re-run used. The live path
+never had this bug — `api/ctm-webhook.js` has always filtered `&archived_at=is.null`.
+
+Net effect on prod across 2026-08-19: calls carrying an `ro_id` went **9 → 76**. The three
+backfill batches account for 36 + 20 + 6 = 62 of that; the remainder is the live path
+(`0000…`) working the same day.
 
 **A human's touch takes the row out of the robot's namespace** — this is what stops an undo
 from revoking a person's decision:
@@ -227,6 +258,17 @@ This does not change anything the robot does: auto-attach still never writes a p
 circumstances, so no prompt ever appears for a machine attach.
 
 ## Session change log
+- 2026-08-19 — **Shipped to prod, and pass 1 had to run twice.** Migrations applied and verified
+  on `hygemiszxwmyrkmhbjub`; pass 1 attached 87 (36 filed), pass 2 filed 20. Customer-merge
+  slice 1 then archived three duplicate customers, which unblocked calls RULE 1 had been
+  correctly refusing to guess on (two customers per phone), and a pass-1 re-run under a NEW run
+  id `33333333-4444-4555-8666-777777777777` picked up 11 more (6 filed). §3 rewritten: the
+  run-id table now carries an Env column with both projects, plus why the re-run needed its own
+  id (reusing `1111…` would have fused two batches into one undo unit). Prod `ro_id` coverage
+  9 → 76 across the day. Also added the load-bearing `and cu.archived_at is null` to `cust_keys`
+  in the backfill — without it the merge would have made RULE 1 skip, silently, the very calls
+  the merge existed to unblock. Audited every other customer-by-phone path for the same gap;
+  all were already filtering (see below).
 - 2026-08-18 — **Confirm-before-learning** (§8 rewritten). The silent phone write on attach is
   gone: the Desk call log now asks inline, defaulting to NO when the number has other calls that
   aren't this customer's. The attach itself is never blocked by the question. Rules +
