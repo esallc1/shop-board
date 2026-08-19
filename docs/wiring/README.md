@@ -58,7 +58,27 @@ An audit of every unbounded read is in [[intake-wizard]] §5.
 | To-Do list | [todo-list.md](todo-list.md) | ✅ verified vs the commit that adds it |
 | Requests & Feedback intake | [change-requests.md](change-requests.md) | ✅ Phase 1 + 2 + 3 built vs `4bf7eb0` (live) |
 | File Cabinet (this tab) | [file-cabinet.md](file-cabinet.md) | ✅ verified vs the commit that adds it |
+| Advisor commission (GP rollup + payout) | [advisor-commission.md](advisor-commission.md) | ✅ BUILT vs `8c93cee`, behind an owner switch |
+| Call auto-attach (Phase 2) | [call-auto-attach.md](call-auto-attach.md) | 🟡 live code + both manual re-file controls built and exercised in-browser |
+| Cost & Profit (Build Sheet) | [cost-profit.md](cost-profit.md) | ✅ Step 1 + Step 2a built vs branch `profit-by-ro` |
+| Hosting & domains (Vercel · DNS · Supabase) | [hosting-domains.md](hosting-domains.md) | ✅ verified vs `c17db7e` — §3.5 + §5 corrected for the sandbox split (2026-08-19) |
+| Manager board Technicians (Billed Hrs) | [manager-board.md](manager-board.md) | ✅ BUILT + verified live vs `8c93cee` |
+| Packages (unit prices + Package line) | [packages.md](packages.md) | ✅ BUILT vs `17d4b02`, behind `feature_packages` (default OFF) |
+| RO payments ledger | [payments.md](payments.md) | ✅ verified vs `455693f` |
+| Profit by RO (per-job profit) | [profit-by-ro.md](profit-by-ro.md) | ✅ Steps A + B + C built vs branch `profit-by-ro` |
+| RO / invoice document (print + embed) | [ro-invoice.md](ro-invoice.md) | ✅ BUILT + verified vs `455693f` |
+| RO line items (Add/Edit-Line pop-up) | [ro-line-items.md](ro-line-items.md) | ✅ BUILT + verified live vs `17d4b02` |
+| Staging database (isolated `test.*` DB) | [staging-db.md](staging-db.md) | ⚠ **Needs review** — header still reads 🟡 in-progress (2026-08-12), but the sandbox is live and prod-deployed |
+| Page map (which pages exist, who reaches them) | [page-map.md](page-map.md) | ✅ verified vs `c17db7e` — replaces the flat 12-name handoff list |
 
 _Seeded 2026-07-30 from the Jul 29 session handoff. Verified 2026-07-30 against commit `bea25cf`:
 every claim re-checked against source; two docs remain partial (noted above) but contain no
 unverified claims._
+
+_Index reconciled 2026-08-19 against commit `c17db7e`: the folder held **11 docs the index never
+listed** (advisor-commission, call-auto-attach, cost-profit, hosting-domains, manager-board,
+packages, payments, profit-by-ro, ro-invoice, ro-line-items, staging-db) — all added above, each
+row taken from that doc's own header rather than re-derived. `page-map.md` added the same day.
+**The index is not self-maintaining:** a new doc must be added here **and** to the `DOCS` manifest
+in `shared/file-cabinet.js`, which is a hardcoded list (a static deploy cannot enumerate a
+directory) — a doc missing from that manifest exists on disk but never renders in the tab._

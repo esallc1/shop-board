@@ -1,11 +1,13 @@
 # How hosting & domains are wired
 
 > Doc: `/docs/wiring/hosting-domains.md`
-> Last updated: 2026-08-11 — added the `test.leetransmissionshop.com` staging environment (§3.5);
-> rest re-confirmed vs `01278b1`
-> Status: 🟢 current. Verified this session via `vercel` CLI (authed as `esallc1-5351`,
-> team `leetransmission-kiki`), live `curl`, and repo code. Items I could not read
-> directly (Supabase dashboard, Namecheap DNS panel) are marked **[owner-reported]** or
+> Last updated: 2026-08-19 — **corrected §3.5 and §5 for the sandbox split**: `test.*` runs on its
+> own Supabase project, so writes on staging are safe (the doc previously said the opposite).
+> Verified vs commit `c17db7e`.
+> Status: 🟢 current. §3.5/§5 re-verified this session against `shared/supabase-config.js`,
+> `api/*`, and all 12 pages. Vercel/DNS facts carried forward from the 2026-08-03 session
+> (`vercel` CLI as `esallc1-5351`, team `leetransmission-kiki`, live `curl`). Items I could not
+> read directly (Supabase dashboard, Namecheap DNS panel) are marked **[owner-reported]** or
 > **[verify]**.
 
 ## 0. In one line
@@ -76,15 +78,28 @@ test a change on a stable URL that holds a logged-in session before it goes to p
   `shop-board-git-staging-…vercel.app` alias also still serves the same deploy.)
 - **Login persistence:** office login is `signInWithPassword` (email/password, **no browser
   redirect**) and every board reads `getSession()` **same-origin**, so the Supabase session
-  (localStorage key `sb-hygemiszxwmyrkmhbjub-auth-token`, scoped to the origin) is **shared
-  across all four boards on `test.*`** — one login holds on advisor / `gm-board` (Manager) /
-  bookkeeping / owner. Adding `test.*` to Supabase **Auth → Redirect URLs** is **not required**
-  for this password login, but was added as future-proofing for any redirect-based flow
-  (magic-link / password-reset email / OAuth) — Site URL left unchanged (see [[office-auth]]).
-- **⚠ Shared DB:** staging points at the **same** Supabase project as prod (`hygemiszxwmyrkmhbjub`).
-  Reads/viewing are safe; **any WRITE on staging mutates real production data** and fires realtime
-  + push to live staff. Isolate write-testing (a separate staging Supabase project, cloned from
-  `/migrations`) before exercising create/edit/delete features there. See §5.
+  (localStorage key `sb-<project-ref>-auth-token`, scoped to the origin) is **shared across every
+  board on `test.*`** — one login holds on advisor / `gm-board` (Manager) / bookkeeping / owner,
+  and the front door routes a fifth role (`tech`) to My Numbers. Note the key is **per project
+  ref**, so it differs by environment: `sb-efhmefpaijjncwgbvwki-auth-token` on `test.*` (sandbox)
+  vs `sb-hygemiszxwmyrkmhbjub-auth-token` on prod — a prod login therefore does **not** carry over
+  to staging, which is the intended isolation. Adding `test.*` to Supabase **Auth → Redirect URLs**
+  is **not required** for this password login, but was added as future-proofing for any
+  redirect-based flow (magic-link / password-reset email / OAuth) — Site URL left unchanged
+  (see [[office-auth]]).
+- **✅ Isolated DB — writes on staging are SAFE (corrected 2026-08-19).** `test.*` runs on its
+  **own** Supabase project (**`efhmefpaijjncwgbvwki`**), a copy of prod — **not** the production
+  project. Creating, editing and deleting on `test.leetransmissionshop.com` touches only the
+  sandbox: it cannot mutate production data and cannot fire realtime or push to live staff.
+  Exercise write-features there freely; that is what it is for.
+  The database is chosen **at runtime by hostname** in `shared/supabase-config.js`
+  (`pickSupabaseCreds`), which all 12 pages load — prod for the apex / `www` / `board.*` / any
+  future `*.leetransmissionshop.com` **except** `test.*`, sandbox for `test.*`, every Vercel
+  preview, and `localhost`. Full detail in [[staging-db]]; the page-by-page inventory of what
+  loads the switch is in [[page-map]] §8.
+  > ⚠ **This bullet previously said the opposite** — that staging shared the prod project and that
+  > any write mutated real production data. That was true only before the sandbox split landed
+  > (2026-08-18) and is now wrong; it was discouraging exactly the testing staging exists for.
 
 ## 4. PARKED — move KiKi to `usekiki.app` later (NOT done; KiKi currently unused)
 Do it in this order so KiKi is never orphaned:
@@ -100,9 +115,20 @@ Do it in this order so KiKi is never orphaned:
 - Full step-by-step + rollback is in the migration section of this session's investigation;
   see also [[office-auth]] for the office-side auth URLs.
 
-## 5. Supabase (shared project `hygemiszxwmyrkmhbjub` — used by BOTH boards and kiki)
-- Project URL `https://hygemiszxwmyrkmhbjub.supabase.co`, hardcoded across all boards,
-  `/api/*`, and kiki (verified in code this session).
+## 5. Supabase — TWO projects since the sandbox split (prod + staging)
+**Prod** is `hygemiszxwmyrkmhbjub` (`https://hygemiszxwmyrkmhbjub.supabase.co`) — the real
+customer database, shared by the boards, `/api/*`, and kiki. **Staging** is
+`efhmefpaijjncwgbvwki`, a copy of prod used only by `test.*`, Vercel previews and `localhost`
+(§3.5, [[staging-db]]). Which one you get is resolved per surface, and **no board hardcodes a
+URL any more** (verified 2026-08-19 — a search for `https://*.supabase.co` across all 12 pages
+returns nothing):
+- **Boards (client):** `shared/supabase-config.js` picks by **hostname** at runtime; every one of
+  the 12 pages loads it and calls `window.cdSupabaseCreds()` ([[page-map]] §8).
+- **`/api/*` (server):** `process.env.SUPABASE_URL || 'https://hygemiszxwmyrkmhbjub.supabase.co'`
+  — 9 functions use exactly that env-with-prod-fallback shape (e.g. `api/ctm-webhook.js:48`), so
+  staging deployments set `SUPABASE_URL` at **Preview** scope to the sandbox while prod leaves it
+  unset and lands on the fallback. `SUPABASE_SERVICE_ROLE_KEY` (15 uses) stays server-only.
+- **kiki:** its own `NEXT_PUBLIC_SUPABASE_URL`, still prod.
 - **Auth → Sessions [owner-reported, dashboard 2026-08-03]:** Time-box = **0 (never)**,
   Inactivity timeout = **0 (never)**, Access token expiry = **3600s**. So the **server forces
   no logout**; the only "logged out after a while" is the **client-side §8.8 idle guard
@@ -130,6 +156,15 @@ Do it in this order so KiKi is never orphaned:
 - Client-side idle logout: `shared/office-identity.js` (`armIdleLogout`) — see [[office-auth]] §8.8.
 
 ## Session change log
+- 2026-08-19 — **Corrected the shared-DB claim (§3.5) and rewrote §5 for two projects.** The doc
+  still said staging pointed at the prod Supabase project and that "any WRITE on staging mutates
+  real production data" — false since the sandbox split (2026-08-18), and actively discouraging
+  the write-testing staging exists for. §3.5 now states the isolation and that writes on `test.*`
+  are safe; §5 is retitled for two projects and records how each surface resolves its DB (boards
+  via the hostname switch, `/api/*` via env-with-prod-fallback, kiki still prod). Also fixed the
+  session-key claim — the localStorage key is per project ref, so a prod login does not carry to
+  staging — and the "all four boards" count (five roles route to boards). Verified against
+  `shared/supabase-config.js`, `api/ctm-webhook.js:48`, and all 12 pages. Docs only, no code change.
 - 2026-08-11 — **Added the permanent staging environment `test.leetransmissionshop.com`** (§3.5):
   a long-lived **`staging`** branch (off `main`), the domain attached to the **shop-board** project
   bound to **`gitBranch: staging`** (Vercel API), and the staging deploy verified serving all four

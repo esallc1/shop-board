@@ -75,5 +75,6 @@ Every file under `/docs/wiring/` follows this shape:
 | RO payments ledger | `payments.md` | `ro_payments`; `advisor-board.html` (`recordPayment`/balance), `bookkeeping-board.html` (income + RO detail) |
 | Settings hub | `settings.md` | `shared/board-settings.js`, `shop_settings`, `employees`, `crisdata.html`, `api/announcement.js` |
 | File Cabinet tab | `file-cabinet.md` | `shared/file-cabinet.js`, `owner-board.html` |
+| Page map (pages · routing · legacy doors) | `page-map.md` | `crisdata.html` (`ROLE_DEST`), `vercel.json`, the 12 root `*.html`, `shared/office-identity.js`, `shared/supabase-config.js` |
 | Hosting & domains | `hosting-domains.md` | `vercel.json`, `api/send-push.js`, Vercel projects (shop-board/kiki), Namecheap DNS, Supabase `hygemiszxwmyrkmhbjub` |
 | Staging database (isolated test.* DB) | `staging-db.md` | `shared/supabase-config.js` (hostname→creds switch), `api/*` (`SUPABASE_URL`/`_ANON_KEY` env-with-prod-fallback), `staging/staging-schema.sql`, the 12 boards |

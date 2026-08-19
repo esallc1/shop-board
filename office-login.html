@@ -6,13 +6,21 @@
 <title>CrisData · Office Login</title>
 <!--
   ============================================================
-  office-login.html — Step 1 of the office-auth rollout (docs/wiring/office-auth.md).
+  office-login.html — the office account-recovery page (docs/wiring/office-auth.md,
+  docs/wiring/page-map.md §7).
 
-  A STANDALONE, additive test page for the new Supabase Auth office login. It is a
-  dead-end: it proves email/password login + set-password + session persistence for
-  the office users, and NOTHING ELSE. It does NOT redirect to a board, and the boards
-  do NOT read this session. Phone+PIN (crisdata.html) is completely untouched and
-  remains the way everyone logs in.
+  WHAT IT IS TODAY: the "Reset password" destination. crisdata.html is the SINGLE FRONT
+  DOOR — it takes email + password and redirects to the caller's board by role (ROLE_DEST)
+  — and it links here for anyone who needs to sign in or set a new password outside that
+  flow. This page deliberately does NOT redirect to a board: it signs in, lets the user set
+  a password (auth.updateUser), and stops. Reaching a board is the front door's job.
+
+  HISTORY (so the difference is clear): this began as Step 1 of the office-auth rollout, a
+  standalone test page proving email/password login while phone+PIN on crisdata.html was
+  still how everyone logged in. That is no longer true — the single email+password front
+  door shipped, and the phone/PIN form, though still present in crisdata.html, is not
+  surfaced (bootDoor() runs instead of render(); it is kept for the planned tech door).
+  Corrected 2026-08-19; the code here never changed, only this description was stale.
 
   SECURITY:
    • Uses CrisData's OWN publishable key (public by design, already in every board).
@@ -21,9 +29,9 @@
    • Reads only `name, role` from employees (never `pin`).
    • Nothing is enforced: no RLS change, no gate. This is login-only.
 
-  Styling = the "shop front door" skin (branded shop photo background + Lee-blue
-  card), matching crisdata-office-login-shopfront.html. The auth logic below is
-  unchanged from the plain build — skin only.
+  Styling = the "shop front door" skin: branded shop photo background
+  (assets/office-login-bg.jpg) + Lee-blue card. Skin only — the auth logic below is
+  unchanged from the plain build.
   ============================================================
 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
