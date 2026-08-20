@@ -1,11 +1,13 @@
 # How RO photos are wired
 
 > Doc: `/docs/wiring/ro-photos.md`
-> Last updated: 2026-08-20 — created for slice 2 (archive + provenance). Verified vs the
-> `feat/photo-archive` branch off `staging` (`4a23cf9`).
-> Status: 🟡 **slice 1 LIVE on staging, slice 2 built and unmerged.** Neither is on prod: prod's
-> database has none of `photo_buckets`, the `ro_photo` enum value, `attachments.bucket_id`, or
-> slice 2's three columns. Prod code is `e90bf01`.
+> Last updated: 2026-08-20 — office-archive `deleted_by` fix. Verified vs commit `ae4510b`
+> plus the fix on `fix/office-archive-deleted-by`.
+> Status: 🟢 **slices 1 and 2 are LIVE ON PROD** (code `ae4510b`; all four migrations run by
+> hand on prod `hygemiszxwmyrkmhbjub` on 2026-08-20 — enum value, `photo_buckets` + its two
+> seeds, `attachments.bucket_id`, and slice 2's three columns). `20260819_storage_buckets.sql`
+> was NOT needed: prod already had all nine storage buckets including the private
+> `crisdata-attachments`. One known-bad row predates the fix below — see §4.
 > Related: [[my-numbers]], [[customer-record]], [[hosting-domains]] §5.5, [[recordings-audio]].
 
 ## 0. In one line
@@ -79,6 +81,16 @@ resurrects archived photos:
 | `advisor-board.html` RO card | `diagnosis_audio` for one RO |
 | `my-numbers.html` `loadRoPhotos` | `ro_photo` for one RO |
 | `my-numbers.html` `loadRoClips` | `diagnosis_audio` for one RO |
+
+**Where each side gets the name for `deleted_by`:** My Numbers uses `currentTechName()`; the
+office uses `CHAT_IDENTITY.name`, the same session identity that renders the "Hi, <name>"
+greeting (populated by `captureSessionAndGreet` → `applyIdentity` from `OfficeIdentity`).
+`CHAT_IDENTITY` is a **script-scoped `let`, never a `window` property** — reading it as
+`window.CHAT_IDENTITY` always yields `undefined`. That is exactly how the office archive
+silently wrote a NULL `deleted_by` while the tech path worked (fixed 2026-08-20; the one prod
+row archived before the fix is deliberately left NULL rather than backfilled with a guess).
+Three writes to `calls` still carry the same `window.CHAT_IDENTITY` guard and lose the name the
+same way — `fileCallToRo`, `performAttach`, `performNotACustomer` in `advisor-board.html`.
 
 **Who may archive:** whoever took it, plus the office on the customer record. Enforced in the
 UI, not in RLS — `attachments` carries table-level `for all` for both roles, and My Numbers
@@ -167,6 +179,13 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   `archiveCustPhoto`, the `#custVehicles` delegated listener).
 
 ## Session change log
+- 2026-08-20 — **Shipped to prod (`ae4510b`) and then fixed the office archive.** Slices 1+2
+  went to prod after the four migrations were run by hand. Prod smoke test found the
+  office-side archive writing `deleted_at` but a NULL `deleted_by`: `archiveCustPhoto` guarded
+  on `window.CHAT_IDENTITY`, which is always `undefined` because the binding is a script-scoped
+  `let`. Sandbox never caught it — only the tech path (`currentTechName()`) had been exercised.
+  Now reads `CHAT_IDENTITY` bare. The pre-fix prod row is left NULL on purpose. Same guard bug
+  still stands on three `calls` writes (§4), untouched pending a decision.
 - 2026-08-20 — **Two slice-2 bugs fixed after sandbox verification.** (1) The archive × did not
   appear until a reload: `uploadRoPhoto` pushed a local photo object without `uploaded_by`, so
   `canArchivePhoto` saw it as ownerless — the row had the value, the in-memory object did not.

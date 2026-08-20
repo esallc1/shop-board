@@ -6965,7 +6965,12 @@
        can remove. That is the cleanup path for ownerless photos.
        Tombstone only — the row and the storage object both stay. */
     async function archiveCustPhoto(photoId) {
-      const who = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) ? CHAT_IDENTITY.name : null;
+      /* CHAT_IDENTITY is a script-scoped `let` (declared ~L3154), never a window
+         property — so `window.CHAT_IDENTITY` is ALWAYS undefined and this guard
+         short-circuited, writing a NULL deleted_by on every office-side archive
+         while the tech path recorded the name correctly. Read it bare, the same
+         way the noted_by_name stamp further down this file already does. */
+      const who = (CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
       const { error } = await db.from('attachments')
         .update({ deleted_at: new Date().toISOString(), deleted_by: who })
         .eq('id', photoId);
