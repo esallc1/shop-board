@@ -1713,7 +1713,7 @@ async function uploadRoPhoto(file, bucketName){
     const { data: row, error: insErr } = await db.from('attachments')
       .insert({ entity_type: 'repair_order', entity_id: ro.id, kind: 'ro_photo',
                 file_path: path, bucket_id: bucketId, uploaded_by: currentTechName() })
-      .select('id').single();
+      .select('id, uploaded_by, created_at').single();
     if(insErr){ console.error('[RoPhotos] attach-row failed', insErr); showToast(t('toastPhotoFailed')); return; }
 
     let url = '';
@@ -1722,7 +1722,17 @@ async function uploadRoPhoto(file, bucketName){
       url = (sg && sg.signedUrl) || '';
     } catch(e){ /* tile renders empty until the next open */ }
 
-    RO_DIAG.photos.push({ id: row.id, file_path: path, bucket_id: bucketId, url });
+    // Carry uploaded_by + created_at through from the INSERT's returning clause.
+    // Without them the freshly-pushed object is ownerless to canArchivePhoto(),
+    // so the × was missing until a reload re-read the row from the server —
+    // the row had it, the local object didn't. Prefer the server's values
+    // (created_at is server-set); fall back to the local name only if the
+    // returning clause is unavailable on an older project.
+    RO_DIAG.photos.push({
+      id: row.id, file_path: path, bucket_id: bucketId, url,
+      uploaded_by: (row.uploaded_by !== undefined ? row.uploaded_by : currentTechName()),
+      created_at: row.created_at || new Date().toISOString(),
+    });
     refreshPhotosUI();
     showToast(bucketId ? t('toastPhotoAdded') : t('toastPhotoNoBucket'));
   } finally {

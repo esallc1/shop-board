@@ -97,9 +97,16 @@ today has none — see §6.
 
 ## 5. Display (customer record)
 Under each vehicle's RO: thumbnails grouped by bucket — bucket name, count, tiles, click to
-enlarge (lightbox). Each tile carries `Aug 10, 8:41 · Manny` beneath it; a photo with no
-`uploaded_by` shows the date alone rather than "· Unknown", because nobody was recorded, which
-is not the same as an unknown person.
+enlarge (lightbox). Each tile carries its byline beneath it on **two lines** — date, then name —
+and the lightbox repeats the full byline. A photo with no `uploaded_by` shows the date alone
+rather than "· Unknown", because nobody was recorded, which is not the same as an unknown person.
+
+**Tiles are 96px, and the byline is two lines, for one reason:** at 0.58rem a 72px caption holds
+about 15 characters and `Aug 20, 7:00 PM` is exactly 15 — so on one line the NAME was always the
+half that got ellipsised, which is precisely the value `uploaded_by` exists to show. The date is
+also built from two `toLocaleDateString`/`toLocaleTimeString` calls rather than one
+`toLocaleString`, because a single call lets the engine insert a connector (Chrome renders
+`Aug 20 at 7:00 PM`) — three wasted characters that vary by browser.
 
 Buckets are loaded here **without** the `archived_at` filter, deliberately — My Numbers filters
 to live buckets (you must not file INTO a retired one), but the record must still resolve the
@@ -160,6 +167,14 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   `archiveCustPhoto`, the `#custVehicles` delegated listener).
 
 ## Session change log
+- 2026-08-20 — **Two slice-2 bugs fixed after sandbox verification.** (1) The archive × did not
+  appear until a reload: `uploadRoPhoto` pushed a local photo object without `uploaded_by`, so
+  `canArchivePhoto` saw it as ownerless — the row had the value, the in-memory object did not.
+  The insert's returning clause now yields `uploaded_by, created_at` and those are carried
+  through, so a tile renders identically before and after a reload. (2) The customer-record
+  caption truncated at 72px and the NAME was the half being cut. Tiles are now 96px, the byline
+  is two lines (date, then name), the date is built from two locale calls so no engine inserts
+  an "at", and the lightbox carries the full byline as a backstop.
 - 2026-08-20 — **Slice 2 built** (unmerged): archive-as-tombstone (`deleted_at`/`deleted_by`,
   chat's shape), `uploaded_by` captured at upload — My Numbers had the tech's name all along and
   was discarding it — and the date · name byline on the customer record. All FOUR readers

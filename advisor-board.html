@@ -617,11 +617,23 @@
   .cust-photo-count { font-size:0.58rem; font-weight:800; color:var(--muted);
     background:var(--surface-2); border:1px solid var(--border); border-radius:9px;
     padding:0 6px; line-height:15px; }
-  .cust-photo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(72px,1fr));
+  /* 96px, not 72px. At 0.58rem a 72px caption holds ~15 characters, and
+     "Aug 20, 7:00 PM" is exactly 15 before the name is even considered — so the
+     name was always the half that got cut. 96px fits the date on one line and
+     any realistic first name on the next, and makes the photo itself readable:
+     72px of a transmission part is barely a smudge. Cost: ~1 fewer tile per row,
+     so a long RO gets taller — see ro-photos.md's unbounded-grid gap. */
+  .cust-photo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr));
     gap:6px; }
   .cust-photo-cell { margin:0; position:relative; }
-  .cust-photo-meta { font-size:0.58rem; color:var(--muted); line-height:1.25; margin-top:3px;
+  /* TWO LINES: date, then name. The name gets its own line so it can never be
+     the half that ellipsises. Each line still clips independently if a name is
+     genuinely long; the full byline is on the tile's title= and in the lightbox. */
+  .cust-photo-meta { margin-top:3px; line-height:1.25; }
+  .cust-photo-when, .cust-photo-who { display:block; font-size:0.58rem;
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cust-photo-when { color:var(--muted); }
+  .cust-photo-who  { color:var(--text); font-weight:600; }
   .cust-photo-archive { position:absolute; top:3px; right:3px; border:none; border-radius:5px;
     background:rgba(0,0,0,0.6); color:#fff; font-size:0.55rem; font-weight:700; padding:2px 5px;
     cursor:pointer; opacity:0; transition:opacity .12s; }
@@ -639,8 +651,11 @@
     align-items:center; justify-content:center; padding:28px;
     background:rgba(10,12,20,0.86); }
   .cust-lightbox.open { display:flex; }
+  .cust-lightbox-fig { margin:0; display:flex; flex-direction:column; align-items:center;
+    gap:10px; max-width:100%; max-height:100%; }
   .cust-lightbox img { max-width:100%; max-height:100%; border-radius:10px;
     box-shadow:0 24px 64px rgba(0,0,0,0.5); }
+  .cust-lightbox-cap { color:rgba(255,255,255,0.86); font-size:0.78rem; text-align:center; }
   .cust-lightbox-close { position:absolute; top:16px; right:20px; width:38px; height:38px;
     border-radius:50%; border:none; background:rgba(255,255,255,0.14); color:#fff;
     font-size:24px; line-height:1; cursor:pointer; }
@@ -6885,18 +6900,32 @@
          • uploaded_by is NULL on everything shot before slice 2. Those render
            the date alone rather than "· Unknown", because nobody was recorded,
            which is not the same as an unknown person. */
+    // The byline as its two independent halves. Rendered on SEPARATE LINES so the
+    // NAME can never be the part that gets ellipsised — it is the accountability
+    // signal and the whole reason uploaded_by is captured.
+    function photoMetaParts(p) {
+      return {
+        when: p.created_at ? custFmtPhotoWhen(p.created_at) : '',
+        who: p.uploaded_by ? String(p.uploaded_by).trim() : '',
+      };
+    }
+    // One-line form, for the tile's title= and the lightbox caption.
     function photoMetaLine(p) {
-      const when = p.created_at ? custFmtPhotoWhen(p.created_at) : '';
-      const who = p.uploaded_by ? String(p.uploaded_by).trim() : '';
+      const { when, who } = photoMetaParts(p);
       if (when && who) return when + ' · ' + who;
       return when || who || '';
     }
-    // "Aug 10, 8:41" — date + time, no year (the RO already carries the date).
+    // "Aug 10, 8:41 AM" — date + time, no year (the RO already carries the date).
+    // Built from TWO calls on purpose: a single toLocaleString with both date and
+    // time fields lets the browser insert a connector — Chrome renders
+    // "Aug 20 at 7:00 PM" — which is three wasted characters in a 96px caption
+    // and varies by engine. Two calls joined by ", " are the same everywhere.
     function custFmtPhotoWhen(iso) {
       const d = new Date(iso);
       if (!d || isNaN(d)) return '';
-      return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-              .replace(/,\s*(?=\d)/, ', ');
+      const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      return date + ', ' + time;
     }
 
     function roPhotosHtml(roId) {
@@ -6912,11 +6941,17 @@
             ${g.photos.map(p => `
               <figure class="cust-photo-cell">
                 ${p.url
-                  ? `<button type="button" class="cust-photo-tile" data-photo="${esc(p.url)}" title="Enlarge">
+                  ? `<button type="button" class="cust-photo-tile" data-photo="${esc(p.url)}"
+                             data-caption="${esc(photoMetaLine(p))}" title="${esc(photoMetaLine(p) || 'Enlarge')}">
                        <img src="${esc(p.url)}" loading="lazy" alt="">
                      </button>`
                   : `<span class="cust-photo-tile cust-photo-missing" title="Preview unavailable"></span>`}
-                <figcaption class="cust-photo-meta">${esc(photoMetaLine(p))}</figcaption>
+                <figcaption class="cust-photo-meta">
+                  ${(() => { const m = photoMetaParts(p); return (
+                    (m.when ? `<span class="cust-photo-when">${esc(m.when)}</span>` : '') +
+                    (m.who  ? `<span class="cust-photo-who">${esc(m.who)}</span>`  : '')
+                  ); })()}
+                </figcaption>
                 <button type="button" class="cust-photo-archive" data-archive="${esc(String(p.id))}"
                         title="Remove from the record">Remove</button>
               </figure>`).join('')}
@@ -6943,25 +6978,32 @@
 
     // Lightbox — one element reused for every photo. Click the backdrop, press
     // Escape, or hit the close button to dismiss. Nothing is mutated.
-    function openPhotoLightbox(url) {
+    function openPhotoLightbox(url, caption) {
       let box = $('custPhotoLightbox');
       if (!box) {
         box = document.createElement('div');
         box.id = 'custPhotoLightbox';
         box.className = 'cust-lightbox';
-        box.innerHTML = `<button type="button" class="cust-lightbox-close" aria-label="Close">×</button><img alt="">`;
+        box.innerHTML = `<button type="button" class="cust-lightbox-close" aria-label="Close">×</button>` +
+                        `<figure class="cust-lightbox-fig"><img alt=""><figcaption class="cust-lightbox-cap"></figcaption></figure>`;
         document.body.appendChild(box);
         box.addEventListener('click', (e) => {
           if (e.target === box || e.target.classList.contains('cust-lightbox-close')) closePhotoLightbox();
         });
       }
       box.querySelector('img').src = url;
+      const cap = box.querySelector('.cust-lightbox-cap');
+      if (cap) { cap.textContent = caption || ''; cap.style.display = caption ? '' : 'none'; }
       box.classList.add('open');
       document.addEventListener('keydown', photoLightboxEsc);
     }
     function closePhotoLightbox() {
       const box = $('custPhotoLightbox');
-      if (box) { box.classList.remove('open'); box.querySelector('img').src = ''; }
+      if (box) {
+        box.classList.remove('open');
+        box.querySelector('img').src = '';
+        const cap = box.querySelector('.cust-lightbox-cap'); if (cap) cap.textContent = '';
+      }
       document.removeEventListener('keydown', photoLightboxEsc);
     }
     function photoLightboxEsc(e) { if (e.key === 'Escape') closePhotoLightbox(); }
@@ -6985,7 +7027,7 @@
         const tile = e.target.closest('[data-photo]');
         if (!tile) return;
         e.preventDefault();
-        openPhotoLightbox(tile.getAttribute('data-photo'));
+        openPhotoLightbox(tile.getAttribute('data-photo'), tile.getAttribute('data-caption'));
       });
     })();
 
