@@ -7337,7 +7337,7 @@
       const call = (custRecCallsAll || []).find(x => String(x.id) === String(callId));
       const patch = { ro_id: roId || null, ...(AA ? AA.clearAutoFileTagsPatch() : {}) };
       if (call && !call.noted_at) {
-        patch.noted_by_name = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
+        patch.noted_by_name = (CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
         patch.noted_at = new Date().toISOString();
       }
       const { error } = await db.from('calls').update(patch).eq('id', callId);
@@ -8703,7 +8703,7 @@
 
     async function performAttach(call, customer) {
       const CA = window.CallAttach; if (!CA || !call || !customer) return;
-      const byName = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
+      const byName = (CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
       // Work out the phone question CONCURRENTLY with the attach write. The
       // attach is unconditional: it is never gated on the question, on the
       // answer, or on that lookup succeeding.
@@ -8753,7 +8753,7 @@
     }
     async function performNotACustomer(call) {
       const CA = window.CallAttach; if (!CA || !call) return;
-      const byName = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
+      const byName = (CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
       const patch = CA.notACustomerPatch(byName, new Date().toISOString());
       const { error } = await db.from('calls').update(patch).eq('id', call.id);
       if (error) { console.error('[desk] mark not-a-customer failed', error); alert('Could not mark: ' + error.message); return; }

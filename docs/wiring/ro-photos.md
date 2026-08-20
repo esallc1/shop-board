@@ -1,8 +1,8 @@
 # How RO photos are wired
 
 > Doc: `/docs/wiring/ro-photos.md`
-> Last updated: 2026-08-20 — office-archive `deleted_by` fix. Verified vs commit `ae4510b`
-> plus the fix on `fix/office-archive-deleted-by`.
+> Last updated: 2026-08-20 — office-archive `deleted_by` fix (+ the three `calls` writes that
+> shared its root cause). Verified vs commit `ae4510b` plus `fix/office-archive-deleted-by`.
 > Status: 🟢 **slices 1 and 2 are LIVE ON PROD** (code `ae4510b`; all four migrations run by
 > hand on prod `hygemiszxwmyrkmhbjub` on 2026-08-20 — enum value, `photo_buckets` + its two
 > seeds, `attachments.bucket_id`, and slice 2's three columns). `20260819_storage_buckets.sql`
@@ -89,8 +89,9 @@ greeting (populated by `captureSessionAndGreet` → `applyIdentity` from `Office
 `window.CHAT_IDENTITY` always yields `undefined`. That is exactly how the office archive
 silently wrote a NULL `deleted_by` while the tech path worked (fixed 2026-08-20; the one prod
 row archived before the fix is deliberately left NULL rather than backfilled with a guess).
-Three writes to `calls` still carry the same `window.CHAT_IDENTITY` guard and lose the name the
-same way — `fileCallToRo`, `performAttach`, `performNotACustomer` in `advisor-board.html`.
+The same guard bug hit three `calls` writes — `fileCallToRo`, `performAttach`,
+`performNotACustomer` — and all four sites were fixed together. Full write-up of the bug class,
+the repo-wide sweep, and why sandbox missed this: [[office-auth]] §1b.
 
 **Who may archive:** whoever took it, plus the office on the customer record. Enforced in the
 UI, not in RLS — `attachments` carries table-level `for all` for both roles, and My Numbers
@@ -184,8 +185,9 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   office-side archive writing `deleted_at` but a NULL `deleted_by`: `archiveCustPhoto` guarded
   on `window.CHAT_IDENTITY`, which is always `undefined` because the binding is a script-scoped
   `let`. Sandbox never caught it — only the tech path (`currentTechName()`) had been exercised.
-  Now reads `CHAT_IDENTITY` bare. The pre-fix prod row is left NULL on purpose. Same guard bug
-  still stands on three `calls` writes (§4), untouched pending a decision.
+  Now reads `CHAT_IDENTITY` bare. The pre-fix prod row is left NULL on purpose. The same guard
+  bug on three `calls` writes was folded into the same branch; a repo-wide sweep found no other
+  instance. Bug class documented in [[office-auth]] §1b.
 - 2026-08-20 — **Two slice-2 bugs fixed after sandbox verification.** (1) The archive × did not
   appear until a reload: `uploadRoPhoto` pushed a local photo object without `uploaded_by`, so
   `canArchivePhoto` saw it as ownerless — the row had the value, the in-memory object did not.

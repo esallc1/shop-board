@@ -61,6 +61,53 @@ board today), **To-Do** (`created_by`/`assigned_to`), **Team Chat** (sender), **
 (`owner_employee_id`), and the **bookkeeping role gate**. All read identity **client-side**; only the
 bookkeeping gate and (future) owner-only settings are true boundaries.
 
+### 1b. ⚠ TRAP: `CHAT_IDENTITY` is a lexical `let`, NOT a window property
+**Read it bare — `CHAT_IDENTITY.name`. Never `window.CHAT_IDENTITY`.**
+
+Each board declares `let CHAT_IDENTITY = { name: null, role: null }` inside its big inline
+`<script>` (advisor `advisor-board.html:~3154`) and **reassigns** it from
+`captureSessionAndGreet` → `applyIdentity`. A top-level `let`/`const` in a classic script creates
+a *script-scoped* binding that is **never** mirrored onto `window` (and in a `type="module"`
+block, not even `var` is). So `window.CHAT_IDENTITY` is **always `undefined`**, on every board,
+forever.
+
+**The bug class this belongs to: a guard that can never be true reads like a working guard.**
+```js
+// WRONG — first operand is always undefined, so this always yields null.
+const who = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
+// RIGHT — the idiom used throughout advisor-board.html.
+const who = (CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
+```
+The write still succeeds. The column is still in the UPDATE. It just faithfully stores `null`
+forever, and nothing errors — which is why this survives code review *and* a green smoke test.
+Prefer the bare read; `typeof CHAT_IDENTITY !== 'undefined' && …` is also correct and is used at
+`advisor-board.html:8128`/`9413` where the reference may precede the declaration.
+
+**Found 2026-08-20 on PROD**, four sites in `advisor-board.html`, all fixed together:
+`archiveCustPhoto` (`attachments.deleted_by`), `fileCallToRo` (`calls.noted_by_name`),
+`performAttach` and `performNotACustomer` (`calls` by-name). Rows written before the fix carry a
+permanent `NULL` — **deliberately not backfilled**, since nobody can prove after the fact who did
+it, and a guess is worse than an honest blank.
+
+**Repo-wide sweep (2026-08-20, all 12 boards + `shared/*.js`): `CHAT_IDENTITY` was the ONLY
+instance.** Every other `window.X` reference resolves to a real global — most assigned through an
+alias parameter rather than the literal `window.`, e.g. `root.cdSupabaseCreds` /
+`root.CD_SUPABASE` (`shared/supabase-config.js:72-75`) and `global.OfficeIdentity`
+(`shared/office-identity.js:156`), plus the vendored `window.html2canvas`, which self-registers.
+Two notes for whoever sweeps next: a grep-based detector must **exclude `*.test.js`** (a stub like
+`globalThis.CHAT_IDENTITY = …` in `shared/ro-writer.test.js:95` otherwise masks the real bug) and
+must **ignore comments and strings**. One unrelated leftover surfaced: `my-numbers.html:346-352`
+`sGet`/`sSet` call `window.storage`, which exists nowhere in the repo — both are **dead code, never
+called**, so nothing is broken today.
+
+**Why sandbox missed it — the testing lesson.** Photo archive has two entry points: the tech path
+(`my-numbers.html` `archiveRoPhoto`, which uses `currentTechName()` and was always correct) and the
+**office path** (`advisor-board.html` `archiveCustPhoto`). Sandbox only ever exercised the tech
+path, so the feature was signed off as verified end-to-end while **the office path had never been
+run at all** — its first-ever execution was on production, by the owner, on a real customer's
+record. When a capability has a tech surface *and* an office surface, **both are separate paths and
+both must be exercised before it counts as tested.** See [[ro-photos]] §4.
+
 ## 2. How KiKi does Supabase Auth (verified against `kiki/`)
 KiKi is Next.js 16 (App Router). **Email/password only — no phone/SMS/OTP anywhere.**
 - **Clients** (`kiki/src/lib/supabase/`): user-facing clients use **`@supabase/ssr`** — a
@@ -835,6 +882,10 @@ pin column; all board reads/greeting/roster still populate.
   identity-first, §8 enforcement), [[change-requests]] (§5 — a feature that deferred to this).
 
 ## Session change log
+- 2026-08-20 — Added §1b: `CHAT_IDENTITY` is a lexical `let`, never `window.CHAT_IDENTITY`. Four
+  advisor-board writes had been silently storing NULL attribution (one photo-archive, three
+  `calls`); all fixed, no backfill. Repo-wide sweep found no other instance. Records the
+  tech-path-vs-office-path testing gap that let this reach prod.
 - 2026-08-09 — **Recurring-gotcha note (Step 1½ widen is a FIXED LIST):** any table created
   AFTER the 2026-08-01 widen must add its own `for all to authenticated using(true) with
   check(true)` twin, or a signed-in office session goes blind (SELECT → 0 rows, INSERT →
