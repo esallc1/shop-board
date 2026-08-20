@@ -210,6 +210,14 @@ Two things worth knowing before touching any of it:
 - **`crisdata-attachments` is INSERT + SELECT only** — no delete, for anon or authenticated.
   The boards delete an `attachments` ROW without removing the storage object, so objects
   accumulate. That is the current posture, not an oversight to "fix" casually.
+  > ⚠ **And two features have been silently failing on this since July.** `deleteClip`
+  > (`my-numbers.html:2044`) and the chat attachment delete (`shared/team-chat.js:1881`) both
+  > call `.remove()` on this bucket and both swallow the error. Neither can succeed — there is
+  > no delete policy. The row goes, **the bytes stay forever**, and the UI looks correct
+  > afterwards, which is why nobody noticed. There is an unknown-size backlog of orphaned
+  > objects here. Adding a delete policy would change those two features from "silently orphan"
+  > to "actually destroy" — a deliberate decision, not a side-effect. Full write-up:
+  > [[ro-photos]] §6.
 
 **Buckets do NOT travel with a schema dump.** `pg_dump --schema-only` of `public` does not carry
 `storage.buckets` rows, and neither does the data copy. A new environment has *zero* buckets

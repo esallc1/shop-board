@@ -54,6 +54,7 @@ window.FileCabinet = (function () {
     { id: 'requests', file: 'change-requests.md',   icon: '🚩', title: 'Requests & Feedback intake' },
     { id: 'cabinet',  file: 'file-cabinet.md',      icon: '🗄️', title: 'File Cabinet tab (this screen)' },
     { id: 'pagemap',  file: 'page-map.md',          icon: '🗺️', title: 'Page map (pages · routing · legacy doors)' },
+    { id: 'rophotos', file: 'ro-photos.md',         icon: '📷', title: 'RO photos (buckets · capture · archive)' },
   ];
   const byFile = {}; DOCS.forEach(d => { byFile[d.file] = d; });
 

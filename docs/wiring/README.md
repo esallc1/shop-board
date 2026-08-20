@@ -69,6 +69,7 @@ An audit of every unbounded read is in [[intake-wizard]] §5.
 | RO / invoice document (print + embed) | [ro-invoice.md](ro-invoice.md) | ✅ BUILT + verified vs `455693f` |
 | RO line items (Add/Edit-Line pop-up) | [ro-line-items.md](ro-line-items.md) | ✅ BUILT + verified live vs `17d4b02` |
 | Staging database (isolated `test.*` DB) | [staging-db.md](staging-db.md) | ⚠ **Needs review** — header still reads 🟡 in-progress (2026-08-12), but the sandbox is live and prod-deployed |
+| RO photos (buckets · capture · archive) | [ro-photos.md](ro-photos.md) | 🟡 slice 1 live on staging, slice 2 built + unmerged; **carries a live FINDING in §6** |
 | Page map (which pages exist, who reaches them) | [page-map.md](page-map.md) | ✅ verified vs `c17db7e` — replaces the flat 12-name handoff list |
 
 _Seeded 2026-07-30 from the Jul 29 session handoff. Verified 2026-07-30 against commit `bea25cf`:

@@ -197,11 +197,20 @@
 
   .photo-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px; }
   .photo-thumb{
-    display:block;                 /* it's an <a> now — inline would ignore aspect-ratio */
+    display:block;                 /* wrapper for the <a> + the × overlay */
     aspect-ratio:1; border-radius:8px; overflow:hidden; background:var(--panel-raised);
     border:1px solid var(--stroke); position:relative;
   }
+  .photo-thumb > a{ display:block; width:100%; height:100%; }
   .photo-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  /* Archive affordance: small, cornered, and deliberately NOT the whole tile —
+     tapping the photo opens it, only the × starts a removal, and the × then
+     asks. Two taps minimum on a phone. */
+  .photo-x{ position:absolute; top:3px; right:3px; width:24px; height:24px; border:none;
+    border-radius:50%; background:rgba(0,0,0,0.62); color:#fff; font-size:16px; line-height:1;
+    cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0;
+    -webkit-tap-highlight-color:transparent; }
+  .photo-x:active{ background:rgba(0,0,0,0.85); }
   .photo-add{
     aspect-ratio:1; border-radius:8px; border:2px dashed var(--stroke);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
@@ -528,6 +537,11 @@ const I18N = {
     toastPhotoUploading: "Uploading photo…",
     toastPhotoFailed: "Photo failed to upload",
     toastPhotoNoBucket: "Photo saved without a bucket",
+    photoArchiveConfirm: "Remove this photo from the record? It stays saved — the office can still find it.",
+    photoArchiveBtn: "Remove",
+    photoCancelBtn: "Keep",
+    toastPhotoArchived: "Photo removed",
+    toastPhotoArchiveFailed: "Couldn't remove that photo",
     toastNeedDiagnosis: "Add your diagnostic notes first",
     toastSentWriter: "Sent to service writer",
     toastJobComplete: "Job marked complete",
@@ -613,6 +627,11 @@ const I18N = {
     toastPhotoUploading: "Subiendo foto…",
     toastPhotoFailed: "No se pudo subir la foto",
     toastPhotoNoBucket: "Foto guardada sin categoría",
+    photoArchiveConfirm: "¿Quitar esta foto del registro? Se queda guardada — la oficina aún puede encontrarla.",
+    photoArchiveBtn: "Quitar",
+    photoCancelBtn: "Mantener",
+    toastPhotoArchived: "Foto quitada",
+    toastPhotoArchiveFailed: "No se pudo quitar la foto",
     toastNeedDiagnosis: "Agrega tus notas de diagnóstico primero",
     toastSentWriter: "Enviado al asesor de servicio",
     toastJobComplete: "Trabajo marcado como completo",
@@ -698,6 +717,11 @@ const I18N = {
     toastPhotoUploading: "Y ap voye foto a…",
     toastPhotoFailed: "Foto a pa t ka telechaje",
     toastPhotoNoBucket: "Foto sove san kategori",
+    photoArchiveConfirm: "Retire foto sa nan dosye a? Li rete sove — biwo a ka toujou jwenn li.",
+    photoArchiveBtn: "Retire",
+    photoCancelBtn: "Kenbe",
+    toastPhotoArchived: "Foto retire",
+    toastPhotoArchiveFailed: "Pa t ka retire foto a",
     toastNeedDiagnosis: "Ajoute nòt dyagnostik ou anvan",
     toastSentWriter: "Voye bay konseye sèvis la",
     toastJobComplete: "Travay make fini",
@@ -1508,7 +1532,8 @@ async function loadRoCodes(roId){
 async function loadRoClips(roId){
   const { data, error } = await db.from('attachments')
     .select('id, file_path').eq('entity_type', 'repair_order').eq('entity_id', roId)
-    .eq('kind', 'diagnosis_audio').order('created_at', { ascending: true });
+    .eq('kind', 'diagnosis_audio').is('deleted_at', null)   // archived rows are tombstones
+    .order('created_at', { ascending: true });
   if(error){ console.warn('[RoDiag] clips load failed:', error.message); RO_DIAG.clips = []; return; }
   const clips = [];
   for(const a of (data || [])){
@@ -1537,6 +1562,29 @@ async function loadRoClips(roId){
    unbucketed ("No bucket") rather than failing or guessing.
    ════════════════════════════════════════════════════════════════════ */
 
+// Whoever is operating this session, by NAME — the same value shape
+// marketing_content.captured_by stores. In operate-as mode (?as=<phone>) this
+// is the TECH being operated as, not the manager, which is the right answer:
+// the photo is that tech's work on that tech's job.
+function currentTechName(){
+  const t2 = STATE && STATE.currentTech;
+  return (t2 && t2.name) ? String(t2.name) : null;
+}
+
+// May THIS session archive THIS photo?
+//   • you took it            -> yes
+//   • nobody took it         -> NO. uploaded_by IS NULL means the row predates
+//     (uploaded_by null)        provenance and is OWNERLESS, not "unknown
+//                               user". Letting any tech archive it would let
+//                               one tech remove another's work on a
+//                               technicality. The office can still clear these
+//                               from the customer record.
+//   • someone else took it   -> no
+function canArchivePhoto(p){
+  const me = currentTechName();
+  return !!(me && p && p.uploaded_by && p.uploaded_by === me);
+}
+
 // name -> id, live buckets only. Loaded once per roDiag open.
 let PHOTO_BUCKETS = {};
 
@@ -1557,8 +1605,10 @@ async function loadPhotoBuckets(){
 // Private bucket -> short-lived signed URLs, same as loadRoClips.
 async function loadRoPhotos(roId){
   const { data, error } = await db.from('attachments')
-    .select('id, file_path, bucket_id').eq('entity_type', 'repair_order').eq('entity_id', roId)
-    .eq('kind', 'ro_photo').order('created_at', { ascending: true });
+    .select('id, file_path, bucket_id, uploaded_by, created_at')
+    .eq('entity_type', 'repair_order').eq('entity_id', roId)
+    .eq('kind', 'ro_photo').is('deleted_at', null)          // archived rows are tombstones
+    .order('created_at', { ascending: true });
   if(error){ console.warn('[RoPhotos] load failed:', error.message); RO_DIAG.photos = []; return; }
   const photos = [];
   for(const a of (data || [])){
@@ -1567,7 +1617,8 @@ async function loadRoPhotos(roId){
       const { data: sg } = await db.storage.from('crisdata-attachments').createSignedUrl(a.file_path, 3600);
       url = (sg && sg.signedUrl) || '';
     } catch(e){ /* leave url empty; the tile still renders as a placeholder */ }
-    photos.push({ id: a.id, file_path: a.file_path, bucket_id: a.bucket_id, url });
+    photos.push({ id: a.id, file_path: a.file_path, bucket_id: a.bucket_id,
+                  uploaded_by: a.uploaded_by || null, created_at: a.created_at || null, url });
   }
   RO_DIAG.photos = photos;
 }
@@ -1584,9 +1635,17 @@ function roPhotoGridHtml(bucketName, inputId, label){
   return `
     <h3>${label} (${photos.length})</h3>
     <div class="photo-grid">
-      ${photos.map(p => p.url
-        ? `<a class="photo-thumb" href="${escRo(p.url)}" target="_blank" rel="noopener"><img src="${escRo(p.url)}" loading="lazy" alt=""></a>`
-        : `<div class="photo-thumb"></div>`).join('')}
+      ${photos.map(p => {
+        // The X only renders on YOUR OWN photos (canArchivePhoto). It is a
+        // separate small target in the corner, and it opens a confirm sheet —
+        // two deliberate taps, never one, because this is a phone in a shop.
+        const x = canArchivePhoto(p)
+          ? `<button type="button" class="photo-x" data-archive="${escRo(String(p.id))}" aria-label="${escRo(t('photoArchiveBtn'))}">×</button>`
+          : '';
+        return p.url
+          ? `<div class="photo-thumb"><a href="${escRo(p.url)}" target="_blank" rel="noopener"><img src="${escRo(p.url)}" loading="lazy" alt=""></a>${x}</div>`
+          : `<div class="photo-thumb">${x}</div>`;
+      }).join('')}
       <label class="photo-add" for="${inputId}">
         <div class="plus">+</div>
         <div>${t('addPhotoLabel')}</div>
@@ -1653,7 +1712,7 @@ async function uploadRoPhoto(file, bucketName){
     const bucketId = PHOTO_BUCKETS[bucketName] || null;
     const { data: row, error: insErr } = await db.from('attachments')
       .insert({ entity_type: 'repair_order', entity_id: ro.id, kind: 'ro_photo',
-                file_path: path, bucket_id: bucketId })
+                file_path: path, bucket_id: bucketId, uploaded_by: currentTechName() })
       .select('id').single();
     if(insErr){ console.error('[RoPhotos] attach-row failed', insErr); showToast(t('toastPhotoFailed')); return; }
 
@@ -1671,6 +1730,44 @@ async function uploadRoPhoto(file, bucketName){
   }
 }
 
+// Archive = TOMBSTONE. Never a delete: the row stays, the storage object stays,
+// and every reader filters `deleted_at is null`. Re-checks canArchivePhoto at
+// write time, not just at render time, so a stale DOM can't be used to archive
+// someone else's photo.
+async function archiveRoPhoto(photoId){
+  const p = (RO_DIAG.photos || []).find(x => String(x.id) === String(photoId));
+  if(!p || !canArchivePhoto(p)) return;
+  const { error } = await db.from('attachments')
+    .update({ deleted_at: new Date().toISOString(), deleted_by: currentTechName() })
+    .eq('id', p.id);
+  if(error){ console.error('[RoPhotos] archive failed', error); showToast(t('toastPhotoArchiveFailed')); return; }
+  RO_DIAG.photos = RO_DIAG.photos.filter(x => String(x.id) !== String(photoId));
+  refreshPhotosUI();
+  showToast(t('toastPhotoArchived'));
+}
+
+// Two-tap guard. Reuses the shop's existing confirm-overlay styling rather than
+// window.confirm, which on iOS is easy to dismiss by accident.
+function confirmArchivePhoto(photoId){
+  const wrap = document.createElement('div');
+  wrap.className = 'confirm-overlay';
+  wrap.innerHTML = `
+    <div class="confirm-card">
+      <div class="confirm-title">${escRo(t('photoArchiveBtn'))}</div>
+      <div class="confirm-sub">${escRo(t('photoArchiveConfirm'))}</div>
+      <div class="confirm-actions">
+        <button type="button" class="confirm-btn confirm-cancel" data-x="no">${escRo(t('photoCancelBtn'))}</button>
+        <button type="button" class="confirm-btn confirm-go" data-x="yes">${escRo(t('photoArchiveBtn'))}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(wrap);
+  const close = () => { if(wrap.parentNode) wrap.parentNode.removeChild(wrap); };
+  wrap.addEventListener('click', async (e) => {
+    if(e.target === wrap || e.target.dataset.x === 'no'){ close(); return; }
+    if(e.target.dataset.x === 'yes'){ close(); await archiveRoPhoto(photoId); }
+  });
+}
+
 // The input-reset ordering is COPIED VERBATIM from advisor-board.html's
 // Capture Invoice (and the note catch-moment.js carries):
 //   Reset AFTER the upload attempt finishes, not before. Resetting the input's
@@ -1680,6 +1777,17 @@ async function uploadRoPhoto(file, bucketName){
 //   Supabase Storage receives a request with no file content at all.
 // Hence `await uploadRoPhoto(...)` BEFORE `e.target.value = ''`.
 function bindPhotoInputs(){
+  const wrap = document.getElementById('roPhotosWrap');
+  if(wrap && !wrap.dataset.xBound){
+    wrap.dataset.xBound = '1';
+    wrap.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-archive]');
+      if(!btn) return;
+      e.preventDefault(); e.stopPropagation();      // don't also open the photo
+      confirmArchivePhoto(btn.getAttribute('data-archive'));
+    });
+  }
+
   const pairs = [
     ['roBeforePhotoInput', 'Before'],
     ['roPartPhotoInput',   'Part / Repair'],
@@ -1918,7 +2026,8 @@ async function uploadClip(blob, mime){
     .upload(path, blob, { contentType: mime || 'application/octet-stream', upsert: false });
   if(upErr){ console.error('[RoDiag] clip upload failed', upErr); showToast(t('toastClipFailed')); return; }
   const { data: row, error: insErr } = await db.from('attachments')
-    .insert({ entity_type: 'repair_order', entity_id: ro.id, kind: 'diagnosis_audio', file_path: path })
+    .insert({ entity_type: 'repair_order', entity_id: ro.id, kind: 'diagnosis_audio',
+              file_path: path, uploaded_by: currentTechName() })
     .select('id').single();
   if(insErr){ console.error('[RoDiag] clip attach-row failed', insErr); showToast(t('toastClipFailed')); return; }
   RO_DIAG.clips.push({ id: row.id, file_path: path, url: URL.createObjectURL(blob) });

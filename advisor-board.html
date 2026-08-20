@@ -619,6 +619,14 @@
     padding:0 6px; line-height:15px; }
   .cust-photo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(72px,1fr));
     gap:6px; }
+  .cust-photo-cell { margin:0; position:relative; }
+  .cust-photo-meta { font-size:0.58rem; color:var(--muted); line-height:1.25; margin-top:3px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cust-photo-archive { position:absolute; top:3px; right:3px; border:none; border-radius:5px;
+    background:rgba(0,0,0,0.6); color:#fff; font-size:0.55rem; font-weight:700; padding:2px 5px;
+    cursor:pointer; opacity:0; transition:opacity .12s; }
+  .cust-photo-cell:hover .cust-photo-archive,
+  .cust-photo-archive:focus-visible { opacity:1; }
   .cust-photo-tile { display:block; padding:0; aspect-ratio:1; border-radius:7px;
     overflow:hidden; background:var(--surface-2); border:1px solid var(--border);
     cursor:pointer; }
@@ -2315,7 +2323,8 @@
       try {
         const { data: atts } = await db.from('attachments')
           .select('file_path').eq('entity_type', 'repair_order').eq('entity_id', ro.id)
-          .eq('kind', 'diagnosis_audio').order('created_at', { ascending: true });
+          .eq('kind', 'diagnosis_audio').is('deleted_at', null)   // archived rows are tombstones
+          .order('created_at', { ascending: true });
         for (const a of (atts || [])) {
           const { data: s } = await db.storage.from('crisdata-attachments').createSignedUrl(a.file_path, 3600);
           if (s && s.signedUrl) clipsHtml += `<audio controls preload="none" src="${esc(s.signedUrl)}" style="width:100%;margin-top:6px"></audio>`;
@@ -6785,8 +6794,9 @@
           if (seq !== custLoadSeq) return;
           (bResp.data || []).forEach(b2 => { custPhotoBucketById[String(b2.id)] = b2; });
           const pResp = await db.from('attachments')
-            .select('id, file_path, bucket_id, entity_id')
+            .select('id, file_path, bucket_id, entity_id, uploaded_by, created_at')
             .eq('entity_type', 'repair_order').eq('kind', 'ro_photo')
+            .is('deleted_at', null)                               // archived rows are tombstones
             .in('entity_id', roIds).order('created_at', { ascending: true });
           if (seq !== custLoadSeq) return;
           const rows = pResp.error ? [] : (pResp.data || []);
@@ -6808,6 +6818,7 @@
             const k = String(r2.entity_id);
             (custRoPhotos[k] = custRoPhotos[k] || []).push({
               id: r2.id, file_path: r2.file_path, bucket_id: r2.bucket_id,
+              uploaded_by: r2.uploaded_by || null, created_at: r2.created_at || null,
               url: signed[r2.file_path] || '',
             });
           });
@@ -6868,6 +6879,26 @@
       return groups;
     }
 
+    /* "Aug 10, 8:41 · Manny" — the mockup's byline.
+       Both halves degrade independently and neither invents data:
+         • created_at is server-set on every row, so the date is always real;
+         • uploaded_by is NULL on everything shot before slice 2. Those render
+           the date alone rather than "· Unknown", because nobody was recorded,
+           which is not the same as an unknown person. */
+    function photoMetaLine(p) {
+      const when = p.created_at ? custFmtPhotoWhen(p.created_at) : '';
+      const who = p.uploaded_by ? String(p.uploaded_by).trim() : '';
+      if (when && who) return when + ' · ' + who;
+      return when || who || '';
+    }
+    // "Aug 10, 8:41" — date + time, no year (the RO already carries the date).
+    function custFmtPhotoWhen(iso) {
+      const d = new Date(iso);
+      if (!d || isNaN(d)) return '';
+      return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+              .replace(/,\s*(?=\d)/, ', ');
+    }
+
     function roPhotosHtml(roId) {
       const groups = custPhotoGroups(roId);
       if (!groups.length) return '';
@@ -6878,14 +6909,36 @@
             <span class="cust-photo-count">${g.photos.length}</span>
           </div>
           <div class="cust-photo-grid">
-            ${g.photos.map(p => p.url
-              ? `<button type="button" class="cust-photo-tile" data-photo="${esc(p.url)}" title="Enlarge">
-                   <img src="${esc(p.url)}" loading="lazy" alt="">
-                 </button>`
-              : `<span class="cust-photo-tile cust-photo-missing" title="Preview unavailable"></span>`
-            ).join('')}
+            ${g.photos.map(p => `
+              <figure class="cust-photo-cell">
+                ${p.url
+                  ? `<button type="button" class="cust-photo-tile" data-photo="${esc(p.url)}" title="Enlarge">
+                       <img src="${esc(p.url)}" loading="lazy" alt="">
+                     </button>`
+                  : `<span class="cust-photo-tile cust-photo-missing" title="Preview unavailable"></span>`}
+                <figcaption class="cust-photo-meta">${esc(photoMetaLine(p))}</figcaption>
+                <button type="button" class="cust-photo-archive" data-archive="${esc(String(p.id))}"
+                        title="Remove from the record">Remove</button>
+              </figure>`).join('')}
           </div>
         </div>`).join('') + `</div>`;
+    }
+
+    /* OFFICE ARCHIVE. Deliberately NOT ownership-checked: an advisor/manager/
+       owner working the customer record can remove any photo on it, including
+       the pre-slice-2 rows that carry no uploaded_by and that therefore no tech
+       can remove. That is the cleanup path for ownerless photos.
+       Tombstone only — the row and the storage object both stay. */
+    async function archiveCustPhoto(photoId) {
+      const who = (window.CHAT_IDENTITY && CHAT_IDENTITY.name) ? CHAT_IDENTITY.name : null;
+      const { error } = await db.from('attachments')
+        .update({ deleted_at: new Date().toISOString(), deleted_by: who })
+        .eq('id', photoId);
+      if (error) { console.error('[RoPhotos] archive failed', error); alert('Could not remove that photo — ' + (error.message || 'unknown error')); return; }
+      Object.keys(custRoPhotos).forEach(k => {
+        custRoPhotos[k] = custRoPhotos[k].filter(p => String(p.id) !== String(photoId));
+      });
+      renderCustVehicles();
     }
 
     // Lightbox — one element reused for every photo. Click the backdrop, press
@@ -6919,6 +6972,16 @@
       const host = $('custVehicles');
       if (!host) return;
       host.addEventListener('click', (e) => {
+        const rm = e.target.closest('[data-archive]');
+        if (rm) {
+          e.preventDefault();
+          // Confirm before removing. The photo stays saved — say so, so nobody
+          // hesitates over a blurry frame thinking it is destructive.
+          if (confirm('Remove this photo from the record?\n\nIt stays saved and can be restored — it just stops showing here.')) {
+            archiveCustPhoto(rm.getAttribute('data-archive'));
+          }
+          return;
+        }
         const tile = e.target.closest('[data-photo]');
         if (!tile) return;
         e.preventDefault();
