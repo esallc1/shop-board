@@ -608,6 +608,35 @@
   .cust-timeline-cap { font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); margin-top:12px; }
   .cust-timeline { margin-top:8px; display:flex; flex-direction:column; gap:8px; max-height:260px; overflow-y:auto; padding-right:4px; }
   .cust-tl-empty { font-size:0.76rem; color:var(--muted); font-style:italic; padding:5px 0; }
+
+  /* ── RO photos (read-only): bucket name + count, tiles, lightbox ── */
+  .cust-photos { margin-top:8px; display:flex; flex-direction:column; gap:9px; }
+  .cust-photo-head { display:flex; align-items:center; gap:7px; margin-bottom:4px; }
+  .cust-photo-bucket { font-size:0.6rem; font-weight:800; text-transform:uppercase;
+    letter-spacing:0.4px; color:var(--muted); }
+  .cust-photo-count { font-size:0.58rem; font-weight:800; color:var(--muted);
+    background:var(--surface-2); border:1px solid var(--border); border-radius:9px;
+    padding:0 6px; line-height:15px; }
+  .cust-photo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(72px,1fr));
+    gap:6px; }
+  .cust-photo-tile { display:block; padding:0; aspect-ratio:1; border-radius:7px;
+    overflow:hidden; background:var(--surface-2); border:1px solid var(--border);
+    cursor:pointer; }
+  .cust-photo-tile img { width:100%; height:100%; object-fit:cover; display:block; }
+  .cust-photo-tile:hover { border-color:var(--accent); }
+  .cust-photo-missing { cursor:default; }
+  .cust-photo-missing:hover { border-color:var(--border); }
+
+  .cust-lightbox { position:fixed; inset:0; z-index:4000; display:none;
+    align-items:center; justify-content:center; padding:28px;
+    background:rgba(10,12,20,0.86); }
+  .cust-lightbox.open { display:flex; }
+  .cust-lightbox img { max-width:100%; max-height:100%; border-radius:10px;
+    box-shadow:0 24px 64px rgba(0,0,0,0.5); }
+  .cust-lightbox-close { position:absolute; top:16px; right:20px; width:38px; height:38px;
+    border-radius:50%; border:none; background:rgba(255,255,255,0.14); color:#fff;
+    font-size:24px; line-height:1; cursor:pointer; }
+  .cust-lightbox-close:hover { background:rgba(255,255,255,0.24); }
   .cust-tl-entry { border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:8px; padding:7px 10px; background:#fff; }
   .cust-tl-entry.unconfirmed { border-left-color:var(--amber); }
   .cust-tl-top { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
@@ -6445,6 +6474,9 @@
     // ══════════════════════════════════════════════════════════════
     const CR = () => window.CustomerRecord;
     let custCustomer = null, custVehicles = [], custRos = [], custVehById = {}, custRoById = {};
+    // RO photos (slice 1, READ-ONLY): roId -> [{id, file_path, bucket_id, url}]
+    // and bucketId -> {name, sort_order}. Loaded once per customer open.
+    let custRoPhotos = {}, custPhotoBucketById = {};
     let custVehQuery = '';        // the fleet-filter text; display-only, never persisted
     let custMergedKeeper = null;  // the survivor row, when this record was merged away (§8)
     let custTotals = {}, custRecCallsAll = [], custRecIdx = {}, custSecondaryLearned = false;
@@ -6742,6 +6774,46 @@
         if (seq !== custLoadSeq) return;
         if (!linesResp.error) custTotals = CR().totalsByRo(linesResp.data || [], { rate: taxRate(), exempt: !!cust.tax_exempt });
       }
+      // RO photos — one batched .in() over this customer's ROs, then one signed
+      // URL per photo. Same read shape My Numbers uses (private bucket ->
+      // createSignedUrl) and the same shape the RO cards use for diagnosis
+      // audio. Degrades to no photos if the migration hasn't run here.
+      custRoPhotos = {}; custPhotoBucketById = {};
+      if (roIds.length) {
+        try {
+          const bResp = await db.from('photo_buckets').select('id, name, sort_order');
+          if (seq !== custLoadSeq) return;
+          (bResp.data || []).forEach(b2 => { custPhotoBucketById[String(b2.id)] = b2; });
+          const pResp = await db.from('attachments')
+            .select('id, file_path, bucket_id, entity_id')
+            .eq('entity_type', 'repair_order').eq('kind', 'ro_photo')
+            .in('entity_id', roIds).order('created_at', { ascending: true });
+          if (seq !== custLoadSeq) return;
+          const rows = pResp.error ? [] : (pResp.data || []);
+          // Sign in one pass. createSignedUrls takes a batch — one round trip
+          // for the whole customer instead of one per photo.
+          let signed = {};
+          if (rows.length) {
+            const paths = rows.map(r2 => r2.file_path);
+            const { data: sg } = await db.storage.from('crisdata-attachments').createSignedUrls(paths, 3600);
+            // Key by the returned .path (owner-board's pattern); fall back to
+            // positional index (bookkeeping's pattern) if .path is ever absent.
+            (sg || []).forEach((x, i) => {
+              if (!x || !x.signedUrl) return;
+              signed[x.path || paths[i]] = x.signedUrl;
+            });
+          }
+          if (seq !== custLoadSeq) return;
+          rows.forEach(r2 => {
+            const k = String(r2.entity_id);
+            (custRoPhotos[k] = custRoPhotos[k] || []).push({
+              id: r2.id, file_path: r2.file_path, bucket_id: r2.bucket_id,
+              url: signed[r2.file_path] || '',
+            });
+          });
+        } catch (e) { /* photos are optional — never block the record */ }
+      }
+
       // calls — two sources (customer_id + phone match), unioned in the module
       const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
       const phones = [l10(cust.phone_primary), l10(cust.phone_secondary)].filter(p => p && p.length >= 10);
@@ -6762,6 +6834,97 @@
       renderCustVehicles();
       renderCustUnfiled();
     }
+
+    /* ── RO PHOTOS on the customer record (slice 1, READ-ONLY) ──────────
+       Thumbnails grouped by bucket under each RO: bucket name, count, tiles,
+       click to enlarge. No moving between buckets, no delete, no bucket CRUD
+       in this slice — every control here is a link or a lightbox.
+
+       Grouping rule mirrors the DB: bucket_id NULL is a real state, "No
+       bucket", not missing data — so those photos still show, in their own
+       group, last. A photo whose bucket was ARCHIVED still resolves its name
+       (we load every bucket, not just live ones) so history keeps reading
+       correctly after the shop retires a bucket. */
+    function custPhotoGroups(roId) {
+      const photos = custRoPhotos[String(roId)] || [];
+      if (!photos.length) return [];
+      const byBucket = new Map();
+      photos.forEach(p => {
+        const key = p.bucket_id == null ? '' : String(p.bucket_id);
+        if (!byBucket.has(key)) byBucket.set(key, []);
+        byBucket.get(key).push(p);
+      });
+      const groups = [];
+      byBucket.forEach((list, key) => {
+        const b = key ? custPhotoBucketById[key] : null;
+        groups.push({
+          key,
+          name: b ? b.name : 'No bucket',
+          sort: b ? (b.sort_order != null ? b.sort_order : 9998) : 9999,  // unbucketed last
+          photos: list,
+        });
+      });
+      groups.sort((a, b) => (a.sort - b.sort) || a.name.localeCompare(b.name));
+      return groups;
+    }
+
+    function roPhotosHtml(roId) {
+      const groups = custPhotoGroups(roId);
+      if (!groups.length) return '';
+      return `<div class="cust-photos">` + groups.map(g => `
+        <div class="cust-photo-group">
+          <div class="cust-photo-head">
+            <span class="cust-photo-bucket">${esc(g.name)}</span>
+            <span class="cust-photo-count">${g.photos.length}</span>
+          </div>
+          <div class="cust-photo-grid">
+            ${g.photos.map(p => p.url
+              ? `<button type="button" class="cust-photo-tile" data-photo="${esc(p.url)}" title="Enlarge">
+                   <img src="${esc(p.url)}" loading="lazy" alt="">
+                 </button>`
+              : `<span class="cust-photo-tile cust-photo-missing" title="Preview unavailable"></span>`
+            ).join('')}
+          </div>
+        </div>`).join('') + `</div>`;
+    }
+
+    // Lightbox — one element reused for every photo. Click the backdrop, press
+    // Escape, or hit the close button to dismiss. Nothing is mutated.
+    function openPhotoLightbox(url) {
+      let box = $('custPhotoLightbox');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'custPhotoLightbox';
+        box.className = 'cust-lightbox';
+        box.innerHTML = `<button type="button" class="cust-lightbox-close" aria-label="Close">×</button><img alt="">`;
+        document.body.appendChild(box);
+        box.addEventListener('click', (e) => {
+          if (e.target === box || e.target.classList.contains('cust-lightbox-close')) closePhotoLightbox();
+        });
+      }
+      box.querySelector('img').src = url;
+      box.classList.add('open');
+      document.addEventListener('keydown', photoLightboxEsc);
+    }
+    function closePhotoLightbox() {
+      const box = $('custPhotoLightbox');
+      if (box) { box.classList.remove('open'); box.querySelector('img').src = ''; }
+      document.removeEventListener('keydown', photoLightboxEsc);
+    }
+    function photoLightboxEsc(e) { if (e.key === 'Escape') closePhotoLightbox(); }
+
+    // Delegated: the vehicle accordion re-renders constantly, so binding per
+    // tile would leak listeners. One listener on the container instead.
+    (function bindPhotoTiles() {
+      const host = $('custVehicles');
+      if (!host) return;
+      host.addEventListener('click', (e) => {
+        const tile = e.target.closest('[data-photo]');
+        if (!tile) return;
+        e.preventDefault();
+        openPhotoLightbox(tile.getAttribute('data-photo'));
+      });
+    })();
 
     // ── Formatting + derivation helpers (all pure, display-only) ──
     // A date-only string ("YYYY-MM-DD", e.g. last_invoiced) is parsed at NOON so it
@@ -6968,6 +7131,7 @@
           </div>
           <div class="cust-ro-when">${esc(custFmtDate(r.created_at))}</div>
           ${summary}
+          ${roPhotosHtml(r.id)}
           ${timelineHtml(custCallGroups.byRo[String(r.id)], 'No calls or notes on this RO.', false)}
         </div>`;
       });
