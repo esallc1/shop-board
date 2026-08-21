@@ -1,8 +1,7 @@
 # How RO photos are wired
 
 > Doc: `/docs/wiring/ro-photos.md`
-> Last updated: 2026-08-20 — office-archive `deleted_by` fix (+ the three `calls` writes that
-> shared its root cause). Verified vs commit `ae4510b` plus `fix/office-archive-deleted-by`.
+> Last updated: 2026-08-21 — lightbox sizing fix. Verified vs commit `dbc9f9a` (live on prod).
 > Status: 🟢 **slices 1 and 2 are LIVE ON PROD** (code `ae4510b`; all four migrations run by
 > hand on prod `hygemiszxwmyrkmhbjub` on 2026-08-20 — enum value, `photo_buckets` + its two
 > seeds, `attachments.bucket_id`, and slice 2's three columns). `20260819_storage_buckets.sql`
@@ -130,6 +129,12 @@ Reads are one batched `.in()` over the customer's ROs and ONE `createSignedUrls`
 customer. Tile clicks are delegated from `#custVehicles` because the accordion re-renders
 constantly and per-tile listeners would leak.
 
+**The lightbox image is sized in viewport units (`max-width:90vw; max-height:90vh;
+object-fit:contain`), not percentages.** `.cust-lightbox-fig` is an auto-height flex item, so a
+percentage `max-height` on the image resolves against an indefinite height and constrains
+nothing — the image falls back to natural size. That is what let tall photos run off the bottom
+of the screen. Anything sizing this image must stay viewport-relative for the same reason.
+
 ## Known gaps & open questions (as of 2026-08-20)
 - **⚠ Storage deletes have been silently failing since July — see §6.** Not caused by this
   subsystem, but this is where the trail leads.
@@ -180,6 +185,11 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   `archiveCustPhoto`, the `#custVehicles` delegated listener).
 
 ## Session change log
+- 2026-08-21 — **Lightbox sizing fixed.** An enlarged photo rendered at natural size, so tall
+  photos ran past the bottom of the screen with no way to see the whole image. The image's
+  `max-width`/`max-height` were percentages resolving against an auto-height flex figure, which
+  constrains nothing; they are now `90vw`/`90vh` plus `object-fit:contain`. One CSS rule; the
+  overlay, grid, tiles and caption are untouched. Recorded in §5.
 - 2026-08-20 — **Shipped to prod (`ae4510b`) and then fixed the office archive.** Slices 1+2
   went to prod after the four migrations were run by hand. Prod smoke test found the
   office-side archive writing `deleted_at` but a NULL `deleted_by`: `archiveCustPhoto` guarded
