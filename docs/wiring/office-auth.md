@@ -1,7 +1,8 @@
 # How office login could adopt Supabase Auth (investigation + lockout-safe plan)
 
 > Doc: `/docs/wiring/office-auth.md`
-> Last updated: 2026-08-03 — verified vs commit `a235571`
+> Last updated: 2026-08-21 — §1c added (duplicate-phone → `resolvePhone` resolves to nobody);
+> verified vs commit `dc39a76`. Previously 2026-08-03 — verified vs commit `a235571`
 > Status: 🟢 STEP 1½ SHIPPED (anon→authenticated read+write widen applied & live-verified at the
 > DB layer, 2026-08-01 — see §7 / §7.8). Step 0–1 login foothold live @ `dc782b3` — **nothing
 > enforced**; owner (Cristian) linked via `auth_user_id` and signing in on `office-login.html`.
@@ -107,6 +108,52 @@ path, so the feature was signed off as verified end-to-end while **the office pa
 run at all** — its first-ever execution was on production, by the owner, on a real customer's
 record. When a capability has a tech surface *and* an office surface, **both are separate paths and
 both must be exercised before it counts as tested.** See [[ro-photos]] §4.
+
+### 1c. ⚠ TRAP: a duplicate phone makes `resolvePhone` resolve to NOBODY
+
+**`employees.phone` is not unique, and the phone lookup uses `.maybeSingle()`, which errors on
+a multi-row match rather than picking one.** Both branches of `resolvePhone` in
+`shared/office-identity.js` funnel into:
+
+```js
+var p = await db.from('employees').select(EMP_COLS).eq('phone', phone).maybeSingle();
+if (p.data) { return {...}; }        // ← two matching rows ⇒ p.data is null ⇒ resolve() returns null
+```
+
+Two rows sharing a phone therefore resolve to **nobody**, silently. The board still loads (the
+resolver is passive by design), so the symptom is an absence, not an error: no greeting, no
+To-Do, no commission card, and every `CHAT_IDENTITY.name` write lands `NULL` — the exact
+failure §1b was about, arriving by a completely different route.
+
+Reported 2026-08-21 (row contents from the sandbox, not independently confirmed here; the code
+behaviour above is verified):
+
+| Phone | Rows | PINs | Effect |
+|---|---|---|---|
+| `9416260382` | Josh (`advisor`) + Jay Tech (`tech`) | **identical** (`1738`) | never resolves — even the fresh `?u/p` lookup is ambiguous |
+| `2396001971` | Cristian (`owner`) + Cristian Tech (`tech`) | differ | **first** login works, every return visit fails |
+
+The Cristian case is the nastier one. `?u=…&p=…` disambiguates on the PIN, so the initial login
+succeeds — but only the **phone** is persisted (`advisorBoardPhone` et al.), so the next visit
+reads phone alone, matches two rows, and returns `null`. *Works once, then silently stops.*
+
+**`expectedRole` does not help.** It is applied only inside the fresh-`?u/p` branch — never to
+the persisted-phone branch and never to the final `employees` lookup above — and only
+`owner-board.html` passes it at all.
+
+**FIXED 2026-08-21** (on `staging`, not yet merged to `main`) in three layers — see
+[[employee-roster]] §6 for the full write-up:
+- `shared/office-identity.js` persists the employee **UUID**, not the phone (same storage key;
+  a legacy phone value resolves once and rewrites itself as the id).
+- Every phone lookup now filters `active`, uses `.limit(2)`, and on a multi-row match logs
+  `AMBIGUOUS phone …` and shows a visible line — instead of returning a silent `null`.
+  `my-numbers.html` got the same guard.
+- A partial unique index on active phone digits ([[employee-roster]] §5) makes it structurally
+  impossible. **NOT yet applied** — blocked until the duplicate rows are retired.
+
+**Still true until that index lands:** two active rows can share a phone. The difference is
+that it now says so out loud. Full write-up, including why this made staging unusable, in
+[[staging-db]] §7.
 
 ## 2. How KiKi does Supabase Auth (verified against `kiki/`)
 KiKi is Next.js 16 (App Router). **Email/password only — no phone/SMS/OTP anywhere.**

@@ -1,7 +1,10 @@
 # How the staging database is wired
 
 > Doc: `/docs/wiring/staging-db.md`
-> Last updated: 2026-08-12 — created for the staging-DB isolation build (branch
+> Last updated: 2026-08-21 — §8 added (`app_env`, replacing the drifting run-id guard);
+> §7 added: staging cannot verify ANY office-identity path (no `auth.users` rows + a
+> phone/PIN collision). Verified vs commit `dc39a76`.
+> Created 2026-08-12 for the staging-DB isolation build (branch
 > `feat/staging-db-isolation`). Boards swapped to the switch; schema step revised to
 > `pg_dump --schema-only` after the assembled-migrations file proved unusable (base
 > tables `employees`/`chat_messages` predate the checked-in migrations).
@@ -185,8 +188,18 @@ returning id, name, role, auth_user_id;"
 ```
 `returning` prints the linked row (one row = success). The copied prod `employees` carry stale
 prod `auth_user_id` values (prod's `auth.users` weren't copied, so they match nothing on
-staging); this overwrites one of them. Sign in at `test.leetransmissionshop.com/office-login.html`
-once staging is deployed. To log in as a different role, change `'owner'`.
+staging); this overwrites one of them. To log in as a different role, change `'owner'`.
+
+> **Corrected 2026-08-21:** this step used to end "sign in at
+> `test.leetransmissionshop.com/office-login.html`". That is wrong now.
+> `office-login.html` is the **password-reset** page and deliberately does **not** redirect
+> to a board — it signs you in, lets you set a password, and stops (see its header comment).
+> The door that routes you to a board is **`crisdata.html`**, via `ROLE_DEST`.
+> **Sign in at `test.leetransmissionshop.com/crisdata.html`.**
+>
+> **Link the `advisor` row, not `owner`, if you need the customer record.** `#view-customer`
+> and the RO photo grid exist **only** in `advisor-board.html`; `ROLE_DEST` sends `owner` to
+> `owner-board.html`, which has no customer record. See §7.3.
 
 ### Step 5 — Point staging at the new project *(Claude wires code; Cris sets Vercel env)*
 - **Claude (once you send the staging Project URL + anon key from Step 1):** fill those two
@@ -213,6 +226,8 @@ once staging is deployed. To log in as a different role, change `'owner'`.
   Preview to prod values. Redeploy `staging` after saving.
 
 ### Step 6 — Verify isolation *(Cris + Claude)*
+0. **`select env from public.app_env;`** in each project's SQL editor — the definitive
+   which-database-am-I check. See §8; do not substitute a row count.
 1. On `test.leetransmissionshop.com`, open DevTools console: `window.CD_SUPABASE` → `env:
    "staging"`, url = the new ref. On `board.leetransmissionshop.com`: `env: "production"`.
 2. Make a **harmless write on `test.*`** (e.g. add a To-Do) → it appears in the **staging**
@@ -242,9 +257,11 @@ once staging is deployed. To log in as a different role, change `'owner'`.
   fail to reach a DB (loud, not a silent prod fall-through) until a new project's creds are
   pasted into `shared/supabase-config.js`.
 
-## Known gaps & open questions (as of 2026-08-12)
+## Known gaps & open questions (as of 2026-08-21)
+- **⚠ Staging cannot verify any office-identity path — see §7.** This is the big one: it
+  silently voids "test on staging first" for a whole class of bug.
 - **Auth users aren't copied** (Step 4b creates a fresh staging login). If more staff logins
-  are needed on staging, repeat 4b per user.
+  are needed on staging, repeat 4b per user. **Nobody has run 4b**, which is §7's root cause.
 - **`pg_dump --data-only` fidelity:** if a table has an unusual FK cycle the
   `session_replication_role = replica` wrap handles it; if a specific table errors, load it
   last or `--exclude-table-data` it and copy by hand.
@@ -252,6 +269,126 @@ once staging is deployed. To log in as a different role, change `'owner'`.
   need real recording/photo bytes on staging, copy them separately.
 - **Crons** (`/api/fetch-recordings`) run only on the Production deployment, so CTM audio
   won't auto-flow into staging.
+
+## 7. ⚠ FINDING (2026-08-21): staging cannot verify ANY office-identity path
+
+**On 2026-08-21, `test.leetransmissionshop.com` could not exercise a single identity-dependent
+screen.** `OfficeIdentity.resolve()` returns `null` there for every user, by both of its
+branches. A board with no identity still loads — that is the design — so this fails *quietly*:
+no greeting, no To-Do, no commission card, no customer record, and every `CHAT_IDENTITY.name`
+write lands `NULL`. It looks like an empty board, not a broken one.
+
+### 7.1 Why the auth branch returns null
+Step 4b was never run. `pg_dump --data-only` copies `public` only, so the sandbox has **zero
+`auth.users` rows**. The copied `employees` rows carry **prod's** `auth_user_id` values, which
+match nothing in the sandbox's own `auth` schema. `db.auth.getSession()` finds no session, and
+even a hand-made session would fail the `.eq('auth_user_id', user.id)` lookup.
+
+### 7.2 Why the phone branch also returns null — a duplicate-phone collision
+The fallback cannot rescue it, because `employees` has **two rows per person** for at least two
+people (reported from the sandbox data 2026-08-21; the code behaviour below is verified, the
+row contents are not independently confirmed here):
+
+| Phone | Rows sharing it | PINs |
+|---|---|---|
+| `9416260382` | Josh (`advisor`) + Jay Tech (`tech`) | **the same** — `1738` both |
+| `2396001971` | Cristian (`owner`) + Cristian Tech (`tech`) | different |
+
+Both branches of `resolvePhone` end at the same statement in `shared/office-identity.js`:
+
+```js
+var p = await db.from('employees').select(EMP_COLS).eq('phone', phone).maybeSingle();
+if (p.data) { return {...}; }
+```
+
+`.maybeSingle()` **errors when more than one row matches** — it does not pick one. `p.data` is
+`null`, and `resolve()` falls through to `return null`. So:
+
+- **Josh / Jay Tech share phone AND pin**, so even the fresh `?u=…&p=…` passthrough is
+  ambiguous (`.eq(phone).eq(pin).maybeSingle()` → two rows → error). Josh cannot resolve by
+  phone at all, on first login or any later one.
+- **Cristian / Cristian Tech share only the phone.** The `?u/p` passthrough *does*
+  disambiguate, because the PINs differ — so the **first** login works. But it persists only
+  the **phone** under `advisorBoardPhone`, and every **return** visit reads that phone alone →
+  two rows → `null`. Works once, then silently stops.
+
+**`expectedRole` does not save this.** It is applied only inside the fresh-`?u/p` branch, never
+to the persisted-phone branch nor to the final `employees` lookup above — and only
+`owner-board.html` passes it at all (the advisor, gm and bookkeeping boards do not).
+
+### 7.3 What this cost us, concretely
+**The `CHAT_IDENTITY` fix (`3278d68` + `dbc9f9a`) shipped straight to prod, untested on
+staging, because staging could not reach the screen the bug was on.** The four
+`window.CHAT_IDENTITY` sites all live behind the customer record, which needs an identity to
+render. The same gap then blocked browser-verifying the lightbox fix (`88be4ff` + `dc39a76`),
+which also shipped to prod on reasoning alone.
+
+That is the real cost: **"test on staging first" is currently unenforceable for every
+identity-dependent feature**, and nothing announces that — it presents as a board that loads
+fine and shows nothing. Note the shape is identical to the storage-bucket failure in §4a: a
+manual setup step that nothing verifies is a step that silently did not happen.
+
+Also note `#view-customer` and the RO photo grid exist **only in `advisor-board.html`**, so
+Step 4b's default of linking the `owner` row lands you on `owner-board.html`, which has no
+customer record. Link the **advisor** row to test that screen.
+
+### 7.4 What would fix it
+1. **Run Step 4b** (create one `auth.users` row, link it to the advisor `employees` row). This
+   alone restores the auth branch and unblocks staging. Nothing else on this list is required.
+2. **De-duplicate the phones** in the sandbox, and decide what prod should do — see below.
+3. **Make the ambiguity loud rather than silent** (code change, not yet made): `maybeSingle()`
+   swallowing a multi-row match into `null` is what turns a data problem into an invisible one.
+
+> **⚠ This is not staging-only.** The same duplicate rows are reported on prod, and the same
+> `resolvePhone` code runs there. Any prod user whose board still holds a persisted
+> `advisorBoardPhone`/`gmBoardPhone`/etc. from before the email door shipped would hit the same
+> ambiguous lookup and silently lose their identity — including the `CHAT_IDENTITY.name`
+> attribution the 2026-08-20 fix was about. Not investigated on prod yet. See
+> [[office-auth]] §1c.
+
+## 8. Which database am I on? — `public.app_env` (the ONLY guard)
+
+```sql
+select env from public.app_env;
+```
+
+`PROD — KiKi hygemiszxwmyrkmhbjub` = production. The sandbox row names the sandbox. One row,
+one column, no interpretation:
+
+```sql
+create table if not exists public.app_env (env text primary key);
+insert into public.app_env (env) values ('PROD — KiKi hygemiszxwmyrkmhbjub')
+on conflict do nothing;
+```
+
+Run it before any hand-run SQL that writes. `select env from public.app_env;` costs nothing and
+is the difference between a test write and a prod write.
+
+### 8.1 Why the old guard was retired — a stale guard and a correct guard look identical
+
+**The previous guard was "count the calls carrying `auto_attach_run_id
+33333333-4444-4555-8666-777777777777` — prod returns 11, sandbox returns 0." Do not use it.
+It now returns 10 on prod**, because filing Kevin Cruz's call 227 to RO #6032 on 2026-08-21
+cleared that call's `auto_attach_run_id` — which is exactly what `clearAutoFileTagsPatch()` is
+*supposed* to do when a human overrides the robot (§ [[call-auto-attach]], `customer-record.md`).
+
+Nothing broke. Ordinary work moved the number, and it will keep moving every time someone
+re-files a backfilled call.
+
+That is the whole problem: **the guard's expected value was a side effect of ordinary work, so
+a correct answer and a stale answer were indistinguishable.** When a guard drifts, people learn
+that "wrong" means "out of date again" — and then it cannot do the one job a guard has, which
+is to be believed the day it really is telling you you are on the wrong database.
+
+**Same lesson as the `CHAT_IDENTITY` bug** ([[office-auth]] §1b): *a check that cannot fail
+loudly is not a check.* There it was a guard whose first operand was always `undefined`, so it
+silently short-circuited to `null`; here it is a guard whose expected value silently moves. In
+both cases the mechanism looked healthy while telling you nothing. `app_env` is an explicit,
+inert stamp — nothing in the application writes it, so no feature work can ever move it.
+
+**When you add a new environment, add its `app_env` row in the same session you create it.** An
+environment with no stamp is worse than no guard at all, because `select env from
+public.app_env;` returning zero rows reads like a broken query rather than an unlabelled DB.
 
 ## Where it lives in the code
 - **Client switch:** `shared/supabase-config.js` (+ `shared/supabase-config.test.js`). Loaded
@@ -267,6 +404,23 @@ once staging is deployed. To log in as a different role, change `'owner'`.
 - **Employee ↔ auth mapping:** see [[office-auth]].
 
 ## Session change log
+- 2026-08-21 — **§8 added: `app_env` replaces the run-id count as the environment guard.** The
+  old guard (calls carrying `auto_attach_run_id 3333…`; "prod 11, sandbox 0") now returns 10 on
+  prod because a human re-filed one of those calls, which correctly clears the tag. Its expected
+  value was a side effect of ordinary work, so stale and correct looked identical. Replaced with
+  an inert one-row stamp no feature writes. Also: `is_test` + `employees_visible` applied to both
+  projects (base_cols 14 = view_cols 14, anon grant t|t, security_invoker=true, live anon read
+  10 of 15), and the five ZZ Test accounts inserted — which restored staging as a testable
+  environment WITHOUT the Step 4b auth user, since the ZZ phones are unique and collision-free.
+  §7's blocker is worked around, not yet fixed.
+- 2026-08-21 — **§7 added: staging can't verify any office-identity path.** Found while
+  planning bucket management: `test.*` has zero `auth.users` rows (Step 4b never run) AND a
+  duplicate-phone collision that makes the phone fallback ambiguous, so `resolve()` returns
+  `null` by both branches and every identity-dependent screen is unreachable. Documented why
+  the CHAT_IDENTITY and lightbox fixes both shipped to prod unverified. Also corrected Step
+  4b, which told you to sign in at `office-login.html` — that page is password-reset only and
+  never routes to a board; the door is `crisdata.html`. Added the advisor-vs-owner note (the
+  customer record is advisor-board only). No code changed.
 - 2026-08-12 — Created. Built the runtime creds switch (`shared/supabase-config.js`, hostname
   rule, unit-tested), moved every `/api/*` Supabase URL/anon/service key to env-with-prod-
   fallback. Wrote this runbook.

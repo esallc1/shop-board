@@ -1,7 +1,8 @@
 # How call auto-attach is wired
 
 > Doc: `/docs/wiring/call-auto-attach.md`
-> Last updated: 2026-08-19 — **shipped to prod**: all three migrations run, both backfills run
+> Last updated: 2026-08-21 — §3 warning: the per-run counts are history, not an environment
+> guard (see [[staging-db]] §8). Previously 2026-08-19 — **shipped to prod**: all three migrations run, both backfills run
 > (pass 1 twice — see §3), and the run-id namespace now records both environments.
 > Status: 🟢 **LIVE ON PROD** (`hygemiszxwmyrkmhbjub`). `migrations/20260818_customers_phone_l10.sql`
 > and `20260818_call_auto_attach.sql` are applied and verified there, so the going-forward
@@ -84,6 +85,16 @@ backfill undo:
 | Backfill pass 2 | `22222222-3333-4444-8555-666666666666` | **prod** (2026-08-19) | filed 20 ROs on **human**-attached calls |
 | Backfill pass 1 **re-run** | `33333333-4444-4555-8666-777777777777` | **prod** (2026-08-19, after the merges) | attached 11 more, filed 6 |
 | **Live** | `00000000-0000-4000-8000-000000000000` (`AUTO_ATTACH_LIVE_RUN_ID`) | both | everything from here on |
+
+> ⚠ **These counts are HISTORY, not an invariant — never use one as an environment guard.**
+> "attached 11 more" is what that run did on 2026-08-19. The number of calls still *carrying*
+> `33333333-4444-4555-8666-777777777777` **drops every time a human re-files one of them**,
+> because `clearAutoFileTagsPatch()` correctly clears the robot's tag on a human override (§7).
+> It was 11; on 2026-08-21 it became 10 when call 227 was filed to RO #6032. It will keep
+> moving. This count was briefly used as a "which database am I on" check and has been retired
+> for exactly that reason — a guard whose expected value drifts with ordinary work makes stale
+> and correct indistinguishable. The guard is now `select env from public.app_env;`
+> ([[staging-db]] §8).
 
 **The ids are per-run, not per-environment.** Passes 1 and 2 reuse the same two ids on prod
 that they used on the sandbox — harmless, because the two projects are separate databases and
@@ -274,6 +285,11 @@ This does not change anything the robot does: auto-attach still never writes a p
 circumstances, so no prompt ever appears for a machine attach.
 
 ## Session change log
+- 2026-08-21 — **Run-count-as-env-guard retired.** No code or behaviour change here; §3 gained a
+  warning that the per-run counts are history, not invariants. The `3333…` count fell 11 → 10
+  when call 227 was filed to RO #6032 — `clearAutoFileTagsPatch()` working as designed. Anyone
+  using that count to tell prod from sandbox should now use `select env from public.app_env;`
+  ([[staging-db]] §8).
 - 2026-08-19 — **Shipped to prod, and pass 1 had to run twice.** Migrations applied and verified
   on `hygemiszxwmyrkmhbjub`; pass 1 attached 87 (36 filed), pass 2 filed 20. Customer-merge
   slice 1 then archived three duplicate customers, which unblocked calls RULE 1 had been

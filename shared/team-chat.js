@@ -978,7 +978,7 @@ function initTeamChat(config) {
   // chat rendering, and sign the photos. Techs are irrelevant to chat. Degrades
   // to plain initials before the 20260721_employee_avatar migration runs.
   async function loadPersonAvatars() {
-    let { data, error } = await db.from('employees')
+    let { data, error } = await db.from('employees_visible')
       .select('name, role, avatar_path').eq('active', true).in('role', OFFICE_ROLES);
     if (error) {
       if (isMissingColumn(error)) return;   // pre-migration: no avatars, keep initials
@@ -1356,10 +1356,10 @@ function initTeamChat(config) {
     // Pull avatar_path too (sub-slice 3) to feed the shared name→avatar lookup;
     // fall back to name/role only if the column isn't there yet (pre-migration),
     // so compose never breaks.
-    let { data, error } = await db.from('employees')
+    let { data, error } = await db.from('employees_visible')
       .select('name, role, avatar_path').eq('active', true).in('role', OFFICE_ROLES).order('name');
     if (error && isMissingColumn(error)) {
-      ({ data, error } = await db.from('employees')
+      ({ data, error } = await db.from('employees_visible')
         .select('name, role').eq('active', true).in('role', OFFICE_ROLES).order('name'));
     }
     if (error) { console.error('[Chat] roster load failed', error); compose.roster = []; return; }

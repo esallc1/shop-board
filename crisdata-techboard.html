@@ -382,7 +382,7 @@
       const SEL_LP = BASE + ',status,job_order';       // lifts + parking
       const SEL_PK = BASE;                              // pickup has no status/job_order
       const [empRes, liftRes, parkRes, pickRes] = await Promise.all([
-        db.from('employees').select('id, name, photo_url').eq('role', 'tech').eq('active', true).order('name'),
+        db.from('employees_visible').select('id, name, photo_url').eq('role', 'tech').eq('active', true).order('name'),
         db.from('shopboard_lifts').select(SEL_LP),
         db.from('shopboard_parking').select(SEL_LP),
         db.from('shopboard_pickup').select(SEL_PK),

@@ -2135,7 +2135,7 @@
   // show up here while a real tech with zero current jobs never did).
   let techPageTechs = [];
   async function loadTechPageTechs() {
-    const { data, error } = await db.from('employees').select('name').eq('role', 'tech').eq('active', true).order('name');
+    const { data, error } = await db.from('employees_visible').select('name').eq('role', 'tech').eq('active', true).order('name');
     if (error) { console.error('[Technicians] Load techs failed', error); techPageTechs = []; return; }
     techPageTechs = (data || []).map(t => t.name);
   }
@@ -2215,7 +2215,7 @@
     } catch (e) { console.warn('[Technicians] billed-hours line load failed', e); return {}; }
     // employees id→name to resolve a per-line tech override
     const empName = {};
-    try { const { data } = await db.from('employees').select('id, name'); (data || []).forEach(e => { empName[e.id] = e.name; }); }
+    try { const { data } = await db.from('employees_visible').select('id, name'); (data || []).forEach(e => { empName[e.id] = e.name; }); }
     catch (e) { /* non-fatal */ }
     const byTech = {};
     const add = (name, hrs) => { const n = (name || '').trim(); if (!n || !hrs) return; byTech[n] = (byTech[n] || 0) + hrs; };
@@ -2524,7 +2524,7 @@
   async function loadTodoAssignees() {
     const menu = document.getElementById('todoAssignMenu');
     if (!menu) return;
-    const { data, error } = await db.from('employees').select('id, name').eq('active', true).order('name');
+    const { data, error } = await db.from('employees_visible').select('id, name').eq('active', true).order('name');
     if (error) { console.error('[Todo] load employees failed', error); return; }
     // Include the current user as a "(me)" option at the top so a person can
     // make a personal to-do for themselves; label = menu text, name = stored.
@@ -2988,7 +2988,7 @@
     }
 
     async function sfLoadTechs() {
-      const { data, error } = await db.from('employees').select('name').eq('role','tech').eq('active',true).order('name');
+      const { data, error } = await db.from('employees_visible').select('name').eq('role','tech').eq('active',true).order('name');
       if (error) { console.error('[ShopFloor] Load techs failed', error); sfTechs = []; return; }
       sfTechs = (data || []).map(t => t.name);
     }
@@ -3726,7 +3726,7 @@
     }
 
     async function tsLoadTechs() {
-      const { data, error } = await db.from('employees').select('name').eq('role','tech').eq('active',true).order('name');
+      const { data, error } = await db.from('employees_visible').select('name').eq('role','tech').eq('active',true).order('name');
       if (error) { console.error('[TechStatus] Load techs failed', error); tsTechs = []; return; }
       tsTechs = (data || []).map((t, i) => ({ name: t.name, color: TS_TECH_COLORS[i % TS_TECH_COLORS.length] }));
     }
@@ -3988,7 +3988,7 @@
       if(mnInited) return;
       mnInited = true;
       const sel = document.getElementById('mnTechPicker');
-      const { data, error } = await db.from('employees')
+      const { data, error } = await db.from('employees_visible')
         .select('name, phone').eq('role','tech').eq('active', true).order('name');
       if(error || !data || !data.length){
         sel.innerHTML = '<option value="">No active techs</option>';
@@ -4038,7 +4038,7 @@
     }
 
     async function tdLoadTechs() {
-      const { data, error } = await db.from('employees').select('name').eq('role','tech').eq('active',true).order('name');
+      const { data, error } = await db.from('employees_visible').select('name').eq('role','tech').eq('active',true).order('name');
       if (error) { console.error('[Teardown] Load techs failed', error); tdTechs = []; return; }
       tdTechs = (data || []).map(t => t.name);
     }
@@ -4267,7 +4267,7 @@
     }
 
     async function loadEmployees() {
-      const { data, error } = await db.from('employees').select('*').order('name');
+      const { data, error } = await db.from('employees_visible').select('*').order('name');
       if (error) {
         console.error('[Settings] Load employees failed', error);
         document.getElementById('employee-list-wrap').innerHTML =

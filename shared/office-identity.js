@@ -6,13 +6,23 @@
 
      (a) AUTH  — a Supabase office-login session (getSession → auth_user_id →
                  employees row). Same lookup office-login.html does (:193/:200).
-     (b) PHONE — else today's phone/PIN path, UNCHANGED: the ?u=phone&p=pin
-                 passthrough from crisdata.html (validated by pin [+ role]) or the
-                 persisted per-board phone in localStorage.
+     (b) PHONE — else the phone/PIN path: the ?u=phone&p=pin passthrough from
+                 crisdata.html (validated by pin [+ role]), or the persisted
+                 per-board session value in localStorage.
 
    Returns { employee_id, name, role, photo_url, via } (via = 'auth' | 'phone'),
    or null when neither resolves — in which case the board behaves exactly as it
    does today (greeting hidden, per-viewer features show "reopen from CrisData").
+
+   TWO THINGS CHANGED 2026-08-21 (office-auth §1c, staging-db §7):
+     • The persisted value is now the employee's UUID, not their phone. Same key
+       NAME, so no migration; a legacy phone value resolves once and is rewritten
+       as the id. A phone is mutable, reusable and NOT unique — an id is none of
+       those, so retiring or hiring can no longer break a live session.
+     • Every phone lookup filters `active` and treats a MULTI-ROW match as an
+       audible failure (console.error + a visible line in the greeting slot)
+       instead of `.maybeSingle()`'s silent null. Two active employees sharing a
+       phone used to resolve to nobody and the board just carried on.
 
    Purely ADDITIVE: the auth branch is tried first; if there is no session (or the
    session isn't linked to an employee yet) it falls through to the existing phone
@@ -27,9 +37,54 @@
 (function (global) {
   var EMP_COLS = 'id, name, photo_url, role';
 
-  // (b) Phone/PIN resolution — mirrors the boards' existing captureSessionAndGreet
-  // logic exactly: fresh ?u/p passthrough (pin [+ role] validated, persisted, URL
-  // cleaned) → else the persisted per-board phone. Returns a phone string or null.
+  var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  // ── AMBIGUITY IS LOUD (office-auth §1c) ────────────────────────────────────
+  // `employees.phone` is not unique. The old code ended every phone lookup in
+  // `.maybeSingle()`, which ERRORS on a multi-row match instead of picking one —
+  // so two rows sharing a phone resolved to `null`, and the board carried on with
+  // no identity, no greeting and NULL name-stamps. An absence that looks like a
+  // fresh visit. Never let that happen quietly again: say so in the console, and
+  // put a visible line where the greeting would have been.
+  //
+  // This can only inform. It never grants access and never blocks the board.
+  function reportAmbiguous(phone, rows) {
+    var msg = '[OfficeIdentity] AMBIGUOUS phone ' + phone + ' matches ' + rows +
+              ' active employees — resolving to NOBODY. Retire the duplicate row; ' +
+              'see docs/wiring/office-auth.md §1c.';
+    try { console.error(msg); } catch (e) {}
+    try {
+      var wrap = document.getElementById('greetingWrap');
+      if (wrap) {
+        wrap.textContent = 'Sign-in is ambiguous — two staff records share this phone. Tell Cristian.';
+        wrap.style.display = 'flex';
+        wrap.style.color = '#b42318';
+      }
+    } catch (e) {}
+  }
+
+  // Look an employee up by phone among ACTIVE rows, treating >1 match as a hard,
+  // AUDIBLE failure rather than a silent null. Returns a row, or null.
+  async function employeeByPhone(db, phone) {
+    var r = await db.from('employees').select(EMP_COLS).eq('phone', phone)
+      .eq('active', true).limit(2);
+    if (r.error) { try { console.error('[OfficeIdentity] phone lookup failed', r.error); } catch (e) {} return null; }
+    var rows = r.data || [];
+    if (rows.length > 1) { reportAmbiguous(phone, rows.length); return null; }
+    return rows[0] || null;
+  }
+
+  // (b) Phone/PIN resolution — fresh ?u/p passthrough (pin [+ role] validated,
+  // persisted, URL cleaned) → else the persisted per-board session value.
+  //
+  // WHAT IS PERSISTED CHANGED: the storage key now holds the employee's UUID, not
+  // their phone. A phone is mutable, reusable and — as above — not unique; an id
+  // is none of those. The key NAME is unchanged (`advisorBoardPhone` et al.) so no
+  // second migration is needed, and a legacy phone value still works: it resolves
+  // once by phone and is then REWRITTEN as the id, so sessions upgrade themselves
+  // on next load instead of breaking.
+  //
+  // Returns an employee row (EMP_COLS) or null.
   async function resolvePhone(opts) {
     var db = opts.db;
     var key = opts.sessionPhoneKey || null;
@@ -38,19 +93,33 @@
     var passPin = params.get('p');
 
     if (passPhone && passPin) {
-      var q = db.from('employees').select('phone')
+      var q = db.from('employees').select(EMP_COLS)
         .eq('phone', passPhone).eq('pin', passPin).eq('active', true);
       if (opts.expectedRole) q = q.eq('role', opts.expectedRole);
-      var res = await q.maybeSingle();
-      if (res.data) {
-        if (key) localStorage.setItem(key, res.data.phone);
+      var res = await q.limit(2);
+      var hits = (res && res.data) || [];
+      if (hits.length > 1) { reportAmbiguous(passPhone, hits.length); return null; }
+      if (hits.length === 1) {
+        if (key) localStorage.setItem(key, hits[0].id);      // persist the ID
         window.history.replaceState({}, '', window.location.pathname);
-        return res.data.phone;
+        return hits[0];
       }
     }
+
     if (key) {
       var persisted = localStorage.getItem(key);
-      if (persisted) return persisted;
+      if (persisted) {
+        if (UUID_RE.test(persisted)) {
+          var byId = await db.from('employees').select(EMP_COLS)
+            .eq('id', persisted).eq('active', true).maybeSingle();
+          if (byId.error) { try { console.error('[OfficeIdentity] id lookup failed', byId.error); } catch (e) {} return null; }
+          return byId.data || null;
+        }
+        // Legacy value: a phone. Resolve it, then upgrade the key to the id.
+        var row = await employeeByPhone(db, persisted);
+        if (row) { try { localStorage.setItem(key, row.id); } catch (e) {} }
+        return row;
+      }
     }
     return null;
   }
@@ -88,16 +157,15 @@
       // no auth session / client → phone path
     }
 
-    // (b) PHONE/PIN branch — today's path, unchanged.
-    var phone = await resolvePhone(opts);
-    if (phone) {
-      var p = await db.from('employees').select(EMP_COLS).eq('phone', phone).maybeSingle();
-      if (p.data) {
-        return {
-          employee_id: p.data.id, name: p.data.name, role: p.data.role,
-          photo_url: p.data.photo_url || null, via: 'phone',
-        };
-      }
+    // (b) PHONE/PIN branch. resolvePhone now returns the employee ROW (already
+    // filtered to active, already loud on an ambiguous match), so there is no
+    // second lookup here to re-introduce the silent-null bug.
+    var row = await resolvePhone(opts);
+    if (row) {
+      return {
+        employee_id: row.id, name: row.name, role: row.role,
+        photo_url: row.photo_url || null, via: 'phone',
+      };
     }
     return null;
   }
@@ -155,6 +223,9 @@
 
   global.OfficeIdentity = {
     resolve: resolve,
+    // ⚠ SIGNATURE CHANGED 2026-08-21: resolvePhone now resolves to an employee
+    // ROW ({id,name,photo_url,role}) or null — it used to return a phone string.
+    // Nothing outside this file called it; check before assuming otherwise.
     resolvePhone: resolvePhone,
     armIdleLogout: armIdleLogout,
   };

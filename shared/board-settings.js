@@ -1278,7 +1278,7 @@ window.BoardSettings = (function () {
     content.innerHTML = head + '<div class="stgfeat-placeholder">Loading…</div>';
     let rows = [];
     try {
-      const { data, error } = await db.from('employees')
+      const { data, error } = await db.from('employees_visible')
         .select('id, name, role, active, commission_base_weekly, commission_gp_pct')
         .eq('role', 'advisor').eq('active', true).order('name');
       if (error) throw error;

@@ -2830,7 +2830,7 @@
   async function loadTodoAssignees() {
     const menu = document.getElementById('todoAssignMenu');
     if (!menu) return;
-    const { data, error } = await db.from('employees').select('id, name').eq('active', true).order('name');
+    const { data, error } = await db.from('employees_visible').select('id, name').eq('active', true).order('name');
     if (error) { console.error('[Todo] load employees failed', error); return; }
     // Include the current user as a "(me)" option at the top so a person can
     // make a personal to-do for themselves; label = menu text, name = stored.
@@ -4913,7 +4913,7 @@
       let techs = [];
       try {
         // id+name so the per-line tech-credit picker can store an employee id
-        const { data } = await db.from('employees').select('id, name').eq('role', 'tech').eq('active', true).order('name');
+        const { data } = await db.from('employees_visible').select('id, name').eq('role', 'tech').eq('active', true).order('name');
         techRoster = data || [];
         techs = techRoster.map(t => t.name);
       } catch (e) { /* non-fatal */ }
@@ -4937,7 +4937,7 @@
         const roles = WR ? WR.WRITER_ROLES : ['advisor', 'manager', 'owner'];
         let wrows = [];
         try {
-          const { data } = await db.from('employees')
+          const { data } = await db.from('employees_visible')
             .select('id, name, role, active')
             .in('role', roles).eq('active', true).order('name');
           wrows = data || [];

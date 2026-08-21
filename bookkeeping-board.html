@@ -3979,7 +3979,7 @@
   async function loadTodoAssignees() {
     const menu = document.getElementById('todoAssignMenu');
     if (!menu) return;
-    const { data, error } = await db.from('employees').select('id, name').eq('active', true).order('name');
+    const { data, error } = await db.from('employees_visible').select('id, name').eq('active', true).order('name');
     if (error) { console.error('[Todo] load employees failed', error); return; }
     // Include the current user as a "(me)" option at the top so a person can
     // make a personal to-do for themselves; label = menu text, name = stored.

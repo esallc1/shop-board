@@ -292,10 +292,10 @@ export async function fetchInputs(db) {
 async function _loadEmployees(db, out) {
   try {
     let cols = _colAvail.commission ? 'id, name, role, active, commission_base_weekly, commission_gp_pct' : 'id, name, role, active';
-    let r = await db.from('employees').select(cols);
+    let r = await db.from('employees_visible').select(cols);
     if (r.error && _colAvail.commission && /commission_(base_weekly|gp_pct)/i.test(r.error.message || '')) {
       _colAvail.commission = false;
-      r = await db.from('employees').select('id, name, role, active');
+      r = await db.from('employees_visible').select('id, name, role, active');
     }
     if (r.error) throw r.error;
     out.employees = r.data || [];

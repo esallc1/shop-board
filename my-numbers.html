@@ -855,22 +855,46 @@ async function initData(){
   STATE.jobs = [];
 }
 
+// AMBIGUITY IS LOUD (office-auth §1c). `employees.phone` is not unique, and
+// `.maybeSingle()` ERRORS on a multi-row match rather than picking one — so two
+// active techs sharing a phone used to return null and the login screen simply
+// said "not recognized", which reads as a wrong PIN, not as a data problem.
+// A login that resolves to nobody must never just carry on quietly.
+//
+// NOTE (known gap, deferred to its own slice): `id` below is the PHONE, not the
+// employee UUID. shared/office-identity.js moved off phone-as-identity on
+// 2026-08-21; My Numbers has not yet. The partial unique index on active phones
+// makes the collision impossible going forward, and this guard makes it audible
+// if one ever exists again (e.g. a DB restored from before the index).
+function reportAmbiguousTech(phone, rows){
+  const msg = '[Login] AMBIGUOUS phone ' + phone + ' matches ' + rows +
+              ' active employees — resolving to NOBODY. Retire the duplicate row; ' +
+              'see docs/wiring/office-auth.md §1c.';
+  try { console.error(msg); } catch(e) {}
+  try { alert('This phone number is on two staff records, so we cannot tell who you are.\n\nTell Cristian — it needs fixing in the employee list. (Nothing is wrong with your PIN.)'); } catch(e) {}
+}
 // Verify credentials against the real employees table (mirrors crisdata.html).
 // Returns a normalized tech object { id, name, phone, role } or null.
 async function findEmployee(phone, pin){
   const { data, error } = await db.from('employees')
     .select('name, phone, pin, role')
-    .eq('phone', phone).eq('pin', pin).eq('active', true).maybeSingle();
+    .eq('phone', phone).eq('pin', pin).eq('active', true).limit(2);
   if(error){ console.error('[Login] employee verify failed', error); return null; }
-  return data ? { id: data.phone, name: data.name, phone: data.phone, role: data.role } : null;
+  const rows = data || [];
+  if(rows.length > 1){ reportAmbiguousTech(phone, rows.length); return null; }
+  const d = rows[0];
+  return d ? { id: d.phone, name: d.name, phone: d.phone, role: d.role } : null;
 }
 // Restore an already-authenticated session by phone alone (no PIN re-entry).
 async function findEmployeeByPhone(phone){
   const { data, error } = await db.from('employees')
     .select('name, phone, role')
-    .eq('phone', phone).eq('active', true).maybeSingle();
+    .eq('phone', phone).eq('active', true).limit(2);
   if(error){ console.error('[Login] session restore failed', error); return null; }
-  return data ? { id: data.phone, name: data.name, phone: data.phone, role: data.role } : null;
+  const rows = data || [];
+  if(rows.length > 1){ reportAmbiguousTech(phone, rows.length); return null; }
+  const d = rows[0];
+  return d ? { id: d.phone, name: d.name, phone: d.phone, role: d.role } : null;
 }
 
 function showToast(msg){

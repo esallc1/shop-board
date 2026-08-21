@@ -146,7 +146,7 @@ window.Adoption = (function () {
     try {
       const [va, em] = await Promise.all([
         db.from('feature_adoption').select('*'),
-        db.from('employees').select('name, role, active'),
+        db.from('employees_visible').select('name, role, active'),
       ]);
       if (va.error) throw va.error;
       if (em.error) throw em.error;
