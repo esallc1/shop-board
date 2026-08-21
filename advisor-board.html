@@ -647,7 +647,9 @@
   .cust-photo-missing { cursor:default; }
   .cust-photo-missing:hover { border-color:var(--border); }
 
-  .cust-lightbox { position:fixed; inset:0; z-index:4000; display:none;
+  /* z-index must stay ABOVE the mobile sidebar (4500) and its backdrop (4499) in
+     shared/board-shell.css — at 4000 an open nav drawer painted over the photo. */
+  .cust-lightbox { position:fixed; inset:0; z-index:4600; display:none;
     align-items:center; justify-content:center; padding:28px;
     background:rgba(10,12,20,0.86); }
   .cust-lightbox.open { display:flex; }
@@ -657,8 +659,11 @@
      auto-height flex item, so a percentage max-height here resolves against an
      indefinite height and never constrains the image — tall photos rendered at
      natural size and ran off the bottom of the screen. vh/vw don't depend on
-     the parent resolving a height. */
-  .cust-lightbox img { max-width:90vw; max-height:90vh; object-fit:contain; border-radius:10px;
+     the parent resolving a height.
+     85vh, not 90vh: the figure is image + 10px gap + caption line, inside 28px
+     of overlay padding top and bottom. At 90vh that total exceeds a ~800px
+     laptop viewport and the caption gets clipped. 85vh leaves the headroom. */
+  .cust-lightbox img { max-width:90vw; max-height:85vh; object-fit:contain; border-radius:10px;
     box-shadow:0 24px 64px rgba(0,0,0,0.5); }
   .cust-lightbox-cap { color:rgba(255,255,255,0.86); font-size:0.78rem; text-align:center; }
   .cust-lightbox-close { position:absolute; top:16px; right:20px; width:38px; height:38px;

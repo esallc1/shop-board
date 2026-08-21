@@ -1,7 +1,7 @@
 # How RO photos are wired
 
 > Doc: `/docs/wiring/ro-photos.md`
-> Last updated: 2026-08-21 — lightbox sizing fix. Verified vs commit `dbc9f9a` (live on prod).
+> Last updated: 2026-08-21 — lightbox sizing + z-index fix. Verified vs commit `dbc9f9a` (live on prod).
 > Status: 🟢 **slices 1 and 2 are LIVE ON PROD** (code `ae4510b`; all four migrations run by
 > hand on prod `hygemiszxwmyrkmhbjub` on 2026-08-20 — enum value, `photo_buckets` + its two
 > seeds, `attachments.bucket_id`, and slice 2's three columns). `20260819_storage_buckets.sql`
@@ -129,11 +129,21 @@ Reads are one batched `.in()` over the customer's ROs and ONE `createSignedUrls`
 customer. Tile clicks are delegated from `#custVehicles` because the accordion re-renders
 constantly and per-tile listeners would leak.
 
-**The lightbox image is sized in viewport units (`max-width:90vw; max-height:90vh;
+**The lightbox image is sized in viewport units (`max-width:90vw; max-height:85vh;
 object-fit:contain`), not percentages.** `.cust-lightbox-fig` is an auto-height flex item, so a
 percentage `max-height` on the image resolves against an indefinite height and constrains
 nothing — the image falls back to natural size. That is what let tall photos run off the bottom
 of the screen. Anything sizing this image must stay viewport-relative for the same reason.
+
+**85vh, not 90vh**, because the image is not the only thing in the figure: it is image + a 10px
+gap + the caption line, sitting inside 28px of overlay padding top and bottom. At 90vh that
+total overflows a ~800px laptop viewport and the caption is what gets clipped — the byline this
+subsystem exists to show. The 5vh is deliberate headroom, not a round number.
+
+**`.cust-lightbox` sits at `z-index:4600`, which must stay above the mobile sidebar.** At
+≤768px `shared/board-shell.css` gives `.sidebar` `z-index:4500` and `.sidebar-backdrop` `4499`.
+The lightbox was `4000`, so opening a photo with the nav drawer open painted the sidebar over
+the image. Desktop was never affected (the sidebar is a static flex column there).
 
 ## Known gaps & open questions (as of 2026-08-20)
 - **⚠ Storage deletes have been silently failing since July — see §6.** Not caused by this
@@ -185,11 +195,16 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   `archiveCustPhoto`, the `#custVehicles` delegated listener).
 
 ## Session change log
-- 2026-08-21 — **Lightbox sizing fixed.** An enlarged photo rendered at natural size, so tall
-  photos ran past the bottom of the screen with no way to see the whole image. The image's
-  `max-width`/`max-height` were percentages resolving against an auto-height flex figure, which
-  constrains nothing; they are now `90vw`/`90vh` plus `object-fit:contain`. One CSS rule; the
-  overlay, grid, tiles and caption are untouched. Recorded in §5.
+- 2026-08-21 — **Lightbox sizing + z-index fixed.** An enlarged photo rendered at natural size,
+  so tall photos ran past the bottom of the screen with no way to see the whole image. The
+  image's `max-width`/`max-height` were percentages resolving against an auto-height flex
+  figure, which constrains nothing; they are now `90vw`/`85vh` plus `object-fit:contain` (85,
+  not 90, so the caption clears a ~800px laptop viewport — see §5). Separately, `.cust-lightbox`
+  went `4000` → `4600` so it outranks the mobile sidebar (4500) and its backdrop (4499), which
+  had been painting over the photo when the nav drawer was open. Two CSS rules; the grid, tiles,
+  figure and caption are untouched. A prior session's note claimed the overlay was confined to
+  an iframe — investigated and false: `#view-customer` is a plain div, the lightbox is appended
+  to `document.body`, and no iframe in the repo embeds this screen.
 - 2026-08-20 — **Shipped to prod (`ae4510b`) and then fixed the office archive.** Slices 1+2
   went to prod after the four migrations were run by hand. Prod smoke test found the
   office-side archive writing `deleted_at` but a NULL `deleted_by`: `archiveCustPhoto` guarded
