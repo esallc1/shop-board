@@ -1,11 +1,11 @@
 # How the employee roster is wired
 
 > Doc: `/docs/wiring/employee-roster.md`
-> Last updated: 2026-08-21 — created with the `is_test` / `employees_visible` slice.
-> Verified vs commit `dc39a76` + this branch.
-> Status: 🟡 view + flag LIVE on both projects (2026-08-21); the code swap and the
-> identity fix are on `staging`, not yet merged to `main`. The unique index (§5) is
-> NOT yet applied — it is blocked until the departed rows are retired (§4).
+> Last updated: 2026-08-21 — slice COMPLETE: retirements + unique index applied.
+> Verified vs commit `617b419` (live on prod).
+> Status: 🟢 **fully live on both projects.** Flag + view + the five ZZ accounts applied
+> 2026-08-21; code live on prod at `617b419`; the five departed rows retired (§6a) and
+> `idx_employees_phone_active_digits` created and negative-tested on both projects (§5).
 > Related: [[office-auth]] §1b/§1c, [[staging-db]] §7/§8, [[settings]], [[todo-list]].
 
 ## 0. In one line
@@ -105,9 +105,18 @@ with **no `auth.users` row at all** — working around [[staging-db]] §7 withou
 
 ## 4. RETIRE AN EMPLOYEE — the procedure
 
-1. **`select env from public.app_env;`** first ([[staging-db]] §8). Know which database you are on.
-2. Find the row: `select id, name, role, phone, active from public.employees where …`
-3. `update public.employees set active = false where id = '<id>' returning id, name, role, active;`
+1. Find the row: `select id, name, role, phone, active from public.employees where …`
+2. Retire it with a **self-guarding** UPDATE ([[staging-db]] §8.2) — the environment check goes
+   INSIDE the statement, so the wrong project changes zero rows instead of the wrong rows:
+   ```sql
+   update public.employees
+   set active = false
+   where id in ('<id>')
+     and (select env from public.app_env) like 'PROD%'
+   returning id, name, role, phone, active;
+   ```
+   The expected row count in `returning` is the pass. An empty result means wrong project (or
+   wrong id) — not "done".
 4. **Never `delete`.** Deleting breaks the `service_writer_id` FK and orphans every historical
    `technician` / `noted_by_name` / `uploaded_by` string. Retiring preserves attribution; that
    is the entire point.
@@ -127,7 +136,8 @@ with **no `auth.users` row at all** — working around [[staging-db]] §7 withou
 
 ## 5. ADD A NEW HIRE — what to check before saving
 
-1. **`select env from public.app_env;`**
+1. **Know your project** — `select env from public.app_env;`, and prefer a self-guarding
+   statement ([[staging-db]] §8.2) over remembering to check.
 2. **Phone digits not already held by an ACTIVE employee.** The index enforces it; check first
    so the failure is a sentence, not a constraint violation.
 3. **Role is one of** `tech` · `advisor` · `manager` · `owner` · `bookkeeping`.
@@ -137,15 +147,25 @@ with **no `auth.users` row at all** — working around [[staging-db]] §7 withou
 7. Reusing a departed employee's phone is fine **once that row is `active = false`** — that is
    exactly what the partial index allows.
 
-### The constraint (NOT YET APPLIED — see the status header)
+### The constraint (✅ APPLIED to both projects 2026-08-21)
 ```sql
 create unique index if not exists idx_employees_phone_active_digits
   on public.employees ((regexp_replace(phone, '\D', '', 'g')))
   where active and phone is not null and phone <> '';
 ```
 Digits-normalized so `239-600-1971` and `2396001971` cannot both exist. Partial on `active` so
-retired rows keep their history and a phone becomes reusable after retirement. **It cannot be
-created while §6's duplicates are still active** — retire them first.
+retired rows keep their history and a phone becomes reusable after retirement.
+
+**Proven by a NEGATIVE test, not by existing.** On both projects, inserting a duplicate active
+phone inside a rolled-back transaction raised **`23505 duplicate key`**. An index that exists
+but never fires is indistinguishable from no index — the same failure shape as the retired
+run-id guard ([[staging-db]] §8.1). Re-run the negative test after any restore:
+```sql
+begin;
+insert into public.employees (id, name, phone, pin, role, active, is_test)
+values (gen_random_uuid(), 'ZZ Dup Probe', '5550100002', '9999', 'tech', true, true);
+rollback;    -- expect: ERROR 23505 before this line is reached
+```
 
 ## 6. ⚠ Why this doc exists: Josh
 
@@ -174,6 +194,54 @@ Fixed 2026-08-21 in three layers, so no single one has to be perfect:
 run-id guard ([[staging-db]] §8.1): a check that cannot fail loudly is not a check.** All three
 looked healthy while telling you nothing.
 
+## 6a. The retirement that closed it — the worked example (2026-08-21)
+
+Five rows retired on **both** projects. Cristian (owner) untouched.
+
+| Retired | Why |
+|---|---|
+| Cory | left the shop — the byline that was being borrowed to test |
+| Josh | left; one of his two rows |
+| Jay Tech | left; Josh's other row, same phone `9416260382`, same PIN `1738` |
+| Cristian Tech | no longer needed once ZZ Test Tech existed |
+| Alex | left the shop |
+
+Retiring **Cristian Tech** cleared the `2396001971` collision; retiring **Josh + Jay Tech**
+cleared `9416260382` outright. That is what unblocked the §5 index.
+
+### Verify with counts, NOT with an empty result
+The obvious check — "duplicates query returns zero rows" — cannot tell a passing check from a
+typo'd one. Both look like nothing. Ask instead for the duplicate phones **with their active
+counts**, so rows appearing proves the query ran and `active_rows <= 1` proves the fix:
+
+```sql
+select regexp_replace(phone,'\D','','g') as digits,
+       count(*) filter (where active) as active_rows,
+       count(*)                       as total_rows,
+       string_agg(name || ' (' || role || case when active then '' else ', RETIRED' end || ')',
+                  ' | ' order by name) as who
+from public.employees
+where phone is not null and trim(phone) <> ''
+group by 1 having count(*) > 1
+order by 1;
+```
+
+Actual result on both projects:
+
+| digits | active_rows | total_rows |
+|---|---|---|
+| `2396001971` | **1** | 2 (Cristian active, Cristian Tech retired) |
+| `9416260382` | **0** | 2 (both retired) |
+
+### What retiring did NOT break — and why that is by design
+`employees_visible` filters **`is_test` only, never `active`.** Retired staff are still in the
+view. That is deliberate: the GM billed-hours id→name map (`gm-board.html`, `renderTechnicians`)
+reads the view with **no** active filter, so a labour line credited to a retired tech still
+resolves their name. Pickers filter `active` themselves and correctly stop offering them.
+
+**Retiring removes someone from the future, never from the past.** Any change that makes a
+retired employee's name stop resolving in a historical report is a bug, not a cleanup.
+
 ## Known gaps & open questions (as of 2026-08-21)
 - **FOLLOW-UP: `loadTodoAssignees` finds "me" by searching the roster.** It reads the roster,
   then looks `CURRENT_EMPLOYEE_ID` up *inside that list* to build the "(me)" option. A test
@@ -189,8 +257,6 @@ looked healthy while telling you nothing.
   the current user inside a roster response. Owner's call, 2026-08-21; deferred, not forgotten.
 - **Test accounts cannot exercise every self-referential feature** until the above lands. Know
   this before concluding a feature is broken because a ZZ login could not use it.
-- **The §5 index is not applied yet.** Blocked on retiring Josh, Jay Tech, Cory, Alex and
-  Cristian Tech. Until then two active rows can still share a phone — now audibly, not silently.
 - **`my-numbers.html` still uses the phone AS the tech id** (`findEmployee` returns
   `{ id: data.phone }`). Deliberately deferred to its own slice; the guard above makes the
   failure loud in the meantime.
@@ -212,6 +278,14 @@ looked healthy while telling you nothing.
 - Employee CRUD UI: `gm-board.html` (`loadEmployees`, `saveEmployee`, the delete confirm).
 
 ## Session change log
+- 2026-08-21 — **Slice complete: retirements + the unique index.** Cory, Josh, Jay Tech,
+  Cristian Tech and Alex retired on both projects (Cristian/owner untouched);
+  `idx_employees_phone_active_digits` created on both and proven with a negative test that
+  raised `23505` — an index that exists but never fires is indistinguishable from no index.
+  Verified with active-counts rather than an empty result (§6a), because an empty result cannot
+  distinguish a passing check from a typo'd one. Both destructive steps were made
+  **self-guarding** on `app_env` rather than relying on a remembered pre-flight — pattern
+  recorded in [[staging-db]] §8.2. Status moved to 🟢 fully live.
 - 2026-08-21 — **Created with the test-account slice.** Added `is_test` + `employees_visible`
   to both projects and inserted the five ZZ accounts (verified: base_cols 14 = view_cols 14,
   anon grant t|t, `security_invoker=true`, live anon read 10 of 15). Pointed 21 display reads

@@ -1,7 +1,8 @@
 # How the staging database is wired
 
 > Doc: `/docs/wiring/staging-db.md`
-> Last updated: 2026-08-21 — §8 added (`app_env`, replacing the drifting run-id guard);
+> Last updated: 2026-08-21 — §8.2 added (self-guarding SQL); §8 added (`app_env`,
+> replacing the drifting run-id guard);
 > §7 added: staging cannot verify ANY office-identity path (no `auth.users` rows + a
 > phone/PIN collision). Verified vs commit `dc39a76`.
 > Created 2026-08-12 for the staging-DB isolation build (branch
@@ -390,6 +391,61 @@ inert stamp — nothing in the application writes it, so no feature work can eve
 environment with no stamp is worse than no guard at all, because `select env from
 public.app_env;` returning zero rows reads like a broken query rather than an unlabelled DB.
 
+### 8.2 SELF-GUARDING SQL — make the statement check, not the human
+
+**A guard you have to remember to run is a guard you will eventually skip.** §8 tells you to
+check `app_env` before hand-running SQL; §8.1 explains why the old guard rotted. Both still
+depend on a person doing the right thing at the right moment, at the end of a long session,
+on the one occasion it matters.
+
+**Better: fold the environment check into the destructive statement itself,** so the wrong
+project means *zero rows changed* rather than *the wrong rows changed.* Adopted 2026-08-21
+while retiring the departed employees ([[employee-roster]] §6a).
+
+**Pattern A — a DML predicate.** The env test lives in the `WHERE`, so it is evaluated by the
+same statement that does the work. No separate step to forget:
+
+```sql
+update public.employees
+set active = false
+where id in ('<id1>', '<id2>')
+  and (select env from public.app_env) like 'PROD%'      -- ← wrong project ⇒ 0 rows
+returning id, name, role, phone, active;
+```
+
+`returning` is what closes the loop: the expected row count is the pass, and on the wrong
+project you get an empty result instead of five silently-wrong updates. Flip the predicate to
+`not like 'PROD%'` for sandbox-only statements.
+
+**Pattern B — DDL, which has no `WHERE`.** Wrap it and raise:
+
+```sql
+do $$
+begin
+  if (select env from public.app_env) not like 'PROD%' then
+    raise exception 'WRONG PROJECT: % — refusing to run', (select env from public.app_env);
+  end if;
+  create unique index if not exists idx_employees_phone_active_digits
+    on public.employees ((regexp_replace(phone, '\D', '', 'g')))
+    where active and phone is not null and phone <> '';
+end $$;
+```
+
+An unstamped database has **no** `app_env` row, so `(select env …)` is `NULL`, `NULL like
+'PROD%'` is `NULL`, and both patterns refuse to act — which is the correct default. This is
+also the second reason §8 insists a new environment gets its row the same session it is
+created.
+
+**Use it for anything you would not want to run twice, or on the wrong side:** retirements,
+backfills, deletes, index and column changes, one-off data corrections. Not needed for reads.
+
+**Why this is the better shape:** it converts "I checked" into "it checked." The three failures
+this doc set keeps circling — `CHAT_IDENTITY`'s always-`undefined` guard ([[office-auth]] §1b),
+the drifting run-id count (§8.1), and an index that might exist without firing
+([[employee-roster]] §5) — are all the same thing: *a safety mechanism whose failure looks
+exactly like its success.* A predicate that returns zero rows on the wrong database cannot fail
+that way; you see the empty result.
+
 ## Where it lives in the code
 - **Client switch:** `shared/supabase-config.js` (+ `shared/supabase-config.test.js`). Loaded
   by every board via `<script src>`; boards read `window.cdSupabaseCreds()`.
@@ -404,6 +460,12 @@ public.app_env;` returning zero rows reads like a broken query rather than an un
 - **Employee ↔ auth mapping:** see [[office-auth]].
 
 ## Session change log
+- 2026-08-21 — **§8.2 added: self-guarding SQL.** While retiring the departed employees, both
+  destructive steps were rewritten to check `app_env` inside the statement — the UPDATE carries
+  `and (select env from public.app_env) like 'PROD%'` in its WHERE, the CREATE INDEX is wrapped
+  in a DO block that raises WRONG PROJECT. Wrong project now means zero rows changed instead of
+  the wrong rows changed. Owner's pattern, and strictly better than §8's remembered pre-flight:
+  it converts "I checked" into "it checked."
 - 2026-08-21 — **§8 added: `app_env` replaces the run-id count as the environment guard.** The
   old guard (calls carrying `auto_attach_run_id 3333…`; "prod 11, sandbox 0") now returns 10 on
   prod because a human re-filed one of those calls, which correctly clears the tag. Its expected

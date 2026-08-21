@@ -1,8 +1,9 @@
 # How office login could adopt Supabase Auth (investigation + lockout-safe plan)
 
 > Doc: `/docs/wiring/office-auth.md`
-> Last updated: 2026-08-21 — §1c added (duplicate-phone → `resolvePhone` resolves to nobody);
-> verified vs commit `dc39a76`. Previously 2026-08-03 — verified vs commit `a235571`
+> Last updated: 2026-08-21 — §1c added and then CLOSED (duplicate-phone → `resolvePhone`
+> resolved to nobody; fixed in code, and the index + retirements landed same day);
+> verified vs commit `617b419`. Previously 2026-08-03 — verified vs commit `a235571`
 > Status: 🟢 STEP 1½ SHIPPED (anon→authenticated read+write widen applied & live-verified at the
 > DB layer, 2026-08-01 — see §7 / §7.8). Step 0–1 login foothold live @ `dc782b3` — **nothing
 > enforced**; owner (Cristian) linked via `auth_user_id` and signing in on `office-login.html`.
@@ -148,11 +149,15 @@ the persisted-phone branch and never to the final `employees` lookup above — a
 - Every phone lookup now filters `active`, uses `.limit(2)`, and on a multi-row match logs
   `AMBIGUOUS phone …` and shows a visible line — instead of returning a silent `null`.
   `my-numbers.html` got the same guard.
-- A partial unique index on active phone digits ([[employee-roster]] §5) makes it structurally
-  impossible. **NOT yet applied** — blocked until the duplicate rows are retired.
+- A partial unique index on active phone digits, `idx_employees_phone_active_digits`
+  ([[employee-roster]] §5), makes it structurally impossible. **✅ Applied to both projects
+  2026-08-21** and proven with a negative test that raised `23505` — not merely created.
 
-**Still true until that index lands:** two active rows can share a phone. The difference is
-that it now says so out loud. Full write-up, including why this made staging unusable, in
+**The collision is closed.** The five duplicate/departed rows (Cory, Josh, Jay Tech, Cristian
+Tech, Alex) were retired the same day ([[employee-roster]] §6a): `2396001971` is down to one
+active row and `9416260382` to none. Two active employees can no longer share a phone, and if
+one ever does — a restore from before the index, say — the resolver now says so out loud
+instead of returning `null`. Full write-up, including why this made staging unusable, in
 [[staging-db]] §7.
 
 ## 2. How KiKi does Supabase Auth (verified against `kiki/`)
