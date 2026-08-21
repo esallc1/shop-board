@@ -175,6 +175,20 @@ run-id guard ([[staging-db]] §8.1): a check that cannot fail loudly is not a ch
 looked healthy while telling you nothing.
 
 ## Known gaps & open questions (as of 2026-08-21)
+- **FOLLOW-UP: `loadTodoAssignees` finds "me" by searching the roster.** It reads the roster,
+  then looks `CURRENT_EMPLOYEE_ID` up *inside that list* to build the "(me)" option. A test
+  account is not in `employees_visible`, so a ZZ login gets **no "(me)" option** — it cannot
+  create a personal to-do. Found while verifying this slice.
+  **The fix is NOT to put the viewer back into the view** — the view staying a plain static
+  filter (`where not is_test`, nothing conditional, nothing viewer-dependent) is exactly what
+  makes it easy to reason about, and a view whose contents depend on who is asking is a much
+  harder thing to hold in your head. The fix is that "(me)" should be built from the identity
+  **already resolved in `applyIdentity`** (`CURRENT_EMPLOYEE_ID` + `CHAT_IDENTITY.name`) rather
+  than rediscovered by searching a list. That is more robust for real staff too: **if the
+  roster read fails, "me" still works.** Same shape applies to any other feature that locates
+  the current user inside a roster response. Owner's call, 2026-08-21; deferred, not forgotten.
+- **Test accounts cannot exercise every self-referential feature** until the above lands. Know
+  this before concluding a feature is broken because a ZZ login could not use it.
 - **The §5 index is not applied yet.** Blocked on retiring Josh, Jay Tech, Cory, Alex and
   Cristian Tech. Until then two active rows can still share a phone — now audibly, not silently.
 - **`my-numbers.html` still uses the phone AS the tech id** (`findEmployee` returns
