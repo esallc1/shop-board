@@ -690,14 +690,13 @@
   .board-fault-x { flex:0 0 auto; border:none; background:none; color:#b42318;
     font-size:1.1rem; line-height:1; cursor:pointer; padding:0 2px; }
   .cust-photo-cap-note { font-size:0.6rem; color:var(--muted); font-style:italic; }
-  /* A bucket name is a BUTTON for a manager (click to rename) but must still
-     read as a heading, not a control — same size, weight, colour and casing as
-     the read-only span beside it. Only the hover state gives it away. */
-  .cust-photo-bucket-btn { border:none; background:none; padding:0; cursor:pointer;
-    font:inherit; font-size:0.6rem; font-weight:800; text-transform:uppercase;
-    letter-spacing:0.4px; color:var(--muted); }
-  .cust-photo-bucket-btn:hover { color:var(--accent); text-decoration:underline; }
-  .cust-bucket-rm { margin-left:auto; }          /* pushed to the far edge, away from Rename */
+  .cust-bucket-rm { margin-left:auto; }          /* far edge, away from the pencil */
+  /* A 32px tap target on a phone even though the glyph is small — the whole
+     point is that this is now the ONLY way to start a rename. */
+  .cust-bucket-pencil { border:none; background:none; cursor:pointer; padding:0 4px;
+    font-size:0.72rem; line-height:1; min-width:32px; min-height:32px;
+    display:inline-flex; align-items:center; justify-content:center; opacity:.65; }
+  .cust-bucket-pencil:hover, .cust-bucket-pencil:focus-visible { opacity:1; }
   .cust-bucket-input { flex:1 1 140px; min-width:0; border:1px solid var(--border);
     border-radius:6px; background:var(--surface); color:var(--text);
     font-size:0.75rem; padding:3px 7px; }
@@ -6914,19 +6913,37 @@
       showCustomerList();
     }
 
+    /* A RELOAD OF THE CUSTOMER ALREADY ON SCREEN MUST NOT MOVE THE PERSON.
+       This runs on visibilitychange + focus (VIEW_REFRESH.customer), which on a
+       phone means every time the advisor switches apps or comes back from the
+       camera. Blanking the accordion and re-picking the open vehicle threw
+       Cris to the top of the record every time, on a customer with 31 vehicles.
+
+       So: opening a DIFFERENT customer resets everything, as before. Refreshing
+       the SAME one keeps the open vehicle, the filter and the scroll position,
+       and skips the blanking placeholder so the content never collapses under
+       the reader. */
     async function loadCustomerRecord(id) {
       const seq = ++custLoadSeq;
+      const sameCustomer = !!(custCustomer && String(custCustomer.id) === String(id));
+      const keepOpenVeh = sameCustomer ? custOpenVeh : null;
+      const scroller = document.scrollingElement || document.documentElement;
+      const keepScroll = sameCustomer ? scroller.scrollTop : 0;
+
       const a = $('custRecAudio'); if (a && !a.paused) a.pause();
-      $('custProfile').innerHTML = '<div style="color:var(--muted);font-size:0.85rem">Loading…</div>';
-      $('custVehicles').innerHTML = ''; $('custUnfiledCard').style.display = 'none'; $('custUnfiledBody').innerHTML = '';
-      $('custVehNote').textContent = '';
-      // A new customer starts unfiltered — a query left over from the last one
-      // would silently hide vehicles on this record.
-      custVehQuery = '';
+      if (!sameCustomer) {
+        $('custProfile').innerHTML = '<div style="color:var(--muted);font-size:0.85rem">Loading…</div>';
+        $('custVehicles').innerHTML = '';
+        $('custVehNote').textContent = '';
+        $('custVehFilter').style.display = 'none';
+        // A new customer starts unfiltered — a query left over from the last
+        // one would silently hide vehicles on this record.
+        custVehQuery = '';
+        const vehSearchEl = $('custVehSearch'); if (vehSearchEl) vehSearchEl.value = '';
+      }
+      $('custUnfiledCard').style.display = 'none'; $('custUnfiledBody').innerHTML = '';
       custMergedKeeper = null;
-      const vehSearchEl = $('custVehSearch'); if (vehSearchEl) vehSearchEl.value = '';
-      $('custVehFilter').style.display = 'none';
-      custOpenVeh = null;
+      custOpenVeh = keepOpenVeh;
       custBucketEditId = null; custBucketAddRo = null; custPhotoMoveId = null;
       custCallGroups = { byRo: {}, byVehNoRo: {}, unfiled: [] };
       custRecAssigned = {};
@@ -7062,14 +7079,20 @@
       custSecondaryLearned = CR().isSecondaryLearned({ phoneSecondary: cust.phone_secondary, calls: idCalls, last10: l10 });
 
       renderCustProfile();
-      $('custVehicles').innerHTML = '<div class="cust-tl-empty">Loading history…</div>';
+      if (!sameCustomer) $('custVehicles').innerHTML = '<div class="cust-tl-empty">Loading history…</div>';
       // recordings: ONE batched links fetch for all union calls, then bucket + render
       custRecIdx = await fetchCustRecLinks(custRecCallsAll.map(c => c.id));
       if (seq !== custLoadSeq) return;
       custCallGroups = computeCallGroups();
-      custOpenVeh = pickAutoOpenVeh();
+      // Keep what he had open; only auto-pick when arriving fresh.
+      custOpenVeh = keepOpenVeh || pickAutoOpenVeh();
       renderCustVehicles();
       renderCustUnfiled();
+      // Put the page back exactly where it was. After the re-render, so the
+      // document is tall enough for the offset to still exist.
+      if (sameCustomer && keepScroll) {
+        requestAnimationFrame(() => { scroller.scrollTop = keepScroll; });
+      }
     }
 
     /* ── RO PHOTOS on the customer record — PER-RO BUCKETS (slice 3) ─────
@@ -7212,10 +7235,10 @@
           : `<span class="cust-photo-tile cust-photo-missing" title="Preview unavailable"></span>`}
         ${footer}
         ${manage ? `<div class="cust-photo-acts">
-          <button type="button" class="cust-photo-act" data-move="${esc(String(p.id))}"
-                  title="Move to another bucket on this RO">Move</button>
-          <button type="button" class="cust-photo-act" data-archive="${esc(String(p.id))}"
-                  title="Remove from the record">Remove</button>
+          <button type="button" class="cust-photo-act" data-move="${escAttr(String(p.id))}"
+                  title="Move this photo to another bucket on this RO">Move</button>
+          <button type="button" class="cust-photo-act" data-archive="${escAttr(String(p.id))}"
+                  title="Remove this photo from the record">Remove photo</button>
         </div>` : ''}
       </figure>`;
     }
@@ -7236,15 +7259,25 @@
           <button type="button" class="cust-photo-act" data-rename-cancel="1">Cancel</button>
         </div>`;
       }
-      const name = (manage && !g.isNoBucket)
-        ? `<button type="button" class="cust-photo-bucket cust-photo-bucket-btn"
-                   data-rename="${esc(String(g.id))}" title="Rename this bucket on this RO">${esc(g.name)}</button>`
-        : `<span class="cust-photo-bucket">${esc(g.name)}</span>`;
-      const rm = (manage && !g.isNoBucket)
-        ? `<button type="button" class="cust-photo-act cust-bucket-rm" data-rmbucket="${esc(String(g.id))}"
-                   title="Remove this bucket — its photos drop to No bucket">Remove</button>`
+      /* THE NAME IS NOT THE RENAME TARGET. It used to be a button, and on a
+         phone that is a wide target sitting right where a thumb lands — Cris
+         renamed a bucket by accident just by tapping it. The name is now inert
+         text; a small pencil BESIDE it renames, with a 32px tap target so it is
+         still comfortable on a phone. */
+      const name = `<span class="cust-photo-bucket">${esc(g.name)}</span>`;
+      const pencil = (manage && !g.isNoBucket)
+        ? `<button type="button" class="cust-bucket-pencil" data-rename="${escAttr(String(g.id))}"
+                   title="Rename this bucket" aria-label="Rename the ${escAttr(g.name)} bucket">✏️</button>`
         : '';
-      return `<div class="cust-photo-head">${name}
+      /* "Remove bucket", not "Remove". The photo tile's control says "Remove
+         photo". They sit inches apart on a phone and used to read identically —
+         Cris tapped one meaning the other and archived a photo instead of the
+         bucket. The noun is the whole point of the label. */
+      const rm = (manage && !g.isNoBucket)
+        ? `<button type="button" class="cust-photo-act cust-bucket-rm" data-rmbucket="${escAttr(String(g.id))}"
+                   title="Remove this bucket — its photos drop to No bucket">Remove bucket</button>`
+        : '';
+      return `<div class="cust-photo-head">${name}${pencil}
         <span class="cust-photo-count">${g.photos.length}</span>${rm}</div>`;
     }
 
@@ -7265,7 +7298,7 @@
     let custCamNote = null;
     function setCustCamNote(roId, kind, text) {
       custCamNote = roId ? { roId: String(roId), kind, text } : null;
-      renderCustVehicles();
+      renderRoPhotos(roId);          // in place — never bounce him to the top
     }
     function custCamNoteHtml(roId) {
       if (!custCamNote || custCamNote.roId !== String(roId)) return '';
@@ -7300,19 +7333,72 @@
       </div>`;
     }
 
-    function roPhotosHtml(roId) {
+    /* The INNER markup of one RO's photo section — everything inside
+       #custPhotos_<roId>. Split out from roPhotosHtml so the section can be
+       re-rendered ON ITS OWN, without touching the rest of the record. */
+    function roPhotosInnerHtml(roId) {
       const groups = custPhotoGroups(roId);
       const manage = canManageCustBuckets();
-      if (!groups.length && !manage) return '';
-      return `<div class="cust-photos">`
-        + (manage ? custPhotoBarHtml(roId) : '')
+      return (manage ? custPhotoBarHtml(roId) : '')
         + groups.map(g => `
         <div class="cust-photo-group">
           ${custBucketHeadHtml(g, roId, manage)}
           ${g.photos.length ? `<div class="cust-photo-grid">
             ${g.photos.map(p => custPhotoCellHtml(p, roId, manage)).join('')}
           </div>` : ''}
-        </div>`).join('') + `</div>`;
+        </div>`).join('');
+    }
+
+    function roPhotosHtml(roId) {
+      const manage = canManageCustBuckets();
+      if (!custPhotoGroups(roId).length && !manage) return '';
+      // The id is what makes an in-place update possible — see renderRoPhotos.
+      return `<div class="cust-photos" id="custPhotos_${escAttr(String(roId))}">`
+        + roPhotosInnerHtml(roId) + `</div>`;
+    }
+
+    /* ⚠ RE-RENDER ONE RO'S PHOTOS IN PLACE. Use this after EVERY photo/bucket
+       write — never renderCustVehicles().
+
+       WHY: renderCustVehicles() replaces the whole #custVehicles subtree. The
+       browser cannot keep scroll anchoring through that, so the page jumps to
+       the top of the record — and on a customer with 31 vehicles the advisor
+       then has to find their way back down to the RO they were working. Cris,
+       on a phone: "every time i do something with the picture it refresh it and
+       i have to tap on the RO again to go back to the buckets."
+
+       Every one of these writes touches exactly ONE repair order, so exactly
+       one section needs to change. Nothing outside #custPhotos_<roId> is
+       touched: scroll position, the open vehicle, the fleet filter and any
+       other RO's state all simply survive because they are never re-rendered.
+
+       Falls back to the full render only if the section isn't on screen (the
+       vehicle got collapsed, or the record was reloaded underneath us). */
+    function renderRoPhotos(roId) {
+      const el = document.getElementById('custPhotos_' + String(roId));
+      if (!el) { renderCustVehicles(); return; }
+      /* Pin the scroll across the swap. Even an in-place update changes the
+         section's HEIGHT — the rename editor is a row taller than the heading
+         it replaces, an added bucket adds a row, a removed photo drops one —
+         and when that happens ABOVE the viewport the page slides under the
+         reader. Measured at 36px for a rename before this; small, but it is
+         exactly the kind of drift that makes a phone feel like it lost your
+         place. Restore synchronously, before paint, so nothing is visible. */
+      const scroller = document.scrollingElement || document.documentElement;
+      const keep = scroller.scrollTop;
+      el.innerHTML = roPhotosInnerHtml(roId);
+      if (scroller.scrollTop !== keep) scroller.scrollTop = keep;
+    }
+
+    /* Which RO owns a photo / a bucket — needed so a write can re-render just
+       that one section. */
+    function roIdForPhoto(photoId) {
+      return Object.keys(custRoPhotos)
+        .find(k => (custRoPhotos[k] || []).some(p => String(p.id) === String(photoId))) || null;
+    }
+    function roIdForBucket(bucketId) {
+      return Object.keys(custRoBuckets)
+        .find(k => (custRoBuckets[k] || []).some(b => String(b.id) === String(bucketId))) || null;
     }
 
     /* OFFICE ARCHIVE. Deliberately NOT ownership-checked: an advisor/manager/
@@ -7331,10 +7417,11 @@
         .update({ deleted_at: new Date().toISOString(), deleted_by: who })
         .eq('id', photoId);
       if (error) { console.error('[RoPhotos] archive failed', error); alert('Could not remove that photo — ' + (error.message || 'unknown error')); return; }
+      const roId = roIdForPhoto(photoId);
       Object.keys(custRoPhotos).forEach(k => {
         custRoPhotos[k] = custRoPhotos[k].filter(p => String(p.id) !== String(photoId));
       });
-      renderCustVehicles();
+      if (roId) renderRoPhotos(roId); else renderCustVehicles();
     }
 
     /* ══════════════════════════════════════════════════════════════════
@@ -7362,7 +7449,7 @@
     function custSetBuckets(roId, list) {
       const PB = window.PhotoBuckets;
       custRoBuckets[String(roId)] = PB ? PB.sortBuckets(list) : list;
-      renderCustVehicles();
+      renderRoPhotos(roId);          // in place — see renderRoPhotos
     }
 
     async function addCustBucket(roId, rawName) {
@@ -7393,8 +7480,7 @@
     async function renameCustBucket(bucketId, rawName) {
       const PB = window.PhotoBuckets;
       if (!PB || !canManageCustBuckets()) return;
-      const roId = Object.keys(custRoBuckets)
-        .find(k => custRoBuckets[k].some(b => String(b.id) === String(bucketId)));
+      const roId = roIdForBucket(bucketId);
       if (!roId) return;
       const buckets = custBucketsFor(roId);
       const v = PB.validateBucketName(rawName, { buckets, selfId: bucketId });
@@ -7417,8 +7503,7 @@
        keeps the record of which bucket they had been in. */
     async function removeCustBucket(bucketId) {
       if (!canManageCustBuckets()) return;
-      const roId = Object.keys(custRoBuckets)
-        .find(k => custRoBuckets[k].some(b => String(b.id) === String(bucketId)));
+      const roId = roIdForBucket(bucketId);
       if (!roId) return;
       const buckets = custBucketsFor(roId);
       const b = buckets.find(x => String(x.id) === String(bucketId));
@@ -7448,13 +7533,12 @@
        misfiling this subsystem exists to prevent. */
     async function moveCustPhoto(photoId, targetId) {
       if (!canManageCustBuckets()) return;
-      const roId = Object.keys(custRoPhotos)
-        .find(k => custRoPhotos[k].some(p => String(p.id) === String(photoId)));
+      const roId = roIdForPhoto(photoId);
       if (!roId) return;
       // Re-check the target against THIS RO's live buckets at write time.
       const ok = targetId == null || custBucketsFor(roId)
         .some(b => String(b.id) === String(targetId) && b.archived_at == null);
-      if (!ok) { custPhotoMoveId = null; renderCustVehicles(); return; }
+      if (!ok) { custPhotoMoveId = null; renderRoPhotos(roId); return; }
       const { error } = await db.from('attachments').update({ bucket_id: targetId }).eq('id', photoId);
       if (error) {
         console.error('[RoPhotos] move failed', error);
@@ -7464,7 +7548,7 @@
       custRoPhotos[roId] = custRoPhotos[roId].map(p =>
         String(p.id) === String(photoId) ? { ...p, bucket_id: targetId } : p);
       custPhotoMoveId = null;
-      renderCustVehicles();
+      renderRoPhotos(roId);
     }
 
     /* ── OFFICE CAPTURE ────────────────────────────────────────────────
@@ -7636,7 +7720,7 @@
           e.preventDefault();
           custBucketAddRo = addB.getAttribute('data-addbucket');
           custBucketEditId = null; custPhotoMoveId = null;
-          renderCustVehicles(); focusBucketEditor();
+          renderRoPhotos(custBucketAddRo); focusBucketEditor();
           return;
         }
         const saveNew = e.target.closest('[data-newbucket-save]');
@@ -7647,14 +7731,16 @@
           return;
         }
         if (e.target.closest('[data-newbucket-cancel]')) {
-          e.preventDefault(); custBucketAddRo = null; renderCustVehicles(); return;
+          e.preventDefault();
+          const ro = custBucketAddRo; custBucketAddRo = null;
+          renderRoPhotos(ro); return;
         }
         const ren = e.target.closest('[data-rename]');
         if (ren) {
           e.preventDefault();
           custBucketEditId = ren.getAttribute('data-rename');
           custBucketAddRo = null; custPhotoMoveId = null;
-          renderCustVehicles(); focusBucketEditor();
+          renderRoPhotos(roIdForBucket(custBucketEditId)); focusBucketEditor();
           return;
         }
         const saveRen = e.target.closest('[data-rename-save]');
@@ -7665,7 +7751,9 @@
           return;
         }
         if (e.target.closest('[data-rename-cancel]')) {
-          e.preventDefault(); custBucketEditId = null; renderCustVehicles(); return;
+          e.preventDefault();
+          const ro = roIdForBucket(custBucketEditId); custBucketEditId = null;
+          renderRoPhotos(ro); return;
         }
         const rmB = e.target.closest('[data-rmbucket]');
         if (rmB) { e.preventDefault(); removeCustBucket(rmB.getAttribute('data-rmbucket')); return; }
@@ -7693,7 +7781,7 @@
           // Tapping Move on the photo whose picker is already open closes it.
           custPhotoMoveId = (custPhotoMoveId != null && String(custPhotoMoveId) === String(id)) ? null : id;
           custBucketEditId = null; custBucketAddRo = null;
-          renderCustVehicles();
+          renderRoPhotos(roIdForPhoto(id));
           return;
         }
         const rm = e.target.closest('[data-archive]');
@@ -7701,7 +7789,7 @@
           e.preventDefault();
           // Confirm before removing. The photo stays saved — say so, so nobody
           // hesitates over a blurry frame thinking it is destructive.
-          if (confirm('Remove this photo from the record?\n\nIt stays saved and can be restored — it just stops showing here.')) {
+          if (confirm('Remove this PHOTO from the record?\n\nJust the one photo — the bucket stays. It stays saved and can be restored; it only stops showing here.')) {
             archiveCustPhoto(rm.getAttribute('data-archive'));
           }
           return;
@@ -7732,8 +7820,9 @@
         if (!ren && !add) return;
         if (e.key === 'Escape') {
           e.preventDefault();
+          const ro = custBucketAddRo || roIdForBucket(custBucketEditId);
           custBucketEditId = null; custBucketAddRo = null;
-          renderCustVehicles();
+          renderRoPhotos(ro);
           return;
         }
         if (e.key !== 'Enter') return;
@@ -7753,8 +7842,19 @@
       const el = $('custVehicles') &&
         $('custVehicles').querySelector('[data-rename-input], [data-newbucket-input]');
       if (!el) return;
-      el.focus();
+      /* preventScroll IS THE POINT. A bare .focus() scrolls the element into
+         view, and on a long customer record that threw the page 1600px — the
+         editor opens exactly where the advisor just tapped, so it is already on
+         screen and there is nothing to scroll to. Measured before this: a
+         rename jumped the page to the bottom of the record.
+         The fallback path is for engines that ignore the options bag: pin the
+         offset around the call rather than trusting it. */
+      const scroller = document.scrollingElement || document.documentElement;
+      const keep = scroller.scrollTop;
+      try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+      if (scroller.scrollTop !== keep) scroller.scrollTop = keep;
       if (el.select) el.select();
+      if (scroller.scrollTop !== keep) scroller.scrollTop = keep;
     }
 
     /* WHICH RO the pending capture belongs to, and the reason

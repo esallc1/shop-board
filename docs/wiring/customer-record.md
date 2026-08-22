@@ -131,6 +131,9 @@ Three things to know here; the full wiring is [[ro-photos]] §5a/§5b:
 - **Nothing re-renders while an inline editor is open**, and the caret is restored after the
   render that created it. Same lesson as the fleet filter input living outside `#custVehicles`
   (§4a): a render per keystroke kills the caret mid-word.
+- **A photo or bucket write re-renders ONE RO in place** (`renderRoPhotos`), never the whole
+  accordion — and a same-customer refetch now preserves `custOpenVeh`, the filter and the scroll
+  position instead of resetting them. Full reasoning in [[ro-photos]] §5a0.
 
 ### 4c. The customer LIST caches a FAILED load as "No customers."
 `fetchAllCustomers` swallowed a page error with `break`, returning whatever had
@@ -306,6 +309,11 @@ then branches on whether the search box has text:
   mixed case fine, no-match message fine; Jose (2 vehicles) never sees the box; an expanded row
   filtered away came back **still expanded**; order after clearing was byte-identical to before;
   focus survived typing; no horizontal overflow at 375px.
+- 2026-08-22 (round 2) — **A same-customer reload no longer moves the reader.**
+  `loadCustomerRecord` keeps the open vehicle, the fleet filter and the scroll position when it
+  is refreshing the customer already on screen (it fires on every `visibilitychange`/`focus`,
+  i.e. every phone app-switch), and skips the blanking placeholder. Opening a different customer
+  still resets everything. See [[ro-photos]] §5a0.
 - 2026-08-22 (later) — **§4c added: a failed customer load rendered as "No
   customers."** `[]` is truthy, so `ensureCustAllList` cached an empty result
   permanently. Pre-existing, not caused by the photo slice, but Cris hit it in

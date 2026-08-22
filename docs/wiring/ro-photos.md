@@ -232,6 +232,49 @@ it here means a stray row shows up somewhere visible instead of vanishing from t
 > act on one repair order, so reading as "No bucket" is exactly what was asked for. The per-RO
 > model dissolved the tension rather than trading one side of it away.
 
+### 5a0. ⚠ EVERY PHOTO/BUCKET WRITE RE-RENDERS ONE RO, IN PLACE
+**Never call `renderCustVehicles()` from a photo or bucket write.** Use
+`renderRoPhotos(roId)`, which replaces the innerHTML of `#custPhotos_<roId>`
+and nothing else.
+
+`renderCustVehicles()` rebuilds the whole `#custVehicles` subtree, and a browser
+cannot keep scroll anchoring through that — the page jumps to the top of the
+record. On a customer with 31 vehicles the advisor then has to find their way
+back down. Cris, on a phone: *"every time i do something with the picture it
+refresh it and i have to tap on the RO again to go back to the buckets… it goes
+out to customer."* It was the biggest complaint about the whole slice.
+
+Every one of these writes touches exactly ONE repair order, so exactly one
+section needs to change. Scroll position, the open vehicle, the fleet filter and
+every other RO's state survive because they are simply never re-rendered.
+
+Three separate things had to be fixed to actually hold position — the first one
+alone was not enough:
+
+1. **`renderRoPhotos` instead of `renderCustVehicles`** on all eleven write and
+   editor-toggle paths.
+2. **`renderRoPhotos` pins `scrollTop` across the swap.** An in-place update
+   still changes the section's HEIGHT (the rename editor is a row taller than
+   the heading it replaces; adding a bucket adds a row), and when that happens
+   above the viewport the page slides under the reader. Measured at 36px for a
+   rename before this.
+3. **`focusBucketEditor` uses `focus({ preventScroll: true })`.** A bare
+   `.focus()` scrolls the element into view — that alone threw the page **1643px
+   to the bottom of the record** on a rename. The editor opens exactly where the
+   advisor just tapped, so there is nothing to scroll to. The offset is pinned
+   around the call as well, for engines that ignore the options bag.
+
+**And a reload of the customer already on screen must not move anyone.**
+`VIEW_REFRESH.customer` fires on `visibilitychange` + `focus`, which on a phone
+means every app switch and every return from the camera. `loadCustomerRecord`
+now detects a same-customer refresh and keeps the open vehicle, the filter and
+the scroll position, and skips the "Loading history…" placeholder that used to
+collapse the accordion. Opening a *different* customer still resets everything.
+
+Verified: take photo, move, remove photo, remove bucket, rename, add bucket, and
+a visibilitychange+focus refetch all measured **0px drift** with the vehicle
+still open.
+
 ### 5a. Bucket management — office only, on the record
 All of it is inline on the RO, per the v6 mockup. **`PhotoBuckets.canManageBuckets(role)` gates
 every control**: `advisor`, `manager` and `owner`. **`manager` IS the GM** — that is the value
@@ -246,9 +289,17 @@ record on a fresh tab would find the controls simply missing, with nothing to sa
 coming. `advisor-board.html` passes no `expectedRole` to `OfficeIdentity.resolve` — only
 owner-board does — so the role is the only gate here.
 
+**THE LABELS NAME THEIR NOUN, AND THAT IS A BUG FIX.** The photo tile's control
+says **"Remove photo"**; the bucket heading's says **"Remove bucket"**. They used
+to both read "Remove", they sit inches apart on a phone, and Cris tapped one
+meaning the other — archiving a photo instead of the bucket (confirmed in the
+data: the photo carried a `deleted_at`, the bucket was never archived). The
+vocabulary is **bucket** everywhere, on both screens — "+ New bucket",
+"Remove bucket", "No bucket". Never "group" or "folder".
+
 | Control | Write | Note |
 |---|---|---|
-| **Rename** — click the bucket name | `photo_buckets.name` | validated against this RO's live buckets, case-insensitively; `selfId` exempts itself so re-saving unchanged, or changing only capitalisation, is allowed |
+| **Rename** — the ✏️ **beside** the name | `photo_buckets.name` | validated against this RO's live buckets, case-insensitively; `selfId` exempts itself so re-saving unchanged, or changing only capitalisation, is allowed |
 | **+ New bucket** | insert `{ro_id, name, sort_order: max+1}` | free-typed, trimmed, capped at **12 live** per RO |
 | **Remove** | `archived_at` + `archived_by` | **`attachments.bucket_id` is NEVER written** — see below |
 | **Move** (per photo) | `attachments.bucket_id` | **same RO only** |
@@ -266,6 +317,12 @@ bucket". There is no parameter that could name another repair order. Filing a ph
 wrong RO is the exact silent misfiling this subsystem exists to prevent, so the way to make it
 impossible is to give the code no way to express it. The target is re-checked against the RO's
 live buckets at write time as well.
+
+**THE BUCKET NAME IS NOT THE RENAME TARGET.** It is inert text; a small ✏️ beside
+it opens the editor, with a 32px tap target. The name used to be the button, and
+on a phone that is a wide target sitting exactly where a thumb lands — Cris
+renamed a bucket by accident just by tapping it, with no confirmation and no
+undo. The affordance is now small, deliberate, and separate from the label.
 
 **An empty bucket renders as a heading with no grid** — enough to rename or remove it, without
 two empty grids per RO cluttering a vehicle that has six repair orders.
@@ -471,6 +528,19 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   listeners).
 
 ## Session change log
+- 2026-08-22 (phone testing, round 2) — **Three fixes from Cris's iPhone on
+  `cfcfb1c`; the camera fix itself was confirmed working by him.**
+  (1) **"Remove" appeared on both a photo and a bucket** and he tapped the wrong
+  one — now "Remove photo" and "Remove bucket", with the vocabulary swept for
+  stray "group"/"folder" on both screens (§5a). (2) **Every action threw him back
+  to the top of the record** — all photo/bucket writes now re-render one RO in
+  place via `renderRoPhotos`, `renderRoPhotos` pins scroll across the swap,
+  `focusBucketEditor` no longer scrolls (that one alone was a 1643px jump), and a
+  same-customer refetch keeps the open vehicle and scroll (§5a0). Measured 0px
+  drift on all seven actions. (3) **The bucket name was itself the rename
+  target** and he renamed one by mis-tapping — a ✏️ beside the name is now the
+  only way in (§5a). Also restored the photo he archived by accident, using the
+  tombstone's inverse rather than a delete.
 - 2026-08-22 (later) — **FIXED: office capture failed silently on a real iPhone.**
   Root cause was **not** HEIC, not the compressor and not memory:
   `compressImage` catches everything and falls back to the original, so it cannot
