@@ -132,6 +132,21 @@ Three things to know here; the full wiring is [[ro-photos]] §5a/§5b:
   render that created it. Same lesson as the fleet filter input living outside `#custVehicles`
   (§4a): a render per keystroke kills the caret mid-word.
 
+### 4c. The customer LIST caches a FAILED load as "No customers."
+`fetchAllCustomers` swallowed a page error with `break`, returning whatever had
+accumulated — on a first-page failure, `[]`. `ensureCustAllList` then did
+`if (custAllList) return custAllList`, and **`[]` is truthy**, so one dropped
+request cached "no customers" for the life of the page. The board read
+**"No customers."** on a database with ~2700 of them, and only a full reload
+cleared it. Hit on a phone 2026-08-22 right after the camera failure.
+
+Now: the failure is recorded on `window.cdCustFetchError` (the producer is in the
+`callerCard` IIFE and the consumers are in another — a plain `let` would have been
+two unrelated variables, which is how the first attempt at this fix was wrong),
+`ensureCustAllList` **never caches a failed load**, and the empty state says
+*"Couldn't load customers — &lt;reason&gt;"* with a **Try again** button instead of
+claiming the shop has none.
+
 **Timeline entry (`callEntryHtml`):** time (`started_at`), caller-ID (`cnam` / `caller_formatted`
 / formatted phone), a **disposition** chip from `calls.next_step`
 (`NEXT_STEP_LABEL`), the advisor **note**, a ▶ recording when one exists, and an **unconfirmed**
@@ -291,6 +306,11 @@ then branches on whether the search box has text:
   mixed case fine, no-match message fine; Jose (2 vehicles) never sees the box; an expanded row
   filtered away came back **still expanded**; order after clearing was byte-identical to before;
   focus survived typing; no horizontal overflow at 375px.
+- 2026-08-22 (later) — **§4c added: a failed customer load rendered as "No
+  customers."** `[]` is truthy, so `ensureCustAllList` cached an empty result
+  permanently. Pre-existing, not caused by the photo slice, but Cris hit it in
+  the same session. The empty state now distinguishes "none" from "couldn't
+  load" and offers a retry.
 - 2026-08-22 — **§4b added; §0 and §5's "read-only" claim corrected.** The RO photo grids under
   each RO gained office-only bucket management (rename / add / remove), per-photo move, and an
   on-RO camera, so this page now carries writes outside the needs-filing section. The bucket read

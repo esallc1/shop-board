@@ -277,6 +277,51 @@ which closes the attribute early: broken markup at best, `" onfocus=…` at wors
 renders customer data. `escAttr` (quotes included) is used for every attribute carrying text a
 human typed.
 
+### 5b0. ⚠ THE CAMERA'S FILE INPUT MUST LIVE OUTSIDE `#custVehicles`
+**This is the bug that made office capture fail silently on a real iPhone on
+2026-08-22, and the reason the input is where it is.** Read this before moving it.
+
+Returning from the iOS camera fires **`visibilitychange` (→ visible)** and **`focus`**.
+Both are wired to `refreshActiveView()`, and `VIEW_REFRESH.customer.refetch` runs
+`loadCustomerRecord()`, whose first act is:
+
+```js
+$('custVehicles').innerHTML = '<div class="cust-tl-empty">Loading history…</div>';
+```
+
+So the sequence on a phone is:
+
+1. tap **Take photo** → the native camera opens, page goes hidden
+2. tap **Use Photo** → page returns → `visibilitychange` + `focus` fire
+3. `loadCustomerRecord()` **replaces `#custVehicles.innerHTML`**
+4. iOS *then* delivers `change` to the input — which is now **detached**
+5. a **delegated** listener on `#custVehicles` never sees it. No upload, no row,
+   no error, no tile.
+
+The first version rendered `<input type="file">` inside `custPhotoBarHtml` and
+listened via delegation, so it lost every photo taken on a real phone while
+working perfectly in a desktop test (nothing re-renders there). **My Numbers was
+never affected because `bindPhotoInputs()` binds `change` DIRECTLY to each input
+— a direct listener still fires on a detached element; a delegated one cannot.**
+That binding strategy, not the upload body, was the whole difference between the
+two call sites.
+
+Two independent guards now, either of which alone would fix it:
+- **One persistent `#custCamInput`** in the record's STATIC markup, a sibling of
+  `#custVehicles`, never re-rendered — same reasoning as the fleet filter box
+  (§4a). A "Take photo" **button** stores `camPendingRo` and calls
+  `input.click()` synchronously inside the user gesture. This is exactly the
+  shape Capture Invoice has used on the shop's phones since July.
+- **`VIEW_REFRESH.customer.refetch` holds off while `camPendingRo` is set**, so
+  the destructive reload does not run mid-capture and cannot wipe `custRoPhotos`
+  under an upload that has not landed. It self-clears on settle and on a 90s
+  backstop, so a cancelled camera can never freeze the record's refresh.
+
+**The input is reset in a `finally`, not after the await.** iOS names every
+capture `image.jpg`; an input still holding the previous file does **not** fire
+`change` for the next identical pick. That is why Cris's *second* attempt also
+did nothing. Both boards now clear it on the failure path too.
+
 ### 5b. Office capture — the camera sits ON THE RO
 Same upload path as My Numbers, deliberately: `PhotoCompress` downscale + EXIF fix, the same
 private `crisdata-attachments` bucket, the same `repair_order/<ro id>/photos/<ts>-<rand>.<ext>`
@@ -297,7 +342,18 @@ key, the same `attachments` row. **The office is not a second kind of photo.**
 - The insert's returning clause carries `uploaded_by, created_at` into the local object, so a
   fresh tile renders identically before and after a reload — the same bug fixed on the tech side
   on 2026-08-20.
-- **Reset the input AFTER awaiting the upload**, never before (§3). Copied verbatim.
+- **Reset the input AFTER awaiting the upload**, never before (§3) — and in a
+  `finally`, so a failed attempt clears it too (§5b0).
+- **EVERY exit is visible.** There is no `return` in `captureCustPhoto` that
+  leaves the screen unchanged, and the whole body is wrapped in a `catch` that
+  puts the reason on screen. It reports through a status line in the photo bar:
+  grey **"Uploading photo…"**, then green **"Added to &lt;bucket name&gt;"** or a
+  red line naming the failure. On success the new tile is scrolled into view and
+  pulsed (`.cust-photo-new`, reduced-motion aware).
+- **Saying WHICH bucket is not decoration.** Cris's first complaint, before
+  anything failed, was that he took a photo and had no idea where it went.
+  "It lands in the first bucket" is a rule the code knows and the person does
+  not, so the answer is on screen, by name.
 
 **Three delegated listeners on `#custVehicles`** — click, change, keydown — cover every photo and
 bucket control however many ROs are open. The accordion re-renders constantly, so per-control
@@ -325,6 +381,15 @@ subsystem exists to show. The 5vh is deliberate headroom, not a round number.
 ≤768px `shared/board-shell.css` gives `.sidebar` `z-index:4500` and `.sidebar-backdrop` `4499`.
 The lightbox was `4000`, so opening a photo with the nav drawer open painted the sidebar over
 the image. Desktop was never affected (the sidebar is a static flex column there).
+
+### 5c. The board-wide unhandled-rejection net
+`window.addEventListener('unhandledrejection')` → a red `.board-fault` bar under
+the header. An `async` event listener that rejects produces an unhandled
+rejection: the console has it, the person has nothing — which is precisely how
+two failed captures left no trace. Every async handler on this board is one
+refactor away from the same fault, so the net catches what escapes and says so.
+It can only inform: it never blocks the board and never grants anything. Same
+posture as `reportAmbiguous` in `shared/office-identity.js`.
 
 ## Known gaps & open questions (as of 2026-08-22)
 - **⚠ Storage deletes have been silently failing since July — see §6.** Not caused by this
@@ -406,6 +471,26 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   listeners).
 
 ## Session change log
+- 2026-08-22 (later) — **FIXED: office capture failed silently on a real iPhone.**
+  Root cause was **not** HEIC, not the compressor and not memory:
+  `compressImage` catches everything and falls back to the original, so it cannot
+  throw. It was **event delivery** — the camera's `<input>` was rendered INSIDE
+  `#custVehicles`, and returning from the camera fires `visibilitychange`+`focus`
+  → `refreshActiveView()` → `loadCustomerRecord()` → `innerHTML` replaced →
+  the input is detached before iOS delivers `change`, which a **delegated**
+  listener never sees. Full write-up: §5b0. Fixed with one persistent input in
+  static markup outside the accordion, a button that clicks it inside the user
+  gesture, and a refetch hold-off while a capture is pending. Separately: the
+  input is now reset in a `finally` (that is why the SECOND attempt also did
+  nothing — iOS reuses `image.jpg` and an un-reset input does not re-fire), the
+  whole capture is wrapped in a real `catch`, every exit reports on screen, a
+  success names the bucket and pulses the new tile, and a board-wide
+  unhandled-rejection net (§5c) makes any future escape visible. The same
+  missing `catch` and the same reset-in-`finally` were applied to My Numbers,
+  which had the identical exposure. Verified locally by replaying the exact iOS
+  sequence (open → visibilitychange+focus → deliver file): the upload lands, the
+  bar reads "Added to On arrival", and a forced failure shows a red line and
+  clears the input so the retry works.
 - 2026-08-22 — **Slice 3 VERIFIED against the sandbox, in the real screens.** Ten checks, all
   driven through the actual UI as `ZZ Test Advisor` (advisor) and `ZZ Test Tech`:
   **per-RO isolation** — renaming "Before" → "On arrival" on RO #6012 left RO #6001 and the

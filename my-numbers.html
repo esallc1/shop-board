@@ -1847,6 +1847,8 @@ async function uploadRoPhoto(file, bucketId){
   roPhotoBusy = true;
   showToast(t('toastPhotoUploading'));
   try {
+    // (catch added 2026-08-22 — see the block below; this path had try/finally
+    // and NO catch, so any throw escaped as an unhandled rejection.)
     // Downscale + fix EXIF orientation before a single byte goes over shop
     // wifi. Falls back to the original file if the browser can't decode it,
     // so a photo is never lost to a compression failure.
@@ -1896,7 +1898,19 @@ async function uploadRoPhoto(file, bucketId){
       created_at: row.created_at || new Date().toISOString(),
     });
     refreshPhotosUI();
-    showToast(target ? t('toastPhotoAdded') : t('toastPhotoNoBucket'));
+    // Name the bucket it landed in, not just "added" — same reason the office
+    // side does: the tech should never have to go looking for their own photo.
+    const landedName = (roBucketById(target) || {}).name;
+    showToast(landedName ? `${t('toastPhotoAdded')} — ${landedName}` : t('toastPhotoNoBucket'));
+  } catch (err) {
+    /* THE MISSING CATCH. This function had try/finally and no catch, so a throw
+       — a dropped connection mid-upload, storage refusing the body — escaped as
+       an unhandled promise rejection: console only, nothing on the phone. The
+       office copy of this code failed exactly that way on a real iPhone on
+       2026-08-22 and showed the tech NOTHING twice in a row. Same rule both
+       sides now: a failed upload always says so. */
+    console.error('[RoPhotos] upload threw', err);
+    showToast(t('toastPhotoFailed'));
   } finally {
     roPhotoBusy = false;
   }
@@ -1980,8 +1994,20 @@ function bindPhotoInputs(){
     if(!el) return;
     el.addEventListener('change', async (e) => {
       const file = e.target.files[0];
-      if(file) await uploadRoPhoto(file, bucketId);
-      e.target.value = '';
+      try {
+        if(file) await uploadRoPhoto(file, bucketId);
+      } catch(err){
+        console.error('[RoPhotos] photo handler threw', err);
+        showToast(t('toastPhotoFailed'));
+      } finally {
+        /* Reset AFTER the upload settles — never before, or a camera-captured
+           File's bytes can be invalidated mid-flight on mobile Safari. In a
+           `finally` so a FAILED attempt clears it too: iOS names every capture
+           the same, and an input still holding image.jpg does not fire `change`
+           for the next identical pick — which is how a second attempt silently
+           does nothing at all. */
+        e.target.value = '';
+      }
     });
   };
   for(const b of RO_BUCKETS) bind(document.getElementById('roPhotoInput_' + b.id), b.id);
