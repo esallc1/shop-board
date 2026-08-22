@@ -220,6 +220,29 @@
   .photo-add .plus{ font-size:22px; line-height:1; color:var(--safety-orange); }
   input[type=file]{ display:none; }
 
+  /* Photo-bucket accordion — used ONLY when this RO has 3+ live buckets.
+     Two buckets (the standard set, and so nearly every job) keep the original
+     flat two-grid layout and never see any of this. */
+  .pb-acc{ border-top:1px solid var(--stroke); }
+  .pb-acc:first-of-type{ border-top:none; }
+  .pb-acc-head{
+    width:100%; display:flex; align-items:center; gap:10px; padding:13px 2px;
+    background:none; border:none; color:var(--paper); font:inherit; font-size:14px;
+    font-weight:700; text-align:left; cursor:pointer;
+    -webkit-tap-highlight-color:transparent;      /* 44px+ tall: a real phone target */
+  }
+  .pb-acc-name{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; }
+  /* Bucket names are free-typed by the office and shown VERBATIM in every
+     language (English only, by decision) — so the count and chevron must not
+     be what gets squeezed when a name runs long. Only the name ellipsises. */
+  .pb-acc-count{ flex:0 0 auto; font-size:12px; font-weight:800; color:var(--gauge);
+    background:var(--panel-raised); border:1px solid var(--stroke); border-radius:10px;
+    padding:1px 8px; }
+  .pb-acc-chev{ flex:0 0 auto; color:var(--gauge); font-size:15px; line-height:1; }
+  .pb-acc.open .pb-acc-chev{ color:var(--safety-orange); }
+  .pb-acc .photo-grid{ margin-top:0; padding-bottom:12px; }
+
   .sticky-cta{
     position:fixed; bottom:0; left:50%; transform:translateX(-50%);
     width:100%; max-width:480px; padding:14px 18px calc(18px + env(safe-area-inset-bottom));
@@ -335,6 +358,14 @@
 <script type="module">
   import * as PhotoCompress from './shared/photo-compress.js';
   window.PhotoCompress = PhotoCompress;
+</script>
+<!-- Per-RO photo bucket logic (ESM). Assigns window.PhotoBuckets. Shared with
+     advisor-board.html's customer record so the two sides can never disagree
+     about what "No bucket" means or which bucket a capture lands in. Pure —
+     no db, no DOM. Same deferred-module timing as PhotoCompress above. -->
+<script type="module">
+  import * as PhotoBuckets from './shared/photo-buckets.js';
+  window.PhotoBuckets = PhotoBuckets;
 </script>
 </head>
 <body>
@@ -530,8 +561,8 @@ const I18N = {
     priorFixLabel: "Prior fix:",
     diagnosticLabel: "Your Diagnostic",
     diagnosticPlaceholder: "What did you find? Codes, fluid condition, wear, root cause...",
-    beforePhotosLabel: "Before Photos",
-    partPhotosLabel: "Part / Repair Photos",
+    photosLabel: "Photos",
+    noBucketLabel: "No bucket",
     addPhotoLabel: "Add Photo",
     toastPhotoAdded: "Photo added",
     toastPhotoUploading: "Uploading photo…",
@@ -620,8 +651,8 @@ const I18N = {
     priorFixLabel: "Reparación anterior:",
     diagnosticLabel: "Tu Diagnóstico",
     diagnosticPlaceholder: "¿Qué encontraste? Códigos, estado del fluido, desgaste, causa raíz...",
-    beforePhotosLabel: "Fotos Antes",
-    partPhotosLabel: "Fotos de Piezas / Reparación",
+    photosLabel: "Fotos",
+    noBucketLabel: "Sin categoría",
     addPhotoLabel: "Agregar Foto",
     toastPhotoAdded: "Foto agregada",
     toastPhotoUploading: "Subiendo foto…",
@@ -710,8 +741,8 @@ const I18N = {
     priorFixLabel: "Reparasyon anvan:",
     diagnosticLabel: "Dyagnostik Ou",
     diagnosticPlaceholder: "Kisa ou jwenn? Kòd, eta likid, itilizasyon, kòz prensipal...",
-    beforePhotosLabel: "Foto Anvan",
-    partPhotosLabel: "Foto Pyès / Reparasyon",
+    photosLabel: "Foto",
+    noBucketLabel: "San kategori",
     addPhotoLabel: "Ajoute Foto",
     toastPhotoAdded: "Foto ajoute",
     toastPhotoUploading: "Y ap voye foto a…",
@@ -1535,11 +1566,14 @@ async function openRoDiag(roId){
   const ro = STATE.roJobs.find(r => r.id === roId);
   if(!ro) return;
   RO_DIAG = { ro, codes: [], clips: [], photos: [], recommendation: ro.diagnosis_recommendation || '',
-              recorder: null, chunks: [], recording: false, recSeconds: 0, recTimer: null };
+              recorder: null, chunks: [], recording: false, recSeconds: 0, recTimer: null,
+              // Which photo-bucket accordion panel is open (3+ buckets only).
+              // null = "the first one" — resolved by roOpenBucketKey.
+              openBucket: null };
   STATE.activeRoId = roId;
   await loadRoCodes(roId);
   await loadRoClips(roId);
-  await loadPhotoBuckets();
+  await loadPhotoBuckets(roId);
   await loadRoPhotos(roId);
   STATE.view = 'roDiag';
   render();
@@ -1580,10 +1614,25 @@ async function loadRoClips(roId){
    bucket (crisdata-attachments), same `attachments` table, same signed-URL
    read-back. The only additions are kind='ro_photo' and bucket_id.
 
-   The bucket is IMPLIED by which grid was tapped — no picker in this slice.
-   It is resolved by NAME against photo_buckets where archived_at is null, so
-   a renamed or archived bucket simply stops matching and the photo lands
-   unbucketed ("No bucket") rather than failing or guessing.
+   BUCKETS ARE PER-RO (slice 3, 2026-08-22). They are not a shop-wide list any
+   more: this RO's buckets were COPIED onto it when it was created, and the
+   office can rename, add and remove them ON THIS RO without touching any
+   other. So the tech no longer taps one of two fixed grids — the grids ARE
+   this RO's buckets, resolved by ID, never by name.
+
+   Resolving by ID is what killed the old failure mode. The previous code held
+   a shop-wide name->id map and looked up the literal 'Before'; per-RO there are
+   now as many rows named 'Before' as there are ROs, so a name lookup would pick
+   an arbitrary one and file the photo onto SOMEBODY ELSE'S repair order.
+
+   LAYOUT (PhotoBuckets.techLayout): two buckets — the standard set, and so the
+   overwhelmingly common job — render exactly as they always have, two flat
+   grids, nothing new to learn. Three or more collapse to an accordion with the
+   first open, because N flat grids on a phone is a scroll.
+
+   Bucket names are ENGLISH ONLY by decision. They are free-typed by the office
+   and shown verbatim in every language; only the chrome around them ("No
+   bucket", "Add Photo") is translated.
    ════════════════════════════════════════════════════════════════════ */
 
 // Whoever is operating this session, by NAME — the same value shape
@@ -1609,21 +1658,40 @@ function canArchivePhoto(p){
   return !!(me && p && p.uploaded_by && p.uploaded_by === me);
 }
 
-// name -> id, live buckets only. Loaded once per roDiag open.
-let PHOTO_BUCKETS = {};
+// THIS RO's live buckets, in display order. An ARRAY, not a name map — see
+// the block comment above for why a name map is now actively dangerous.
+// Loaded once per roDiag open.
+//
+// LIVE ONLY (`archived_at is null`). A tech must never be able to file INTO a
+// bucket the office removed. Photos already sitting in a removed bucket are not
+// lost by this filter: groupPhotosByBucket puts anything whose bucket_id is not
+// in this list into "No bucket", which is exactly what a removal should look
+// like, and restoring the bucket walks them straight back in.
+let RO_BUCKETS = [];
 
-async function loadPhotoBuckets(){
+async function loadPhotoBuckets(roId){
+  RO_BUCKETS = [];
+  if(!roId) return;
   const { data, error } = await db.from('photo_buckets')
-    .select('id, name').is('archived_at', null).order('sort_order', { ascending: true });
+    .select('id, name, sort_order, archived_at')
+    .eq('ro_id', roId)
+    .is('archived_at', null)
+    .order('sort_order', { ascending: true })
+    .limit(60);                       // the cap is 12 live; 60 is a runaway stop
   if(error){
-    // Pre-migration project, or the table isn't there yet: photos still upload,
-    // they just land unbucketed. Never block the capture on this.
+    // Pre-migration project, or the column isn't there yet: photos still
+    // upload, they just land unbucketed. Never block the capture on this.
     console.warn('[RoPhotos] bucket load failed (photos will be unbucketed):', error.message);
-    PHOTO_BUCKETS = {};
     return;
   }
-  PHOTO_BUCKETS = {};
-  (data || []).forEach(b => { PHOTO_BUCKETS[b.name] = b.id; });
+  const PB = window.PhotoBuckets;
+  RO_BUCKETS = PB ? PB.sortBuckets(data || []) : (data || []);
+}
+
+// The bucket an "Add Photo" tile in THIS grid files into. Held as the id, so a
+// rename between render and tap cannot misfile anything.
+function roBucketById(id){
+  return RO_BUCKETS.find(b => String(b.id) === String(id)) || null;
 }
 
 // Private bucket -> short-lived signed URLs, same as loadRoClips.
@@ -1647,17 +1715,28 @@ async function loadRoPhotos(roId){
   RO_DIAG.photos = photos;
 }
 
-// The photos currently in one named bucket. Unknown/archived bucket -> the
-// tiles that carry no bucket_id, i.e. "No bucket".
-function photosInBucket(bucketName){
-  const id = PHOTO_BUCKETS[bucketName] || null;
-  return (RO_DIAG.photos || []).filter(p => (p.bucket_id || null) === id);
+// Every group to render on this RO: one per live bucket (even when empty — you
+// cannot put a photo INTO a bucket that does not render), plus "No bucket" last
+// when it holds anything.
+function roPhotoGroups(){
+  const PB = window.PhotoBuckets;
+  if(!PB) return [];
+  return PB.groupPhotosByBucket(RO_DIAG.photos || [], RO_BUCKETS, { includeEmpty: true });
 }
 
-function roPhotoGridHtml(bucketName, inputId, label){
-  const photos = photosInBucket(bucketName);
+// One bucket's grid. `group` comes from roPhotoGroups().
+//
+// "No bucket" is normally READ-ONLY — the office drops photos there, the tech
+// does not file INTO it. The ONE exception is an RO with no live bucket left
+// (every one removed, or the bucket read failed on a pre-migration project):
+// then it becomes the only grid, WITH a + tile, and its uploads land
+// unbucketed. A tech must never be left holding a photo and no way to add it —
+// that was the whole failure the old hardcoded grids could not have.
+function roPhotoGridHtml(group, allowAdd){
+  const photos = group.photos;
+  const canAdd = group.isNoBucket ? !!allowAdd : true;
+  const inputId = group.isNoBucket ? 'roPhotoInput__none' : ('roPhotoInput_' + group.id);
   return `
-    <h3>${label} (${photos.length})</h3>
     <div class="photo-grid">
       ${photos.map(p => {
         // The X only renders on YOUR OWN photos (canArchivePhoto). It is a
@@ -1670,13 +1749,20 @@ function roPhotoGridHtml(bucketName, inputId, label){
           ? `<div class="photo-thumb"><a href="${escRo(p.url)}" target="_blank" rel="noopener"><img src="${escRo(p.url)}" loading="lazy" alt=""></a>${x}</div>`
           : `<div class="photo-thumb">${x}</div>`;
       }).join('')}
+      ${canAdd ? `
       <label class="photo-add" for="${inputId}">
         <div class="plus">+</div>
-        <div>${t('addPhotoLabel')}</div>
-      </label>
+        <div>${escRo(t('addPhotoLabel'))}</div>
+      </label>` : ''}
     </div>
-    <input type="file" accept="image/*" capture="environment" id="${inputId}">
+    ${canAdd ? `<input type="file" accept="image/*" capture="environment" id="${inputId}">` : ''}
   `;
+}
+
+// A group's display name: the bucket's free-typed name, or the translated
+// "No bucket". Bucket names themselves are never translated (decision).
+function roBucketLabel(group){
+  return group.isNoBucket ? t('noBucketLabel') : group.name;
 }
 
 function refreshPhotosUI(){
@@ -1684,21 +1770,70 @@ function refreshPhotosUI(){
   if(wrap){ wrap.innerHTML = roPhotosHtml(); bindPhotoInputs(); }
 }
 
+// FLAT (<= 2 live buckets) reproduces the original layout exactly: a section
+// per bucket, every grid open, nothing to tap. ACCORDION (3+) shows one grid at
+// a time with the first bucket open. "No bucket" is always rendered — read-only
+// — whenever it holds photos, in both layouts, so a photo the office dropped
+// out of a bucket is never invisible to the tech who shot it.
 function roPhotosHtml(){
-  return `
-    <div class="section">
-      ${roPhotoGridHtml('Before', 'roBeforePhotoInput', t('beforePhotosLabel'))}
-    </div>
-    <div class="section" style="border-bottom:none">
-      ${roPhotoGridHtml('Part / Repair', 'roPartPhotoInput', t('partPhotosLabel'))}
-    </div>
-  `;
+  const PB = window.PhotoBuckets;
+  if(!PB) return '';
+  let groups = roPhotoGroups();
+  // NO LIVE BUCKET ON THIS RO — the office removed them all, or the bucket read
+  // failed. Fall back to a single "No bucket" grid that CAN take a photo, so
+  // the tech is never stuck. groupPhotosByBucket omits an empty "No bucket"
+  // group by design, so on a clean RO there is nothing to fall back to and we
+  // synthesise it.
+  const noLive = PB.liveBuckets(RO_BUCKETS).length === 0;
+  if(noLive && !groups.length){
+    groups = [{ id: null, name: PB.NO_BUCKET_LABEL, bucket: null, isNoBucket: true, photos: [] }];
+  }
+  if(!groups.length) return '';
+  const layout = PB.techLayout(RO_BUCKETS);
+  if(layout === 'flat'){
+    return groups.map((g, i) => `
+      <div class="section"${i === groups.length - 1 ? ' style="border-bottom:none"' : ''}>
+        <h3>${escRo(roBucketLabel(g))} (${g.photos.length})</h3>
+        ${roPhotoGridHtml(g, noLive)}
+      </div>`).join('');
+  }
+  const open = roOpenBucketKey(groups);
+  return `<div class="section" style="border-bottom:none">
+    <h3>${escRo(t('photosLabel'))}</h3>
+    ${groups.map(g => {
+      const key = g.isNoBucket ? '__none__' : String(g.id);
+      const isOpen = key === open;
+      return `
+      <div class="pb-acc${isOpen ? ' open' : ''}">
+        <button type="button" class="pb-acc-head" data-bucket-open="${escRo(key)}"
+                aria-expanded="${isOpen ? 'true' : 'false'}">
+          <span class="pb-acc-name">${escRo(roBucketLabel(g))}</span>
+          <span class="pb-acc-count">${g.photos.length}</span>
+          <span class="pb-acc-chev">${isOpen ? '\u2303' : '\u2304'}</span>
+        </button>
+        ${isOpen ? roPhotoGridHtml(g, noLive) : ''}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+// Which accordion panel is open. Defaults to the FIRST group and survives a
+// re-render; if the open bucket disappears (the office removed it while the
+// tech had it open) it falls back to the first rather than showing nothing.
+function roOpenBucketKey(groups){
+  const keys = groups.map(g => (g.isNoBucket ? '__none__' : String(g.id)));
+  const want = RO_DIAG && RO_DIAG.openBucket;
+  return (want && keys.indexOf(want) !== -1) ? want : keys[0];
 }
 
 // One upload: downscale -> storage -> attachments row -> re-render.
 // Mirrors uploadClip() exactly, plus compression and the bucket.
+//
+// Takes a bucket ID, never a name. Per-RO, many buckets share a name across
+// ROs, so a name is no longer an identifier — resolving one would file the
+// photo onto an arbitrary repair order.
 let roPhotoBusy = false;
-async function uploadRoPhoto(file, bucketName){
+async function uploadRoPhoto(file, bucketId){
   if(!file || roPhotoBusy) return;
   if(!file.type || !file.type.startsWith('image/')){ showToast(t('toastPhotoFailed')); return; }
   // Camera-captured files can arrive zero-byte — Supabase Storage rejects that
@@ -1733,10 +1868,13 @@ async function uploadRoPhoto(file, bucketName){
       .upload(path, blob, { contentType: mime, upsert: false });
     if(upErr){ console.error('[RoPhotos] upload failed', upErr); showToast(t('toastPhotoFailed')); return; }
 
-    const bucketId = PHOTO_BUCKETS[bucketName] || null;
+    // Re-resolve at WRITE time, not render time: if the office removed this
+    // bucket while the camera was open, the photo lands unbucketed (visible,
+    // re-filable) instead of pointing at a bucket that is no longer on the RO.
+    const target = roBucketById(bucketId) ? bucketId : null;
     const { data: row, error: insErr } = await db.from('attachments')
       .insert({ entity_type: 'repair_order', entity_id: ro.id, kind: 'ro_photo',
-                file_path: path, bucket_id: bucketId, uploaded_by: currentTechName() })
+                file_path: path, bucket_id: target, uploaded_by: currentTechName() })
       .select('id, uploaded_by, created_at').single();
     if(insErr){ console.error('[RoPhotos] attach-row failed', insErr); showToast(t('toastPhotoFailed')); return; }
 
@@ -1753,12 +1891,12 @@ async function uploadRoPhoto(file, bucketName){
     // (created_at is server-set); fall back to the local name only if the
     // returning clause is unavailable on an older project.
     RO_DIAG.photos.push({
-      id: row.id, file_path: path, bucket_id: bucketId, url,
+      id: row.id, file_path: path, bucket_id: target, url,
       uploaded_by: (row.uploaded_by !== undefined ? row.uploaded_by : currentTechName()),
       created_at: row.created_at || new Date().toISOString(),
     });
     refreshPhotosUI();
-    showToast(bucketId ? t('toastPhotoAdded') : t('toastPhotoNoBucket'));
+    showToast(target ? t('toastPhotoAdded') : t('toastPhotoNoBucket'));
   } finally {
     roPhotoBusy = false;
   }
@@ -1812,9 +1950,22 @@ function confirmArchivePhoto(photoId){
 // Hence `await uploadRoPhoto(...)` BEFORE `e.target.value = ''`.
 function bindPhotoInputs(){
   const wrap = document.getElementById('roPhotosWrap');
+  // One delegated listener for the whole wrap, bound ONCE. The wrap's innerHTML
+  // is replaced on every refresh, so per-element listeners would leak.
   if(wrap && !wrap.dataset.xBound){
     wrap.dataset.xBound = '1';
     wrap.addEventListener('click', (e) => {
+      const acc = e.target.closest('[data-bucket-open]');
+      if(acc){
+        e.preventDefault();
+        const key = acc.getAttribute('data-bucket-open');
+        // Tapping the open panel's own header collapses nothing — one panel is
+        // always open, so there is never a state with every grid hidden and no
+        // way to add a photo.
+        RO_DIAG.openBucket = key;
+        refreshPhotosUI();
+        return;
+      }
       const btn = e.target.closest('[data-archive]');
       if(!btn) return;
       e.preventDefault(); e.stopPropagation();      // don't also open the photo
@@ -1822,19 +1973,21 @@ function bindPhotoInputs(){
     });
   }
 
-  const pairs = [
-    ['roBeforePhotoInput', 'Before'],
-    ['roPartPhotoInput',   'Part / Repair'],
-  ];
-  for(const [id, bucketName] of pairs){
-    const el = document.getElementById(id);
-    if(!el) continue;
+  // The file inputs ARE re-created on every refresh (they live inside the
+  // replaced markup), so these must be re-bound each time — unlike the
+  // delegated listener above.
+  const bind = (el, bucketId) => {
+    if(!el) return;
     el.addEventListener('change', async (e) => {
       const file = e.target.files[0];
-      if(file) await uploadRoPhoto(file, bucketName);
+      if(file) await uploadRoPhoto(file, bucketId);
       e.target.value = '';
     });
-  }
+  };
+  for(const b of RO_BUCKETS) bind(document.getElementById('roPhotoInput_' + b.id), b.id);
+  // The no-live-bucket fallback grid. RO_BUCKETS is empty in that case, so the
+  // loop above never reaches it; its uploads deliberately carry a null bucket.
+  bind(document.getElementById('roPhotoInput__none'), null);
 }
 
 function roCodesHtml(){

@@ -1,11 +1,15 @@
 # How My Numbers (the tech's phone tool) is wired
 
 > Doc: `/docs/wiring/my-numbers.md`
-> Last updated: 2026-07-30 — verified vs commit `be6cef7`
-> Status: ✅ verified vs commit `be6cef7` — every claim re-checked this session against
-> `my-numbers.html`, and against the consumers on `advisor-board.html`, `gm-board.html`,
-> `crisdata-techboard.html`, and `shared/status-mirror.js`. **Investigation-only capture —
-> no app code changed** (only this doc + its File Cabinet registration).
+> Last updated: 2026-08-22 — §2's trilingual note now carries the **standing Creole cleanup**,
+> and the RO-photo grids moved to **per-RO buckets** ([[ro-photos]] §3/§3a). Verified vs
+> `085e239` + the slice-3 working tree (UNMERGED).
+> Status: ⚠ **Needs review.** The 2026-07-30 pass below is still the last full verification of
+> §§1, 3–8; only the language note, the photo grids and the gaps list were re-checked against
+> the code on 2026-08-22. Several §§ predate the RO Diagnosis tab's later slices.
+> Previously: 2026-07-30 — verified vs commit `be6cef7`, every claim re-checked against
+> `my-numbers.html` and its consumers on `advisor-board.html`, `gm-board.html`,
+> `crisdata-techboard.html`, and `shared/status-mirror.js`.
 
 ## 0. In one line
 **My Numbers is the phone app a tech logs into to see the cars assigned to them, walk each
@@ -67,6 +71,25 @@ Punch state is rebuilt from today's rows on load, but the in-memory step also ad
 the write is blocked by RLS (`42501`) so the UI never wedges.
 
 **Everything is trilingual** (EN / ES / HT) via the `I18N` map + `t()`, switchable inline.
+
+> ### ⚠ STANDING CLEANUP: Haitian Creole (HT) is no longer needed anywhere in the app
+> Decided 2026-08-22. **Alex was the only Creole speaker on the crew and he has retired**, so
+> the `ht` block in every `I18N` map is now dead weight that every future string still has to be
+> written in. **Spanish stays** — the shop expects to keep having Spanish speakers.
+>
+> **Deliberately NOT removed in the slice-3 session**, so that a photo-bucket change did not turn
+> into an app-wide string sweep. Recorded here so it is *decided* rather than rediscovered in six
+> months by someone dutifully translating a new label into a language nobody reads.
+>
+> When it is done, it is a sweep and not a one-liner: the `ht` blocks in `my-numbers.html`, the
+> language switcher's third option, and any other board carrying an `I18N` map. Check
+> `employees` for a `language`/locale preference still pointing at `ht` before pulling it.
+> New strings written in the meantime may skip `ht`.
+
+**Bucket names are the ONE exception to trilingual** — they are free-typed by the office, stored
+once, and shown **verbatim in English** in every language. There is no `name_es`/`name_ht`
+(decision 2026-08-22). Only the chrome around them ("No bucket", "Add Photo", the toasts) is
+translated. The old `beforePhotosLabel`/`partPhotosLabel` keys were deleted, not left dead.
 
 ## 3. Data model — what it reads and writes (all via the anon key, no server)
 **Reads:**
@@ -207,7 +230,11 @@ There are **two independent handoffs**, and both **surface only in the advisor's
   needs an RLS check in Supabase.
 - No push/notification on either handoff — relies on the advisor watching the Approval Queue.
 - RO Diagnosis tab has no realtime.
-- Photos are captured but never persisted — is that intended, or an unfinished slice?
+- ~~Photos are captured but never persisted~~ — **fixed.** Photos are real, hang off the repair
+  order, and sort into **per-RO buckets**; the grids are on the RO Diagnosis screen, not the
+  shopboard job screen (which carries no RO id). See [[ro-photos]] — §3 for capture, §3a for the
+  flat-vs-accordion layout the tech sees.
+- **HT is dead but still shipped** — see the standing cleanup in §2.
 
 ## Open seams / risks (what I'd want addressed before rolling out to techs)
 1. **Status desync — unmapped raw statuses collapse to "New" (§4).** A car set to *Waiting for
@@ -258,3 +285,10 @@ same reason.
   two pull-based handoffs, and the identity/permission posture. Flagged the top seams and two
   real bugs (VIN-history mismatch, unmapped statuses). **Investigation only — no app code
   changed.**
+- 2026-08-22 — **Standing Creole cleanup recorded (§2), and the photo grids went per-RO.** HT is
+  no longer needed anywhere in the app (Alex retired; Spanish stays) — noted, deliberately not
+  ripped out in a photo-bucket session. The RO-photo grids stopped being two hardcoded,
+  translated grids and became this RO's own buckets, resolved by **id** — a name lookup would
+  have filed a photo onto an arbitrary other repair order. Two buckets keep the original flat
+  layout; three or more collapse to an accordion. Doc marked ⚠ Needs review: §§1, 3–8 were not
+  re-verified this session.

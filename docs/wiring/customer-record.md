@@ -1,7 +1,10 @@
 # How the customer record is wired
 
 > Doc: `/docs/wiring/customer-record.md`
-> Last updated: 2026-08-18 — verified vs branch `feat/customer-record-veh-filter` (base `bd1f445`)
+> Last updated: 2026-08-22 — §0 + §4b: the RO photo buckets are now managed on this page, so
+> "read-only except needs-filing" is no longer true. Verified vs `085e239` + the slice-3 working
+> tree (UNMERGED — see [[ro-photos]]).
+> Previously: 2026-08-18 — verified vs branch `feat/customer-record-veh-filter` (base `bd1f445`)
 > (§4a added: the fleet filter on the vehicles accordion. §0/§5/§6 already carried the Phase 2
 > auto-attach rewrite and the "File to RO…" second write. The Customers LIST — §7 — is
 > unchanged from `420871c`.)
@@ -16,9 +19,9 @@
 A full customer view (`#view-customer`) reached from the **Customers LIST**. Opening a
 customer shows a **two-column record**: a **sticky profile on the left** and the customer's
 **vehicles as a collapsible accordion on the right** — each vehicle's ROs with a calls &
-notes timeline beneath. It is **read-only display** except in the **"needs filing"** section,
-which carries the page's **two writes**: filing a call **recording to a vehicle** (§6) and
-filing a **call to an RO** (§6b).
+notes timeline beneath. Two parts of it write: the **"needs filing"** section — filing a call
+**recording to a vehicle** (§6) and filing a **call to an RO** (§6b) — and, for office roles
+only, the **RO photo buckets** under each RO (§4b). Everything else is read-only display.
 
 ## 1. Counts, "customer since" & lifetime $
 - **CrisData-only and labeled as such** — old ALLDATA history isn't imported.
@@ -113,6 +116,22 @@ finding one van meant eyeballing 31 near-identical rows.
   silently hide vehicles on the next record.
 - At ≤860px the input goes to `16px` so iOS doesn't zoom the page on focus.
 
+### 4b. RO photo buckets — the page's other writes (office only)
+Under each RO block, `roPhotosHtml(roId)` renders that RO's photos grouped by **buckets that
+belong to that one repair order**. For `advisor` / `manager` (the GM) / `owner` it is also where
+those buckets are **managed**: rename, add, remove, move a photo between them, and take a photo
+without leaving the record. For anyone else it is exactly what it was — thumbnails and a
+lightbox.
+
+Three things to know here; the full wiring is [[ro-photos]] §5a/§5b:
+- **The gate is `CHAT_IDENTITY.role`, which resolves ASYNCHRONOUSLY.** The first render genuinely
+  has it null, so `applyIdentity` calls `window.cdCustomerRecordRerender()` when it lands.
+- **Buckets are read in the same batched `.in()` pass** as the photos, and **both reads carry
+  `.limit(2000)`** — they were unbounded.
+- **Nothing re-renders while an inline editor is open**, and the caret is restored after the
+  render that created it. Same lesson as the fleet filter input living outside `#custVehicles`
+  (§4a): a render per keystroke kills the caret mid-word.
+
 **Timeline entry (`callEntryHtml`):** time (`started_at`), caller-ID (`cnam` / `caller_formatted`
 / formatted phone), a **disposition** chip from `calls.next_step`
 (`NEXT_STEP_LABEL`), the advisor **note**, a ▶ recording when one exists, and an **unconfirmed**
@@ -186,8 +205,8 @@ A small neutral **`auto`** chip on any timeline entry whose `auto_attached_at` *
 machine did (customer, RO, or both). Deliberately calmer than `unconfirmed` — it is
 information, not a warning — but present so the crew can see a machine's guess and distrust it.
 
-Everything outside the needs-filing section is **read-only display** — no other writes, no
-migration, no schema change from this page.
+Everything outside the needs-filing section and the photo buckets (§4b) is **read-only
+display**.
 
 ## 7. The Customers LIST panel (`#custListPanel`) — browse + search
 The Customers tab opens a list panel with a search box, an **A–Z index bar** (`#custAzBar`),
@@ -272,6 +291,11 @@ then branches on whether the search box has text:
   mixed case fine, no-match message fine; Jose (2 vehicles) never sees the box; an expanded row
   filtered away came back **still expanded**; order after clearing was byte-identical to before;
   focus survived typing; no horizontal overflow at 375px.
+- 2026-08-22 — **§4b added; §0 and §5's "read-only" claim corrected.** The RO photo grids under
+  each RO gained office-only bucket management (rename / add / remove), per-photo move, and an
+  on-RO camera, so this page now carries writes outside the needs-filing section. The bucket read
+  joined the existing batched `.in()` pass and both it and the photo read gained `.limit(2000)`.
+  Built, UNMERGED, no migration applied anywhere — [[ro-photos]] is the wiring.
 - 2026-08-18 — **Added the manual re-file control + the auto chip** (§0, §6b, §6c). The
   needs-filing section gained a "File to RO…" `<select>` (all of the customer's ROs newest-first,
   **closed included**, confirmed calls only) that re-buckets the entry on change; and timeline

@@ -1,7 +1,10 @@
 # How the staging database is wired
 
 > Doc: `/docs/wiring/staging-db.md`
-> Last updated: 2026-08-21 — §8.2 added (self-guarding SQL); §8 added (`app_env`,
+> Last updated: 2026-08-22 — **§8.4: no data-modifying CTEs in hand-run SQL (the linter dialog's
+> green default would enable RLS on `repair_orders`). §8.3: `app_env` is invisible to `anon` —
+> read it only in the SQL editor; exact sandbox stamp recorded.**
+> Previously: 2026-08-21 — §8.2 added (self-guarding SQL); §8 added (`app_env`,
 > replacing the drifting run-id guard);
 > §7 added: staging cannot verify ANY office-identity path (no `auth.users` rows + a
 > phone/PIN collision). Verified vs commit `dc39a76`.
@@ -446,6 +449,111 @@ the drifting run-id count (§8.1), and an index that might exist without firing
 exactly like its success.* A predicate that returns zero rows on the wrong database cannot fail
 that way; you see the empty result.
 
+### 8.3 `app_env` is INVISIBLE TO `anon` — read it in the SQL editor, never over PostgREST
+Reading `/rest/v1/app_env?select=env` with each project's public anon key returns `[]` — HTTP
+200, `content-range: */0` — on **prod (`hygemiszxwmyrkmhbjub`) and sandbox
+(`efhmefpaijjncwgbvwki`) alike**.
+
+**RESOLVED 2026-08-22: the rows exist.** Run by hand in the sandbox SQL editor,
+`select env from public.app_env;` returns its stamp. So RLS is on with no `anon` policy and
+PostgREST returns an empty set rather than an error — the SQL editor bypasses RLS and sees the
+row fine. **Never use a REST read of `app_env` to decide which database you are on: it returns
+"no rows" on a correctly stamped database.** The SQL editor is the only place this guard means
+anything.
+
+**THE EXACT SANDBOX STAMP IS:**
+
+```
+SANDBOX — efhmefpaijjncwgbvwki
+```
+
+No "CrisData" in it. Getting this wrong matters in one specific way: a mistyped
+`insert … on conflict do nothing` does NOT collide (the string is the primary key), so it
+**silently adds a SECOND stamp row**. `(select env from public.app_env)` on a two-row table then
+errors or returns an arbitrary row depending on the query. Match the string exactly, or do not
+insert at all.
+
+**Why it matters more than it looks.** §8.2's whole premise is that the env test lives inside the
+statement. But `(select env from public.app_env)` on an empty table is **NULL**, and:
+
+```
+NULL like 'PROD%'      -> NULL   (so a DO-block `if … then raise` never fires)
+NULL not like 'PROD%'  -> NULL   (so a DML predicate matches ZERO rows)
+```
+
+So an unstamped database makes every self-guarding statement **fail safe but silently**: nothing
+is changed, every block reports `0`, and it reads exactly like "a database with nothing to do."
+That is the §8.1 lesson recurring in a new place — *a check that cannot fail loudly is not a
+check* — and §8 already says an environment with no stamp is worse than no guard at all. It just
+did not say what the silent failure would look like from the operator's chair.
+
+**The fix, adopted in `migrations/20260822_photo_buckets_per_ro.sql`:** guarded SQL opens with a
+pre-flight that turns NULL into a loud stop, and every DO-block guard tests `is null` *before* it
+tests `like 'PROD%'`:
+
+```sql
+do $$
+declare v text;
+begin
+  select env into v from public.app_env limit 1;
+  if v is null then
+    raise exception 'app_env HAS NO ROW in this database — STOP. Every guard below would silently match nothing and report 0.';
+  end if;
+  if v like 'PROD%' then
+    raise exception 'WRONG PROJECT: % — refusing', v;
+  end if;
+  raise notice 'app_env OK: %', v;
+end $$;
+```
+
+**Copy that pre-flight into every future hand-run migration.** A DML-only predicate cannot raise,
+so the pre-flight is what makes a NULL stamp visible; the predicate is what makes a *wrong* stamp
+harmless.
+
+### 8.4 ⚠ NEVER PUT A DATA-MODIFYING CTE IN HAND-RUN SQL — the dialog's default is destructive
+Found 2026-08-22 running the per-RO photo-bucket migration on the sandbox.
+
+The Supabase SQL editor lints the statement before running it. It reads a **data-modifying CTE**
+— `with x as (insert into public.repair_orders …)` — as a **CREATE TABLE**, and throws:
+
+> Potential issue detected — this query creates a table without enabling Row Level Security …
+> `public.repair_orders`
+> **[ Cancel ] [ Run without RLS ] [ Run and enable RLS ]**
+
+**`Run and enable RLS` is the green default button, and on prod one click of it would ENABLE RLS
+ON `repair_orders`.** Every board reads that table through the anon key. That is a shop-wide
+outage — the RO Board, the Tech Board, the customer record and the invoice document all go blank
+at once — caused by accepting the default on a dialog that appeared during an unrelated
+migration.
+
+The linter is not parsing what the statement does; it sees `... as (insert into <table>`. So this
+fires for **any** data-modifying CTE — INSERT, UPDATE or DELETE — naming **any** table.
+
+**The rule: hand-run SQL contains no data-modifying CTEs.** Use one of these instead, both of
+which report a count without a CTE:
+
+```sql
+-- plain statement + RETURNING (fine: the rows themselves are the report)
+insert into public.photo_bucket_templates (name, sort_order)
+select b.name, b.sort_order from public.photo_buckets b where b.ro_id is null
+returning id, name, sort_order;
+
+-- or a DO block, which is the only shape that reports a COUNT with no CTE
+do $$
+declare n bigint;
+begin
+  update public.attachments set bucket_id = ... where ...;
+  get diagnostics n = row_count;
+  raise notice 'photos_repointed = %', n;
+end $$;
+```
+
+`GET DIAGNOSTICS … = ROW_COUNT` after the statement is the direct replacement for
+`with moved as (update …) select count(*) from moved`.
+
+This belongs next to "the editor runs only the highlighted text": both are ways the editor does
+something other than what the SQL says, and both are only obvious once they have bitten you.
+
 ## Where it lives in the code
 - **Client switch:** `shared/supabase-config.js` (+ `shared/supabase-config.test.js`). Loaded
   by every board via `<script src>`; boards read `window.cdSupabaseCreds()`.
@@ -460,6 +568,20 @@ that way; you see the empty result.
 - **Employee ↔ auth mapping:** see [[office-auth]].
 
 ## Session change log
+- 2026-08-22 — **§8.4 added: NO data-modifying CTEs in hand-run SQL.** The editor's linter reads
+  `with x as (insert into <table> …)` as a CREATE TABLE and offers a dialog whose GREEN DEFAULT
+  is "Run and enable RLS" — on prod, one click would enable RLS on `repair_orders` and blank
+  every board at once. Caught on the sandbox when block E of the photo-bucket migration tripped
+  it; Cris cancelled and it was rewritten as a DO block. Use plain statements with RETURNING, or
+  a DO block with `GET DIAGNOSTICS … = ROW_COUNT`.
+- 2026-08-22 — **§8.3 added and RESOLVED: `app_env` is invisible to `anon`.** A REST read returns
+  `[]` on BOTH projects, but the SQL editor (which bypasses RLS) returns the row — so RLS is on
+  with no anon policy. Never decide which database you are on from a REST read. The exact
+  sandbox stamp is `SANDBOX — efhmefpaijjncwgbvwki` (no "CrisData"); a mistyped stamp does not
+  collide on insert, it silently adds a SECOND row. Separately this exposed a gap in §8.2: a
+  NULL stamp makes every self-guarding statement match zero rows and report `0`, which is
+  indistinguishable from success. Guarded SQL now opens with a pre-flight that raises on NULL,
+  and every DO-block guard tests `is null` before `like 'PROD%'`.
 - 2026-08-21 — **§8.2 added: self-guarding SQL.** While retiring the departed employees, both
   destructive steps were rewritten to check `app_env` inside the statement — the UPDATE carries
   `and (select env from public.app_env) like 'PROD%'` in its WHERE, the CREATE INDEX is wrapped

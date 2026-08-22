@@ -611,7 +611,8 @@
 
   /* ── RO photos (read-only): bucket name + count, tiles, lightbox ── */
   .cust-photos { margin-top:8px; display:flex; flex-direction:column; gap:9px; }
-  .cust-photo-head { display:flex; align-items:center; gap:7px; margin-bottom:4px; }
+  .cust-photo-head { display:flex; align-items:center; gap:7px; margin-bottom:4px;
+    min-height:19px; }   /* an EMPTY bucket is a heading with no grid under it */
   .cust-photo-bucket { font-size:0.6rem; font-weight:800; text-transform:uppercase;
     letter-spacing:0.4px; color:var(--muted); }
   .cust-photo-count { font-size:0.58rem; font-weight:800; color:var(--muted);
@@ -646,6 +647,45 @@
   .cust-photo-tile:hover { border-color:var(--accent); }
   .cust-photo-missing { cursor:default; }
   .cust-photo-missing:hover { border-color:var(--border); }
+
+  /* ── PER-RO bucket management (slice 3). Office roles only — the whole
+        bar and every control below is absent for anyone else. ── */
+  .cust-photo-bar { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:2px; }
+  .cust-photo-act { border:1px solid var(--border); border-radius:6px; background:var(--surface-2);
+    color:var(--text); font-size:0.62rem; font-weight:700; padding:3px 8px; cursor:pointer;
+    line-height:1.5; white-space:nowrap; }
+  .cust-photo-act:hover { border-color:var(--accent); }
+  .cust-photo-cam { display:inline-block; }
+  /* The file input is driven by its <label>; showing it would put a raw
+     "Choose file" control in the middle of the record. */
+  .cust-cam-input { display:none; }
+  .cust-photo-cap-note { font-size:0.6rem; color:var(--muted); font-style:italic; }
+  /* A bucket name is a BUTTON for a manager (click to rename) but must still
+     read as a heading, not a control — same size, weight, colour and casing as
+     the read-only span beside it. Only the hover state gives it away. */
+  .cust-photo-bucket-btn { border:none; background:none; padding:0; cursor:pointer;
+    font:inherit; font-size:0.6rem; font-weight:800; text-transform:uppercase;
+    letter-spacing:0.4px; color:var(--muted); }
+  .cust-photo-bucket-btn:hover { color:var(--accent); text-decoration:underline; }
+  .cust-bucket-rm { margin-left:auto; }          /* pushed to the far edge, away from Rename */
+  .cust-bucket-input { flex:1 1 140px; min-width:0; border:1px solid var(--border);
+    border-radius:6px; background:var(--surface); color:var(--text);
+    font-size:0.75rem; padding:3px 7px; }
+  /* Move + Remove sit together in one corner block so they cannot overlap, and
+     stay hidden until the cell is hovered or something inside it is focused —
+     keyboard users must be able to reach them without a mouse. */
+  .cust-photo-acts { position:absolute; top:3px; right:3px; display:flex; gap:3px;
+    opacity:0; transition:opacity .12s; }
+  .cust-photo-cell:hover .cust-photo-acts,
+  .cust-photo-cell:focus-within .cust-photo-acts { opacity:1; }
+  .cust-photo-acts .cust-photo-act { background:rgba(0,0,0,0.62); color:#fff;
+    border-color:transparent; font-size:0.55rem; padding:2px 5px; }
+  /* The picker REPLACES the byline in the same footer slot rather than being
+     added below it — a 96px cell has no room for both, and growing the cell
+     mid-interaction shifts every tile the user was looking at. */
+  .cust-photo-move-sel { width:100%; font-size:0.58rem; padding:1px 2px;
+    border:1px solid var(--accent); border-radius:5px;
+    background:var(--surface); color:var(--text); }
 
   /* z-index must stay ABOVE the mobile sidebar (4500) and its backdrop (4499) in
      shared/board-shell.css — at 4000 an open nav drawer painted over the photo. */
@@ -814,6 +854,20 @@
 <script type="module">
   import * as CustomerRecord from './shared/customer-record.js';
   window.CustomerRecord = CustomerRecord;
+</script>
+<!-- PER-RO photo buckets (ESM -> window.PhotoBuckets) and the photo downscaler
+     (ESM -> window.PhotoCompress). Both are shared VERBATIM with
+     my-numbers.html: the same grouping rules decide what "No bucket" means on
+     both screens, and the same compressor runs whether the photo was shot by a
+     tech on the floor or by the office on the customer record. Module scripts
+     are deferred and every use here is event-driven, so load order is safe. -->
+<script type="module">
+  import * as PhotoBuckets from './shared/photo-buckets.js';
+  window.PhotoBuckets = PhotoBuckets;
+</script>
+<script type="module">
+  import * as PhotoCompress from './shared/photo-compress.js';
+  window.PhotoCompress = PhotoCompress;
 </script></script>
 </head>
 <body>
@@ -3225,6 +3279,14 @@
       // Advisor Commission — reveal the nav + render the advisor's own card
       // (no-op unless the switch is ON and this viewer is an advisor).
       renderMyCommission();
+
+      // The customer record's photo-bucket controls are gated on
+      // CHAT_IDENTITY.role, which was null until the line above. If the record
+      // is already on screen, re-render it now — otherwise an advisor who lands
+      // straight on a customer sees a read-only record with no explanation.
+      // No-op when the record isn't open.
+      try { if (window.cdCustomerRecordRerender) window.cdCustomerRecordRerender(); }
+      catch (e) { console.warn('[RoPhotos] record re-render after identity failed', e); }
     }
 
     // Resolve WHO is viewing: an office-login auth session first, else the
@@ -6510,7 +6572,18 @@
     let custCustomer = null, custVehicles = [], custRos = [], custVehById = {}, custRoById = {};
     // RO photos (slice 1, READ-ONLY): roId -> [{id, file_path, bucket_id, url}]
     // and bucketId -> {name, sort_order}. Loaded once per customer open.
-    let custRoPhotos = {}, custPhotoBucketById = {};
+    let custRoPhotos = {};
+    // roId -> that RO's buckets (live AND removed), in display order. Removed
+    // ones are kept in memory because their photos still point at them: the
+    // grouping rule needs to recognise the id and drop it into "No bucket"
+    // rather than treat it as a stray row.
+    let custRoBuckets = {};
+    // Transient inline-editor state. All three are display-only and are reset
+    // on every customer load, so a half-typed rename can never leak onto the
+    // next record.
+    let custBucketEditId = null;   // bucket whose name is being edited
+    let custBucketAddRo  = null;   // RO whose "new bucket" input is open
+    let custPhotoMoveId  = null;   // photo whose bucket picker is open
     let custVehQuery = '';        // the fleet-filter text; display-only, never persisted
     let custMergedKeeper = null;  // the survivor row, when this record was merged away (§8)
     let custTotals = {}, custRecCallsAll = [], custRecIdx = {}, custSecondaryLearned = false;
@@ -6752,6 +6825,7 @@
       const vehSearchEl = $('custVehSearch'); if (vehSearchEl) vehSearchEl.value = '';
       $('custVehFilter').style.display = 'none';
       custOpenVeh = null;
+      custBucketEditId = null; custBucketAddRo = null; custPhotoMoveId = null;
       custCallGroups = { byRo: {}, byVehNoRo: {}, unfiled: [] };
       custRecAssigned = {};
       // customer row (contact fields shown only if present — the ALLDATA import +
@@ -6808,21 +6882,46 @@
         if (seq !== custLoadSeq) return;
         if (!linesResp.error) custTotals = CR().totalsByRo(linesResp.data || [], { rate: taxRate(), exempt: !!cust.tax_exempt });
       }
-      // RO photos — one batched .in() over this customer's ROs, then one signed
-      // URL per photo. Same read shape My Numbers uses (private bucket ->
-      // createSignedUrl) and the same shape the RO cards use for diagnosis
-      // audio. Degrades to no photos if the migration hasn't run here.
-      custRoPhotos = {}; custPhotoBucketById = {};
+      // RO photos — one batched .in() over this customer's ROs, then ONE
+      // createSignedUrls for the whole customer. Same read shape My Numbers
+      // uses (private bucket -> signed URL) and the same shape the RO cards use
+      // for diagnosis audio. Degrades to no photos if the migration hasn't run.
+      //
+      // BUCKETS ARE READ IN THE SAME BATCHED PASS, .in('ro_id', roIds) — one
+      // query for the whole customer, not one per RO. Mint Motors has 31
+      // vehicles; a per-RO bucket query would be dozens of round trips on a
+      // screen that already does several.
+      //
+      // BOTH READS CARRY .limit(). They were unbounded, which is the README's
+      // 1000-row hazard: a customer with a long history could silently take the
+      // default cap and render a partial record that looks complete.
+      custRoPhotos = {}; custRoBuckets = {};
       if (roIds.length) {
         try {
-          const bResp = await db.from('photo_buckets').select('id, name, sort_order');
+          // Live AND removed buckets for these ROs. Removed ones are needed so
+          // grouping can recognise a photo's bucket_id and place it under "No
+          // bucket" — and so restoring the bucket brings its photos straight
+          // back, which is what makes a removal reversible.
+          const bResp = await db.from('photo_buckets')
+            .select('id, ro_id, name, sort_order, archived_at')
+            .in('ro_id', roIds)
+            .order('sort_order', { ascending: true })
+            .limit(2000);
           if (seq !== custLoadSeq) return;
-          (bResp.data || []).forEach(b2 => { custPhotoBucketById[String(b2.id)] = b2; });
+          const PBm = window.PhotoBuckets;
+          (bResp.data || []).forEach(b2 => {
+            const k = String(b2.ro_id);
+            (custRoBuckets[k] = custRoBuckets[k] || []).push(b2);
+          });
+          if (PBm) Object.keys(custRoBuckets).forEach(k => {
+            custRoBuckets[k] = PBm.sortBuckets(custRoBuckets[k]);
+          });
           const pResp = await db.from('attachments')
             .select('id, file_path, bucket_id, entity_id, uploaded_by, created_at')
             .eq('entity_type', 'repair_order').eq('kind', 'ro_photo')
             .is('deleted_at', null)                               // archived rows are tombstones
-            .in('entity_id', roIds).order('created_at', { ascending: true });
+            .in('entity_id', roIds).order('created_at', { ascending: true })
+            .limit(2000);
           if (seq !== custLoadSeq) return;
           const rows = pResp.error ? [] : (pResp.data || []);
           // Sign in one pass. createSignedUrls takes a batch — one round trip
@@ -6871,37 +6970,75 @@
       renderCustUnfiled();
     }
 
-    /* ── RO PHOTOS on the customer record (slice 1, READ-ONLY) ──────────
-       Thumbnails grouped by bucket under each RO: bucket name, count, tiles,
-       click to enlarge. No moving between buckets, no delete, no bucket CRUD
-       in this slice — every control here is a link or a lightbox.
+    /* ── RO PHOTOS on the customer record — PER-RO BUCKETS (slice 3) ─────
+       Thumbnails grouped by bucket under each RO, and — for the office only —
+       the place those buckets are MANAGED: rename, add, remove, move a photo
+       between them, and take a photo without leaving the record.
 
-       Grouping rule mirrors the DB: bucket_id NULL is a real state, "No
-       bucket", not missing data — so those photos still show, in their own
-       group, last. A photo whose bucket was ARCHIVED still resolves its name
-       (we load every bucket, not just live ones) so history keeps reading
-       correctly after the shop retires a bucket. */
+       A BUCKET BELONGS TO ONE RO. It was copied onto this RO when the RO was
+       created (by the DB trigger, not by any JS here) and nothing reaches back
+       to a shared list afterwards. Renaming "Before" on RO #6032 renames it on
+       RO #6032 and nowhere else, ever. That is why every write below is keyed
+       on a bucket ID and why none of them can name another repair order.
+
+       REMOVING A BUCKET DOES NOT TOUCH attachments.bucket_id. It sets
+       archived_at + archived_by, and the grouping rule renders anything
+       pointing at a non-live bucket under "No bucket". So the photos stay
+       visible, nothing is destroyed, and un-removing the bucket walks every one
+       of them straight back in. Moving the photos instead (nulling bucket_id)
+       would look identical on screen and would permanently erase which bucket
+       they had been in.
+
+       All the grouping/ordering/validation rules live in shared/photo-buckets.js
+       and are shared VERBATIM with My Numbers, so the tech's grids and this
+       screen can never disagree about what "No bucket" means.
+
+       ⚠ WHO SEES THE CONTROLS: PhotoBuckets.canManageBuckets(CHAT_IDENTITY.role)
+       — advisor, manager (that IS the GM; there is no 'gm' role value) and
+       owner. Techs never create or edit a bucket; they pick from the ones
+       already on the RO. Identity resolves ASYNCHRONOUSLY, so this is genuinely
+       false on the first render and the board MUST re-render once
+       OfficeIdentity lands — see cdCustomerRecordRerender. */
+    function canManageCustBuckets() {
+      const PB = window.PhotoBuckets;
+      // CHAT_IDENTITY is a script-scoped `let`, NEVER a window property —
+      // window.CHAT_IDENTITY is always undefined and a guard written that way
+      // silently short-circuits (dbc9f9a). Read it bare. Same rule as the
+      // deleted_by / archived_by stamps below.
+      return !!(PB && CHAT_IDENTITY && PB.canManageBuckets(CHAT_IDENTITY.role));
+    }
+
+    function custBucketsFor(roId) {
+      return custRoBuckets[String(roId)] || [];
+    }
+
+    /* ATTRIBUTE-safe escaping. The board's `esc()` (declared way up at ~L2278)
+       replaces only < and >, which was safe while every attribute on this
+       screen held a URL or a UUID. It is NOT safe now: bucket names are
+       free-typed by the office and land in value="…" and title="…", and an
+       employee name lands in data-caption="…". One double quote closes the
+       attribute early — at best the markup breaks, at worst `" onfocus=…`
+       becomes an injection on a screen that renders customer data.
+       Use this for any attribute that can carry text a human typed. */
+    function escAttr(v) {
+      return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    /* The groups to render under one RO.
+
+       includeEmpty is ON for a manager and OFF for everyone else, and that is a
+       real difference, not a cosmetic one: a manager must see an empty bucket
+       to rename or remove it, while a read-only viewer looking at a job with
+       two empty buckets and one full one should see one heading, not three. */
     function custPhotoGroups(roId) {
+      const PB = window.PhotoBuckets;
       const photos = custRoPhotos[String(roId)] || [];
-      if (!photos.length) return [];
-      const byBucket = new Map();
-      photos.forEach(p => {
-        const key = p.bucket_id == null ? '' : String(p.bucket_id);
-        if (!byBucket.has(key)) byBucket.set(key, []);
-        byBucket.get(key).push(p);
-      });
-      const groups = [];
-      byBucket.forEach((list, key) => {
-        const b = key ? custPhotoBucketById[key] : null;
-        groups.push({
-          key,
-          name: b ? b.name : 'No bucket',
-          sort: b ? (b.sort_order != null ? b.sort_order : 9998) : 9999,  // unbucketed last
-          photos: list,
-        });
-      });
-      groups.sort((a, b) => (a.sort - b.sort) || a.name.localeCompare(b.name));
-      return groups;
+      const buckets = custBucketsFor(roId);
+      if (!PB) return [];
+      if (!photos.length && !canManageCustBuckets()) return [];
+      return PB.groupPhotosByBucket(photos, buckets, { includeEmpty: canManageCustBuckets() });
     }
 
     /* "Aug 10, 8:41 · Manny" — the mockup's byline.
@@ -6938,34 +7075,120 @@
       return date + ', ' + time;
     }
 
+    /* One photo cell. `manage` adds the office-only controls: Move (opens the
+       bucket picker for this photo) and Remove (archives it).
+
+       When this photo's picker is open, the byline is REPLACED by the <select>
+       rather than the select being added beneath it — a 96px cell has no room
+       for both, and pushing the grid taller mid-interaction moves every tile
+       the user was looking at. */
+    function custPhotoCellHtml(p, roId, manage) {
+      const moving = manage && custPhotoMoveId != null && String(custPhotoMoveId) === String(p.id);
+      const PB = window.PhotoBuckets;
+      let footer;
+      if (moving && PB) {
+        const targets = PB.moveTargets(p, custBucketsFor(roId));
+        footer = `<figcaption class="cust-photo-meta">
+            <select class="cust-photo-move-sel" data-move-to="${esc(String(p.id))}" aria-label="Move to bucket">
+              <option value="">Move to…</option>
+              ${targets.map(t => `<option value="${esc(t.id == null ? '__none__' : t.id)}">${esc(t.name)}</option>`).join('')}
+            </select>
+          </figcaption>`;
+      } else {
+        const m = photoMetaParts(p);
+        footer = `<figcaption class="cust-photo-meta">` +
+          (m.when ? `<span class="cust-photo-when">${esc(m.when)}</span>` : '') +
+          (m.who  ? `<span class="cust-photo-who">${esc(m.who)}</span>`  : '') +
+          `</figcaption>`;
+      }
+      return `<figure class="cust-photo-cell">
+        ${p.url
+          ? `<button type="button" class="cust-photo-tile" data-photo="${esc(p.url)}"
+                     data-caption="${escAttr(photoMetaLine(p))}" title="${escAttr(photoMetaLine(p) || 'Enlarge')}">
+               <img src="${esc(p.url)}" loading="lazy" alt="">
+             </button>`
+          : `<span class="cust-photo-tile cust-photo-missing" title="Preview unavailable"></span>`}
+        ${footer}
+        ${manage ? `<div class="cust-photo-acts">
+          <button type="button" class="cust-photo-act" data-move="${esc(String(p.id))}"
+                  title="Move to another bucket on this RO">Move</button>
+          <button type="button" class="cust-photo-act" data-archive="${esc(String(p.id))}"
+                  title="Remove from the record">Remove</button>
+        </div>` : ''}
+      </figure>`;
+    }
+
+    /* One bucket heading. For a manager the NAME IS A BUTTON (click to rename,
+       exactly as the v6 mockup does) and a Remove control sits beside the count.
+       "No bucket" gets neither: it is not a bucket, it is the absence of one —
+       there is nothing to rename and nothing to remove. */
+    function custBucketHeadHtml(g, roId, manage) {
+      const editing = manage && !g.isNoBucket && custBucketEditId != null
+                      && String(custBucketEditId) === String(g.id);
+      if (editing) {
+        return `<div class="cust-photo-head">
+          <input class="cust-bucket-input" type="text" data-rename-input="${esc(String(g.id))}"
+                 value="${escAttr(g.name)}" maxlength="${window.PhotoBuckets ? window.PhotoBuckets.MAX_BUCKET_NAME : 40}"
+                 aria-label="Bucket name">
+          <button type="button" class="cust-photo-act" data-rename-save="${esc(String(g.id))}">Save</button>
+          <button type="button" class="cust-photo-act" data-rename-cancel="1">Cancel</button>
+        </div>`;
+      }
+      const name = (manage && !g.isNoBucket)
+        ? `<button type="button" class="cust-photo-bucket cust-photo-bucket-btn"
+                   data-rename="${esc(String(g.id))}" title="Rename this bucket on this RO">${esc(g.name)}</button>`
+        : `<span class="cust-photo-bucket">${esc(g.name)}</span>`;
+      const rm = (manage && !g.isNoBucket)
+        ? `<button type="button" class="cust-photo-act cust-bucket-rm" data-rmbucket="${esc(String(g.id))}"
+                   title="Remove this bucket — its photos drop to No bucket">Remove</button>`
+        : '';
+      return `<div class="cust-photo-head">${name}
+        <span class="cust-photo-count">${g.photos.length}</span>${rm}</div>`;
+    }
+
+    /* The office-only action bar above an RO's buckets: take a photo, add a
+       bucket. The camera sits ON THE RO, so the repair order is already known
+       and it never has to ask which one — that is the whole reason it lives
+       here and not on a floating capture button. */
+    function custPhotoBarHtml(roId) {
+      const PB = window.PhotoBuckets;
+      if (!PB) return '';
+      const adding = custBucketAddRo != null && String(custBucketAddRo) === String(roId);
+      const cap = PB.canAddBucket(custBucketsFor(roId));
+      if (adding) {
+        return `<div class="cust-photo-bar">
+          <input class="cust-bucket-input" type="text" data-newbucket-input="${esc(String(roId))}"
+                 placeholder="New bucket name" maxlength="${PB.MAX_BUCKET_NAME}" aria-label="New bucket name">
+          <button type="button" class="cust-photo-act" data-newbucket-save="${esc(String(roId))}">Add</button>
+          <button type="button" class="cust-photo-act" data-newbucket-cancel="1">Cancel</button>
+        </div>`;
+      }
+      // capture="environment" is the rear camera on a phone or tablet and is
+      // simply ignored on a desktop, where it opens a file picker instead —
+      // both are wanted: the advisor is sometimes on the floor and sometimes at
+      // a desk with the photo already on disk.
+      return `<div class="cust-photo-bar">
+        <label class="cust-photo-act cust-photo-cam" for="custCam_${esc(String(roId))}">Take photo</label>
+        <input type="file" accept="image/*" capture="environment"
+               id="custCam_${esc(String(roId))}" data-cam-ro="${esc(String(roId))}" class="cust-cam-input">
+        ${cap.ok
+          ? `<button type="button" class="cust-photo-act" data-addbucket="${esc(String(roId))}">+ New bucket</button>`
+          : `<span class="cust-photo-cap-note" title="${escAttr(cap.message)}">${esc(cap.message)}</span>`}
+      </div>`;
+    }
+
     function roPhotosHtml(roId) {
       const groups = custPhotoGroups(roId);
-      if (!groups.length) return '';
-      return `<div class="cust-photos">` + groups.map(g => `
+      const manage = canManageCustBuckets();
+      if (!groups.length && !manage) return '';
+      return `<div class="cust-photos">`
+        + (manage ? custPhotoBarHtml(roId) : '')
+        + groups.map(g => `
         <div class="cust-photo-group">
-          <div class="cust-photo-head">
-            <span class="cust-photo-bucket">${esc(g.name)}</span>
-            <span class="cust-photo-count">${g.photos.length}</span>
-          </div>
-          <div class="cust-photo-grid">
-            ${g.photos.map(p => `
-              <figure class="cust-photo-cell">
-                ${p.url
-                  ? `<button type="button" class="cust-photo-tile" data-photo="${esc(p.url)}"
-                             data-caption="${esc(photoMetaLine(p))}" title="${esc(photoMetaLine(p) || 'Enlarge')}">
-                       <img src="${esc(p.url)}" loading="lazy" alt="">
-                     </button>`
-                  : `<span class="cust-photo-tile cust-photo-missing" title="Preview unavailable"></span>`}
-                <figcaption class="cust-photo-meta">
-                  ${(() => { const m = photoMetaParts(p); return (
-                    (m.when ? `<span class="cust-photo-when">${esc(m.when)}</span>` : '') +
-                    (m.who  ? `<span class="cust-photo-who">${esc(m.who)}</span>`  : '')
-                  ); })()}
-                </figcaption>
-                <button type="button" class="cust-photo-archive" data-archive="${esc(String(p.id))}"
-                        title="Remove from the record">Remove</button>
-              </figure>`).join('')}
-          </div>
+          ${custBucketHeadHtml(g, roId, manage)}
+          ${g.photos.length ? `<div class="cust-photo-grid">
+            ${g.photos.map(p => custPhotoCellHtml(p, roId, manage)).join('')}
+          </div>` : ''}
         </div>`).join('') + `</div>`;
     }
 
@@ -6989,6 +7212,206 @@
         custRoPhotos[k] = custRoPhotos[k].filter(p => String(p.id) !== String(photoId));
       });
       renderCustVehicles();
+    }
+
+    /* ══════════════════════════════════════════════════════════════════
+       BUCKET WRITES — office only. Every one is scoped to a single bucket
+       ID or a single photo ID on a single RO. None of them can name another
+       repair order, which is how "same RO only" is guaranteed rather than
+       merely intended.
+
+       Each re-checks canManageCustBuckets() at WRITE time, not just at render
+       time, so a stale DOM (a board left open while the viewer's session
+       changed) can't be used to edit anything.
+       ══════════════════════════════════════════════════════════════════ */
+
+    // Every archived_by / deleted_by stamp on this screen goes through here.
+    // CHAT_IDENTITY is a script-scoped `let`, never a window property: reading
+    // it as window.CHAT_IDENTITY is always undefined and silently writes NULL,
+    // which is exactly the bug fixed in dbc9f9a. One accessor, read bare, so
+    // there is one place to get it right.
+    function custActorName() {
+      return (CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
+    }
+
+    // Replace one RO's buckets in the local cache and re-render. Keeps the
+    // sort authoritative in one place instead of at each call site.
+    function custSetBuckets(roId, list) {
+      const PB = window.PhotoBuckets;
+      custRoBuckets[String(roId)] = PB ? PB.sortBuckets(list) : list;
+      renderCustVehicles();
+    }
+
+    async function addCustBucket(roId, rawName) {
+      const PB = window.PhotoBuckets;
+      if (!PB || !canManageCustBuckets()) return;
+      const buckets = custBucketsFor(roId);
+      const cap = PB.canAddBucket(buckets);
+      if (!cap.ok) { alert(cap.message); return; }
+      const v = PB.validateBucketName(rawName, { buckets });
+      if (!v.ok) { alert(v.message); return; }
+      const { data, error } = await db.from('photo_buckets')
+        .insert({ ro_id: roId, name: v.name, sort_order: PB.nextSortOrder(buckets) })
+        .select('id, ro_id, name, sort_order, archived_at').single();
+      if (error) {
+        // The partial unique index is the real guarantee; validateBucketName is
+        // a courtesy that produces a readable message. If the index is what
+        // rejected this, say the useful thing rather than the Postgres text.
+        console.error('[RoPhotos] add bucket failed', error);
+        alert(/duplicate key|unique/i.test(error.message || '')
+          ? `This RO already has a bucket called "${v.name}".`
+          : 'Could not add that bucket — ' + (error.message || 'unknown error'));
+        return;
+      }
+      custBucketAddRo = null;
+      custSetBuckets(roId, buckets.concat([data]));
+    }
+
+    async function renameCustBucket(bucketId, rawName) {
+      const PB = window.PhotoBuckets;
+      if (!PB || !canManageCustBuckets()) return;
+      const roId = Object.keys(custRoBuckets)
+        .find(k => custRoBuckets[k].some(b => String(b.id) === String(bucketId)));
+      if (!roId) return;
+      const buckets = custBucketsFor(roId);
+      const v = PB.validateBucketName(rawName, { buckets, selfId: bucketId });
+      if (!v.ok) { alert(v.message); return; }
+      const { error } = await db.from('photo_buckets').update({ name: v.name }).eq('id', bucketId);
+      if (error) {
+        console.error('[RoPhotos] rename bucket failed', error);
+        alert(/duplicate key|unique/i.test(error.message || '')
+          ? `This RO already has a bucket called "${v.name}".`
+          : 'Could not rename that bucket — ' + (error.message || 'unknown error'));
+        return;
+      }
+      custBucketEditId = null;
+      custSetBuckets(roId, buckets.map(b => String(b.id) === String(bucketId) ? { ...b, name: v.name } : b));
+    }
+
+    /* REMOVE A BUCKET = archive it. attachments.bucket_id is NEVER written.
+       The photos keep pointing here and render under "No bucket" because the
+       bucket is no longer live — which is what makes this reversible and what
+       keeps the record of which bucket they had been in. */
+    async function removeCustBucket(bucketId) {
+      if (!canManageCustBuckets()) return;
+      const roId = Object.keys(custRoBuckets)
+        .find(k => custRoBuckets[k].some(b => String(b.id) === String(bucketId)));
+      if (!roId) return;
+      const buckets = custBucketsFor(roId);
+      const b = buckets.find(x => String(x.id) === String(bucketId));
+      if (!b) return;
+      const n = (custRoPhotos[String(roId)] || []).filter(p => String(p.bucket_id) === String(bucketId)).length;
+      const msg = n
+        ? `Remove the "${b.name}" bucket from this RO?\n\n` +
+          `Its ${n} photo${n === 1 ? '' : 's'} will show under "No bucket" — nothing is deleted, ` +
+          `and putting the bucket back restores them.`
+        : `Remove the "${b.name}" bucket from this RO?\n\nIt has no photos in it.`;
+      if (!confirm(msg)) return;
+      const stamp = { archived_at: new Date().toISOString(), archived_by: custActorName() };
+      const { error } = await db.from('photo_buckets').update(stamp).eq('id', bucketId);
+      if (error) {
+        console.error('[RoPhotos] remove bucket failed', error);
+        alert('Could not remove that bucket — ' + (error.message || 'unknown error'));
+        return;
+      }
+      custSetBuckets(roId, buckets.map(x => String(x.id) === String(bucketId) ? { ...x, ...stamp } : x));
+    }
+
+    /* MOVE ONE PHOTO between buckets ON THE SAME RO. `targetId` is either a
+       bucket id drawn from PhotoBuckets.moveTargets — which only ever contains
+       this RO's own live buckets — or null for "No bucket". There is no code
+       path here that accepts another RO's bucket, and that is deliberate:
+       filing a photo onto the wrong repair order is the exact silent
+       misfiling this subsystem exists to prevent. */
+    async function moveCustPhoto(photoId, targetId) {
+      if (!canManageCustBuckets()) return;
+      const roId = Object.keys(custRoPhotos)
+        .find(k => custRoPhotos[k].some(p => String(p.id) === String(photoId)));
+      if (!roId) return;
+      // Re-check the target against THIS RO's live buckets at write time.
+      const ok = targetId == null || custBucketsFor(roId)
+        .some(b => String(b.id) === String(targetId) && b.archived_at == null);
+      if (!ok) { custPhotoMoveId = null; renderCustVehicles(); return; }
+      const { error } = await db.from('attachments').update({ bucket_id: targetId }).eq('id', photoId);
+      if (error) {
+        console.error('[RoPhotos] move failed', error);
+        alert('Could not move that photo — ' + (error.message || 'unknown error'));
+        return;
+      }
+      custRoPhotos[roId] = custRoPhotos[roId].map(p =>
+        String(p.id) === String(photoId) ? { ...p, bucket_id: targetId } : p);
+      custPhotoMoveId = null;
+      renderCustVehicles();
+    }
+
+    /* ── OFFICE CAPTURE ────────────────────────────────────────────────
+       Same upload path as My Numbers, on purpose: downscale + EXIF fix
+       (PhotoCompress), the same private crisdata-attachments bucket, the same
+       repair_order/<ro id>/photos/<ts>-<rand>.<ext> key shape, the same
+       attachments row. The office is not a second kind of photo.
+
+       The RO is known from the button that was pressed, so it never asks which
+       job — and it never asks which bucket either: the answer is this RO's
+       first live bucket by sort order (PhotoBuckets.defaultCaptureBucketId).
+       An RO whose buckets have all been removed uploads UNBUCKETED rather than
+       failing; a photo is never worth losing over a missing category. */
+    let custCamBusy = false;
+    async function captureCustPhoto(roId, file) {
+      const PB = window.PhotoBuckets;
+      if (!file || custCamBusy || !canManageCustBuckets()) return;
+      if (!file.type || !file.type.startsWith('image/')) { alert('That file is not an image.'); return; }
+      // A camera-captured file can arrive zero-byte; Storage only rejects it
+      // once the request lands, with "No content provided". Catch it here.
+      if (!file.size) { alert('That photo looks empty — please try capturing it again.'); return; }
+
+      // No name, no photo. uploaded_by is the whole point of the byline, and an
+      // office photo that nobody signed is worse than one not taken — the
+      // record would show a date with no accountability behind it.
+      const who = custActorName();
+      if (!who) { alert('Reopen this board from CrisData so the photo can be signed with your name.'); return; }
+
+      custCamBusy = true;
+      try {
+        const PC = window.PhotoCompress;
+        const out = PC ? await PC.compressImage(file) : null;
+        const blob = out ? out.blob : file;
+        const mime = out ? out.mime : (file.type || 'image/jpeg');
+        const ext  = out ? out.ext  : 'jpg';
+        if (out && out.usedOriginal) console.warn('[RoPhotos] uploaded original (', out.why, ')');
+
+        const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const path = `repair_order/${roId}/photos/${stamp}.${ext}`;
+        const { error: upErr } = await db.storage.from('crisdata-attachments')
+          .upload(path, blob, { contentType: mime, upsert: false });
+        if (upErr) { console.error('[RoPhotos] upload failed', upErr); alert('Could not upload that photo — ' + (upErr.message || 'unknown error')); return; }
+
+        const bucketId = PB ? PB.defaultCaptureBucketId(custBucketsFor(roId)) : null;
+        const { data: row, error: insErr } = await db.from('attachments')
+          .insert({ entity_type: 'repair_order', entity_id: roId, kind: 'ro_photo',
+                    file_path: path, bucket_id: bucketId, uploaded_by: who })
+          .select('id, uploaded_by, created_at').single();
+        if (insErr) { console.error('[RoPhotos] attach-row failed', insErr); alert('The photo uploaded but could not be filed — ' + (insErr.message || 'unknown error')); return; }
+
+        let url = '';
+        try {
+          const { data: sg } = await db.storage.from('crisdata-attachments').createSignedUrl(path, 3600);
+          url = (sg && sg.signedUrl) || '';
+        } catch (e) { /* the tile renders as a placeholder until the next load */ }
+
+        // Carry uploaded_by + created_at through from the INSERT's returning
+        // clause. Without them the freshly-pushed object renders a different
+        // byline than it will after a reload — the row has the values, the
+        // local object would not. Same fix as My Numbers on 2026-08-20.
+        const k = String(roId);
+        (custRoPhotos[k] = custRoPhotos[k] || []).push({
+          id: row.id, file_path: path, bucket_id: bucketId, url,
+          uploaded_by: (row.uploaded_by !== undefined ? row.uploaded_by : who),
+          created_at: row.created_at || new Date().toISOString(),
+        });
+        renderCustVehicles();
+      } finally {
+        custCamBusy = false;
+      }
     }
 
     // Lightbox — one element reused for every photo. Click the backdrop, press
@@ -7023,12 +7446,73 @@
     }
     function photoLightboxEsc(e) { if (e.key === 'Escape') closePhotoLightbox(); }
 
-    // Delegated: the vehicle accordion re-renders constantly, so binding per
-    // tile would leak listeners. One listener on the container instead.
+    /* Delegated: the vehicle accordion re-renders constantly, so binding per
+       tile or per control would leak listeners. THREE listeners on the
+       container — click, change, keydown — cover every photo and bucket
+       control on the screen, however many ROs are open. */
     (function bindPhotoTiles() {
       const host = $('custVehicles');
       if (!host) return;
+
+      // Read whatever the open inline editor currently holds. Used by both the
+      // Save buttons and the Enter key, so they can never diverge.
+      const editorValue = (attr, id) => {
+        const el = host.querySelector(`[${attr}="${CSS.escape(String(id))}"]`);
+        return el ? el.value : '';
+      };
+
       host.addEventListener('click', (e) => {
+        // ── bucket management (office only; every handler re-checks) ──
+        const addB = e.target.closest('[data-addbucket]');
+        if (addB) {
+          e.preventDefault();
+          custBucketAddRo = addB.getAttribute('data-addbucket');
+          custBucketEditId = null; custPhotoMoveId = null;
+          renderCustVehicles(); focusBucketEditor();
+          return;
+        }
+        const saveNew = e.target.closest('[data-newbucket-save]');
+        if (saveNew) {
+          e.preventDefault();
+          const ro = saveNew.getAttribute('data-newbucket-save');
+          addCustBucket(ro, editorValue('data-newbucket-input', ro));
+          return;
+        }
+        if (e.target.closest('[data-newbucket-cancel]')) {
+          e.preventDefault(); custBucketAddRo = null; renderCustVehicles(); return;
+        }
+        const ren = e.target.closest('[data-rename]');
+        if (ren) {
+          e.preventDefault();
+          custBucketEditId = ren.getAttribute('data-rename');
+          custBucketAddRo = null; custPhotoMoveId = null;
+          renderCustVehicles(); focusBucketEditor();
+          return;
+        }
+        const saveRen = e.target.closest('[data-rename-save]');
+        if (saveRen) {
+          e.preventDefault();
+          const id = saveRen.getAttribute('data-rename-save');
+          renameCustBucket(id, editorValue('data-rename-input', id));
+          return;
+        }
+        if (e.target.closest('[data-rename-cancel]')) {
+          e.preventDefault(); custBucketEditId = null; renderCustVehicles(); return;
+        }
+        const rmB = e.target.closest('[data-rmbucket]');
+        if (rmB) { e.preventDefault(); removeCustBucket(rmB.getAttribute('data-rmbucket')); return; }
+
+        // ── per-photo controls ──
+        const mv = e.target.closest('[data-move]');
+        if (mv) {
+          e.preventDefault();
+          const id = mv.getAttribute('data-move');
+          // Tapping Move on the photo whose picker is already open closes it.
+          custPhotoMoveId = (custPhotoMoveId != null && String(custPhotoMoveId) === String(id)) ? null : id;
+          custBucketEditId = null; custBucketAddRo = null;
+          renderCustVehicles();
+          return;
+        }
         const rm = e.target.closest('[data-archive]');
         if (rm) {
           e.preventDefault();
@@ -7044,7 +7528,77 @@
         e.preventDefault();
         openPhotoLightbox(tile.getAttribute('data-photo'), tile.getAttribute('data-caption'));
       });
+
+      // The bucket picker and the camera input. `change` does not bubble from
+      // some elements in older engines but does from <select> and <input>, and
+      // both are what this handles.
+      host.addEventListener('change', async (e) => {
+        const sel = e.target.closest('[data-move-to]');
+        if (sel) {
+          const v = e.target.value;
+          if (!v) return;                                    // the "Move to…" placeholder
+          moveCustPhoto(sel.getAttribute('data-move-to'), v === '__none__' ? null : v);
+          return;
+        }
+        const cam = e.target.closest('[data-cam-ro]');
+        if (cam) {
+          const file = e.target.files && e.target.files[0];
+          /* Reset the input AFTER the upload finishes, never before. Resetting
+             it while the upload is in flight can invalidate a camera-captured
+             File's underlying bytes on some mobile browsers — the File still
+             looks valid but Storage receives no content. Copied verbatim from
+             Capture Invoice and from My Numbers, where it is load-bearing. */
+          if (file) await captureCustPhoto(cam.getAttribute('data-cam-ro'), file);
+          e.target.value = '';
+        }
+      });
+
+      // Enter saves, Escape cancels — in both inline editors.
+      host.addEventListener('keydown', (e) => {
+        const ren = e.target.closest('[data-rename-input]');
+        const add = e.target.closest('[data-newbucket-input]');
+        if (!ren && !add) return;
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          custBucketEditId = null; custBucketAddRo = null;
+          renderCustVehicles();
+          return;
+        }
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        if (ren) renameCustBucket(ren.getAttribute('data-rename-input'), ren.value);
+        else     addCustBucket(add.getAttribute('data-newbucket-input'), add.value);
+      });
     })();
+
+    /* Put the caret in whichever inline editor just opened. Called AFTER the
+       re-render that created it — the accordion replaces its own innerHTML, so
+       the element focused before a render no longer exists after one. This is
+       also why nothing re-renders while an editor is open: a render per
+       keystroke would kill the caret mid-word, the same reason the fleet filter
+       input lives OUTSIDE #custVehicles (§4a). */
+    function focusBucketEditor() {
+      const el = $('custVehicles') &&
+        $('custVehicles').querySelector('[data-rename-input], [data-newbucket-input]');
+      if (!el) return;
+      el.focus();
+      if (el.select) el.select();
+    }
+
+    /* Identity resolves ASYNCHRONOUSLY (OfficeIdentity → applyIdentity), so the
+       customer record's FIRST render genuinely happens with CHAT_IDENTITY.role
+       still null and every bucket control hidden. Without this the advisor
+       would open a record on a fresh tab and find the controls simply missing,
+       with nothing to indicate they were coming.
+
+       Exposed on `window` deliberately: applyIdentity lives in a different
+       closure further up the file and cannot see this function directly. It is
+       a no-op unless the record is actually on screen. */
+    window.cdCustomerRecordRerender = function () {
+      const panel = $('custRecordPanel');
+      if (!panel || !custCustomer) return;
+      renderCustVehicles();
+    };
 
     // ── Formatting + derivation helpers (all pure, display-only) ──
     // A date-only string ("YYYY-MM-DD", e.g. last_invoiced) is parsed at NOON so it

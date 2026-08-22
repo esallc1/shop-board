@@ -149,6 +149,18 @@ rollup queries on small tables. Ranked by what breaks when the table passes 1,00
 
 **FIX ONLY `lookupPhone` shipped in this commit** — the rest is reported for a decision.
 
+## 6. What else happens when an RO is minted (2026-08-22)
+`mintRo` is unchanged by the per-RO photo-bucket slice and does not know about it — but a repair
+order now has a **DB-side side effect** at insert, and anyone reading this file looking for
+"everything that happens when an RO is created" needs to know it exists:
+
+**`trg_repair_orders_photo_buckets`** (`after insert … for each row`) copies the shop's standard
+photo buckets from `photo_bucket_templates` onto the new RO. Comebacks, the legacy 5xxx PO
+override and hand-run SQL all get it, because it is on the table rather than in this wizard.
+Full reasoning — including why it is not a second write inside `mintRo` — is [[ro-photos]] §1c.
+
+⚠ Not applied to any database yet as of 2026-08-22.
+
 ## Known gaps & open questions (as of 2026-08-18)
 - The vehicle guard cannot catch a duplicate typed with **no VIN and a different plate** —
   nothing links the two rows. Measured cost: 4 rows in the whole table have neither identifier.
@@ -193,3 +205,7 @@ rollup queries on small tables. Ranked by what breaks when the table passes 1,00
 - 2026-07-30 — Verified vs `bea25cf`: documented the real step order (added the `cdStepComeback` step
   the stub omitted), confirmed the legacy-PO behavior, and resolved the comeback-question VERIFY
   (intended vehicle-scoped gating).
+- 2026-08-22 — **§6 added.** `mintRo` itself is untouched, but creating a repair order now fires
+  an `after insert` trigger that copies the standard photo buckets onto it ([[ro-photos]] §1c).
+  Recorded here so "what happens when an RO is minted" stays answerable from this file. Nothing
+  else in this doc was re-verified this session.

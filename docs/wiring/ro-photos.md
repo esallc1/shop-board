@@ -1,17 +1,22 @@
 # How RO photos are wired
 
 > Doc: `/docs/wiring/ro-photos.md`
-> Last updated: 2026-08-21 — lightbox sizing + z-index fix. Verified vs commit `dbc9f9a` (live on prod).
-> Status: 🟢 **slices 1 and 2 are LIVE ON PROD** (code `ae4510b`; all four migrations run by
-> hand on prod `hygemiszxwmyrkmhbjub` on 2026-08-20 — enum value, `photo_buckets` + its two
-> seeds, `attachments.bucket_id`, and slice 2's three columns). `20260819_storage_buckets.sql`
-> was NOT needed: prod already had all nine storage buckets including the private
-> `crisdata-attachments`. One known-bad row predates the fix below — see §4.
-> Related: [[my-numbers]], [[customer-record]], [[hosting-domains]] §5.5, [[recordings-audio]].
+> Last updated: 2026-08-22 — **slice 3: buckets went PER-RO**, plus office-side capture and
+> moving a photo between buckets. Verified vs commit `085e239` + the slice-3 working tree.
+> Status: 🟢 **SANDBOX GREEN, VERIFIED IN-BROWSER.** Slices 1 and 2 are live on prod (`ae4510b`).
+> **Slice 3 is BUILT, APPLIED TO SANDBOX ONLY, AND UNMERGED.**
+> `migrations/20260822_photo_buckets_per_ro.sql` ran green on `efhmefpaijjncwgbvwki` 2026-08-22
+> (54 ROs → 108 buckets, 5 photos repointed, all D checks pass). The prod file is
+> `migrations/20260822_photo_buckets_per_ro_PROD.sql` — **written and reviewed, NOT RUN.**
+> Nothing is on staging, nothing is on prod, nothing is pushed. Prod is still `085e239`.
+> Related: [[my-numbers]], [[customer-record]], [[hosting-domains]] §5.5, [[recordings-audio]],
+> [[staging-db]] §8.
 
 ## 0. In one line
-A tech shoots photos of a job on their phone; they attach to the **repair order**, sort into
-buckets the shop names itself, and show on the customer record under that vehicle's RO.
+A tech shoots photos of a job on their phone — and the office can shoot one too, from the
+customer record. They attach to the **repair order**, sort into **buckets that belong to that
+one RO**, and show on the customer record under that vehicle's RO, where the office renames,
+adds and removes those buckets and moves photos between them.
 
 ## 1. Where the data lives
 Everything hangs off the existing `attachments` table — no new photo table.
@@ -26,10 +31,72 @@ Everything hangs off the existing `attachments` table — no new photo table.
 | `deleted_at` / `deleted_by` | tombstone — archived, see §4 |
 | `created_at` | server-set; the date shown under each thumbnail |
 
-`photo_buckets` is the shop-named category list: `id, name, sort_order, archived_at, created_at`.
-Modelled on `expense_categories`. **Name uniqueness is scoped to ACTIVE buckets** via a partial
-unique index (`where archived_at is null`) — a plain `unique` would burn a name forever, so
-archiving "Before" and later wanting "Before" back would have been impossible.
+### 1a. Buckets belong to ONE repair order
+
+`photo_buckets` is `id, ro_id, name, sort_order, archived_at, archived_by, created_at`.
+
+**`ro_id` is NOT NULL.** That is the schema saying the thing the feature is about: a bucket
+cannot exist without a repair order. It was a shop-wide list until 2026-08-22 and is not one any
+more.
+
+| | |
+|---|---|
+| `ro_id` | the RO this bucket belongs to. `on delete cascade` — a bucket never outlives its RO |
+| `archived_at` / `archived_by` | **removed**. The row stays; the bucket stops being offered |
+| unique index | `(ro_id, lower(name)) where archived_at is null` |
+
+**A bucket is a COPY, not a link.** A new RO is *born* with the shop's standard buckets copied
+onto it (§1b). After that nothing on the RO reaches back to a shared list — renaming or removing
+"Before" on RO #6032 changes RO #6032 and nothing else, ever. The same reasoning as the byline
+stamps: `uploaded_by` records a NAME, not an employee id, because a historical record should not
+change when the thing it was copied from does.
+
+**Uniqueness is per RO, scoped to LIVE buckets, and case-insensitive.** Per-RO because the whole
+point is that fifty repair orders each have their own "Before". Scoped to `archived_at is null`
+for the slice-1 reason — a plain unique burns a name forever, so removing "Before" and later
+wanting it back would be impossible. Case-insensitive because names are **free-typed** now, and
+`lower(name)` is what stops one RO carrying "Before", "before" and "Befor".
+
+### 1b. `photo_bucket_templates` — the standard set, read once
+
+`photo_bucket_templates` (`id, name, sort_order, created_at`, unique on `lower(name)`) is the
+only shop-wide list left. It holds the two names the shop has always used — **Before** and
+**Part / Repair** — and it is read **exactly once per RO, by a trigger, at creation.**
+
+It is a **separate table on purpose**, rather than template rows living in `photo_buckets` with
+a null `ro_id`. Two reasons, and the second is the real one:
+
+1. It lets `photo_buckets.ro_id` be `NOT NULL`, which makes an RO-less bucket unrepresentable
+   instead of merely discouraged.
+2. Sharing the table would mean every reader had to remember `.eq('ro_id', roId)` or the
+   templates would leak onto every RO's picker. This subsystem has already been bitten twice by
+   exactly that shape — the four readers that must filter `deleted_at` (§4), and the
+   `CHAT_IDENTITY` guard ([[office-auth]] §1b). A rule enforced by a schema beats a rule
+   enforced by everyone remembering.
+
+### 1c. Born with buckets — a DB trigger, not `mintRo`
+
+`trg_repair_orders_photo_buckets` is an `after insert` row trigger on `repair_orders` that runs
+`copy_photo_bucket_templates()` — one `insert … select` from the templates. **`mintRo` was not
+changed and does not know this happens.**
+
+The trigger, not the wizard, for three reasons:
+
+1. **Atomicity.** `mintRo` already carries a resilient-insert retry that drops
+   `service_writer_id` and re-inserts ([advisor-board.html](../../advisor-board.html) `mintRo`).
+   A second, separate write after it can fail while the RO succeeds — leaving a bucketless RO
+   while the wizard cheerfully says "RO #6041 created".
+2. **Coverage.** A repo sweep on 2026-08-22 found **exactly one** application path that creates
+   a repair order: `mintRo`. Comebacks (`parent_ro_id` set), the legacy 5xxx PO override, and
+   the Desk's "open the customer" all route *through* it; no `api/*.js` route, no `.rpc()`, and
+   no migration inserts an RO. That is true today. The trigger keeps it true for hand-run SQL
+   and for whatever path gets added next, without anyone having to remember.
+3. It runs as the **invoker**, not `security definer` — both `anon` and `authenticated` already
+   hold full-access policies on both tables, so the trigger grants nobody anything new.
+
+**An RO with no live buckets is a real, handled state**, not a broken one: the office can remove
+every bucket. Both screens fall back to a single "No bucket" grid that still accepts a photo
+(§3, §5a). A photo is never worth losing over a missing category.
 
 **No new storage bucket.** Photos reuse `crisdata-attachments` at
 `repair_order/<ro_id>/photos/<ts>-<rand>.<ext>`, mirroring the diagnosis-audio path beside them.
@@ -62,10 +129,33 @@ That is the design working, not a gap.
 - **Input-reset ordering is load-bearing.** `await` the upload, THEN `e.target.value = ''`.
   Resetting mid-flight can invalidate a camera-captured File's bytes on some mobile browsers —
   the File still looks valid but Storage receives no content. Copied from Capture Invoice.
-- **Bucket is implied by which grid was tapped**, resolved by NAME against `photo_buckets where
-  archived_at is null`. A renamed or archived bucket stops matching and the photo lands
-  unbucketed rather than failing or guessing.
+- **Bucket is implied by which grid was tapped, and resolved by ID** — never by name.
+  Per-RO there are as many rows named "Before" as there are repair orders, so a name lookup
+  would pick an arbitrary one and file the photo onto **somebody else's RO**. That is why
+  `loadPhotoBuckets(roId)` returns an ordered ARRAY of this RO's live buckets instead of the old
+  shop-wide name→id map. The bucket is re-resolved **at write time**: if the office removed it
+  while the camera was open, the photo lands unbucketed rather than pointing at a bucket that is
+  no longer on the RO.
+- **The tech reads LIVE buckets only** (`archived_at is null`) — you must never be able to file
+  INTO a bucket the office removed. Photos already sitting in a removed bucket are not hidden by
+  that filter: grouping puts anything whose `bucket_id` is not in the live list into "No bucket".
 - Works inside the gm-board `?as=` iframe (verified on a phone 2026-08-19).
+
+### 3a. The tech's layout — two grids, or an accordion
+`PhotoBuckets.techLayout` decides, and the threshold is **two**:
+
+- **≤ 2 live buckets → the original flat layout.** One grid per bucket, both open, nothing to
+  tap. Two is the standard set, so the overwhelmingly common job looks exactly as it did before
+  slice 3 and the tech has nothing new to learn.
+- **≥ 3 → an accordion**, first bucket open, one panel at a time. N flat grids on a phone is a
+  scroll. Tapping the open panel's own header does **not** collapse it, so there is never a
+  state with every grid hidden and no way to add a photo.
+
+**Bucket names are shown VERBATIM, in English, in all three languages** (decision 2026-08-22).
+They are free-typed by the office and there is no `name_es`/`name_ht`. Only the chrome around
+them — "No bucket", "Add Photo", the toasts — is translated. The old `beforePhotosLabel` /
+`partPhotosLabel` i18n keys were deleted rather than left dead. See [[my-numbers]] for the
+standing note that **Creole is no longer needed anywhere in the app**.
 
 ## 4. Archive — a tombstone, never a delete
 Removing a photo sets `deleted_at` + `deleted_by`. **The row stays and the storage object
@@ -120,10 +210,101 @@ also built from two `toLocaleDateString`/`toLocaleTimeString` calls rather than 
 `toLocaleString`, because a single call lets the engine insert a connector (Chrome renders
 `Aug 20 at 7:00 PM`) — three wasted characters that vary by browser.
 
-Buckets are loaded here **without** the `archived_at` filter, deliberately — My Numbers filters
-to live buckets (you must not file INTO a retired one), but the record must still resolve the
-NAME of an archived bucket or history silently degrades to "No bucket" the day one is retired.
-`bucket_id` NULL renders as its own "No bucket" group, sorted last.
+Buckets are loaded here **without** the `archived_at` filter and **batched**:
+`.in('ro_id', roIds)`, one query for the whole customer alongside the existing photo read, not
+one per RO. Mint Motors has 31 vehicles; a per-RO bucket query would be dozens of round trips on
+a screen that already does several. **Both reads now carry `.limit(2000)`** — they were
+unbounded, which is the README's 1000-row hazard: a long history could silently take the default
+cap and render a partial record that looked complete.
+
+Removed buckets are loaded **on purpose**. Their photos still point at them, so grouping needs
+to recognise the id to place it under "No bucket" — and keeping the row is what lets a removal
+be undone.
+
+`bucket_id` NULL renders as its own "No bucket" group, sorted last. **So does a photo whose
+bucket was removed, and a photo pointing at a bucket that is not on this RO at all.** That last
+case should be impossible after the migration (the verification query counts it), but grouping
+it here means a stray row shows up somewhere visible instead of vanishing from the record.
+
+> **This changed in slice 3.** Until 2026-08-22 the record resolved an archived bucket's NAME so
+> history kept reading correctly. That rule existed only because buckets were shop-wide —
+> retiring one silently rewrote history on *every* RO. Per-RO, removing a bucket is a deliberate
+> act on one repair order, so reading as "No bucket" is exactly what was asked for. The per-RO
+> model dissolved the tension rather than trading one side of it away.
+
+### 5a. Bucket management — office only, on the record
+All of it is inline on the RO, per the v6 mockup. **`PhotoBuckets.canManageBuckets(role)` gates
+every control**: `advisor`, `manager` and `owner`. **`manager` IS the GM** — that is the value
+stored in `employees.role`; there is no `'gm'`. Techs never create or edit a bucket; they pick
+from the ones already on the RO. `bookkeeping` is excluded and moot anyway — the customer record
+does not exist on that board.
+
+⚠ **Identity resolves ASYNCHRONOUSLY, so the first render genuinely has `CHAT_IDENTITY.role`
+null and every control hidden.** `applyIdentity` therefore calls `window.cdCustomerRecordRerender()`
+once the role lands (a no-op unless the record is on screen). Without it an advisor opening a
+record on a fresh tab would find the controls simply missing, with nothing to say they were
+coming. `advisor-board.html` passes no `expectedRole` to `OfficeIdentity.resolve` — only
+owner-board does — so the role is the only gate here.
+
+| Control | Write | Note |
+|---|---|---|
+| **Rename** — click the bucket name | `photo_buckets.name` | validated against this RO's live buckets, case-insensitively; `selfId` exempts itself so re-saving unchanged, or changing only capitalisation, is allowed |
+| **+ New bucket** | insert `{ro_id, name, sort_order: max+1}` | free-typed, trimmed, capped at **12 live** per RO |
+| **Remove** | `archived_at` + `archived_by` | **`attachments.bucket_id` is NEVER written** — see below |
+| **Move** (per photo) | `attachments.bucket_id` | **same RO only** |
+| **Take photo** | storage + `attachments` insert | §5b |
+
+**REMOVING A BUCKET DOES NOT TOUCH THE PHOTOS.** It sets `archived_at`/`archived_by`, and the
+grouping rule renders anything pointing at a non-live bucket under "No bucket". The photos stay
+visible, nothing is destroyed, and **un-removing the bucket walks every one of them straight back
+in.** Nulling `bucket_id` instead would look identical on screen and would permanently erase
+which bucket they had been in — the one piece of information the removal was never asked to take.
+
+**Moving is same-RO by construction, not by check.** `PhotoBuckets.moveTargets(photo, buckets)`
+takes the photo and *this RO's* buckets and returns ids drawn only from that list, plus "No
+bucket". There is no parameter that could name another repair order. Filing a photo onto the
+wrong RO is the exact silent misfiling this subsystem exists to prevent, so the way to make it
+impossible is to give the code no way to express it. The target is re-checked against the RO's
+live buckets at write time as well.
+
+**An empty bucket renders as a heading with no grid** — enough to rename or remove it, without
+two empty grids per RO cluttering a vehicle that has six repair orders.
+
+⚠ **Free-typed names go into HTML attributes, so they need `escAttr`, not `esc`.** The board's
+`esc()` replaces only `<` and `>`, which was safe while every attribute on this screen held a URL
+or a UUID. A bucket name — or an employee name in `data-caption` — can contain a double quote,
+which closes the attribute early: broken markup at best, `" onfocus=…` at worst, on a screen that
+renders customer data. `escAttr` (quotes included) is used for every attribute carrying text a
+human typed.
+
+### 5b. Office capture — the camera sits ON THE RO
+Same upload path as My Numbers, deliberately: `PhotoCompress` downscale + EXIF fix, the same
+private `crisdata-attachments` bucket, the same `repair_order/<ro id>/photos/<ts>-<rand>.<ext>`
+key, the same `attachments` row. **The office is not a second kind of photo.**
+
+- **It never asks which RO** — the button is on the RO, so the answer is already known. That is
+  the whole reason it lives there and not on a floating capture button.
+- **It never asks which bucket** either: `PhotoBuckets.defaultCaptureBucketId` = the RO's **first
+  live bucket by sort order**. An RO with every bucket removed uploads **unbucketed** rather than
+  failing.
+- **No name, no photo.** `uploaded_by` comes from `CHAT_IDENTITY.name` read **bare** (§4), and an
+  unresolved identity blocks the capture with "reopen this board from CrisData". An office photo
+  nobody signed is worse than one not taken — the record would show a date with no
+  accountability behind it, which is the exact thing the byline exists to carry.
+- `capture="environment"` is the rear camera on a phone or tablet and is **ignored on desktop**,
+  where it opens a file picker. Both are wanted: the advisor is sometimes on the floor and
+  sometimes at a desk with the photo already on disk.
+- The insert's returning clause carries `uploaded_by, created_at` into the local object, so a
+  fresh tile renders identically before and after a reload — the same bug fixed on the tech side
+  on 2026-08-20.
+- **Reset the input AFTER awaiting the upload**, never before (§3). Copied verbatim.
+
+**Three delegated listeners on `#custVehicles`** — click, change, keydown — cover every photo and
+bucket control however many ROs are open. The accordion re-renders constantly, so per-control
+listeners would leak. Nothing re-renders while an inline editor is open, and `focusBucketEditor()`
+restores the caret after the render that created it: a render per keystroke would kill the caret
+mid-word, the same reason the fleet filter input lives OUTSIDE `#custVehicles`
+([[customer-record]] §4a).
 
 Reads are one batched `.in()` over the customer's ROs and ONE `createSignedUrls` for the whole
 customer. Tile clicks are delegated from `#custVehicles` because the accordion re-renders
@@ -145,7 +326,7 @@ subsystem exists to show. The 5vh is deliberate headroom, not a round number.
 The lightbox was `4000`, so opening a photo with the nav drawer open painted the sidebar over
 the image. Desktop was never affected (the sidebar is a static flex column there).
 
-## Known gaps & open questions (as of 2026-08-20)
+## Known gaps & open questions (as of 2026-08-22)
 - **⚠ Storage deletes have been silently failing since July — see §6.** Not caused by this
   subsystem, but this is where the trail leads.
 - **No hard purge.** Archive hides; it does not erase. Wrong-customer photos need purge.
@@ -153,10 +334,24 @@ the image. Desktop was never affected (the sidebar is a static flex column there
   the precedent if we add one; the hard part is WHERE a tech enters it without slowing capture.
 - **The grid is unbounded vertically.** `.cust-photo-grid` has no `max-height`/`overflow`, so
   60 photos on one RO push the calls timeline a screen further down.
-- **The photo read is unbounded** (`.in('entity_id', roIds)` with no `.limit()`) — the README's
-  1000-row hazard. A display list, so the lesser category, but real.
-- **No bucket CRUD.** Rename/add/remove is seed-only today; the partial unique index already
-  supports archive-and-reuse when that ships.
+- **~~The photo read is unbounded.~~** Both the photo and bucket reads now carry `.limit(2000)`
+  (§5). Note that a limit *caps* the hazard, it does not remove it: a customer past 2000 photos
+  would still render a partial record silently. Nothing is near that.
+- **~~No bucket CRUD.~~** Shipped in slice 3 — §5a.
+- **The templates have no editor.** Changing the standard set a new RO is born with means a hand
+  -run `insert`/`update` on `photo_bucket_templates`. Deliberate for now: it changes every future
+  RO in the shop and there are exactly two rows.
+- **No multi-select move.** Cris's case — eight in "Before", three of them are the old valve body
+  — is three separate Move → pick actions. Correct, just not brisk. Multi-select is the obvious
+  follow-up if it turns out to be a daily job rather than an occasional one.
+- **Removing a bucket has no undo in the UI.** The data fully supports it (clear `archived_at`
+  and every photo walks back in) — there is just no control, because nothing asked for one.
+  Recovering a bucket removed by mistake is a one-line hand-run `update` today.
+- **A removed bucket's name is not shown anywhere.** Its photos read "No bucket", which is what
+  was asked for, but that does mean "these five were in Teardown" is no longer visible on the
+  record — it survives only in `photo_buckets.name` on the archived row.
+- **`archived_by` has no reader.** It is stamped and never displayed; there is no bucket history
+  panel. Same posture as `deleted_by` was before the byline shipped.
 - **`uploaded_by` is a NAME, not an id** (mirroring `marketing_content.captured_by`). It
   survives an employee being renamed or deactivated, but it does not follow a rename.
 
@@ -186,15 +381,76 @@ Three consequences worth holding together:
 Not fixed here on purpose — logged so the next person hits the note instead of the bug.
 
 ## Where it lives in the code
-- Schema: `migrations/20260819_photo_buckets.sql` (slice 1), `migrations/20260820_photo_archive.sql` (slice 2).
+- Schema: `migrations/20260819_photo_buckets.sql` (slice 1),
+  `migrations/20260820_photo_archive.sql` (slice 2),
+  `migrations/20260822_photo_buckets_per_ro.sql` (slice 3 — **SANDBOX run, applied 2026-08-22**),
+  `migrations/20260822_photo_buckets_per_ro_PROD.sql` (slice 3 — **PROD, NOT RUN**; separate file
+  on purpose, refuses unless `app_env like 'PROD%'`, no data-modifying CTEs, and it must run in
+  the SAME window as the code deploy — see its header note 1).
 - Storage layout: `migrations/20260819_storage_buckets.sql`, [[hosting-domains]] §5.5.
-- Compression + EXIF: `shared/photo-compress.js` (+ `.test.js`).
-- Capture, buckets, archive: `my-numbers.html` (`loadPhotoBuckets`, `loadRoPhotos`,
-  `uploadRoPhoto`, `archiveRoPhoto`, `canArchivePhoto`, `roPhotoGridHtml`).
-- Display: `advisor-board.html` (`custPhotoGroups`, `roPhotosHtml`, `photoMetaLine`,
-  `archiveCustPhoto`, the `#custVehicles` delegated listener).
+- **Bucket rules (pure, shared by both screens): `shared/photo-buckets.js` (+ `.test.js`, 33
+  tests).** Grouping, ordering, the live cap, name validation, the flat/accordion threshold,
+  where a capture lands, and the move targets all live here so the tech's grids and the customer
+  record cannot disagree.
+- Compression + EXIF: `shared/photo-compress.js` (+ `.test.js`). Loaded by **both** boards now.
+- DB: `public.photo_bucket_templates`, `public.copy_photo_bucket_templates()`,
+  `trg_repair_orders_photo_buckets` on `repair_orders`.
+- Tech capture, grids, archive: `my-numbers.html` (`loadPhotoBuckets(roId)`, `RO_BUCKETS`,
+  `roPhotoGroups`, `roPhotoGridHtml`, `roPhotosHtml`, `roOpenBucketKey`, `uploadRoPhoto`,
+  `archiveRoPhoto`, `canArchivePhoto`, `bindPhotoInputs`).
+- Display + management + office capture: `advisor-board.html` (`canManageCustBuckets`,
+  `custBucketsFor`, `escAttr`, `custPhotoGroups`, `custPhotoCellHtml`, `custBucketHeadHtml`,
+  `custPhotoBarHtml`, `roPhotosHtml`, `custActorName`, `custSetBuckets`, `addCustBucket`,
+  `renameCustBucket`, `removeCustBucket`, `moveCustPhoto`, `captureCustPhoto`,
+  `focusBucketEditor`, `window.cdCustomerRecordRerender`, the three `#custVehicles` delegated
+  listeners).
 
 ## Session change log
+- 2026-08-22 — **Slice 3 VERIFIED against the sandbox, in the real screens.** Ten checks, all
+  driven through the actual UI as `ZZ Test Advisor` (advisor) and `ZZ Test Tech`:
+  **per-RO isolation** — renaming "Before" → "On arrival" on RO #6012 left RO #6001 and the
+  other 53 `Before` rows untouched (both ROs are on the SAME vehicle of the same customer, so
+  they render side by side); **add** free-typed; **case collision** — `"  TEARDOWN   FINDINGS  "`
+  refused against `Teardown findings`, whitespace collapsed, editor kept the typing;
+  **12-cap** — the + button is replaced by the message on the capped RO while a sibling RO with
+  2 buckets still offers it; **escAttr** — a bucket literally named `Bad" onfocus="…" x="`
+  produced zero stray `onfocus` attributes, never fired, and round-tripped byte-for-byte through
+  `value="…"`; **office camera** — 8 shots landed in the first live bucket without asking,
+  byline `ZZ Test Advisor`; **move 3 of 8** — Before 8/0 → 5/3, picker never offered the photo's
+  own bucket, and a DB-wide check found **0** photos pointing at another RO's bucket;
+  **remove → restore** — the 5 photos read "No bucket" (a plain span, no rename, no Remove) while
+  `attachments.bucket_id` stayed **untouched**, and clearing `archived_at` walked all 5 straight
+  back in; **`archived_by` = `ZZ Test Advisor`, not null** — dbc9f9a's bug class does not recur;
+  **tech layout** — 2 buckets rendered the original flat two-grid layout (2 headings, 2 grids,
+  2 add tiles, 8 thumbs, zero accordion), 3 buckets rendered a 3-panel accordion with the first
+  open, and a tech upload went in by BUCKET ID (`roPhotoInput_<uuid>`) to the right bucket on the
+  right RO.
+  Two findings that are NOT app bugs but cost time: the local `npx serve` clean-URL redirect
+  **strips the query string**, so `my-numbers.html?as=…` silently loses `?as=` (use the
+  extensionless path); and the Supabase editor's linter turns a data-modifying CTE into an
+  "enable RLS on repair_orders" dialog whose green default would blank every board — the prod
+  file therefore contains **no data-modifying CTEs**, using `GET DIAGNOSTICS` instead
+  ([[staging-db]] §8.4).
+- 2026-08-22 — **Slice 3 built (UNMERGED, nothing applied anywhere).** Buckets went **per-RO**:
+  `photo_buckets.ro_id NOT NULL`, a new `photo_bucket_templates` table read once per RO by an
+  `after insert` trigger on `repair_orders`, and per-RO case-insensitive name uniqueness. A
+  bucket is now a COPY, not a link. Added office-side **bucket management** (rename / add /
+  remove, gated on advisor·manager·owner), **moving a photo between buckets on the same RO**, and
+  an **office camera on each RO**. Removing a bucket archives it and **never touches
+  `attachments.bucket_id`**, so it is reversible. All the rules moved into
+  `shared/photo-buckets.js` (33 tests) so both screens share them.
+  Four things found and fixed while building, worth keeping:
+  (1) the tech's bucket lookup was **by name**, which per-RO would have filed photos onto an
+  arbitrary other repair order — it is by id now;
+  (2) `esc()` does not escape quotes, and bucket names are free-typed into attributes — added
+  `escAttr`;
+  (3) with every bucket removed the tech had **no way to add a photo at all** — both screens now
+  fall back to an addable "No bucket" grid;
+  (4) `app_env` returns **zero rows to `anon` on both prod and sandbox**, which would make every
+  `not like 'PROD%'` guard NULL and every DML block report `0` while looking like it ran — the
+  migration opens with a pre-flight that turns that into a loud stop ([[staging-db]] §8.1).
+  The i18n keys `beforePhotosLabel`/`partPhotosLabel` were deleted: bucket names are English
+  only, shown verbatim, by decision.
 - 2026-08-21 — **Lightbox sizing + z-index fixed.** An enlarged photo rendered at natural size,
   so tall photos ran past the bottom of the screen with no way to see the whole image. The
   image's `max-width`/`max-height` were percentages resolving against an auto-height flex
