@@ -481,26 +481,42 @@
       const wrap = $('columns');
       const unassigned = jobs.filter(j => isUnassigned(j.assignedTech));
       const byTech = {};
-      techs.forEach(t => { byTech[t.name] = []; });
-      // bucket assigned jobs by exact assigned_tech name (case-insensitive match to roster)
+      // COLUMNS = the tech roster UNION whoever is actually assigned right now.
+      //
+      // This used to bucket by roster only, and a job assigned to a name that is
+      // not role='tech' fell through to no column at all: still counted in
+      // "Assigned", shown nowhere. That was deferred deliberately as "no phantom
+      // columns" — undeferred 2026-08-21, because a counter that says 3 assigned
+      // while the columns show 2 is worse than a column for someone unexpected.
+      // The dispatcher's job is to show what is in flight; assignment decides
+      // that, not role. techColHtml already falls back to initials when there is
+      // no photo_url, so an off-roster column needs no new UI.
+      const columns = techs.slice();
       const lower = {};
-      techs.forEach(t => { lower[(t.name || '').trim().toLowerCase()] = t.name; });
+      columns.forEach(t => { lower[(t.name || '').trim().toLowerCase()] = t.name; });
+      jobs.forEach(j => {
+        if (isUnassigned(j.assignedTech)) return;
+        const raw = String(j.assignedTech).trim();
+        const key = raw.toLowerCase();
+        if (lower[key]) return;
+        lower[key] = raw;                       // first spelling seen wins
+        columns.push({ id: null, name: raw, photo_url: null, offRoster: true });
+      });
+      columns.forEach(t => { byTech[t.name] = []; });
       jobs.forEach(j => {
         if (isUnassigned(j.assignedTech)) return;
         const key = lower[j.assignedTech.trim().toLowerCase()];
-        if (key) byTech[key].push(j);
-        // jobs assigned to a name not in the tech roster fall through (e.g. a
-        // former tech) — intentionally not shown as a phantom column this slice.
+        if (key && byTech[key]) byTech[key].push(j);
       });
 
       let working = 0;
-      techs.forEach(t => { if ((byTech[t.name] || []).some(j => j.active)) working++; });
+      columns.forEach(t => { if ((byTech[t.name] || []).some(j => j.active)) working++; });
       const assignedCount = jobs.filter(j => !isUnassigned(j.assignedTech)).length;
       $('cWorking').textContent = working;
       $('cAssigned').textContent = assignedCount;
       $('cUnassigned').textContent = unassigned.length;
 
-      const cols = techs.map(t => techColHtml(t, byTech[t.name] || []));
+      const cols = columns.map(t => techColHtml(t, byTech[t.name] || []));
       cols.push(unassignedColHtml(unassigned));
       wrap.innerHTML = cols.join('') || '<div class="col-empty">No techs found.</div>';
 

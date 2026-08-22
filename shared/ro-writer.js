@@ -19,6 +19,9 @@
    access to it.
    ============================================================ */
 
+// The current-value union rule is shared with the floor pickers.
+import { appendCurrentIfMissing } from './assignee-picker.js';
+
 // Roles allowed to be an RO's service writer. NOTE the advisor role value is
 // 'advisor' (the label is "Service Advisor"), NOT 'service_advisor'. 'tech' and
 // 'bookkeeping' are intentionally excluded.
@@ -42,10 +45,12 @@ export function buildWriterOptions(rows, selectedId, selectedName) {
     name: e.name,
     selected: String(e.id) === sel,
   }));
-  if (sel && !opts.some((o) => o.selected)) {
-    opts.push({ id: sel, name: selectedName || '(unknown)', selected: true });
-  }
-  return opts;
+  // The write-safety rule (keep the CURRENT writer even when they'd no longer
+  // be offered) now lives in shared/assignee-picker.js, so this dropdown and
+  // the floor pickers cannot drift apart. Behaviour here is unchanged.
+  return appendCurrentIfMissing(opts, !!sel, () => ({
+    id: sel, name: selectedName || '(unknown)', selected: true,
+  }));
 }
 
 // Resolve the name printed on the "Service Advisor" line from the RO's STORED

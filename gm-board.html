@@ -25,6 +25,15 @@
 <script src="shared/push.js"></script>
 <script src="shared/announcement-banner.js"></script>
 <script src="shared/report-change.js"></script>
+<!-- Assignee-picker write-safety rule (ESM → window.AssigneePicker). A picker
+     that omits the CURRENT assignee turns the next save into a silent deletion,
+     so the rule lives in one tested place. Classic scripts below read it off
+     window; module scripts run after them in document order, and every consumer
+     here is event-driven (a render), so load order is safe. -->
+<script type="module">
+  import * as AssigneePicker from './shared/assignee-picker.js';
+  window.AssigneePicker = AssigneePicker;
+</script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
 <style>
@@ -2987,6 +2996,23 @@
       sfLoadAll();
     }
 
+    // Render <option>s for a floor assignee <select>, via the shared write-safety
+    // rule (shared/assignee-picker.js): the CURRENT assignee is always present,
+    // even when they are no longer on the tech roster — retired, or a different
+    // role covering diag. Without it the control shows "Unassigned" and the next
+    // save wipes the assignment with no error.
+    // unassignedValue differs by table and MUST NOT be normalised: lifts store
+    // '', parking stores the literal string 'Unassigned'.
+    function sfAssigneeOptions(current, unassignedValue) {
+      const AP = window.AssigneePicker;
+      const opts = AP
+        ? AP.buildAssigneeOptions(sfTechs, current, { unassignedValue })
+        : [{ value: unassignedValue, label: 'Unassigned', selected: true }];
+      return opts.map(o =>
+        `<option value="${sfEsc(o.value)}"${o.selected ? ' selected' : ''}>${sfEsc(o.label)}</option>`
+      ).join('');
+    }
+
     async function sfLoadTechs() {
       const { data, error } = await db.from('employees_visible').select('name').eq('role','tech').eq('active',true).order('name');
       if (error) { console.error('[ShopFloor] Load techs failed', error); sfTechs = []; return; }
@@ -3219,7 +3245,7 @@
             </div>
             <div class="field"><label>Tech</label>
               <select data-i="${i}" data-field="assigned_tech">
-                ${['Unassigned', ...sfTechs].map(t=>`<option value="${t==='Unassigned'?'':t}"${(lift.assigned_tech||'')===(t==='Unassigned'?'':t)?' selected':''}>${t}</option>`).join('')}
+                ${sfAssigneeOptions(lift.assigned_tech, '')}
               </select>
             </div>
             <div class="field"><label>Tech Notes</label>
@@ -3342,7 +3368,7 @@
           <td><input type="date" data-id="${car.id}" data-field="arrival_date" value="${sfEsc(car.arrival_date||'')}"/></td>
           <td><textarea placeholder="Notes..." data-id="${car.id}" data-field="notes">${sfEsc(car.notes||'')}</textarea></td>
           <td><select data-id="${car.id}" data-field="assigned_tech">
-            ${['Unassigned', ...sfTechs].map(t=>`<option value="${t}"${(car.assigned_tech||'Unassigned')===t?' selected':''}>${t}</option>`).join('')}
+            ${sfAssigneeOptions(car.assigned_tech, 'Unassigned')}
           </select></td>
           <td style="white-space:nowrap;vertical-align:middle">
             <div style="display:flex;flex-wrap:wrap;gap:3px;align-items:center">
@@ -3762,6 +3788,31 @@
       tsRenderPool();
     }
 
+    // COLUMNS = the tech roster UNION whoever is actually assigned right now.
+    //
+    // Rendering from the roster alone means a job assigned to anyone who is not
+    // role='tech' — the owner covering diag while short-staffed, or someone
+    // retired mid-job — gets NO column and the work is simply invisible on the
+    // board that exists to show what is in flight. Assignment, not role, decides
+    // whether there is work to show. Same shape as renderTechnicians (techMap).
+    // The roster still contributes its zero-job techs, so an idle tech keeps a
+    // column; the union only ever ADDS.
+    function tsColumns() {
+      const cols = tsTechs.slice();
+      const seen = {};
+      cols.forEach(c => { seen[String(c.name).trim().toLowerCase()] = true; });
+      tsVehicles.forEach(v => {
+        if (v._source !== 'lift' && v._source !== 'parking') return;
+        const name = String(v.assigned_tech || '').trim();
+        if (!name || name.toLowerCase() === 'unassigned') return;
+        const key = name.toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        cols.push({ name, color: TS_TECH_COLORS[cols.length % TS_TECH_COLORS.length], offRoster: true });
+      });
+      return cols;
+    }
+
     function tsActiveJobsForTech(tech) {
       return tsVehicles
         .filter(v => v.assigned_tech === tech && (v._source === 'lift' || v._source === 'parking'))
@@ -3801,12 +3852,13 @@
       const grid = document.getElementById('ts-whiteboardGrid');
       if (!grid) return;
 
-      if (tsTechs.length === 0) {
+      const columns = tsColumns();
+      if (columns.length === 0) {
         grid.innerHTML = '<p style="color:#6b7280;padding:20px">No active technicians found. Add one from Employees.</p>';
         return;
       }
 
-      grid.innerHTML = tsTechs.map(({ name: tech, color }) => {
+      grid.innerHTML = columns.map(({ name: tech, color }) => {
         const assigned = tsActiveJobsForTech(tech);
         const primary = assigned[0];
         const upNextJobs = assigned.slice(1);
@@ -4141,10 +4193,16 @@
         </div>`;
     }
 
+    // Same write-safety rule as the Shop Floor pickers — see sfAssigneeOptions.
     function tdPopulateTechSelect(selected) {
       const sel = document.getElementById('td-techInput');
-      sel.innerHTML = '<option value="">Unassigned</option>' +
-        tdTechs.map(name => `<option value="${tdEsc(name)}"${name === selected ? ' selected' : ''}>${tdEsc(name)}</option>`).join('');
+      const AP = window.AssigneePicker;
+      const opts = AP
+        ? AP.buildAssigneeOptions(tdTechs, selected, { unassignedValue: '' })
+        : [{ value: '', label: 'Unassigned', selected: true }];
+      sel.innerHTML = opts.map(o =>
+        `<option value="${tdEsc(o.value)}"${o.selected ? ' selected' : ''}>${tdEsc(o.label)}</option>`
+      ).join('');
     }
 
     function tdPopulateTxSelect(selectedId) {
