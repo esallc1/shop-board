@@ -1,7 +1,8 @@
 # How the employee roster is wired
 
 > Doc: `/docs/wiring/employee-roster.md`
-> Last updated: 2026-08-21 — slice COMPLETE: retirements + unique index applied.
+> Last updated: 2026-08-21 — §7 added (assignment-vs-role audit + the write-safety rule);
+> slice COMPLETE: retirements + unique index applied.
 > Verified vs commit `617b419` (live on prod).
 > Status: 🟢 **fully live on both projects.** Flag + view + the five ZZ accounts applied
 > 2026-08-21; code live on prod at `617b419`; the five departed rows retired (§6a) and
@@ -242,6 +243,69 @@ resolves their name. Pickers filter `active` themselves and correctly stop offer
 **Retiring removes someone from the future, never from the past.** Any change that makes a
 retired employee's name stop resolving in a historical report is a bug, not a cleanup.
 
+## 7. Assignment is not role — the audit, and the rule
+
+Attribution is a **stamp, not a live link.** `repair_orders.technician`,
+`attachments.uploaded_by`, `calls.noted_by_name` and friends are denormalized strings written at
+the moment, the same way a part number is written onto an RO line. Nothing resolves them through
+a live join to `employees`, which is why retiring five people on 2026-08-21 left every historical
+byline intact.
+
+So only two things need to be live: **who can log in**, and **what a picker offers**. Everything
+else is a frozen copy and was already correct. A full audit of all `employees` reads on
+2026-08-21 found **5 of 12** asking the wrong question — all keying off `role` as a proxy for
+assignment. All five are fixed.
+
+### 7a. THE WRITE-SAFETY RULE — `shared/assignee-picker.js`
+**A picker must always contain whoever is CURRENTLY assigned, even when they would no longer be
+offered.**
+
+This is not cosmetic. A `<select>` whose value matches no `<option>` does not render blank — it
+displays `option[0]`. The next person to open the row sees "Unassigned", saves something
+unrelated, and the assignment is gone with no error. **The control turns an ordinary save into a
+deletion.** Broken and healthy look identical, which is the recurring shape in [[office-auth]]
+§1b and [[staging-db]] §8.1.
+
+`buildAssigneeOptions(roster, current, opts)` guarantees **exactly one selected option, always**,
+and appends the current assignee when the roster lacks them. `shared/ro-writer.js` delegates its
+union to the same primitive (`appendCurrentIfMissing`), so the service-writer dropdown and the
+floor pickers cannot drift apart. 11 tests in `shared/assignee-picker.test.js`.
+
+**The two floor sentinels are deliberately NOT unified:** lifts store `''` for unassigned,
+parking stores the literal string `'Unassigned'`. Both are live data; normalising either would
+rewrite rows. Each caller passes its own `unassignedValue`, and two tests pin it.
+
+### 7b. Which reads key off what
+
+| Keys off ASSIGNMENT (correct) | Keys off ROLE (correct — identity or pay) |
+|---|---|
+| Tech Status columns, dispatcher columns ([[tech-board]] §2a) | **Advisor commission** — only advisors are on the plan (`commission-engine.js:195`) |
+| Technicians page + Billed Hrs ([[manager-board]] §1, §3) | Adoption panel grouping (office vs techs) |
+| My Numbers job list *and* its login gate (no role filter at all) | `ROLE_DEST` — which board you land on |
+| All assignee pickers (§7a) | Operate-as picker (a role-scoped admin tool) |
+
+**Pay that depends on who someone *is* keys off role. Credit for work that *happened* keys off
+the assignment stamped on it.** That line is the whole audit in one sentence.
+
+### 7c. ⚠ Scope of the defect — measured, not assumed
+The bug **would** hide any job assigned outside `role='tech'`. Demonstrated on the **sandbox**,
+where 5 floor rows held retired names and a test owner-role account held one more: the dispatcher
+showed 2 columns covering 2 of 8 assigned jobs before the fix, 5 columns covering 8 of 8 after.
+
+**On PROD the impact was nil, and this doc says so on purpose.** Verified 2026-08-21 against
+`hygemiszxwmyrkmhbjub`: `shopboard_lifts`, `shopboard_parking` and `shopboard_pickup` return
+**zero** rows assigned to any retired name. The sandbox rows are stale clone data from 08-12 that
+prod has since moved past. The one prod row carrying a retired name is **RO #6010** (Belky Arcia,
+2016 Ford Explorer Interceptor, `status = 'estimate'` since 2026-07-27, `technician = 'Cory'`) —
+confirmed the *only* non-closed RO with a retired technician; the other 14 are `closed`. **That
+is a stale estimate, not hidden work.**
+
+Recorded this way after a first draft of this section reported the sandbox figure as six live
+jobs hidden from the shop. It was caught in review. **A doc that overstates an incident fails the
+same way as one that understates it** — both leave the next reader with a wrong model, and an
+inflated one also burns the credibility the honest entries depend on. Measure the environment you
+are claiming about.
+
 ## Known gaps & open questions (as of 2026-08-21)
 - **FOLLOW-UP: `loadTodoAssignees` finds "me" by searching the roster.** It reads the roster,
   then looks `CURRENT_EMPLOYEE_ID` up *inside that list* to build the "(me)" option. A test
@@ -278,6 +342,13 @@ retired employee's name stop resolving in a historical report is a bug, not a cl
 - Employee CRUD UI: `gm-board.html` (`loadEmployees`, `saveEmployee`, the delete confirm).
 
 ## Session change log
+- 2026-08-21 — **§7 added: assignment is not role.** Audited every `employees` read; 5 of 12
+  keyed off role as a proxy for assignment. Fixed: three pickers now use the shared write-safety
+  rule (`shared/assignee-picker.js` + 11 tests), and Tech Status + the dispatcher render the
+  roster UNION whoever is assigned. Left alone: advisor commission, adoption grouping,
+  `ROLE_DEST`, operate-as. The proposed "can be assigned tech work" flag was **cancelled** — the
+  audit showed nothing needed it. §7c records the measured prod impact (nil; one stale estimate,
+  RO #6010) after a draft overstated it from sandbox data.
 - 2026-08-21 — **Slice complete: retirements + the unique index.** Cory, Josh, Jay Tech,
   Cristian Tech and Alex retired on both projects (Cristian/owner untouched);
   `idx_employees_phone_active_digits` created on both and proven with a negative test that

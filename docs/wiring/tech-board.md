@@ -1,7 +1,8 @@
 # How the Tech Board (dispatcher) is wired
 
 > Doc: `/docs/wiring/tech-board.md`
-> Last updated: 2026-07-30 — verified vs commit `8ec2164`
+> Last updated: 2026-08-21 — §2a added (columns key off ASSIGNMENT, not role); verified vs
+> commit `d67d506`. Previously 2026-07-30 — verified vs commit `8ec2164`
 > Status: ✅ verified vs commit `8ec2164` — checked against `crisdata-techboard.html`,
 > `my-numbers.html`, `gm-board.html`, and the floor-table columns. Investigation-only capture
 > of Kevin's "let the manager edit from the tech board" request (§7) — **no code changed**.
@@ -20,13 +21,39 @@ changes come from **My Numbers** (their phone), not here.
 
 ## 2. What it reads
 - The three floor tables — `shopboard_parking`, `shopboard_lifts`, `shopboard_pickup` — plus
-  `employees` where `role='tech'` (the columns of the board). Columns per job: `po, vehicle,
+  `employees_visible` where `role='tech'` (the *seed* for the columns — see §2a). Columns per job: `po, vehicle,
   work, notes, tech_notes, job_category, customer, warranty, assigned_tech, status` (+ the
   `*_at` stamps). `shopboard_pickup` has **no `status`** (see `ro-checkin-tech.md` §2).
 - It resolves **no identity for the current viewer** — no session phone, no `CHAT_IDENTITY`, no
   role. It only loads the *tech roster* for the columns. (It's also ungated on its own; it
   relies on being embedded behind the parent board.) → **it can't tell who's looking, so it
   can't role-gate anything today.** (§7)
+
+## 2a. Columns = the tech roster UNION whoever is actually assigned
+
+**A column exists because work is assigned to that name, not because that name has
+`role='tech'`.** The roster only seeds the list, so a tech with zero jobs still gets a column;
+the union then adds anyone holding a job who is not on it.
+
+That covers the two cases where roster and assignment legitimately disagree:
+- someone covering tech work in another role (the owner doing diag while short-staffed),
+- someone **retired** who still holds a live job — retiring removes them from the future, not
+  the past ([[employee-roster]] §6a).
+
+**This was a real defect, fixed 2026-08-21.** Bucketing was roster-only, and a job assigned to
+any other name fell through to *no column at all* — while still counting toward the **Assigned**
+tally. The board's own counter disagreed with its own columns, and the job appeared nowhere on
+the screen whose entire purpose is showing what is in flight. It had been deferred on purpose
+("not shown as a phantom column this slice"); a column for someone unexpected is strictly better
+than a job that exists nowhere.
+
+`techColHtml` already falls back to initials when `photo_url` is null, so an off-roster column
+needs no new UI. Off-roster entries are marked `offRoster: true` if a future slice wants to
+style them.
+
+**Verified on sandbox 2026-08-21:** with 5 floor rows held by retired names plus one job
+assigned to an owner-role account, the board rendered 2 columns covering 2 of 8 assigned jobs
+before the fix, and 5 columns covering 8 of 8 after — counter and columns agreeing.
 
 ## 3. "Status" is DERIVED, not a plain field
 The chip you see (New / Diagnosing / Awaiting Approval / Approved — Go Ahead / In Progress /
@@ -116,6 +143,10 @@ the My Numbers transition writer (option 3), never a raw dropdown.
   quirk), `floor-tags.md` (floor tags & lanes).
 
 ## Session change log
+- 2026-08-21 — **Columns now key off assignment, not role (§2a).** Jobs assigned to a name
+  outside `role='tech'` had no column while still counting as Assigned — the counter and the
+  columns disagreed and the work showed nowhere. Undeferred from the "no phantom columns"
+  decision. No schema change; no new UI (initials fallback already existed).
 - 2026-07-30 — Created during Kevin's "let the manager edit from the tech board" request.
   Documented the dispatcher's read model, the derived-status state machine, the drag-assign
   write, the My Numbers relationship, and the absence of a viewer role; laid out fix options.

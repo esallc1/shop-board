@@ -87,7 +87,7 @@ Every file under `/docs/wiring/` follows this shape:
 | Announcement banner | `announcements.md` | `shared/announcement-banner.js`, `api/announcement.js`, advisor + owner boards |
 | To-Do list | `todo-list.md` | To-Do JS duplicated in all 4 office boards; `shared/board-shell.css` |
 | RO check-in / tech assign | `ro-checkin-tech.md` | `advisor-board.html` (`checkInArrived`, `assignTechCore`), `crisdata-techboard.html`, `shared/status-mirror.js` |
-| Tech Board (dispatcher) | `tech-board.md` | `crisdata-techboard.html`, `my-numbers.html`, gm-board Shop Floor |
+| Tech Board (dispatcher) | `tech-board.md` (§2a = columns key off assignment) | `crisdata-techboard.html`, `my-numbers.html`, gm-board Shop Floor · Tech Status · Teardown, `shared/assignee-picker.js` |
 | Manager board Technicians (Billed Hrs) | `manager-board.md` | `gm-board.html` (`renderTechnicians`, `computeBilledHours`); `repair_orders`, `ro_line_items` |
 | My Numbers (tech phone tool) | `my-numbers.md` | `my-numbers.html`; consumers: `advisor-board.html`, `gm-board.html` |
 | Book-hours (tech pay) / flagged-hours | `flat-rate-hours.md` | `repair_orders.book_hours`, `shopboard_*.flag_hours`, `ro_line_items`, `completed_jobs`, `repair_orders.technician` |
@@ -104,5 +104,5 @@ Every file under `/docs/wiring/` follows this shape:
 | RO photos (buckets · capture · archive) | `ro-photos.md` | `photo_buckets`, `attachments` (`ro_photo`, `bucket_id`, `uploaded_by`, `deleted_at`), `shared/photo-compress.js`, `my-numbers.html`, `advisor-board.html` (`#view-customer`) |
 | Page map (pages · routing · legacy doors) | `page-map.md` | `crisdata.html` (`ROLE_DEST`), `vercel.json`, the 12 root `*.html`, `shared/office-identity.js`, `shared/supabase-config.js` |
 | Hosting & domains | `hosting-domains.md` | `vercel.json`, `api/send-push.js`, Vercel projects (shop-board/kiki), Namecheap DNS, Supabase `hygemiszxwmyrkmhbjub` |
-| Employee roster (hire · retire · test accounts) | `employee-roster.md` | `employees` + `employees_visible` (`is_test`), `shared/office-identity.js`, `my-numbers.html` (login), `gm-board.html` (employee CRUD), the 19 roster readers |
+| Employee roster (hire · retire · test accounts · assignment-vs-role) | `employee-roster.md` (§7a = the assignee write-safety rule) | `employees` + `employees_visible` (`is_test`), `shared/assignee-picker.js` (+`.test.js`), `shared/office-identity.js`, `my-numbers.html` (login), `gm-board.html` (employee CRUD), the 19 roster readers |
 | Staging database (isolated test.* DB) · **env guard `app_env`** | `staging-db.md` (§8 = which DB am I on) | `shared/supabase-config.js` (hostname→creds switch), `api/*` (`SUPABASE_URL`/`_ANON_KEY` env-with-prod-fallback), `staging/staging-schema.sql`, `public.app_env`, the 12 boards |

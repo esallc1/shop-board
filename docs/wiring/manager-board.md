@@ -1,7 +1,8 @@
 # How the Manager board Technicians table is wired
 
 > Doc: `/docs/wiring/manager-board.md`
-> Last updated: 2026-08-08 — verified vs commit `8c93cee` (merged to main)
+> Last updated: 2026-08-21 — §3 added (Billed Hrs keys off assignment, not role); §1 tech list
+> clarified as a seed. Verified vs commit `d67d506`. Previously 2026-08-08 — commit `8c93cee`
 > Status: ✅ BUILT + verified live. The **Billed Hrs** column is now real (per-tech,
 > current week) behind the Book Hours switch; Clocked Hrs / Efficiency / time-punches
 > remain sample. Feature OFF → the table looks exactly like before (all sample).
@@ -16,7 +17,11 @@ when the Book Hours feature is ON — else sample), and **Clocked Hrs / Efficien
 - **View:** `#view-technicians`; content injected into `#tech-grid-wrap`. Rendered by
   `renderTechnicians(allActive, pickupData, billedHrs)` (`gm-board.html:2213`), called
   once from `loadAndRender()` (which first `await computeBilledHours()` and passes it).
-- **Tech list:** `loadTechPageTechs()` → `employees` `role='tech'` `active=true` (names).
+- **Tech list:** `loadTechPageTechs()` → `employees_visible` `role='tech'` `active=true` (names)
+  — the **seed** only. `renderTechnicians` then adds a row for anyone actually holding a floor
+  job (`if (!techMap[t]) techMap[t] = …`, `gm-board.html:2238`), so an owner covering diag or a
+  retired tech with a live job still gets a row. **This page has always keyed off assignment**;
+  it was the one screen that did when the other four were audited on 2026-08-21.
 - **Columns:** Technician · Active Jobs · **Billed Hrs** · Clocked Hrs · Efficiency ·
   Ready for Pickup.
   - **Active Jobs / Ready for Pickup** — LIVE, bucketed from floor rows
@@ -46,6 +51,23 @@ when the Book Hours feature is ON — else sample), and **Clocked Hrs / Efficien
   switches to "Billed Hrs is live … Clocked/Efficiency … still sample." OFF → the
   original all-sample warning banner + `sample` tags.
 
+## 3. Billed Hrs keys off ASSIGNMENT, and must stay that way
+
+`computeBilledHours` (`gm-board.html`) sums from `ro_line_items` against
+`repair_orders.technician` and the per-line `line_tech_id` override, resolving ids through an
+`employees_visible` id→name map with **no role filter and no `active` filter**. So hours credited
+to someone who has since been retired, or who was never `role='tech'`, still resolve to their
+name.
+
+That is deliberate, and it is the money-correct behaviour: **hours are a stamp on work already
+done.** Filtering this read by role or by `active` would make a retired tech's completed labour
+silently vanish from the week it was billed in.
+
+Note the contrast, confirmed in the same audit: **advisor commission is the one roster read that
+*should* key off role** (`shared/commission-engine.js:195` — only advisors are on the plan). Pay
+that depends on *who someone is* keys off role; credit for *work that happened* keys off the
+assignment stamped on it.
+
 ## Known gaps & open questions (as of 2026-08-07)
 - **Clocked Hrs / Efficiency are sample** — they need a time-clock (punch) source,
   a later step. Efficiency can't be real until Clocked is.
@@ -69,6 +91,10 @@ when the Book Hours feature is ON — else sample), and **Clocked Hrs / Efficien
   Hours switch).
 
 ## Session change log
+- 2026-08-21 — **Clarified assignment-vs-role during the roster audit.** No behaviour change on
+  this page: it already unioned assigned names into `techMap` and Billed Hrs already keyed off
+  `technician`/`line_tech_id`. Documented both (§1, §3) because four other screens were keying
+  off role and this one was the correct model they were fixed to match.
 - 2026-08-07 — Created (Hours Engine Part 1). Lit up the real **Billed Hrs** column on
   the Technicians table via a weekly per-tech rollup (`computeBilledHours`), behind the
   Book Hours switch (OFF → sample, unchanged). Relabeled the header (green `live · this
