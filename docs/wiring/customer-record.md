@@ -116,6 +116,22 @@ finding one van meant eyeballing 31 near-identical rows.
   silently hide vehicles on the next record.
 - At ≤860px the input goes to `16px` so iOS doesn't zoom the page on focus.
 
+### 4b0. The RO accordion (`roRowHtml`, `resolveOpenRo`, `toggleRo`)
+Inside an expanded vehicle, **each RO is itself a collapsible row** — single-open, newest-first,
+with the newest open by default. Deliberately the same visual language as the vehicle accordion
+above it (§4): same chevron, same rotate-on-open, same head/body split, same accent border when
+open. A second accordion pattern on one screen would be worse than none.
+
+- **Collapsed header:** RO number, status, date, a one-line (ellipsised) complaint, invoice total
+  and photo count — enough to identify the job without opening it.
+- **State:** `custOpenRo` is three-state — `undefined` (open the newest), `null` (deliberately
+  closed), or an id. Switching vehicles resets it to `undefined` so each vehicle opens on its own
+  newest RO.
+- **The head is a `<button>`**, so nothing clickable nests inside it: the "Open RO #… →"
+  navigation lives in the body. That also keeps the one control that leaves this page away from
+  the full-width tap target.
+- A same-customer refetch preserves the open RO alongside the open vehicle and scroll.
+
 ### 4b. RO photo buckets — the page's other writes (office only)
 Under each RO block, `roPhotosHtml(roId)` renders that RO's photos grouped by **buckets that
 belong to that one repair order**. For `advisor` / `manager` (the GM) / `owner` it is also where
@@ -309,6 +325,10 @@ then branches on whether the search box has text:
   mixed case fine, no-match message fine; Jose (2 vehicles) never sees the box; an expanded row
   filtered away came back **still expanded**; order after clearing was byte-identical to before;
   focus survived typing; no horizontal overflow at 375px.
+- 2026-08-22 (round 3) — **§4b0 added: each RO is now a collapsible row.** Cris could not tell
+  where one job ended and the next began. Mirrors the vehicle accordion exactly; newest RO open
+  by default; the open RO is preserved across a same-customer refetch alongside the open vehicle
+  and scroll. See [[ro-photos]] §5a0/§5a1.
 - 2026-08-22 (round 2) — **A same-customer reload no longer moves the reader.**
   `loadCustomerRecord` keeps the open vehicle, the fleet filter and the scroll position when it
   is refreshing the customer already on screen (it fires on every `visibilitychange`/`focus`,

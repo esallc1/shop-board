@@ -311,6 +311,26 @@ visible, nothing is destroyed, and **un-removing the bucket walks every one of t
 in.** Nulling `bucket_id` instead would look identical on screen and would permanently erase
 which bucket they had been in — the one piece of information the removal was never asked to take.
 
+### 5a1. UNDO on a bucket removal — and the promise it replaced
+`armBucketUndo` shows an amber Undo bar in that RO's photo section for **60 seconds**
+(`BUCKET_UNDO_MS`). Undo clears `archived_at`/`archived_by` and **touches nothing else** — the
+photos never moved, so restoring the bucket is the whole operation.
+
+**This exists because the confirm was making a promise the app could not keep.** It used to say
+the photos would come back if you *"put the bucket back"*, which reads as: create a new bucket
+with the same name. That does **not** work — a new bucket is a new row, and the photos still
+point at the archived one, so they stay in "No bucket". The confirm now says so in as many
+words, and names the honest post-expiry state: they have to be filed back by hand.
+
+**Scope is deliberate.** Cris's reasoning: the realistic case is a mis-tap, not a change of
+heart — so this is a short Undo, **not a removed-buckets screen.** When it expires the bar
+disappears and the state is exactly what the confirm warned about.
+
+The 60s timer fires with no user action, so its re-render goes through `renderRoPhotos` and is
+scroll-pinned like every other one — including the fallback path for when the RO has since been
+collapsed (§5a0). A pending Undo is cleared when a *different* customer is opened; it survives a
+same-customer refetch, because that is not a change of context.
+
 **Moving is same-RO by construction, not by check.** `PhotoBuckets.moveTargets(photo, buckets)`
 takes the photo and *this RO's* buckets and returns ids drawn only from that list, plus "No
 bucket". There is no parameter that could name another repair order. Filing a photo onto the
@@ -466,9 +486,9 @@ posture as `reportAmbiguous` in `shared/office-identity.js`.
 - **No multi-select move.** Cris's case — eight in "Before", three of them are the old valve body
   — is three separate Move → pick actions. Correct, just not brisk. Multi-select is the obvious
   follow-up if it turns out to be a daily job rather than an occasional one.
-- **Removing a bucket has no undo in the UI.** The data fully supports it (clear `archived_at`
-  and every photo walks back in) — there is just no control, because nothing asked for one.
-  Recovering a bucket removed by mistake is a one-line hand-run `update` today.
+- **~~Removing a bucket has no undo in the UI.~~** Shipped — §5a1. A 60s Undo covers the mis-tap
+  case. Recovering a bucket removed LONGER ago is still a one-line hand-run `update`
+  (`archived_at = null`), and deliberately has no screen.
 - **A removed bucket's name is not shown anywhere.** Its photos read "No bucket", which is what
   was asked for, but that does mean "these five were in Teardown" is no longer visible on the
   record — it survives only in `photo_buckets.name` on the archived row.
@@ -528,6 +548,25 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   listeners).
 
 ## Session change log
+- 2026-08-22 (phone testing, round 3) — **RO accordion + Undo on bucket removal.**
+  Cris on `6d01223`: everything from rounds 1–2 verified working on his iPhone (capture, move,
+  the clearer labels, the pencil, staying in place). Two changes.
+  (1) **Each RO now collapses**, because *"there's not a clear division between RO's"* — one
+  job's photo grids ran straight into the next job's heading. `roRowHtml` mirrors `vehRowHtml`
+  exactly (same chevron, same rotate, same head/body split, same accent-on-open) rather than
+  inventing a second pattern; the newest RO opens by default and the collapsed header carries RO
+  number, status, date, a one-line complaint, invoice total and photo count. `resolveOpenRo`
+  uses the same three-state shape as the tech's accordion (undefined = newest, null =
+  deliberately closed, id = that one). Because the head is a `<button>`, "Open RO #…" moved into
+  the body — which is also safer, since it is the one control that navigates away.
+  (2) **Undo on bucket removal** (§5a1), replacing a confirm that promised something the app
+  could not do.
+  **Fix 2 re-measured with the accordion in place: 0px drift and open/closed RO state held
+  across all seven paths** — take photo, move, remove photo, add bucket, rename, remove bucket,
+  and visibilitychange+focus. Two new scroll traps found and closed on the way: the RO header's
+  photo count is patched in place by `syncRoPhotoCount` (an in-place render does not touch the
+  header, so the count would have gone stale), and the Undo timer's unattended re-render is
+  scroll-pinned on both the in-place and fallback paths.
 - 2026-08-22 (phone testing, round 2) — **Three fixes from Cris's iPhone on
   `cfcfb1c`; the camera fix itself was confirmed working by him.**
   (1) **"Remove" appeared on both a photo and a bucket** and he tapped the wrong

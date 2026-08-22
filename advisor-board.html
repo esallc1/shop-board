@@ -596,14 +596,38 @@
   .cust-chip-idle { color:var(--muted); background:var(--surface-2); border:1px solid var(--border); }
   .cust-veh-body { padding:2px 14px 14px; border-top:1px solid var(--border); }
 
-  .cust-ro-block { margin-top:12px; }
-  .cust-ro-head { display:flex; align-items:baseline; gap:8px; }
-  .cust-ro-num { font-size:0.85rem; font-weight:800; color:var(--text); cursor:pointer; }
-  .cust-ro-num:hover { color:var(--accent); text-decoration:underline; }
-  .cust-ro-stage { font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); }
-  .cust-ro-total { margin-left:auto; font-size:0.85rem; font-weight:700; color:var(--text); white-space:nowrap; }
-  .cust-ro-when { font-size:0.72rem; color:var(--muted); margin-top:1px; }
-  .cust-ro-summary { font-size:0.8rem; color:var(--text); margin-top:4px; }
+  /* ── RO accordion. Deliberately the SAME visual language as the vehicle
+        accordion above (.cust-veh-*): same chevron, same rotate-on-open, same
+        head/body split, same accent border when open. One notch smaller,
+        because it sits INSIDE a vehicle body. Cris asked for the RO to behave
+        "same as vehicles", and the complaint that prompted it was that one
+        job's photos ran straight into the next job's heading with no clear
+        division — so the border + radius per row is doing real work. */
+  .cust-ro-row { margin-top:10px; border:1px solid var(--border); border-radius:9px;
+    background:#fff; overflow:hidden; }
+  .cust-ro-row.open { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+  .cust-ro-head { display:flex; align-items:center; gap:9px; width:100%; text-align:left;
+    background:none; border:none; cursor:pointer; padding:10px 12px; font:inherit; }
+  .cust-ro-head:hover { background:var(--surface-2); }
+  .cust-ro-chev { transition:transform .15s ease; color:var(--muted); font-size:0.72rem; flex-shrink:0; }
+  .cust-ro-row.open .cust-ro-chev { transform:rotate(90deg); color:var(--accent); }
+  .cust-ro-main { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:2px; }
+  .cust-ro-line { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .cust-ro-num { font-size:0.85rem; font-weight:800; color:var(--text); }
+  .cust-ro-stage { font-size:0.6rem; font-weight:800; text-transform:uppercase;
+    letter-spacing:0.4px; color:var(--muted); }
+  .cust-ro-when { font-size:0.72rem; color:var(--muted); }
+  /* ONE line while collapsed — the complaint is there to identify the job at a
+     glance, not to be read in full. The full text is in the RO itself. */
+  .cust-ro-summary { display:block; font-size:0.78rem; color:var(--text);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cust-ro-meta { flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+  .cust-ro-total { font-size:0.85rem; font-weight:700; color:var(--text); white-space:nowrap; }
+  .cust-ro-photos { font-size:0.62rem; font-weight:700; color:var(--muted); white-space:nowrap; }
+  .cust-ro-body { padding:2px 12px 12px; border-top:1px solid var(--border); }
+  /* The one control that navigates AWAY from this record. In the body, clearly
+     labelled, and nowhere near the header tap target. */
+  .cust-ro-open { margin:8px 0 2px; }
 
   .cust-timeline-cap { font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); margin-top:12px; }
   .cust-timeline { margin-top:8px; display:flex; flex-direction:column; gap:8px; max-height:260px; overflow-y:auto; padding-right:4px; }
@@ -677,6 +701,16 @@
   @media (prefers-reduced-motion: reduce) {
     .cust-photo-new .cust-photo-tile { animation:none; border-color:var(--accent); border-width:2px; }
   }
+
+  /* The Undo bar. Amber, not red — this is a reversible thing that just
+     happened, not a failure. It disappears on its own after 60s, which is
+     itself the message: the window is closing. */
+  .cust-undo-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    margin:2px 0 6px; padding:6px 9px; border-radius:7px;
+    background:#fff7e6; border:1px solid #f0c98a; }
+  .cust-undo-txt { flex:1 1 160px; font-size:0.68rem; color:#7a4b06; line-height:1.45; }
+  .cust-undo-btn { flex:0 0 auto; background:#fff; border-color:#d9a441; color:#7a4b06;
+    font-weight:800; min-height:30px; }
 
   .cust-search-failed { color:#b42318; font-style:normal; font-weight:700; }
 
@@ -6658,6 +6692,11 @@
     // Transient inline-editor state. All three are display-only and are reset
     // on every customer load, so a half-typed rename can never leak onto the
     // next record.
+    /* undefined = no choice yet (open the newest); null = deliberately closed;
+       an id = that RO. Reset to undefined when the vehicle changes so each
+       vehicle opens on its own newest RO. */
+    let custOpenRo;
+    let custResolvedOpenRo = null; // what resolveOpenRo decided this render
     let custBucketEditId = null;   // bucket whose name is being edited
     let custBucketAddRo  = null;   // RO whose "new bucket" input is open
     let custPhotoMoveId  = null;   // photo whose bucket picker is open
@@ -6927,6 +6966,9 @@
       const seq = ++custLoadSeq;
       const sameCustomer = !!(custCustomer && String(custCustomer.id) === String(id));
       const keepOpenVeh = sameCustomer ? custOpenVeh : null;
+      // The open RO is part of "where he was" just as much as the open vehicle.
+      // undefined on a different customer = fall back to that vehicle's newest.
+      const keepOpenRo = sameCustomer ? custOpenRo : undefined;
       const scroller = document.scrollingElement || document.documentElement;
       const keepScroll = sameCustomer ? scroller.scrollTop : 0;
 
@@ -6944,7 +6986,9 @@
       $('custUnfiledCard').style.display = 'none'; $('custUnfiledBody').innerHTML = '';
       custMergedKeeper = null;
       custOpenVeh = keepOpenVeh;
+      custOpenRo = keepOpenRo;
       custBucketEditId = null; custBucketAddRo = null; custPhotoMoveId = null;
+      if (!sameCustomer) clearBucketUndo();   // an Undo for another record is meaningless
       custCallGroups = { byRo: {}, byVehNoRo: {}, unfiled: [] };
       custRecAssigned = {};
       // customer row (contact fields shown only if present — the ALLDATA import +
@@ -7340,6 +7384,7 @@
       const groups = custPhotoGroups(roId);
       const manage = canManageCustBuckets();
       return (manage ? custPhotoBarHtml(roId) : '')
+        + (manage ? custBucketUndoHtml(roId) : '')
         + groups.map(g => `
         <div class="cust-photo-group">
           ${custBucketHeadHtml(g, roId, manage)}
@@ -7376,7 +7421,17 @@
        vehicle got collapsed, or the record was reloaded underneath us). */
     function renderRoPhotos(roId) {
       const el = document.getElementById('custPhotos_' + String(roId));
-      if (!el) { renderCustVehicles(); return; }
+      if (!el) {
+        /* The section isn't on screen — the RO was collapsed, or the record
+           reloaded underneath us. A full render is the only option, but it must
+           still not move the page: the Undo timer expiring 60s later is exactly
+           this case, and it fires with no user action at all. */
+        const sc = document.scrollingElement || document.documentElement;
+        const at = sc.scrollTop;
+        renderCustVehicles();
+        if (sc.scrollTop !== at) sc.scrollTop = at;
+        return;
+      }
       /* Pin the scroll across the swap. Even an in-place update changes the
          section's HEIGHT — the rename editor is a row taller than the heading
          it replaces, an added bucket adds a row, a removed photo drops one —
@@ -7387,7 +7442,29 @@
       const scroller = document.scrollingElement || document.documentElement;
       const keep = scroller.scrollTop;
       el.innerHTML = roPhotosInnerHtml(roId);
+      syncRoPhotoCount(roId);
       if (scroller.scrollTop !== keep) scroller.scrollTop = keep;
+    }
+
+    /* The RO's collapsed header carries a photo count, and an in-place render
+       does not touch the header — so adding or removing a photo would leave
+       the count lying until something else re-rendered. Patch just that one
+       span (creating or removing it as the count crosses zero) rather than
+       re-rendering the row, which would defeat the whole point. */
+    function syncRoPhotoCount(roId) {
+      const el = document.getElementById('custPhotos_' + String(roId));
+      const row = el && el.closest('.cust-ro-row');
+      const meta = row && row.querySelector('.cust-ro-meta');
+      if (!meta) return;
+      const n = (custRoPhotos[String(roId)] || []).length;
+      let span = meta.querySelector('.cust-ro-photos');
+      if (!n) { if (span) span.remove(); return; }
+      if (!span) {
+        span = document.createElement('span');
+        span.className = 'cust-ro-photos';
+        meta.appendChild(span);
+      }
+      span.textContent = n + ' \uD83D\uDCF7';
     }
 
     /* Which RO owns a photo / a bucket — needed so a write can re-render just
@@ -7509,10 +7586,18 @@
       const b = buckets.find(x => String(x.id) === String(bucketId));
       if (!b) return;
       const n = (custRoPhotos[String(roId)] || []).filter(p => String(p.bucket_id) === String(bucketId)).length;
+      /* ⚠ THIS TEXT USED TO PROMISE SOMETHING THE APP COULD NOT DO. It said
+         "putting the bucket back restores them", which reads as: make a new
+         bucket with the same name and the photos return. They do NOT — a new
+         bucket is a new row, and the photos keep pointing at the archived one,
+         so they stay in "No bucket". Undo is the only thing that brings them
+         back, and it is time-limited. Say exactly that. */
       const msg = n
         ? `Remove the "${b.name}" bucket from this RO?\n\n` +
-          `Its ${n} photo${n === 1 ? '' : 's'} will show under "No bucket" — nothing is deleted, ` +
-          `and putting the bucket back restores them.`
+          `Its ${n} photo${n === 1 ? '' : 's'} will move to "No bucket" — nothing is deleted.\n\n` +
+          `You get one Undo, and only while the message stays on screen. After that ` +
+          `${n === 1 ? 'it has' : 'they have'} to be filed back by hand — making a new bucket ` +
+          `with the same name will NOT bring ${n === 1 ? 'it' : 'them'} back.`
         : `Remove the "${b.name}" bucket from this RO?\n\nIt has no photos in it.`;
       if (!confirm(msg)) return;
       const stamp = { archived_at: new Date().toISOString(), archived_by: custActorName() };
@@ -7523,6 +7608,69 @@
         return;
       }
       custSetBuckets(roId, buckets.map(x => String(x.id) === String(bucketId) ? { ...x, ...stamp } : x));
+      armBucketUndo(roId, bucketId, b.name, n);
+    }
+
+    /* ── UNDO A BUCKET REMOVAL ──────────────────────────────────────────
+       The confirm promises an Undo, so there has to BE one — a promise the app
+       cannot keep is the same fault as a silent failure, and this session has
+       been killing those all day.
+
+       Scope, per Cris: the realistic case is a mis-tap, not a change of heart.
+       So this is a short-lived Undo, NOT a removed-buckets screen. When it
+       expires the honest state is "those photos are in No bucket and have to be
+       filed by hand", and the wording says so before he commits.
+
+       Undo clears archived_at/archived_by and touches NOTHING else — the photos
+       never moved (removal only archives the bucket), so restoring the bucket
+       is all it takes for every one of them to walk straight back in. */
+    const BUCKET_UNDO_MS = 60000;
+    let custBucketUndo = null;      // { roId, bucketId, name, n }
+    let custBucketUndoTimer = null;
+
+    function armBucketUndo(roId, bucketId, name, n) {
+      if (custBucketUndoTimer) clearTimeout(custBucketUndoTimer);
+      custBucketUndo = { roId: String(roId), bucketId: String(bucketId), name, n };
+      custBucketUndoTimer = setTimeout(() => {
+        const ro = custBucketUndo && custBucketUndo.roId;
+        custBucketUndo = null; custBucketUndoTimer = null;
+        if (ro) renderRoPhotos(ro);          // in place — never moves the page
+      }, BUCKET_UNDO_MS);
+      renderRoPhotos(roId);
+    }
+
+    function clearBucketUndo() {
+      if (custBucketUndoTimer) clearTimeout(custBucketUndoTimer);
+      custBucketUndo = null; custBucketUndoTimer = null;
+    }
+
+    function custBucketUndoHtml(roId) {
+      const u = custBucketUndo;
+      if (!u || u.roId !== String(roId)) return '';
+      const what = u.n
+        ? `Its ${u.n} photo${u.n === 1 ? '' : 's'} ${u.n === 1 ? 'is' : 'are'} in "No bucket".`
+        : 'It had no photos in it.';
+      return `<div class="cust-undo-bar">
+        <span class="cust-undo-txt">Removed <b>${esc(u.name)}</b>. ${esc(what)}</span>
+        <button type="button" class="cust-photo-act cust-undo-btn" data-undobucket="1">Undo</button>
+      </div>`;
+    }
+
+    async function undoBucketRemoval() {
+      const u = custBucketUndo;
+      if (!u || !canManageCustBuckets()) return;
+      clearBucketUndo();
+      const { error } = await db.from('photo_buckets')
+        .update({ archived_at: null, archived_by: null }).eq('id', u.bucketId);
+      if (error) {
+        console.error('[RoPhotos] undo failed', error);
+        setCustCamNote(u.roId, 'err', 'Could not undo that — ' + (error.message || 'unknown error'));
+        return;
+      }
+      const buckets = custBucketsFor(u.roId).map(b =>
+        String(b.id) === u.bucketId ? { ...b, archived_at: null, archived_by: null } : b);
+      custSetBuckets(u.roId, buckets);
+      setCustCamNote(u.roId, 'ok', `"${u.name}" is back${u.n ? ` with its ${u.n} photo${u.n === 1 ? '' : 's'}` : ''}.`);
     }
 
     /* MOVE ONE PHOTO between buckets ON THE SAME RO. `targetId` is either a
@@ -7755,6 +7903,9 @@
           const ro = roIdForBucket(custBucketEditId); custBucketEditId = null;
           renderRoPhotos(ro); return;
         }
+        const undoB = e.target.closest('[data-undobucket]');
+        if (undoB) { e.preventDefault(); undoBucketRemoval(); return; }
+
         const rmB = e.target.closest('[data-rmbucket]');
         if (rmB) { e.preventDefault(); removeCustBucket(rmB.getAttribute('data-rmbucket')); return; }
 
@@ -8119,28 +8270,84 @@
 
     // A vehicle's expanded body: each RO (newest first) with its own calls & notes
     // timeline beneath, then any vehicle-level calls not tied to a specific RO.
+    /* WHICH RO IS OPEN, given the ROs on the vehicle currently expanded.
+         undefined -> nothing chosen yet: open the NEWEST (ros are already
+                      sorted newest-first by sortNewestFirst).
+         null      -> the advisor closed it on purpose. Respect that; do NOT
+                      helpfully re-open the newest.
+         an id     -> that one, IF it belongs to this vehicle. It won't after
+                      switching vehicles, and the fallback to newest is exactly
+                      what should happen then.
+       Same three-state shape as roOpenBucketKey in my-numbers.html. */
+    function resolveOpenRo(ros) {
+      if (custOpenRo === null) return null;
+      if (custOpenRo && ros.some(r => String(r.id) === String(custOpenRo))) return String(custOpenRo);
+      return ros.length ? String(ros[0].id) : null;
+    }
+
+    /* One RO, collapsed or open. Deliberately the SAME shape as vehRowHtml —
+       same chevron glyph, same rotate-on-open, same head/body split, same
+       aria-expanded — because Cris asked for the RO to behave "same as
+       vehicles" and a second accordion pattern on one screen would be worse
+       than none. The only difference is scale: this one sits inside the
+       vehicle's body, so it is a notch smaller.
+
+       ⚠ THE HEAD IS A <button>, so nothing clickable can nest inside it —
+       that is why "Open RO #…" moved into the BODY. It is also the safer
+       arrangement: the head is a full-width tap target for expanding, and the
+       one control that NAVIGATES AWAY is a deliberate, separately-labelled
+       button. Same reasoning as the pencil replacing the tappable name. */
+    function roRowHtml(r) {
+      const rid = String(r.id);
+      const isOpen = custResolvedOpenRo === rid;
+      const total = custTotals[rid];
+      const totalStr = total != null ? '$' + Number(total).toFixed(2) : '';
+      const nPhotos = (custRoPhotos[rid] || []).length;
+      const complaint = (r.complaint && String(r.complaint).trim()) || '';
+      return `<div class="cust-ro-row${isOpen ? ' open' : ''}">
+        <button type="button" class="cust-ro-head" data-ro="${escAttr(rid)}" aria-expanded="${isOpen}">
+          <span class="cust-ro-chev">▶</span>
+          <span class="cust-ro-main">
+            <span class="cust-ro-line">
+              <span class="cust-ro-num">RO #${esc(r.ro_number)}</span>
+              <span class="cust-ro-stage">${esc(STATUS_LABEL[r.status] || r.status || '')}</span>
+              <span class="cust-ro-when">${esc(custFmtDate(r.created_at))}</span>
+            </span>
+            ${complaint ? `<span class="cust-ro-summary">${esc(complaint)}</span>` : ''}
+          </span>
+          <span class="cust-ro-meta">
+            ${totalStr ? `<span class="cust-ro-total">${esc(totalStr)}</span>` : ''}
+            ${nPhotos ? `<span class="cust-ro-photos">${nPhotos} 📷</span>` : ''}
+          </span>
+        </button>
+        ${isOpen ? `<div class="cust-ro-body">
+          <button type="button" class="cust-photo-act cust-ro-open" data-open-ro="${escAttr(rid)}">Open RO #${esc(r.ro_number)} →</button>
+          ${roPhotosHtml(rid)}
+          ${timelineHtml(custCallGroups.byRo[rid], 'No calls or notes on this RO.', false)}
+        </div>` : ''}
+      </div>`;
+    }
+
     function vehBodyHtml(v, ros) {
       let html = '';
       if (!ros.length) html += `<div class="cust-tl-empty">No repair orders for this vehicle.</div>`;
-      ros.forEach(r => {
-        const total = custTotals[String(r.id)];
-        const totalStr = total != null ? '$' + Number(total).toFixed(2) : '—';
-        const summary = (r.complaint && String(r.complaint).trim()) ? `<div class="cust-ro-summary">${esc(String(r.complaint).trim())}</div>` : '';
-        html += `<div class="cust-ro-block">
-          <div class="cust-ro-head">
-            <span class="cust-ro-num" data-open-ro="${esc(r.id)}">RO #${esc(r.ro_number)}</span>
-            <span class="cust-ro-stage">${esc(STATUS_LABEL[r.status] || r.status || '')}</span>
-            <span class="cust-ro-total">${esc(totalStr)}</span>
-          </div>
-          <div class="cust-ro-when">${esc(custFmtDate(r.created_at))}</div>
-          ${summary}
-          ${roPhotosHtml(r.id)}
-          ${timelineHtml(custCallGroups.byRo[String(r.id)], 'No calls or notes on this RO.', false)}
-        </div>`;
-      });
+      // Resolved ONCE per render so every row agrees on which one is open.
+      custResolvedOpenRo = resolveOpenRo(ros);
+      ros.forEach(r => { html += roRowHtml(r); });
       const vc = custCallGroups.byVehNoRo[String(v.id)] || [];
       if (vc.length) html += `<div class="cust-timeline-cap">Calls &amp; notes · this vehicle</div>` + timelineHtml(vc, '', false);
       return html;
+    }
+
+    /* Single-open, exactly like toggleVeh. Re-renders the ACCORDION (not the
+       whole record) and pins scroll, so opening one RO does not move the page
+       under the reader. */
+    function toggleRo(rid) {
+      custOpenRo = (custResolvedOpenRo === String(rid)) ? null : String(rid);
+      const scroller = document.scrollingElement || document.documentElement;
+      const keep = scroller.scrollTop;
+      renderCustVehicles();
+      if (scroller.scrollTop !== keep) scroller.scrollTop = keep;
     }
 
     // A calls & notes timeline (chronological, oldest first). allowAssign shows the
@@ -8265,6 +8472,9 @@
     // Toggle an accordion row (single-open); re-render so bodies mount/unmount.
     function toggleVeh(vid) {
       custOpenVeh = (custOpenVeh === String(vid)) ? null : String(vid);
+      // A different vehicle gets its own newest-RO default rather than
+      // inheriting a selection (or a deliberate close) from the last one.
+      custOpenRo = undefined;
       renderCustVehicles();
     }
 
@@ -8406,6 +8616,8 @@
         if (ro) { openRoFromCustomer(ro.dataset.openRo); return; }
         const head = e.target.closest('.cust-veh-head');
         if (head) { toggleVeh(head.dataset.veh); return; }
+        const roHead = e.target.closest('.cust-ro-head');
+        if (roHead) { toggleRo(roHead.dataset.ro); return; }
         const goCust = e.target.closest('[data-open-cust]');
         if (goCust) { showCustomerRecord(goCust.dataset.openCust); return; }
       });
