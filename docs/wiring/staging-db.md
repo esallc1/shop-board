@@ -1,9 +1,10 @@
 # How the staging database is wired
 
 > Doc: `/docs/wiring/staging-db.md`
-> Last updated: 2026-08-22 — **§8.4: no data-modifying CTEs in hand-run SQL (the linter dialog's
+> Last updated: 2026-08-23 — **§8.5: deploy backwards-compatible code BEFORE the migration.**
+> Previously: 2026-08-22 — §8.4: no data-modifying CTEs in hand-run SQL (the linter dialog's
 > green default would enable RLS on `repair_orders`). §8.3: `app_env` is invisible to `anon` —
-> read it only in the SQL editor; exact sandbox stamp recorded.**
+> read it only in the SQL editor; exact sandbox stamp recorded.
 > Previously: 2026-08-21 — §8.2 added (self-guarding SQL); §8 added (`app_env`,
 > replacing the drifting run-id guard);
 > §7 added: staging cannot verify ANY office-identity path (no `auth.users` rows + a
@@ -554,6 +555,39 @@ end $$;
 This belongs next to "the editor runs only the highlighted text": both are ways the editor does
 something other than what the SQL says, and both are only obvious once they have bitten you.
 
+### 8.5 DEPLOY THE CODE FIRST, THEN RUN THE MIGRATION — when the code is backwards-compatible
+Adopted 2026-08-23, on the per-RO photo-bucket release ([[ro-photos]]).
+
+**The instinct is migrate-then-deploy, and it is usually backwards.** A schema change plus a code
+deploy always has a gap between them, and in that gap one side is talking to the other side's
+world. The question is only which direction the gap points.
+
+The photo-bucket release made this concrete. Between the backfill (B2) and the code deploy there
+were suddenly **two bucket rows named "Before" for every RO in the shop**. The OLD My Numbers
+resolved a bucket by a shop-wide `name -> id` map (last one wins), so in that gap a tech's photo
+would have been filed onto **an arbitrary other repair order** — silently, no error. The plan was
+to make that window short. The better move was to make it **not exist**.
+
+**The rule:** if the new code works against the OLD schema, deploy it first and let the migration
+land underneath it. Then there is no window to time and nothing to race.
+
+**"Backwards-compatible" has to be EARNED, not assumed.** Here it was: the new code ran on
+staging for three days (`e2481be` → `154be38`) against a sandbox that had not been migrated, and
+every board kept working — bucket reads simply degraded to "No bucket" until the schema caught
+up. That soak is the evidence. Without it, the claim is a guess.
+
+**When it does NOT apply:** if the new code REQUIRES the new schema (reads a column that does not
+exist yet, calls a function that is not there), deploying first is an outage. Then you want the
+migration first and the additive-then-cutover shape instead — add the column, deploy code that
+writes both, backfill, then switch reads. The test is simple and worth doing honestly: *does the
+new code, pointed at the current production schema, work?* If you cannot answer from something
+you actually ran, you do not know.
+
+**Either way the release note must say which order, and why.** The prod migration file's header
+said migrate-then-deploy right up until the night it ran; it now leads with deploy-first and the
+reason. A runbook that describes the wrong order is worse than one that describes none, because
+it will be followed.
+
 ## Where it lives in the code
 - **Client switch:** `shared/supabase-config.js` (+ `shared/supabase-config.test.js`). Loaded
   by every board via `<script src>`; boards read `window.cdSupabaseCreds()`.
@@ -568,6 +602,11 @@ something other than what the SQL says, and both are only obvious once they have
 - **Employee ↔ auth mapping:** see [[office-auth]].
 
 ## Session change log
+- 2026-08-23 — **§8.5 added: deploy backwards-compatible code BEFORE the migration.** Taken from
+  the per-RO photo-bucket release, where deploying first removed the misfiling window instead of
+  shortening it. Includes the part that makes it safe rather than lucky: backwards-compatibility
+  has to be earned by an actual soak, and the rule inverts when the new code REQUIRES the new
+  schema.
 - 2026-08-22 — **§8.4 added: NO data-modifying CTEs in hand-run SQL.** The editor's linter reads
   `with x as (insert into <table> …)` as a CREATE TABLE and offers a dialog whose GREEN DEFAULT
   is "Run and enable RLS" — on prod, one click would enable RLS on `repair_orders` and blank

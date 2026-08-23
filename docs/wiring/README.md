@@ -36,6 +36,57 @@ Tables already over the cap: **`vehicles` (3,251)**, **`customers` (2,717)**. Gr
 
 An audit of every unbounded read is in [[intake-wizard]] §5.
 
+## ⚠️ Recurring hazard — the failure that looks exactly like success
+
+The 1,000-row cap above is one instance of a bigger pattern, and it is the pattern that has cost
+this project the most time. **Every entry below is a real bug we shipped, and every one of them
+looked normal from the outside.** Nothing errored. Nothing was red. The screen showed a
+believable, wrong thing — and in most cases we only found it because someone on a phone said
+"that didn't do anything."
+
+The general shape: *a mechanism that fails by producing a plausible ordinary result is
+indistinguishable from the same mechanism working.* When you build one, make it fail LOUDLY.
+
+| The failure | Looks exactly like | Where |
+|---|---|---|
+| A truncated unbounded `select()` | A customer who isn't in the system | §above, [[intake-wizard]] §4 |
+| **A listener that can't fire** | **A user who didn't tap** | [[ro-photos]] §5b0 |
+| An `async` handler that rejects | A tap that did nothing | [[ro-photos]] §5c |
+| A guard whose operand is always `undefined` | A guard that passed | [[office-auth]] §1b |
+| A guard whose expected value drifts | A guard that's just out of date again | [[staging-db]] §8.1 |
+| A `NULL` env stamp in a self-guarding statement | A database with nothing to do | [[staging-db]] §8.3 |
+| `[]` cached because `[]` is truthy | A shop with no customers | [[customer-record]] §4c |
+| `requestAnimationFrame` in a hidden tab | A restore that ran and had nothing to restore | [[customer-record]] §3b |
+| A migration header that was never updated | A migration that hasn't run yet | [[ro-photos]] change log, 2026-08-23 |
+
+Three of these deserve spelling out, because each one fooled us twice.
+
+**A listener that can't fire looks exactly like a user who didn't tap.** The office camera was
+wired with a DELEGATED listener on a container that gets re-rendered. Returning from the iOS
+camera fires `visibilitychange`+`focus`, which re-rendered that container and DETACHED the
+`<input>` before iOS delivered its `change` — so the event went to an element that was no longer
+a descendant, and the handler never ran. Cris shot two photos and got nothing: no spinner, no
+error, no tile, no row. There was nothing to debug because nothing had executed. The tech path
+was immune purely because it binds DIRECTLY to the input, and a direct listener still fires on a
+detached element. **If an event can arrive after a re-render, do not delegate it.**
+
+**`requestAnimationFrame` does not fire in a hidden or backgrounded tab.** Measured: ONE frame in
+four seconds. Every scroll restore on the customer record was written with rAF — and they all run
+on `visibilitychange`/`focus`, i.e. *precisely when the tab has been hidden*. So the restore we
+had verified as working silently did nothing in the one situation it existed for, and the page
+sat at the top with no sign anything had been attempted. **A restore triggered by a page becoming
+visible cannot depend on rAF.** Use a synchronous call (reading `getBoundingClientRect()` forces
+layout) plus a short `setTimeout` re-assert.
+
+**One fix on a bug with two causes reads as "fixed."** The customer list rendered "No customers."
+on a database with 2,717 of them. Cause one: a failed fetch returned `[]` and `[]` is truthy, so
+the empty result was cached for the life of the page. We fixed that, verified it, and moved on.
+Cause two, found four days later: `window.cdFetchAllCustomers` is assigned in a LATER IIFE, so a
+boot-time view restore can call `ensureCustAllList` *before the function exists* — no error, no
+rows, cached forever, same symptom, completely different cause. **After fixing a
+silently-empty-result bug, ask what else produces that same empty value.** Cache only a result
+you can prove succeeded, not merely one that didn't throw.
+
 ## Index
 
 | Subsystem | Doc | Status |
@@ -69,7 +120,8 @@ An audit of every unbounded read is in [[intake-wizard]] §5.
 | RO / invoice document (print + embed) | [ro-invoice.md](ro-invoice.md) | ✅ BUILT + verified vs `455693f` |
 | RO line items (Add/Edit-Line pop-up) | [ro-line-items.md](ro-line-items.md) | ✅ BUILT + verified live vs `17d4b02` |
 | Staging database (isolated `test.*` DB) | [staging-db.md](staging-db.md) | ⚠ **Needs review** — header still reads 🟡 in-progress (2026-08-12), but the sandbox is live and prod-deployed |
-| RO photos (buckets · capture · archive) | [ro-photos.md](ro-photos.md) | 🟡 slice 1 live on staging, slice 2 built + unmerged; **carries a live FINDING in §6** |
+| Employee roster (hire · retire · test accounts · assignment-vs-role) | [employee-roster.md](employee-roster.md) | ✅ §7a = the assignee write-safety rule |
+| RO photos (**per-RO** buckets · capture · move · archive) | [ro-photos.md](ro-photos.md) | 🟢 all three slices LIVE ON PROD (2026-08-23, `484a3e0`); **carries a live FINDING in §6** and one open item (block E) |
 | Page map (which pages exist, who reaches them) | [page-map.md](page-map.md) | ✅ verified vs `c17db7e` — replaces the flat 12-name handoff list |
 
 _Seeded 2026-07-30 from the Jul 29 session handoff. Verified 2026-07-30 against commit `bea25cf`:

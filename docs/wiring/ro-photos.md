@@ -1,14 +1,18 @@
 # How RO photos are wired
 
 > Doc: `/docs/wiring/ro-photos.md`
-> Last updated: 2026-08-22 — **slice 3: buckets went PER-RO**, plus office-side capture and
-> moving a photo between buckets. Verified vs commit `085e239` + the slice-3 working tree.
-> Status: 🟢 **SANDBOX GREEN, VERIFIED IN-BROWSER.** Slices 1 and 2 are live on prod (`ae4510b`).
-> **Slice 3 is BUILT, APPLIED TO SANDBOX ONLY, AND UNMERGED.**
-> `migrations/20260822_photo_buckets_per_ro.sql` ran green on `efhmefpaijjncwgbvwki` 2026-08-22
-> (54 ROs → 108 buckets, 5 photos repointed, all D checks pass). The prod file is
-> `migrations/20260822_photo_buckets_per_ro_PROD.sql` — **written and reviewed, NOT RUN.**
-> Nothing is on staging, nothing is on prod, nothing is pushed. Prod is still `085e239`.
+> Last updated: 2026-08-23 — **slice 3 is LIVE ON PROD.** Verified vs commit `484a3e0`.
+> Status: 🟢 **ALL THREE SLICES LIVE ON PROD.**
+> • Slices 1 + 2 — code `ae4510b`, migrations run by hand on prod **2026-08-20**.
+> • Slice 3 — code `484a3e0` deployed to prod **2026-08-23** (byte-verified on www),
+>   then `migrations/20260822_photo_buckets_per_ro_PROD.sql` run by hand, block by block,
+>   on `PROD — KiKi hygemiszxwmyrkmhbjub`. Blocks 00 · 0 · A · B1 · C · B2 · B3 · B4 · B5
+>   all clean; block D's **13 checks all pass**. Numbers: **ros 66 · templates 2 ·
+>   buckets created 132 · photos repointed 4 · globals deleted 2 · `ro_id` NOT NULL locked
+>   in.** Buckets confirmed rendering on prod on an iPhone the same night.
+> ⚠ **Block E is still open** — it proves the trigger on the next real RO the shop creates.
+> Sandbox (`efhmefpaijjncwgbvwki`) still carries the slice-3 test data (renamed buckets,
+> test photos, two ROs assigned to `ZZ Test Tech`) — left in place on purpose.
 > Related: [[my-numbers]], [[customer-record]], [[hosting-domains]] §5.5, [[recordings-audio]],
 > [[staging-db]] §8.
 
@@ -548,6 +552,19 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   listeners).
 
 ## Session change log
+- 2026-08-23 — **SLICE 3 IS LIVE ON PROD.** Code `484a3e0` was deployed to `main` FIRST and
+  byte-verified on www, then Cris ran the prod migration by hand, block by block, in the
+  Supabase editor on `PROD — KiKi hygemiszxwmyrkmhbjub`. Blocks 00 · 0 · A · B1 · C · B2 · B3 ·
+  B4 · B5 all ran clean; block D's 13 checks all pass. **ros 66 · templates 2 · buckets created
+  132 · photos repointed 4 · globals deleted 2 · `ro_id` NOT NULL.** He confirmed the buckets
+  render on prod on his iPhone. **Block E remains open** — it proves the born-with-buckets
+  trigger on the next real RO the shop creates, and there is nothing to do until then.
+  Deploy-first was the deliberate change from the original plan, and it is now the house rule:
+  [[staging-db]] §8.5.
+  Also corrected while recording this: the slice-1 and slice-2 migration headers had said
+  **"❌ NOT on prod"** since 2026-08-20 — the day they were run on prod. For three days two
+  files in this repo asserted the opposite of the truth about a production database. Both now
+  state where they have run. See the recurring-hazard list in `docs/wiring/README.md`.
 - 2026-08-22 (phone testing, round 3) — **RO accordion + Undo on bucket removal.**
   Cris on `6d01223`: everything from rounds 1–2 verified working on his iPhone (capture, move,
   the clearer labels, the pencil, staying in place). Two changes.

@@ -1,6 +1,14 @@
 -- ============================================================
 -- Photo archive + provenance — SLICE 2, SCHEMA ONLY.
--- Run BY HAND. ✅ SANDBOX FIRST (efhmefpaijjncwgbvwki). ❌ NOT on prod.
+-- Run BY HAND.
+-- ✅ APPLIED TO SANDBOX (efhmefpaijjncwgbvwki) 2026-08-20.
+-- ✅ APPLIED TO PROD    (hygemiszxwmyrkmhbjub) 2026-08-20, with slice 1, by hand.
+--
+-- ⚠️ THIS LINE USED TO SAY "❌ NOT on prod" AND WAS WRONG FROM 2026-08-20 ONWARD.
+--    It was written before the prod run and never corrected, so for three days the
+--    file asserted the opposite of the truth about a database. Corrected
+--    2026-08-23 while recording the slice-3 prod run. A migration header states
+--    WHERE IT HAS RUN — if you run it somewhere, say so here in the same session.
 --
 -- ADDITIVE ONLY: three nullable columns on `attachments`. No DROP, no UPDATE,
 -- no DELETE, no index, no policy change, NO STORAGE CHANGE. All three columns

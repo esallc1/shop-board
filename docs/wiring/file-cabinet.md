@@ -53,6 +53,32 @@ and renders their markdown — the File Cabinet the CLAUDE.md rules describe, ma
   `&nbsp;`). Inline code is split out before the emphasis/link passes so code contents
   are never altered.
 
+## ⚠ The manifest is INCOMPLETE (as of 2026-08-23)
+`shared/file-cabinet.js` lists **25** docs. `/docs/wiring/` contains **33**. Eight subsystems are
+therefore written up but **invisible on the owner board** — the File Cabinet shows a shop that is
+less documented than it is:
+
+| Missing from the manifest |
+|---|
+| `advisor-commission.md` |
+| `customer-dedupe.md` |
+| `employee-roster.md` |
+| `manager-board.md` |
+| `packages.md` |
+| `payments.md` |
+| `ro-invoice.md` |
+| `ro-line-items.md` |
+
+This is the cabinet's own version of the failure the README's second recurring-hazard section
+describes: **a doc that is missing from the list looks exactly like a subsystem nobody wrote up.**
+Nothing errors; the tab just renders a shorter list. `README.md`'s Index table was separately
+missing `employee-roster.md` and was corrected 2026-08-23 — the two lists are maintained by hand,
+independently, and had drifted apart from each other AND from the folder.
+
+**Adding one is a one-line entry in the `DOCS` array** (id · file · icon · title). Not done in the
+slice-3 session on purpose: it is eight titles and eight icons to choose, which is a decision
+about naming rather than a mechanical fix.
+
 ## Known gaps & open questions (as of 2026-07-30)
 - The renderer is intentionally minimal — it covers what these docs actually use, not
   all of CommonMark (e.g. no nested blockquotes, no reference-style links, no images).
@@ -71,6 +97,11 @@ and renders their markdown — the File Cabinet the CLAUDE.md rules describe, ma
 - Design blueprint (not shipped): `docs/_design/file-cabinet-mockup.html`.
 
 ## Session change log
+- 2026-08-23 — **Recorded that the manifest is incomplete: 25 of 33 docs.** Eight subsystems are
+  documented but not shown on the owner board. Also noted that `README.md`'s Index and
+  `file-cabinet.js`'s `DOCS` array are two hand-maintained lists of the same thing that had
+  drifted apart; the README was brought to 32/32 the same day. Manifest entries NOT added —
+  that is eight naming decisions, not a mechanical fix.
 - 2026-08-09 — Added a `DOCS` manifest row for `cost-profit.md` (Cost & Profit / Build Sheet,
   Step 1). Manifest-only change; renderer/status-chip logic unchanged.
 - 2026-07-30 — Built the tab from the mockup: `shared/file-cabinet.js` (manifest +

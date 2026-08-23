@@ -1,6 +1,15 @@
 -- ============================================================
 -- PHOTO BUCKETS GO PER-RO — SLICE 3. ⚠️ THIS IS THE **PRODUCTION** FILE.
 --
+-- ✅ APPLIED TO PROD (hygemiszxwmyrkmhbjub) 2026-08-23, by hand, block by block.
+--    Code 484a3e0 was deployed FIRST and verified byte-identical on www, then
+--    00 · 0 · A · B1 · C · B2 · B3 · B4 · B5 all ran clean, and block D's 13
+--    checks all passed. Result: ros 66 · templates 2 · buckets created 132 ·
+--    photos repointed 4 · globals deleted 2 · ro_id NOT NULL locked in.
+--    Buckets confirmed rendering on prod on an iPhone the same night.
+--    ⚠️ BLOCK E IS STILL OPEN — it proves on the next real RO the shop creates.
+--    Nothing below needs re-running. Kept as the record of what was run.
+--
 -- Sibling: migrations/20260822_photo_buckets_per_ro.sql — the SANDBOX run,
 -- applied and verified green on efhmefpaijjncwgbvwki on 2026-08-22.
 -- These are two separate reviewed files ON PURPOSE. Neither is turned into the
