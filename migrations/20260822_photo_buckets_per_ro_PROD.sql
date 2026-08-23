@@ -12,19 +12,31 @@
 -- ⛔ READ ALL FOUR BEFORE YOU RUN ANYTHING
 -- ════════════════════════════════════════════════════════════════════════
 --
--- 1. RUN THIS AFTER HOURS, WITH NOBODY SHOOTING PHOTOS.
---    Not because of lock duration — this is small and fast. Because of a
---    WINDOW between the migration and the code deploy:
+-- 1. ⚠️ DEPLOY THE CODE FIRST. THEN RUN THIS SQL.
+--    (Order CORRECTED 2026-08-23. An earlier version of this header said
+--    migrate-then-deploy. It was written before the code had soaked, and it
+--    had you racing a window instead of removing it.)
 --
---    The moment B2 lands there are TWO bucket rows named "Before" for every
---    RO in the shop. The CURRENTLY DEPLOYED My Numbers builds a shop-wide
+--    WHY DEPLOY-FIRST IS SAFE: the new code is BACKWARDS-COMPATIBLE with the
+--    un-migrated schema. It ran on staging for three days (e2481be -> 154be38)
+--    against a sandbox that had NOT been migrated, and every board kept
+--    working — bucket reads simply degrade to "No bucket" until the schema
+--    catches up. Nothing errors, nothing is lost, nothing is misfiled.
+--
+--    WHY DEPLOY-FIRST IS BETTER: it removes the misfiling window rather than
+--    timing it. The moment B2 lands there are two bucket rows named "Before"
+--    for every RO in the shop. The OLD My Numbers builds a shop-wide
 --    `name -> id` map (`PHOTO_BUCKETS[b.name]`, last one wins) and looks up
---    the literal 'Before'. With per-RO rows that lookup returns an ARBITRARY
---    RO's bucket — so a tech who uploads a photo in that window files it onto
---    SOMEBODY ELSE'S REPAIR ORDER, silently, with no error.
+--    the literal 'Before', so with per-RO rows that returns an ARBITRARY RO's
+--    bucket and a photo shot in that window is filed onto SOMEBODY ELSE'S
+--    REPAIR ORDER, silently, with no error. The NEW code resolves by ro_id and
+--    cannot do that. With it already live there is no window to race.
 --
---    => The migration and the code deploy are ONE maintenance window.
---       Migrate, deploy, verify. Do not migrate on Friday and deploy Monday.
+--    => Push to main. WAIT for the build. Confirm /api/version on www shows
+--       the new SHA. ONLY THEN start at block 00.
+--
+--    Still run it after hours with nobody shooting photos. Belt and braces —
+--    and a quiet shop is what makes a careful block-by-block run comfortable.
 --
 -- 2. NO DATA-MODIFYING CTEs. Every count below comes from a DO block using
 --    GET DIAGNOSTICS, never `with x as (insert …) select count(*)`.
@@ -354,7 +366,8 @@ notify pgrst, 'reload schema';
 -- ════════════════════════════════════════════════════════════════════════
 -- D. VERIFY — ONE query, one column per check, COUNTS not emptiness.
 --    Every *_must_be_0 must read 0. Every *_expect_N must read N.
---    ⚠️ ALSO DEPLOY THE CODE NOW, IN THIS SAME WINDOW — see header note 1.
+--    The code is ALREADY LIVE by this point — it was deployed before block 00
+--    (header note 1). Nothing to deploy here; this is the final check.
 -- ════════════════════════════════════════════════════════════════════════
 select
   (select env from public.app_env)                                                        as env,
