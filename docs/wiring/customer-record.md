@@ -51,6 +51,45 @@ only, the **RO photo buckets** under each RO (§4b). Everything else is read-onl
 - A **back button** (`custBackBtn` → `custBack`) returns where you came from
   (`custBackTarget`: the list, a specific RO, or the prior view). Not a hover preview.
 
+### 3a. The RO page remembers the customer too (`roBackTarget`)
+The record ↔ RO trip used to be **one-directional**: RO → customer carried an origin, but
+customer → RO did not, so `backToList()` always dumped the advisor on the RO list and he had to
+re-find the customer by hand. Every time.
+
+- **`openRo(roId, origin)` is the choke point.** It *sets* `roBackTarget` from `origin`, so every
+  other entry — kanban card, RO list row, comeback-chain row, `window.cdOpenRo` — passes nothing
+  and thereby **clears** it. Only the record's "Open RO #… →" supplies one. Clearing at the
+  choke point is what makes a stale target unrepresentable; a leftover one would send him to a
+  customer he never came from.
+- **`custBack()`'s own call passes no origin**, so RO → customer → Back → RO → Back reaches the
+  RO list instead of ping-ponging between two screens.
+- Returning sets a one-shot `custPendingFocus`, consumed by `loadCustomerRecord`, which **derives
+  the vehicle from the rows it just fetched** (not from anything carried) and opens that vehicle
+  + that RO, then lands on it via `scrollRoRowIntoView` — measured at **72px from the top of the
+  viewport**, not the top of the page. `custBack` (the record's own target) rides along inside
+  `roBackTarget`, so the chain beyond the customer survives the round trip.
+- The button **says where it goes**: `← Back to Mendez, Cristian`. `roBackLabel` caps the name at
+  22 characters and `#cdRoBackBtn` caps the box at a flat **320px** — a plain px cap, NOT a `vw`
+  unit, because `min(60vw, …)` resolves to 0 where the viewport reports 0 width and
+  `overflow:hidden` then eats the whole label rather than trimming a long name.
+
+### 3b. The LIST remembers its A–Z position
+`custListScroll` is captured in `showCustomerRecord` **before** the panel is hidden (a hidden
+element reports `scrollTop` 0, so reading it afterwards saves nothing) and restored in
+`showCustomerList` **after** `renderCustSearch`, because `renderCustBrowse` zeroes the box on
+every render.
+
+The active A–Z letter is restored **explicitly** (`setActiveAzLetter(currentTopLetter())`), not
+left to the scroll-spy: the spy is `requestAnimationFrame`-throttled and does not fire in a
+hidden tab, so restoring the offset alone landed back at R with the bar still lit on A.
+
+⚠ **None of the three scroll restores on this page use `requestAnimationFrame`.** rAF does not
+fire in a hidden or backgrounded tab — measured as **one frame in four seconds** — and these run
+precisely when a tab is being restored. They call synchronously (reading
+`getBoundingClientRect()` forces layout, so the first attempt is already accurate) and re-assert
+on a short `setTimeout` to catch the record growing after first paint as photo signed-URLs
+resolve.
+
 ## 4. The record layout — two columns (`#custRecordPanel`)
 `.cust-rec-layout` is a `320px 1fr` grid (single column ≤860px).
 
@@ -151,7 +190,7 @@ Three things to know here; the full wiring is [[ro-photos]] §5a/§5b:
   accordion — and a same-customer refetch now preserves `custOpenVeh`, the filter and the scroll
   position instead of resetting them. Full reasoning in [[ro-photos]] §5a0.
 
-### 4c. The customer LIST caches a FAILED load as "No customers."
+### 4c. The customer LIST caches an EMPTY load as "No customers."
 `fetchAllCustomers` swallowed a page error with `break`, returning whatever had
 accumulated — on a first-page failure, `[]`. `ensureCustAllList` then did
 `if (custAllList) return custAllList`, and **`[]` is truthy**, so one dropped
@@ -165,6 +204,14 @@ two unrelated variables, which is how the first attempt at this fix was wrong),
 `ensureCustAllList` **never caches a failed load**, and the empty state says
 *"Couldn't load customers — &lt;reason&gt;"* with a **Try again** button instead of
 claiming the shop has none.
+
+**There is a SECOND way to get an empty array, and the first fix missed it.**
+`ensureCustAllList` runs `window.cdFetchAllCustomers ? … : []` — and that function is assigned
+in a LATER IIFE, so a boot-time view restore can call this before it exists. No error, no rows,
+and the `[]` was cached for the life of the page: **"No customers." on a database with 2717 of
+them.** Reproduced on 2026-08-23 while testing the A–Z restore. `custAllLoaded` now gates the
+cache, so only a completed, error-free fetch is remembered — an absent fetcher is not evidence
+of an empty shop, and neither is an error.
 
 **Timeline entry (`callEntryHtml`):** time (`started_at`), caller-ID (`cnam` / `caller_formatted`
 / formatted phone), a **disposition** chip from `calls.next_step`
@@ -325,6 +372,15 @@ then branches on whether the search box has text:
   mixed case fine, no-match message fine; Jose (2 vehicles) never sees the box; an expanded row
   filtered away came back **still expanded**; order after clearing was byte-identical to before;
   focus survived typing; no horizontal overflow at 375px.
+- 2026-08-23 — **§3a/§3b added: Back now returns to the customer, and the A–Z list keeps its
+  place.** customer → RO → Back landed on the RO list, so Cris re-found the customer by hand
+  every time; it now returns to the record with that RO open and scrolled to 72px from the top.
+  The list's A–Z offset and active letter are restored too. Three findings on the way: all
+  three scroll restores on this page were written with `requestAnimationFrame`, which does not
+  fire in a hidden tab (measured: one frame in four seconds) — replaced with a synchronous call
+  plus a `setTimeout` re-assert; the active A–Z letter needed setting explicitly rather than
+  waiting on the rAF-throttled scroll-spy; and §4c's empty-list bug had a second cause the first
+  fix missed.
 - 2026-08-22 (round 3) — **§4b0 added: each RO is now a collapsible row.** Cris could not tell
   where one job ended and the next began. Mirrors the vehicle accordion exactly; newest RO open
   by default; the open RO is preserved across a same-customer refetch alongside the open vehicle

@@ -712,6 +712,21 @@
   .cust-undo-btn { flex:0 0 auto; background:#fff; border-color:#d9a441; color:#7a4b06;
     font-weight:800; min-height:30px; }
 
+  /* The RO page's Back button now carries a customer NAME, which is arbitrary
+     text from the database. Cap the box as well as the string (roBackLabel):
+     the character cap keeps the text sensible, this keeps a pathological name
+     from ever wrapping to a second line or pushing the layout sideways on a
+     phone. 60vw leaves the rest of the row usable at 375px. */
+  /* A PLAIN PX CAP, deliberately not a vw unit. `min(60vw, 320px)` looked
+     tidier but resolves to 0 in any context where the viewport reports 0 width
+     — and combined with overflow:hidden that silently swallows the whole label
+     instead of just trimming a long name. A fixed cap cannot misfire: the
+     22-character text cap in roBackLabel does the real work, and at 0.78rem the
+     longest label it can produce is ~200px, so this only ever engages as a
+     backstop. */
+  #cdRoBackBtn { max-width:320px; overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; display:inline-block; vertical-align:middle; }
+
   .cust-search-failed { color:#b42318; font-style:normal; font-weight:700; }
 
   /* Board-wide fault bar — the unhandled-rejection net's output. Above the
@@ -4779,7 +4794,49 @@
     }
 
     // ── DETAIL: open an RO ────────────────────────────────────
-    async function openRo(roId) {
+    /* WHERE THE RO PAGE'S BACK BUTTON GOES.
+       The customer record has had a back-target since it was built
+       (custBackTarget — see customer-record.md §3), and RO -> customer already
+       carries an origin. The RO page had NO equivalent: backToList() was
+       hardcoded to the RO list, so customer -> RO -> Back dumped the advisor on
+       the RO list and he had to re-find the customer every time.
+
+       null = the RO list, which is what EVERY entry point except the customer
+       record wants. It is cleared at the openRo choke point below rather than
+       set by each caller, so a stale target cannot survive into a later visit
+       and send him to a customer he never came from. */
+    let roBackTarget = null;
+
+    /* Long business names exist ("Epic Roofing & Exteriors" is 24 chars and not
+       the worst). Cap the TEXT here and cap the BOX in CSS — belt and braces, so
+       the button can neither wrap onto a second line nor push anything off the
+       side of a phone. */
+    const RO_BACK_LABEL_MAX = 22;
+    function roBackLabel(name) {
+      const n = String(name || '').trim();
+      if (!n) return 'customer';
+      return n.length > RO_BACK_LABEL_MAX ? n.slice(0, RO_BACK_LABEL_MAX - 1).trimEnd() + '…' : n;
+    }
+
+    /* `origin` is set ONLY by the customer record. Everything else — the kanban
+       card, the RO list row, a comeback-chain row, window.cdOpenRo — passes
+       nothing and therefore CLEARS the target, which is exactly today's
+       behaviour. */
+    async function openRo(roId, origin) {
+      roBackTarget = (origin && origin.kind === 'customer' && origin.customerId != null) ? origin : null;
+      const backBtn = $('cdRoBackBtn');
+      if (backBtn) {
+        // The button must say where it actually goes. A button labelled "Back to
+        // list" that lands on a customer record is the same fault as a confirm
+        // promising a restore it cannot do.
+        if (roBackTarget) {
+          backBtn.textContent = '← Back to ' + roBackLabel(roBackTarget.label);
+          backBtn.title = 'Back to ' + (roBackTarget.label || 'the customer');
+        } else {
+          backBtn.textContent = '← Back to list';
+          backBtn.removeAttribute('title');
+        }
+      }
       // NB: select repair_orders columns with '*' (not named) so this
       // stays safe BEFORE the Phase-3 migration adds miles_out /
       // advisory_notes / technician — naming a missing column would 400
@@ -6097,6 +6154,21 @@
 
     function backToList() {
       const _a = $('cdRoRecAudio'); if (_a && !_a.paused) _a.pause();  // stop recording playback on leave
+
+      /* Came from a customer record -> go back to it, with that RO open and in
+         view. custPendingFocus is a ONE-SHOT read by loadCustomerRecord; the
+         vehicle is derived THERE from the freshly loaded rows rather than
+         carried, so an RO that moved vehicles still lands correctly.
+         `custBack` restores the record's own back-target, so the chain beyond
+         the customer survives the round trip. */
+      const t = roBackTarget;
+      if (t) {
+        roBackTarget = null;
+        custPendingFocus = { roId: String(t.roId), customerId: String(t.customerId) };
+        window.openCustomerById(t.customerId, t.custBack || { kind: 'list' });
+        return;
+      }
+
       $('cdRoDetailPanel').style.display = 'none';
       $('cdRoListPanel').style.display = 'block';
       renderKanban();  // reflect any stage/total changes
@@ -6707,6 +6779,14 @@
     let custOpenVeh = null;     // which vehicle accordion row is expanded (id string, or null)
     let custCallGroups = { byRo: {}, byVehNoRo: {}, unfiled: [] };  // calls bucketed to the finest link
     let custBackTarget = { kind: 'list' };
+    /* One-shot: "when the record finishes loading, open THIS RO and scroll to
+       it". Set by backToList(), consumed (and cleared) by loadCustomerRecord. */
+    let custPendingFocus = null;
+    /* The customer LIST's scroll offset, remembered when leaving for a record.
+       #custSearchList is its own scroll box, and the A–Z bar's active letter is
+       driven by a scroll-spy (currentTopLetter) — so restoring this ONE number
+       restores the letter position for free. */
+    let custListScroll = 0;
     let custAllList = null, custLoadSeq = 0;
     // Non-null => the LAST customer fetch failed, with its message. Set by
     // fetchAllCustomers (a different IIFE — hence `window`), read here so a
@@ -6720,11 +6800,24 @@
        FAILED (empty) fetch for the life of the page — one dropped request and
        the board said "No customers." until a full reload. Cache only a result
        that actually succeeded. */
+    /* Cache ONLY a load that actually succeeded.
+       `if (custAllList)` was not enough on its own — `[]` is truthy, so an empty
+       result stuck for the life of the page. Yesterday's fix covered the ERROR
+       path; it did not cover the other way to get an empty array: being called
+       before `window.cdFetchAllCustomers` exists (it is assigned in a later
+       IIFE, so a boot-time view restore can beat it). That produced "No
+       customers." on a database with 2717 of them, with no error anywhere —
+       caught while testing the A–Z restore.
+       An absent fetcher is not evidence of an empty shop. Neither is an error.
+       Only a completed, error-free fetch is. */
+    let custAllLoaded = false;
     async function ensureCustAllList() {
-      if (custAllList) return custAllList;
-      const rows = window.cdFetchAllCustomers ? await window.cdFetchAllCustomers() : [];
-      if (custFetchError()) return rows;        // do NOT cache a failed load
+      if (custAllLoaded && custAllList) return custAllList;
+      if (!window.cdFetchAllCustomers) return [];   // not wired up yet — retry next time
+      const rows = await window.cdFetchAllCustomers();
+      if (custFetchError()) return rows;            // do NOT cache a failed load
       custAllList = rows;
+      custAllLoaded = true;
       return custAllList;
     }
 
@@ -6733,7 +6826,34 @@
       const a = $('custRecAudio'); if (a && !a.paused) a.pause();
       $('custRecordPanel').style.display = 'none';
       $('custListPanel').style.display = 'block';
-      ensureCustAllList().then(() => renderCustSearch($('custSearchInput').value || ''));
+      ensureCustAllList().then(() => {
+        renderCustSearch($('custSearchInput').value || '');
+        /* Put him back where he was in the A–Z list. #custSearchList is its own
+           scroll box, and the active letter is a SCROLL-SPY (currentTopLetter),
+           so restoring this one offset restores the letter highlight too —
+           there is no separate letter state to carry.
+           rAF: the list has just been re-rendered, so the box needs its new
+           height before an offset means anything. */
+        if (custListScroll > 0) {
+          /* renderCustBrowse sets the box's scrollTop to 0 on every render, so
+             this must run after it — and NOT via requestAnimationFrame, which
+             does not fire in a hidden tab (see scrollRoRowIntoView). */
+          const put = () => {
+            const box = $('custSearchList');
+            if (!box) return;
+            box.scrollTop = custListScroll;
+            /* Re-highlight the letter EXPLICITLY. renderCustBrowse ran
+               setActiveAzLetter(currentTopLetter()) while the box was still at
+               0, so it lit "A"; the scroll-spy that would normally correct it is
+               requestAnimationFrame-throttled and does not fire in a hidden tab.
+               Restoring the offset is not enough on its own — measured landing
+               back at M with the bar still showing A. */
+            setActiveAzLetter(currentTopLetter());
+          };
+          put();
+          setTimeout(put, 120);
+        }
+      });
     }
     // The name AS DISPLAYED in the customer RECORD header — plain "First Last" for a
     // person, or the business name. (The LIST uses custListLabel below for "Last, First".)
@@ -6879,7 +6999,7 @@
           : `<div class="cust-search-empty">No customers.</div>`;
         const rb = document.getElementById('custRetryBtn');
         if (rb) rb.addEventListener('click', () => {
-          custAllList = null; window.cdCustFetchError = null;
+          custAllList = null; custAllLoaded = false; window.cdCustFetchError = null;
           ensureCustAllList().then(() => renderCustSearch($('custSearchInput').value || ''));
         });
         renderCustAzBar(null); return;
@@ -6926,6 +7046,10 @@
 
     // ── RECORD panel ──
     function showCustomerRecord(id) {
+      // Remember the list position BEFORE hiding it — a hidden element reports
+      // scrollTop 0, so reading it afterwards would silently save nothing.
+      const box = $('custSearchList');
+      if (box && $('custListPanel').style.display !== 'none') custListScroll = box.scrollTop;
       $('custListPanel').style.display = 'none';
       $('custRecordPanel').style.display = 'block';
       loadCustomerRecord(id);
@@ -6937,9 +7061,13 @@
       if (item) item.click();          // switch to #view-customer (generic handler + our tab listener)
       showCustomerRecord(id);          // then override the list with the record (synchronous → no flash)
     };
-    function openRoFromCustomer(roId) {
+    /* `origin` is forwarded, not invented here — custBack() also calls this to
+       return TO an RO, and that trip must NOT plant a customer back-target or
+       Back would ping-pong between the two screens instead of reaching the RO
+       list. */
+    function openRoFromCustomer(roId, origin) {
       const nav = document.querySelector('.sidebar-item[data-view="cdros"]'); if (nav) nav.click();
-      openRo(roId);
+      openRo(roId, origin);
     }
     function custBack() {
       const t = custBackTarget || { kind: 'list' };
@@ -7128,15 +7256,68 @@
       custRecIdx = await fetchCustRecLinks(custRecCallsAll.map(c => c.id));
       if (seq !== custLoadSeq) return;
       custCallGroups = computeCallGroups();
+
+      /* Returning from an RO? Open that RO's vehicle and that RO, and land on
+         it. The vehicle is looked up HERE, from the rows this load just fetched,
+         rather than carried from the RO page — so it is right even if the RO
+         changed vehicles while he was away. One-shot: cleared whether or not it
+         resolves, so a stale focus can never fire on the next customer. */
+      const focus = custPendingFocus;
+      custPendingFocus = null;
+      let focusRoId = null;
+      if (focus && String(focus.customerId) === String(id)) {
+        const fr = custRoById[String(focus.roId)];
+        if (fr) { focusRoId = String(focus.roId); custOpenVeh = String(fr.vehicle_id); custOpenRo = focusRoId; }
+      }
+
       // Keep what he had open; only auto-pick when arriving fresh.
-      custOpenVeh = keepOpenVeh || pickAutoOpenVeh();
+      if (!focusRoId) custOpenVeh = keepOpenVeh || pickAutoOpenVeh();
       renderCustVehicles();
       renderCustUnfiled();
-      // Put the page back exactly where it was. After the re-render, so the
-      // document is tall enough for the offset to still exist.
-      if (sameCustomer && keepScroll) {
-        requestAnimationFrame(() => { scroller.scrollTop = keepScroll; });
+
+      if (focusRoId) {
+        scrollRoRowIntoView(focusRoId);
+      } else if (sameCustomer && keepScroll) {
+        /* Put the page back exactly where it was. Synchronously (the render
+           above already forced layout), plus one re-assert for late growth.
+           This used requestAnimationFrame, which does not fire in a hidden tab
+           — and a hidden tab is precisely when this runs, since the refetch is
+           triggered by visibilitychange/focus. See scrollRoRowIntoView. */
+        const putBack = () => { scroller.scrollTop = keepScroll; };
+        putBack();
+        setTimeout(putBack, 120);
       }
+    }
+
+    /* Land ON the RO he was working, not at the top of the record.
+       ⚠ NOT .focus(). A bare .focus() scrolls the element into view and threw
+       this page 1643px on 2026-08-22 (ro-photos.md §5a0). Plain scrollTop
+       arithmetic: measurable, no side effects, and it cannot move focus.
+       rAF so it runs after the render that created the row. */
+    const RO_FOCUS_OFFSET = 72;      // clear the sticky board header
+
+    /* ⚠ DELIBERATELY NOT requestAnimationFrame. rAF does not fire in a hidden or
+       backgrounded tab — measured here as ONE frame in four seconds — so a
+       scroll restore written that way silently does nothing exactly when the
+       page is being restored after an app switch, which is the case it exists
+       for. setTimeout still fires (throttled) in the background. Reading
+       getBoundingClientRect() forces layout, so the first synchronous attempt
+       is already accurate; the two re-asserts catch the record GROWING after
+       first paint as photo signed-URLs resolve and images take their height.
+       Each attempt re-measures relative to the CURRENT scrollTop, so repeating
+       it converges rather than compounding. */
+    function scrollRoRowIntoView(roId) {
+      const attempt = () => {
+        const host = $('custVehicles');
+        const head = host && host.querySelector(`[data-ro="${CSS.escape(String(roId))}"]`);
+        const row = head && head.closest('.cust-ro-row');
+        if (!row) return;
+        const sc = document.scrollingElement || document.documentElement;
+        sc.scrollTop = Math.max(0, sc.scrollTop + row.getBoundingClientRect().top - RO_FOCUS_OFFSET);
+      };
+      attempt();
+      setTimeout(attempt, 120);
+      setTimeout(attempt, 450);
     }
 
     /* ── RO PHOTOS on the customer record — PER-RO BUCKETS (slice 3) ─────
@@ -8613,7 +8794,19 @@
         const play = e.target.closest('[data-rec-play]');
         if (play) { playCustRec(play.dataset.recPlay, play); return; }
         const ro = e.target.closest('[data-open-ro]');
-        if (ro) { openRoFromCustomer(ro.dataset.openRo); return; }
+        if (ro) {
+          const rid = ro.dataset.openRo;
+          openRoFromCustomer(rid, custCustomer ? {
+            kind: 'customer',
+            customerId: custCustomer.id,
+            roId: rid,
+            // "Last, First" for a person, business name for a business — the
+            // same label the LIST shows, which is how Cris refers to them.
+            label: custListLabel(custCustomer),
+            custBack: custBackTarget,
+          } : null);
+          return;
+        }
         const head = e.target.closest('.cust-veh-head');
         if (head) { toggleVeh(head.dataset.veh); return; }
         const roHead = e.target.closest('.cust-ro-head');
@@ -8625,6 +8818,8 @@
       // listeners — which is also what keeps focus and the caret alive while
       // the accordion below it re-renders on every keystroke.
       const vehSearch = $('custVehSearch'), vehClear = $('custVehClear');
+      const custSearchEl = $('custSearchInput');
+      if (custSearchEl) custSearchEl.addEventListener('input', () => { custListScroll = 0; });
       if (vehSearch) vehSearch.addEventListener('input', () => {
         custVehQuery = vehSearch.value;
         renderCustVehicles();
