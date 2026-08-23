@@ -712,18 +712,18 @@
   .cust-undo-btn { flex:0 0 auto; background:#fff; border-color:#d9a441; color:#7a4b06;
     font-weight:800; min-height:30px; }
 
-  /* The RO page's Back button now carries a customer NAME, which is arbitrary
-     text from the database. Cap the box as well as the string (roBackLabel):
-     the character cap keeps the text sensible, this keeps a pathological name
-     from ever wrapping to a second line or pushing the layout sideways on a
-     phone. 60vw leaves the rest of the row usable at 375px. */
-  /* A PLAIN PX CAP, deliberately not a vw unit. `min(60vw, 320px)` looked
-     tidier but resolves to 0 in any context where the viewport reports 0 width
-     — and combined with overflow:hidden that silently swallows the whole label
-     instead of just trimming a long name. A fixed cap cannot misfire: the
-     22-character text cap in roBackLabel does the real work, and at 0.78rem the
-     longest label it can produce is ~200px, so this only ever engages as a
-     backstop. */
+  /* The RO page's Back button now carries a customer NAME — arbitrary text from
+     the database — so the box is capped as well as the string (roBackLabel).
+     Together they stop a pathological name wrapping to a second line or pushing
+     the layout sideways on a phone.
+
+     A PLAIN PX CAP, deliberately not a vw unit. `min(60vw, 320px)` read better
+     but resolves to 0 wherever the viewport reports 0 width, and with
+     overflow:hidden that swallows the WHOLE label instead of trimming a long
+     name. A fixed cap cannot misfire: the 22-character text cap does the real
+     work, and at 0.78rem the longest label it can produce is ~200px — measured
+     226–236px for real 30-character business names at 375px — so this only ever
+     engages as a backstop. */
   #cdRoBackBtn { max-width:320px; overflow:hidden; text-overflow:ellipsis;
     white-space:nowrap; display:inline-block; vertical-align:middle; }
 
