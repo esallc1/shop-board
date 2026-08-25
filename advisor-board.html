@@ -4924,8 +4924,48 @@
       document.querySelectorAll('#cdKanban [data-decline]').forEach(btn => {
         btn.addEventListener('click', (e) => { e.stopPropagation(); markDeclined(btn.dataset.decline); });
       });
-      // columns: accept drops → set stage to that column
-      document.querySelectorAll('#cdKanban .cd-kanban-col').forEach(col => {
+      // NOTE: the COLUMNS are deliberately not wired here — see
+      // bindKanbanColumnsOnce(). They are static markup and survive every
+      // render, so binding them in this function stacked a duplicate set of
+      // listeners on every single render.
+      // recent strip: tap opens
+      document.querySelectorAll('#cdRecentStrip .cd-recent-row').forEach(row => {
+        row.addEventListener('click', () => openRo(row.dataset.id));
+      });
+    }
+
+    /* ⚠ THE KANBAN COLUMNS ARE BOUND EXACTLY ONCE, AND THAT IS THE FIX.
+
+       The three `.cd-kanban-col` divs are STATIC markup. renderKanban() only
+       refills their `.cd-kanban-body` children via innerHTML, so the columns
+       themselves are never replaced — which meant that binding them inside
+       wireKanban() (which renderKanban calls at its end) added ANOTHER
+       dragover/dragleave/drop listener to the same three elements on every
+       render. The card listeners were always fine: those elements ARE
+       recreated by innerHTML, so their old listeners die with them.
+
+       WHAT THAT COST, measured on the real handler: one drop ran
+       setCardStage once per renderKanban() since page load — 1 after the
+       initial load, 5 after four refreshes, 16 after fifteen. Every render
+       fed it: the initial load, every realtime `repair_orders` change
+       anywhere in the shop, every focus/visibilitychange through
+       VIEW_REFRESH.cdros, every settings change, every stage move. So a
+       single drag wrote `status` to the database N times and broadcast N
+       realtime events shop-wide; the advisors only NOTICED because the
+       book-hours gate raised N browser alerts (reported 2026-08-25).
+
+       It amplified itself, too: the gate's failure path calls renderKanban()
+       to snap the card back BEFORE alerting, so every refused drop added one
+       more listener and made the next attempt one alert louder.
+
+       Called once at module init, below. Idempotent anyway — a guard, so a
+       future caller cannot quietly reintroduce the stack. */
+    let kanbanColsBound = false;
+    function bindKanbanColumnsOnce() {
+      if (kanbanColsBound) return;
+      const cols = document.querySelectorAll('#cdKanban .cd-kanban-col');
+      if (!cols.length) return;            // markup not present — try again later
+      cols.forEach(col => {
         col.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; col.classList.add('drag-over'); });
         col.addEventListener('dragleave', (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove('drag-over'); });
         col.addEventListener('drop', (e) => {
@@ -4935,10 +4975,7 @@
           if (roId) setCardStage(roId, col.dataset.stage);
         });
       });
-      // recent strip: tap opens
-      document.querySelectorAll('#cdRecentStrip .cd-recent-row').forEach(row => {
-        row.addEventListener('click', () => openRo(row.dataset.id));
-      });
+      kanbanColsBound = true;
     }
 
     // Drag advances a card's stage. Same repair_orders.status write as the
@@ -7658,6 +7695,7 @@
     }
     subscribeRealtime();
 
+    bindKanbanColumnsOnce();   // ONCE — never from renderKanban(); see its comment
     loadRecentList();
     VIEW_REFRESH.cdros = {
       /* Two jobs. loadRecentList keeps the LIST honest; resignCdRoPhotos keeps
