@@ -1,7 +1,8 @@
 # How the flagged-hours / book-hours (tech-pay) data is wired
 
 > Doc: `/docs/wiring/flat-rate-hours.md`
-> Last updated: 2026-08-08 — verified vs commit `8c93cee` (merged to main)
+> Last updated: 2026-08-25 — the leaving-Estimate gate is now a **warning, not a block** (§8.4).
+> Verified vs commit `3ec9943`.
 > Status: ✅ verified vs code AND live schema this session. **`book_hours` capture is
 > BUILT** and, as of the **Hours Engine Part 1**, is a **read-only auto-total from the
 > lines** (§8) — not hand-typed. Per-line **tech credit** (`ro_line_items.line_tech_id`)
@@ -152,12 +153,77 @@ are the price number.
 - **Write-through mirror / archive-on-close / Approval-Queue prefill:** unchanged — they still read
   `repair_orders.book_hours`, which is now the auto-total instead of a typed value.
 
-### 8.4 The gate — a light guardrail on 0
-`bookHoursGateForAdvance(roId, po)` (`advisor-board.html:4875`), shared by the RO-detail **Stage
-select** and the **kanban drag**, blocks leaving Estimate when the **auto-total is 0 AND N/A is not
-set** (`(book_hours == null || <= 0) && !book_hours_na`). A genuine parts-only RO ticks N/A. It
-reads the persisted total fresh (so the kanban drag works without the lines in memory), returns
-`{ ok:true }` pre-migration / feature-off, and never touches price.
+### 8.4 The gate — a WARNING since 2026-08-25, not a block
+`bookHoursGateForAdvance(roId, po)`, shared by the RO-detail **Stage select** and the **kanban
+drag**, fires when the **auto-total is 0 AND N/A is not set**
+(`(book_hours == null || <= 0) && !book_hours_na`). A genuine parts-only RO ticks N/A. It reads the
+persisted total fresh (so the kanban drag works without the lines in memory), returns `{ ok:true }`
+pre-migration / feature-off, and never touches price.
+
+**It no longer blocks the move.** The shop has **no flat-rate techs right now**, so the gate was
+stopping advisors to protect a number nobody is currently paid from. It becomes real again the day
+one is hired.
+
+#### `BOOK_HOURS_ENFORCE` — the one flag
+```js
+const BOOK_HOURS_ENFORCE = false;   // false = warn and let it through; true = hard block
+```
+Declared beside `bookHoursFeatureOn()` and read by **nothing except the gate**. The gate returns
+`{ ok, reason, mode }` where `mode` is `'block'` or `'warn'`, and **both call sites act on `mode`,
+never on the constant** — so the two paths cannot drift into disagreeing about whether this blocks.
+Two gates that disagree is worse than one that annoys.
+
+⚠ **Flipping it back is a DEPLOY, not a settings toggle.** It is a JS constant rather than a
+`shop_settings` column because the slice that changed it was scoped to no SQL. If it ever needs to
+be owner-controlled from the Settings hub, that is a migration plus a feature-flag entry, not an
+edit to this line.
+
+#### The notice replaced a browser `alert()`
+`showBookHoursNotice(roId, po, host)` renders an inline amber bar — the same family as the photo
+Undo bar (`.cust-undo-bar`), which the shop already reads as *"something needs attention, nothing
+is broken"*. Two hosts, one renderer: `#cdBookHrsNotice` on the RO Board and `#cdRoBookHrsNotice`
+on the RO detail, because the move can be made from either screen and the answer must be the same.
+
+> **RO #6049 moved with 0 book hours.**  `[ Open RO ]  [ Parts-only — mark N/A · no labor ]  ×`
+
+`alert()` was wrong three ways for a move that **succeeded**: it blocks the page, it reads like an
+error, and it wears the origin (*"board.leetransmissionshop.com says"*). The notice carries the
+remedy instead of the complaint — **Parts-only** writes `book_hours: null` + `book_hours_na: true`
+**and mirrors to the floor**, i.e. exactly what the RO detail's N/A tick does, so the two cannot
+disagree about the same job.
+
+**It does not auto-expire.** The Undo bar times out at 60s because it offers to undo something you
+probably meant; this offers to *finish* something you probably forgot. It stays until dismissed or
+acted on.
+
+In `mode: 'block'` the notice appears **instead of** the move (and the kanban card snaps back); in
+`mode: 'warn'` the move is written **first** and the notice is raised only after the write lands,
+so it can never claim a move that failed.
+
+#### 8.4a The "0 hrs" chip — DERIVED, never stored
+`roMissingBookHours(ro)` — `status ≠ 'estimate'` **and** `book_hours` null-or-≤0 **and**
+`book_hours_na ≠ true`. There is no column for this and it needs none: the statement is exactly what
+the data already says, so there is nothing to write, nothing to backfill, and **it clears itself**
+the moment a labor or package line is added (the total auto-fills) or N/A is ticked.
+
+It renders on the kanban card, in the **Recently closed** strip, and next to the RO detail's Book
+Hours field — all three off the same function, because two definitions of "missing book hours" is
+the drift this is meant to remove. Styled as `.cd-kc-nohrs`, the same amber shape as the
+"Diagnosis Ready" badge: one visual language for *"this card is carrying something"*.
+
+**It marks history too** — an RO that left Estimate before 2026-08-25 wears the chip as well.
+Deliberate (Cris's call): it is a true statement about that RO, and the shop's history is small
+enough to light all of it up. It returns `false` when `book_hours` is *absent from the row* rather
+than null, so a pre-migration board never guesses.
+
+#### 8.4b ⚠ The gate's third entry point
+**Off-lot** (`offLotCard`) closes an RO through `setStage('closed')`, so it inherits the RO-detail
+call site's behaviour automatically. It only renders on `invoice` cards, so it cannot in practice
+move something straight out of Estimate — but it is a real third path through the same gate, and it
+is the reason the two call sites had to be brought into agreement rather than patched separately.
+
+**These are the only two writers of `repair_orders.status` in the repo.** There is no bulk action
+and no other bypass — verified by sweep 2026-08-25.
 
 ### 8.5 What still makes the captured hours imperfect (carry-over from §6)
 - **Divergent copies** — `book_hours` (RO, source of truth) vs `flag_hours` (floor / archive). Kept
@@ -287,6 +353,13 @@ markup + package margin), not hours. Fully documented in [[advisor-commission]].
   `settings.md`.
 
 ## Session change log
+- 2026-08-25 — **The gate warns instead of blocking** (§8.4), behind the single
+  `BOOK_HOURS_ENFORCE` constant; the browser `alert()` both call sites raised is replaced by an
+  inline amber notice carrying **Open RO** and **Parts-only — mark N/A · no labor**; a derived
+  **"0 hrs" chip** (§8.4a) flags any RO that left Estimate without the number, on the kanban card,
+  the Recently-closed strip and the RO detail. Shipped on top of a separate fix for the real bug
+  behind the report: the kanban columns were re-bound on every render, so one drop ran the gate —
+  and wrote `status` — once per render since page load (16 after fifteen renders). No SQL.
 - 2026-08-07 — **Stable Billed-Hrs bucketing.** Switched the §10 rollup from `updated_at` (drifts on
   edit) to a **set-once `repair_orders.closed_at`** — stamped the first time an RO hits
   invoice/closed by a DB trigger, never overwritten (`migrations/20260807_ro_closed_at.sql`, additive

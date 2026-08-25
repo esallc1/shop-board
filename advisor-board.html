@@ -426,6 +426,29 @@
     /* customer / vehicle each get their own full-width line */
     .cd-ro-header { grid-template-columns: 1fr; }
   }
+  /* ══ BOOK-HOURS NOTICE + the "0 hrs" chip ════════════════════════
+     Same amber family as the photo Undo bar (.cust-undo-bar), which the shop
+     already reads as "something needs your attention, nothing is broken". */
+  .cd-bh-notice {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin: 0 0 10px; padding: 8px 11px; border-radius: 8px;
+    background: #fff7e6; border: 1px solid #f0c98a;
+  }
+  .cd-bh-txt { flex: 1 1 200px; font-size: 0.76rem; color: #7a4b06; line-height: 1.45; }
+  .cd-bh-btn {
+    flex: 0 0 auto; background: #fff; border: 1px solid #d9a441; color: #7a4b06;
+    border-radius: 7px; font-size: 0.72rem; font-weight: 800; cursor: pointer;
+    padding: 6px 11px; min-height: 32px;
+  }
+  .cd-bh-btn:hover { background: #fffaf0; border-color: #b8862c; }
+  .cd-bh-x {
+    flex: 0 0 auto; background: none; border: none; color: #7a4b06;
+    font-size: 1.1rem; line-height: 1; cursor: pointer; padding: 2px 4px; min-height: 32px;
+  }
+  /* Same shape as the "Diagnosis Ready" badge (.cd-kc-diag) on purpose — one
+     visual language for "this card is carrying something". */
+  .cd-kc-nohrs { background: #fef3c7; color: #92400e; }
+
   /* ══ TECH FINDINGS — the tech's write-up, on the RO screen ═══════
      A fourth block INSIDE Complaint & Notes, below Advisory Notes. Not a
      card of its own: it belongs with Work Description, which is the other
@@ -1858,6 +1881,10 @@
                (slice 3b). Do not re-add a second way in. -->
           <button class="btn btn-primary" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdRoNewBtn">+ New RO</button>
         </div>
+        <!-- Book-hours notice host. Inline and non-blocking; replaces the
+             browser alert() the gate used to raise. Stays until dismissed or
+             acted on — this is a thing to resolve, not a thing to undo. -->
+        <div id="cdBookHrsNotice" style="display:none"></div>
         <div class="cd-kanban" id="cdKanban">
           <div class="cd-kanban-col" data-stage="estimate">
             <div class="cd-kanban-head">Estimate <span class="cd-kanban-count" id="cdCountEstimate">0</span></div>
@@ -2040,6 +2067,7 @@
               <span id="cdRoDetailTitle">RO #—</span>
               <span id="cdRoDetailStatus" style="margin-left:10px"></span>
             </div>
+            <div id="cdRoBookHrsNotice" style="display:none"></div>
             <div class="cd-ro-rail-actions">
               <label style="font-size:0.72rem;color:var(--muted);display:flex;align-items:center;gap:6px">
                 Stage
@@ -2091,6 +2119,10 @@
                 <label>Book Hours <span style="font-weight:600;color:var(--muted);font-size:0.72rem">· auto-total from lines · tech pay</span></label>
                 <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
                   <span id="cdRoBookHoursTotal" style="font-weight:800;font-size:1rem">0 hrs</span>
+                  <!-- Same derived "0 hrs" chip the kanban card carries, so the
+                       two screens say the same thing about the same RO. -->
+                  <span id="cdRoNoHrsChip" class="cd-kc-badge cd-kc-nohrs" style="display:none"
+                        title="This RO left Estimate with no book hours and no parts-only tick">0 hrs</span>
                   <label style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--muted);white-space:nowrap;min-width:0">
                     <input type="checkbox" id="cdRoBookHoursNA" style="flex:0 0 auto"> N/A · no labor
                   </label>
@@ -4495,6 +4527,26 @@
     // pre-feature behavior (field hidden, gate never blocks). Read on every check so an
     // owner flip is picked up on the next board load. ──
     function bookHoursFeatureOn() { return !!shopCfg().feature_book_hours; }
+
+    /* ══ THE ONE FLAG. Flip this to go back to a hard block. ══════════
+       false → the move GOES THROUGH and leaves an amber notice + a "0 hrs"
+               chip on the RO. true → the move is refused, as it was until
+               2026-08-25.
+
+       WHY IT IS OFF: the shop has NO flat-rate techs right now, so the gate
+       was blocking advisors to protect a number nobody is currently paid
+       from. It becomes real again the day one is hired — that is what this
+       constant is for.
+
+       It is a JS constant and NOT a shop_settings column, because a column
+       means SQL and that was out of scope. The consequence is real and worth
+       knowing: FLIPPING THIS IS A DEPLOY, NOT A SETTINGS TOGGLE. If it ever
+       needs to be owner-controlled from the Settings hub, that is a migration
+       plus a feature flag, not an edit here.
+
+       Read ONLY by bookHoursGateForAdvance — every call site reads the mode
+       off the gate's result, so there is exactly one place that decides. */
+    const BOOK_HOURS_ENFORCE = false;
     // ── PACKAGES master switch (owner-controlled, shop_settings.feature_packages).
     // Default OFF and FAIL-SAFE (same as book hours): when OFF the "Package" line
     // type never appears and the RO builder looks exactly like before. ──
@@ -4578,6 +4630,9 @@
 
     let allRos = [];          // cached list rows (with embeds) for client-side search
     let declinedColsAvailable = true;  // false until the declined_* migration is run (resilient load)
+    // false until the book-hours migration is run. When false the "0 hrs" chip
+    // never renders — roMissingBookHours refuses to guess from an absent column.
+    let bookHoursColsAvailable = true;
     let currentRo = null;     // the open RO (with embedded customer/vehicle)
     let currentLines = [];    // ro_line_items for the open RO
     let currentPayments = [];  // ro_payments for the open RO (Phase 5)
@@ -4592,17 +4647,30 @@
         'vehicles(year, make, model, vin, plate), ' +
         'ro_line_items(quantity, unit_price, taxable), ' +
         'ro_payments(amount)';
-      // Try with the declined_* columns; if the migration hasn't run yet the
-      // NAMED select 400s (42703), so fall back to the base select and keep the
-      // feature dormant — the board must never break (the returned_by lesson).
-      let resp = await db.from('repair_orders')
-        .select(BASE_SEL + ', declined_at, declined_reason')
-        .order('created_at', { ascending: false });
-      if (resp.error && isMissingColumn(resp.error)) {
-        declinedColsAvailable = false;
-        resp = await db.from('repair_orders').select(BASE_SEL).order('created_at', { ascending: false });
-      } else if (!resp.error) {
-        declinedColsAvailable = true;
+      /* OPTIONAL COLUMN TIERS. A NAMED select 400s (42703) on a column whose
+         migration hasn't run, and the board must never break over one
+         (the returned_by lesson). Two independent optional sets now —
+         declined_* and the book-hours pair — so a single combined retry would
+         disable BOTH when only one is missing. Fast path is still ONE query:
+         ask for everything, and only probe individually if that fails. */
+      const EXTRAS = [
+        { cols: ', declined_at, declined_reason', apply: (v) => { declinedColsAvailable = v; } },
+        { cols: ', book_hours, book_hours_na',    apply: (v) => { bookHoursColsAvailable = v; } },
+      ];
+      const q = (sel) => db.from('repair_orders').select(sel).order('created_at', { ascending: false });
+      let resp = await q(BASE_SEL + EXTRAS.map(x => x.cols).join(''));
+      if (!resp.error) {
+        EXTRAS.forEach(x => x.apply(true));
+      } else if (isMissingColumn(resp.error)) {
+        // Find out which tiers actually exist, then ask once more for those.
+        let sel = BASE_SEL;
+        for (const x of EXTRAS) {
+          const probe = await q(BASE_SEL + x.cols);
+          const ok = !probe.error;
+          x.apply(ok);
+          if (ok) sel += x.cols;
+        }
+        resp = await q(sel);
       }
       const { data, error } = resp;
       if (error) {
@@ -4753,6 +4821,13 @@
         foot = `<span class="cd-kc-meta">Bal ${money(roBalance(ro))}</span>` +
                `<button class="cd-offlot-btn" data-offlot="${esc(ro.id)}" title="Close the RO and remove the car from the floor">Off lot</button>`;
       }
+      /* THE "0 hrs" CHIP — derived, never stored (roMissingBookHours). It says
+         this RO left Estimate without the pay-side number and without an
+         explicit parts-only tick. It clears itself the moment a labor or
+         package line is added or N/A is ticked, and it marks history as well
+         as new moves. Quiet on purpose: a flag for whoever reconciles pay, not
+         a nag at the advisor mid-job. */
+      if (roMissingBookHours(ro)) foot += `<span class="cd-kc-badge cd-kc-nohrs" title="Left Estimate with no book hours and no parts-only tick">0 hrs</span>`;
       return `
         <div class="cd-kanban-card" draggable="true" data-id="${esc(ro.id)}">
           <div class="cd-kc-ro">#${esc(ro.po || ro.ro_number)}</div>
@@ -4801,7 +4876,8 @@
                 <span class="cd-rr-ro">#${esc(ro.po || ro.ro_number)}</span>
                 <span class="cd-rr-cust">${esc(c.name || '—')}</span>
                 <span class="cd-rr-veh">${esc(vehDesc(v))}</span>
-                <span class="cd-rr-when">${esc(when)}</span>
+                <span class="cd-rr-when">${esc(when)}</span>${
+                  roMissingBookHours(ro) ? `<span class="cd-kc-badge cd-kc-nohrs" title="Closed with no book hours and no parts-only tick">0 hrs</span>` : ''}
               </div>`;
           }).join('')
         : '<div class="cd-recent-empty">No closed jobs yet.</div>';
@@ -4934,6 +5010,99 @@
       });
     }
 
+    /* ══ THE BOOK-HOURS NOTICE — inline, non-blocking, carries the fix ══
+       Replaces the browser alert() both call sites used to raise. An alert()
+       blocks the page, reads like an error, and wears the origin
+       ("board.leetransmissionshop.com says") — for a move that SUCCEEDED that
+       is three kinds of wrong.
+
+       It carries the remedy rather than the complaint: "Parts-only" writes
+       book_hours_na on that RO right there and clears both the notice and the
+       chip, without anyone opening the RO.
+
+       IT DOES NOT AUTO-EXPIRE. The photo Undo bar times out at 60s because it
+       offers to undo a thing you probably meant; this offers to FINISH a thing
+       you probably forgot. It stays until dismissed or acted on.
+
+       Two hosts, one renderer: #cdBookHrsNotice on the RO Board and
+       #cdRoBookHrsNotice on the RO detail, because a move can be made from
+       either screen and the advisor must get the same answer on both. */
+    let bookHrsNotice = null;   // { roId, po, host: 'board' | 'detail' }
+
+    function showBookHoursNotice(roId, po, host) {
+      bookHrsNotice = { roId: String(roId), po: String(po), host };
+      renderBookHoursNotice();
+    }
+    function clearBookHoursNotice() {
+      bookHrsNotice = null;
+      renderBookHoursNotice();
+    }
+    function renderBookHoursNotice() {
+      const boardEl = $('cdBookHrsNotice');
+      const detailEl = $('cdRoBookHrsNotice');
+      const html = (n) => `<div class="cd-bh-notice">
+        <span class="cd-bh-txt">RO #${esc(n.po)} moved with <b>0 book hours</b>.</span>
+        <button type="button" class="cd-bh-btn" data-bh-open="${escAttr(n.roId)}">Open RO</button>
+        <button type="button" class="cd-bh-btn" data-bh-na="${escAttr(n.roId)}">Parts-only — mark N/A · no labor</button>
+        <button type="button" class="cd-bh-x" data-bh-dismiss="1" aria-label="Dismiss">×</button>
+      </div>`;
+      [['board', boardEl], ['detail', detailEl]].forEach(([which, el]) => {
+        if (!el) return;
+        const show = bookHrsNotice && bookHrsNotice.host === which;
+        el.innerHTML = show ? html(bookHrsNotice) : '';
+        el.style.display = show ? '' : 'none';
+      });
+    }
+
+    /* Mark the RO parts-only from the notice. Writes the SAME column the RO
+       detail's "N/A · no labor" tick writes — one meaning, one column, so the
+       chip and the gate both clear on the next read. */
+    async function markPartsOnlyFromNotice(roId) {
+      /* EXACTLY what the RO detail's "N/A · no labor" tick does — the same two
+         columns AND the same mirror to the floor row. A lookalike that only set
+         book_hours_na would leave a stale number on the floor and two screens
+         disagreeing about the same job. */
+      const cached = allRos.find(r => String(r.id) === String(roId));
+      const po = (cached && (cached.po || cached.ro_number)) ||
+                 (currentRo && String(currentRo.id) === String(roId) ? (currentRo.po || currentRo.ro_number) : null);
+      const { error } = await db.from('repair_orders')
+        .update({ book_hours: null, book_hours_na: true }).eq('id', roId);
+      if (error && !isMissingColumn(error)) {
+        console.error('[BookHours] parts-only write failed', error);
+        alert('Could not mark that RO parts-only — ' + (error.message || 'unknown error'));
+        return;
+      }
+      if (po != null) { try { await mirrorBookHoursToFloor(po, null); } catch (e) { console.warn('[BookHours] floor mirror failed', e); } }
+      // Keep every in-memory copy honest so the chip clears without a reload.
+      if (cached) { cached.book_hours_na = true; cached.book_hours = null; }
+      if (currentRo && String(currentRo.id) === String(roId)) {
+        currentRo.book_hours_na = true;
+        currentRo.book_hours = null;
+        const tick = $('cdRoBookHoursNA');
+        if (tick) tick.checked = true;
+        paintBookHoursDisplay(0, true);
+        renderHeader();
+      }
+      clearBookHoursNotice();
+      renderKanban();
+    }
+
+    (function bindBookHoursNotice() {
+      document.addEventListener('click', (e) => {
+        const open = e.target.closest('[data-bh-open]');
+        if (open) {
+          e.preventDefault();
+          const id = open.getAttribute('data-bh-open');
+          clearBookHoursNotice();
+          openRo(id);
+          return;
+        }
+        const na = e.target.closest('[data-bh-na]');
+        if (na) { e.preventDefault(); markPartsOnlyFromNotice(na.getAttribute('data-bh-na')); return; }
+        if (e.target.closest('[data-bh-dismiss]')) { e.preventDefault(); clearBookHoursNotice(); }
+      });
+    })();
+
     /* ⚠ THE KANBAN COLUMNS ARE BOUND EXACTLY ONCE, AND THAT IS THE FIX.
 
        The three `.cd-kanban-col` divs are STATIC markup. renderKanban() only
@@ -4988,12 +5157,18 @@
       const prev = ro.status;
       // PAY-DATA GATE — leaving Estimate needs book hours captured (or N/A).
       // Same gate as the RO-detail Stage select, so a drag can't bypass it.
+      let warnNoBookHours = false;
       if (prev === 'estimate' && nextStage !== 'estimate') {
         const g = await bookHoursGateForAdvance(ro.id, ro.po || ro.ro_number);
         if (!g.ok) {
-          renderKanban();   // snap the dragged card back to Estimate
-          alert('RO #' + (ro.po || ro.ro_number) + ' has 0 book hours. Open it and add a labor or package line (the total auto-fills), or tick “N/A · no labor” for a parts-only job, before leaving Estimate.');
-          return;
+          if (g.mode === 'block') {
+            renderKanban();   // snap the dragged card back to Estimate
+            showBookHoursNotice(ro.id, ro.po || ro.ro_number, 'board');
+            return;
+          }
+          // WARN: the move goes through. The notice is raised AFTER the write
+          // lands, so it never claims a move that failed.
+          warnNoBookHours = true;
         }
       }
       ro.status = nextStage;                 // optimistic
@@ -5006,6 +5181,7 @@
         renderKanban();
         return;
       }
+      if (warnNoBookHours) showBookHoursNotice(ro.id, ro.po || ro.ro_number, 'board');
       // if this RO is also open in the detail view, keep it in sync
       if (currentRo && String(currentRo.id) === String(ro.id)) { currentRo.status = nextStage; renderHeader(); }
     }
@@ -5583,6 +5759,12 @@
         totalEl.style.color = na ? 'var(--muted)' : 'var(--text)';
       }
       paintBookHoursHint(total, na);
+      /* The chip reads off the SAME derivation as the kanban card
+         (roMissingBookHours) rather than re-deciding from `total`/`na` here —
+         two definitions of "missing book hours" is exactly the drift this
+         slice exists to remove. */
+      const chip = $('cdRoNoHrsChip');
+      if (chip) chip.style.display = roMissingBookHours(currentRo) ? '' : 'none';
     }
     // Recompute the auto-total from the lines, paint it, and persist to the RO
     // (unless N/A). Called from renderLines() on every line change + on RO open.
@@ -5825,8 +6007,33 @@
         if (error) { if (isMissingColumn(error)) return { ok: true }; }   // pre-migration → don't block
         else if (data) { bh = data.book_hours; na = !!data.book_hours_na; }
       } catch (e) { return { ok: true }; }   // never block on an unexpected read error
-      if ((bh == null || Number(bh) <= 0) && na !== true) return { ok: false, reason: 'blank' };
+      if ((bh == null || Number(bh) <= 0) && na !== true) {
+        // ONE decision point. Call sites never read BOOK_HOURS_ENFORCE
+        // themselves — they act on `mode`, so the two paths cannot drift into
+        // disagreeing about whether this blocks. Two gates that disagree is
+        // worse than one that annoys.
+        return { ok: false, reason: 'blank', mode: BOOK_HOURS_ENFORCE ? 'block' : 'warn' };
+      }
       return { ok: true };
+    }
+
+    /* Does this RO read as "left Estimate without its pay data"?
+
+       DERIVED, NEVER STORED — there is no column for this and it needs none.
+       The statement is exactly what the data already says, so there is nothing
+       to write, nothing to backfill, and it CLEARS ITSELF the moment someone
+       adds a labor or package line (book_hours auto-totals) or ticks N/A.
+
+       It marks history as well as new moves: an RO that got out of Estimate
+       before 2026-08-25 wears the chip too. Deliberate — Cris's call — because
+       it is a true statement about that RO, and the shop's history is small
+       enough to light all of it up. */
+    function roMissingBookHours(ro) {
+      if (!ro || !bookHoursFeatureOn()) return false;
+      if (ro.status === 'estimate') return false;         // still being built — not late yet
+      if (ro.book_hours_na === true) return false;        // explicitly parts-only
+      if (ro.book_hours === undefined) return false;      // column not loaded → never guess
+      return ro.book_hours == null || Number(ro.book_hours) <= 0;
     }
 
     async function updateRoField(field, value) {
@@ -6534,13 +6741,17 @@
       // a number, or an explicit N/A. Blank is blocked. This is the pay-data
       // choke point; it never touches the customer price. Runs BEFORE the
       // optimistic update.
+      let warnNoBookHours = false;
       if (prev === 'estimate' && next !== 'estimate') {
         const g = await bookHoursGateForAdvance(currentRo.id, currentRo.po || currentRo.ro_number);
         if (!g.ok) {
-          alert('This RO has 0 book hours.\n\nBook hours auto-total from the labor + package lines — add a labor or package line, or tick “N/A · no labor” for a parts-only job, before moving it out of Estimate.');
-          const sel = $('cdRoStage'); if (sel) sel.value = STAGES.includes(currentRo.status) ? currentRo.status : 'estimate';
-          const f = $('cdRoBookHoursField'); if (f) f.scrollIntoView({ block: 'center', behavior: 'smooth' });
-          return;
+          if (g.mode === 'block') {
+            showBookHoursNotice(currentRo.id, currentRo.po || currentRo.ro_number, 'detail');
+            const sel = $('cdRoStage'); if (sel) sel.value = STAGES.includes(currentRo.status) ? currentRo.status : 'estimate';
+            const f = $('cdRoBookHoursField'); if (f) f.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            return;
+          }
+          warnNoBookHours = true;     // WARN: let it through, notice after the write
         }
       }
 
@@ -6565,6 +6776,7 @@
         return;
       }
 
+      if (warnNoBookHours) showBookHoursNotice(currentRo.id, currentRo.po || currentRo.ro_number, 'detail');
       // keep the cached list row in sync so the list column is right
       const cached = allRos.find(r => r.id === currentRo.id);
       if (cached) cached.status = next;
