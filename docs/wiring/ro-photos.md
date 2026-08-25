@@ -167,20 +167,26 @@ standing note that **Creole is no longer needed anywhere in the app**.
 Removing a photo sets `deleted_at` + `deleted_by`. **The row stays and the storage object
 stays.** Shape copied exactly from chat's tombstone (`chat_messages.deleted_at/deleted_by`).
 
-**Every reader must filter `deleted_at is null`.** There are **FIVE**, and missing one silently
-resurrects archived photos:
+**Every reader must filter `deleted_at is null`.** There are **SIX**, and missing one silently
+resurrects archived photos and clips:
 
-| Reader | What it reads |
-|---|---|
-| `advisor-board.html` customer record | `ro_photo` for all of a customer's ROs |
-| `advisor-board.html` RO detail `loadCdRoPhotos` | `ro_photo` for one RO — **added by slice 4** |
-| `advisor-board.html` RO card | `diagnosis_audio` for one RO |
-| `my-numbers.html` `loadRoPhotos` | `ro_photo` for one RO |
-| `my-numbers.html` `loadRoClips` | `diagnosis_audio` for one RO |
+| Reader | Where it is | What it reads |
+|---|---|---|
+| `loadCustomerRecord` | `advisor-board.html` customer record | `ro_photo` for all of a customer's ROs |
+| `loadCdRoPhotos` | `advisor-board.html` **RO detail** | `ro_photo` for one RO — added 2026-08-25 (§5d) |
+| `loadCdDiagCards` | `advisor-board.html` **Approval Queue card** | `diagnosis_audio` for one RO |
+| `loadRoFindings` | `advisor-board.html` **RO detail** | `diagnosis_audio` for one RO — added 2026-08-25, see [[tech-findings]] |
+| `loadRoPhotos` | `my-numbers.html` | `ro_photo` for one RO |
+| `loadRoClips` | `my-numbers.html` | `diagnosis_audio` for one RO |
 
-The count went four → five the moment the counter camera got its own read. This list is the
-whole defence: the filter is a rule every reader has to remember, and the one that forgets is
-invisible until an archived photo reappears on somebody's screen.
+Four → five → six in three days, which is the point of keeping the list. This table is the whole
+defence: the filter is a rule every reader has to remember, and the one that forgets is invisible
+until an archived photo or voice note reappears on somebody's screen.
+
+> The row that used to read "`advisor-board.html` RO card" was ambiguous — it meant the Approval
+> Queue's **job card**, not the RO detail screen, and as of 2026-08-25 the RO detail has a
+> `diagnosis_audio` reader of its own. Every row now names the function, so there is nothing left
+> to guess at.
 
 **Where each side gets the name for `deleted_by`:** My Numbers uses `currentTechName()`; the
 office uses `CHAT_IDENTITY.name`, the same session identity that renders the "Hi, <name>"

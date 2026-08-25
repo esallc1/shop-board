@@ -22,8 +22,15 @@ single self-contained HTML file that talks straight to Supabase with the anon ke
   build step, no framework — a hand-rolled `STATE` object + `render()` that swaps `#app`'s
   innerHTML per view (`login | list | detail | roDiag`).
 - **Shared scripts it pulls in:** `shared/pwa-register.js` + `/manifest.webmanifest` (it's an
-  installable PWA), `shared/version-check.js`, `shared/catch-moment.js` (the "Catch this
-  moment" capture FAB → Owner Marketing tab), and the Supabase JS SDK from jsDelivr CDN.
+  installable PWA), `shared/version-check.js`, `shared/photo-compress.js`,
+  `shared/photo-buckets.js`, `shared/tech-findings.js`, and the Supabase JS SDK from jsDelivr CDN.
+- **NO "Catch this moment" FAB — removed 2026-08-25.** It is a *marketing* capture: its photos go
+  to the owner's Marketing tab, **not** to the repair order. On a tech's phone that put a big
+  purple camera button inches from the real one, so a photo of the job could land somewhere the RO
+  would never show it — and it sat on top of the bucket heading while doing it.
+  `shared/catch-moment.js` is **untouched** and still runs on every other board; it mounts nothing
+  on its own, so simply not calling `init()` is the whole removal. Three deletions in this file:
+  the `<script src>`, the `init()` call, and the now-dead `body:has(.sticky-cta) #cmFab` lift rule.
 - **No API/serverless files.** Every read and write is a **direct Supabase call from the
   browser** using the publishable anon key hard-coded at `my-numbers.html:336-338`. There is
   **no service-role endpoint anywhere in this subsystem** (contrast the recordings/RO slices).
@@ -228,7 +235,9 @@ There are **two independent handoffs**, and both **surface only in the advisor's
 ## Known gaps & open questions (as of 2026-07-30)
 - Cannot confirm from client code whether anon SELECT of `employees.pin` is actually open —
   needs an RLS check in Supabase.
-- No push/notification on either handoff — relies on the advisor watching the Approval Queue.
+- **No push/notification on either handoff — still true, and still the biggest gap here.** It
+  relies on the advisor watching the Approval Queue. The 2026-08-25 slice put the tech's write-up
+  in front of him *once he opens the RO* ([[tech-findings]] §4a) and did **not** solve the alert.
 - RO Diagnosis tab has no realtime.
 - ~~Photos are captured but never persisted~~ — **fixed.** Photos are real, hang off the repair
   order, and sort into **per-RO buckets**; the grids are on the RO Diagnosis screen, not the
@@ -271,13 +280,20 @@ same reason.
 - **Related raw-status writers:** `shared/status-mirror.js` (canonical `STATUS_OPTIONS`),
   `crisdata-techboard.html` (drag-assign + verbatim `sbStatusToLocal`), gm-board / v1
   `shop-board.html` floor dropdowns.
-- **Shared:** `shared/pwa-register.js`, `shared/version-check.js`, `shared/catch-moment.js`.
+- **Shared:** `shared/pwa-register.js`, `shared/version-check.js`, `shared/photo-compress.js`,
+  `shared/photo-buckets.js`, `shared/tech-findings.js`. **Not** `shared/catch-moment.js` — see above.
 - **Storage:** private `crisdata-attachments` bucket (diagnosis audio).
 - **Related docs:** `tech-board.md` (dispatcher side of the same state machine),
   `ro-checkin-tech.md` (tech assignment + `shopboard_pickup` no-`status` quirk),
   `recordings-audio.md` (the audio/attachments pattern), `floor-tags.md` (floor lanes).
 
 ## Session change log
+- 2026-08-25 — **Findings are appended, not overwritten** ([[tech-findings]]). `submitDiagnosis`
+  now re-reads, prepends a `␞ FINDINGS ␞` entry and writes under an optimistic guard; the tech
+  gets **Edit** (rewrite the newest, only until the writer opens it) and **Add follow-up**. The
+  recommendation textarea is seeded **empty** — it used to be prefilled with the stored column,
+  which with appends would have doubled the history on every submit. Previous entries render
+  read-only below the box. **Also removed the "Catch this moment" FAB from this page.**
 - 2026-07-30 — Created during the "map My Numbers into the File Cabinet" investigation.
   Documented the four auth paths, the anon-only read/write model, the six-state derived status
   machine and its unmapped-status hole, the single realtime channel + its gaps, the two findings-

@@ -42,6 +42,7 @@ window.FileCabinet = (function () {
     { id: 'checkin',  file: 'ro-checkin-tech.md',   icon: '🔧', title: 'RO check-in / tech assign' },
     { id: 'techboard', file: 'tech-board.md',       icon: '🔧', title: 'Tech Board (dispatcher)' },
     { id: 'mynumbers', file: 'my-numbers.md',       icon: '📱', title: 'My Numbers (tech phone tool)' },
+    { id: 'findings', file: 'tech-findings.md',    icon: '🩺', title: 'Tech findings (diagnosis handoff)' },
     { id: 'flatrate',  file: 'flat-rate-hours.md',  icon: '📊', title: 'Flagged-hours / flat-rate data' },
     { id: 'finpulse',  file: 'financial-pulse.md',  icon: '💵', title: 'Financial Pulse (bookkeeping Overview)' },
     { id: 'costprofit', file: 'cost-profit.md',      icon: '📈', title: 'Cost & Profit (Build Sheet)' },

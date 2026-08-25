@@ -426,6 +426,69 @@
     /* customer / vehicle each get their own full-width line */
     .cd-ro-header { grid-template-columns: 1fr; }
   }
+  /* ══ TECH FINDINGS — the tech's write-up, on the RO screen ═══════
+     A fourth block INSIDE Complaint & Notes, below Advisory Notes. Not a
+     card of its own: it belongs with Work Description, which is the other
+     internal, never-printed thing on this screen.
+
+     READ-ONLY HERE, AND THAT IS A RULE, NOT AN OVERSIGHT. The advisor
+     cannot edit or delete a word of it. The tech owns those words; if the
+     advisor could overwrite them there would be no record of what the tech
+     actually said, which is the entire reason this stopped being a single
+     overwritable column. Corrections are the TECH's, from My Numbers, and
+     only until the advisor opens the card.
+
+     NEVER PRINTED. shared/ro-invoice.js reads an explicit allowlist of
+     eleven RO fields and diagnosis_recommendation is not among them —
+     verified 2026-08-25 against the file, which is the single document
+     builder behind both printRo and the bookkeeping board's embed. */
+  .cd-tf { margin-top: 14px; padding-top: 12px; border-top: 1px dashed var(--border); grid-column: 1 / -1; }
+  .cd-tf-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .cd-tf-title {
+    font-size: 0.66rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text);
+  }
+  .cd-tf-who { font-size: 0.7rem; font-weight: 700; color: var(--text); }
+  .cd-tf-when { font-size: 0.7rem; color: var(--muted); }
+  /* Says out loud what the block is, so it is never mistaken for Advisory
+     Notes — different author, different audience, and one of them prints. */
+  .cd-tf-internal {
+    margin-left: auto; font-size: 0.62rem; font-weight: 700; font-style: italic; color: var(--muted); white-space: nowrap;
+  }
+  /* pre-wrap keeps the tech's line breaks; anywhere stops a pasted VIN or
+     part number with no spaces from blowing the card out sideways on an iPad.
+     The cap is what keeps a long write-up from pushing Line Items off the
+     screen — it scrolls inside itself instead of growing the card. */
+  .cd-tf-body {
+    font-size: 0.82rem; line-height: 1.5; color: var(--text);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    max-height: 220px; overflow-y: auto;
+  }
+  /* Codes and audio share ONE line — stacking them costs a whole row of
+     card height on the screen that can least afford it. */
+  .cd-tf-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+  .cd-tf-code {
+    display: inline-block; background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px;
+    padding: 2px 9px; font-family: ui-monospace, monospace; font-weight: 700; font-size: 0.72rem; color: var(--text);
+  }
+  .cd-tf-nocodes { font-size: 0.72rem; color: var(--muted); }
+  .cd-tf-play {
+    display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface-2); color: var(--text); cursor: pointer;
+    font-size: 0.72rem; font-weight: 700; padding: 5px 10px; min-height: 32px;
+  }
+  .cd-tf-play:hover { border-color: var(--accent); }
+  .cd-tf-play.playing { border-color: var(--accent); color: var(--accent); }
+  /* Older entries collapsed. The card must not grow without limit, and the
+     newest write-up is the one being quoted from. */
+  .cd-tf-older { margin-top: 10px; }
+  .cd-tf-older > summary {
+    cursor: pointer; list-style: none; font-size: 0.7rem; font-weight: 700; color: var(--muted); padding: 3px 0;
+  }
+  .cd-tf-older > summary::-webkit-details-marker { display: none; }
+  .cd-tf-older > summary::before { content: '▸'; display: inline-block; width: 1.1em; }
+  .cd-tf-older[open] > summary::before { content: '▾'; }
+  .cd-tf-old-entry { margin-top: 9px; padding-left: 10px; border-left: 2px solid var(--border); }
+  .cd-tf-old-head { display: flex; align-items: baseline; gap: 7px; margin-bottom: 3px; }
   /* ══ RO PHOTOS CARD (RO detail, #view-cdros) ══════════════════════
      The counter camera. A second office capture surface, on the screen the
      writer is already on at drop-off — the customer-record camera (§5b) is
@@ -1076,6 +1139,15 @@
 <script type="module">
   import * as PhotoCompress from './shared/photo-compress.js';
   window.PhotoCompress = PhotoCompress;
+</script>
+<!-- The tech's write-up history (ESM). Assigns window.TechFindings. THE SAME
+     module my-numbers.html formats with: that side writes the ␞ FINDINGS ␞
+     entries, this side parses them for the RO detail's Tech Findings block AND
+     for the Approval Queue card. Two implementations of one delimiter is how
+     entries silently merge or vanish, so there is only ever one. -->
+<script type="module">
+  import * as TechFindings from './shared/tech-findings.js';
+  window.TechFindings = TechFindings;
 </script></script>
 </head>
 <body>
@@ -1902,6 +1974,11 @@
                 <label>Advisory Notes</label>
                 <textarea id="cdRoAdvisory" placeholder="Advisories / recommendations beyond the complaint"></textarea>
               </div>
+              <!-- TECH FINDINGS — read-only, never printed, renders only when a
+                   diagnosis was actually submitted (no empty heading). Populated
+                   by renderRoFindings; ONE reused <audio> for the whole block so
+                   two voice notes can never play over each other. -->
+              <div class="cd-tf" id="cdRoFindings" style="display:none"></div>
             </div>
           </div>
 
@@ -2611,6 +2688,28 @@
   // without re-keying. "Open in RO Board" stamps diagnosis_reviewed_at
   // (drops it off the queue) and jumps to the RO Board. Wrapped in try/skip
   // so the queue never breaks if the Slice-2 migration isn't applied yet.
+  /* THE QUEUE CARD SHOWS THE NEWEST ENTRY ONLY — never the raw column.
+
+     Findings are appended now (shared/tech-findings.js), so the column holds
+     `␞ FINDINGS ␞ by=… ␞ at=… ␞` header lines. This card used to render the
+     column verbatim; left alone it would print those sentinels straight at the
+     service writer. The full history is one tap away on the RO screen, which is
+     where reading it belongs — this card is the handoff, not the archive.
+
+     Degrades to the raw text when the module has not loaded, which is exactly
+     the pre-slice behaviour and never worse than it. */
+  function tfNewest(ro) {
+    const TF = window.TechFindings;
+    if (!TF) return ro.diagnosis_recommendation || '';
+    return TF.newestBody(ro.diagnosis_recommendation);
+  }
+  function tfMore(ro) {
+    const TF = window.TechFindings;
+    if (!TF) return '';
+    const n = TF.entryCount(ro.diagnosis_recommendation);
+    return n > 1 ? ` <span style="font-weight:600;color:var(--muted)">· newest of ${n}</span>` : '';
+  }
+
   async function loadCdDiagCards() {
     let ros;
     try {
@@ -2660,8 +2759,8 @@
           <div class="job-diagnosis">${esc(ro.complaint || '—')}</div>
           <div class="job-section-label" style="margin-top:8px">Trouble Codes</div>
           <div>${codeChips}</div>
-          <div class="job-section-label" style="margin-top:8px">Recommendation</div>
-          <div class="job-diagnosis">${esc(ro.diagnosis_recommendation || '—')}</div>
+          <div class="job-section-label" style="margin-top:8px">Recommendation${tfMore(ro)}</div>
+          <div class="job-diagnosis">${esc(tfNewest(ro) || '—')}</div>
           ${clipsHtml ? `<div class="job-section-label" style="margin-top:8px">Voice Notes</div>${clipsHtml}` : ''}
         </div>
         <div class="job-footer">
@@ -5046,6 +5145,13 @@
       cdThumbMax = 4;
       renderCdRoPhotoCard();
       loadCdRoPhotos(data.id);
+
+      /* TECH FINDINGS. The text is already on `currentRo` (openRo selects '*'),
+         so the block paints immediately; the codes and voice notes are two more
+         round trips and go fire-and-forget behind it, like everything else that
+         is not allowed to sit in front of the RO appearing. */
+      renderRoFindings();
+      loadRoFindings(data.id);
     }
 
     // Call History — calls whose ro_id = this RO, newest first, read FRESH each
@@ -6877,6 +6983,184 @@
     }
 
     /* ══════════════════════════════════════════════════════════════
+       TECH FINDINGS BLOCK — the tech's write-up, in front of the advisor
+       the whole time he is working the RO.
+
+       THE PROBLEM IT FIXES. The write-up used to live in exactly one place:
+       the Approval Queue card. "Open in RO Board →" stamped it reviewed,
+       dropped the card, and landed the advisor on a screen that did not
+       show a word of it — so he quoted the job from memory, and the DTC
+       codes and voice notes never left the queue at all.
+
+       READ-ONLY. This board never writes diagnosis_recommendation. The tech
+       owns those words. Corrections are his, from My Numbers, and only
+       until he opens it — see shared/tech-findings.js canEditNewest.
+
+       NEVER PRINTED — verified against shared/ro-invoice.js, which reads an
+       explicit eleven-field allowlist off the RO and has no branch that
+       dumps unknown fields. Adding this to paper would take a deliberate
+       edit to that allowlist.
+
+       Renders on estimate and on active RO alike — `status` is a column,
+       not a record, so there is nothing here to branch on. If nothing was
+       ever submitted the block does not render AT ALL: no empty heading.
+       ══════════════════════════════════════════════════════════════ */
+    let roFindingsCodes = {};    // roId -> ['P0730', …]
+    let roFindingsClips = {};    // roId -> [{id, url}]
+    let roFindingsSeq = 0;
+
+    /* Codes + voice notes for ONE RO. Deliberately NOT added to openRo's
+       select: that query carries a resilient fallback for a missing writer
+       embed, and hanging another embed on it puts an unrelated read inside
+       that fragile path. Fire-and-forget, after the panel is up — the same
+       treatment loadCallHistory and loadCdRoPhotos get. */
+    async function loadRoFindings(roId) {
+      const seq = ++roFindingsSeq;
+      const k = String(roId);
+      try {
+        const cRes = await db.from('ro_diagnostic_codes')
+          .select('code').eq('repair_order_id', roId).order('created_at', { ascending: true }).limit(200);
+        if (seq !== roFindingsSeq) return;
+        roFindingsCodes[k] = cRes.error ? [] : (cRes.data || []).map(r => r.code);
+
+        const aRes = await db.from('attachments')
+          .select('id, file_path')
+          .eq('entity_type', 'repair_order').eq('entity_id', roId)
+          .eq('kind', 'diagnosis_audio')
+          .is('deleted_at', null)          // archived rows are TOMBSTONES — ro-photos.md §4
+          .order('created_at', { ascending: true }).limit(50);
+        if (seq !== roFindingsSeq) return;
+        const rows = aRes.error ? [] : (aRes.data || []);
+        const clips = [];
+        for (const a of rows) {
+          try {
+            const { data: sg } = await db.storage.from('crisdata-attachments').createSignedUrl(a.file_path, 3600);
+            if (sg && sg.signedUrl) clips.push({ id: a.id, url: sg.signedUrl });
+          } catch (e) { /* one bad clip must not cost the others */ }
+        }
+        if (seq !== roFindingsSeq) return;
+        roFindingsClips[k] = clips;
+        renderRoFindings();
+      } catch (e) {
+        console.warn('[TechFindings] load failed', e);
+      }
+    }
+
+    /* Re-read on focus/visibility. Signed URLs last an hour and this screen
+       does not refetch itself — the same trap the RO photos hit, so it hooks
+       the SAME resign path (VIEW_REFRESH.cdros) rather than inventing a
+       second one. Held off mid-capture for the same reason as the photos. */
+    function resignRoFindings() {
+      if (camPendingRo || camBusy) return;
+      if (!currentRo) return;
+      const panel = $('cdRoDetailPanel');
+      if (!panel || panel.style.display === 'none') return;
+      loadRoFindings(currentRo.id);
+    }
+
+    function tfWhen(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (isNaN(d)) return '';
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ', ' +
+             d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    }
+
+    function renderRoFindings() {
+      const host = $('cdRoFindings');
+      if (!host) return;
+      const TF = window.TechFindings;
+      if (!TF || !currentRo) { host.style.display = 'none'; host.innerHTML = ''; return; }
+
+      const entries = TF.parseFindings(currentRo.diagnosis_recommendation);
+      const k = String(currentRo.id);
+      const codes = roFindingsCodes[k] || [];
+      const clips = roFindingsClips[k] || [];
+
+      /* RULE 6 — nothing submitted, nothing rendered. Not an empty heading,
+         not a "no findings yet" line: the block is simply absent. Codes or a
+         voice note with no text still count as a submission worth showing. */
+      if (!entries.length && !codes.length && !clips.length) {
+        host.style.display = 'none'; host.innerHTML = ''; return;
+      }
+      host.style.display = '';
+
+      const newest = entries[0] || null;
+      const older = entries.slice(1);
+
+      const byline = newest
+        ? (newest.name ? `<span class="cd-tf-who">${esc(newest.name)}</span>` : '') +
+          (newest.at ? `<span class="cd-tf-when">${esc(tfWhen(newest.at))}</span>` : '')
+        : '';
+
+      const codeChips = codes.length
+        ? codes.map(c => `<span class="cd-tf-code">${esc(c)}</span>`).join('')
+        : '<span class="cd-tf-nocodes">No codes</span>';
+
+      /* ONE reused <audio> for the whole block (see #cdRoFindingsAudio), so a
+         second voice note stops the first instead of playing over it — the
+         same reason the customer record keeps a single #custRecAudio. */
+      const clipBtns = clips.map((c, i) => `<button type="button" class="cd-tf-play"
+          data-tf-clip="${escAttr(c.url)}">▶ Voice note${clips.length > 1 ? ' ' + (i + 1) : ''}</button>`).join('');
+
+      const olderHtml = older.length ? `<details class="cd-tf-older">
+        <summary>${older.length} earlier version${older.length > 1 ? 's' : ''}</summary>
+        ${older.map(e => `<div class="cd-tf-old-entry">
+          <div class="cd-tf-old-head">
+            ${e.name ? `<span class="cd-tf-who">${esc(e.name)}</span>` : ''}
+            <span class="cd-tf-when">${esc(e.at ? tfWhen(e.at) : 'earlier findings')}</span>
+          </div>
+          <div class="cd-tf-body">${esc(e.body)}</div>
+        </div>`).join('')}
+      </details>` : '';
+
+      host.innerHTML = `
+        <div class="cd-tf-head">
+          <span class="cd-tf-title">Tech Findings</span>
+          ${byline}
+          <span class="cd-tf-internal">internal — not printed</span>
+        </div>
+        ${newest ? `<div class="cd-tf-body">${esc(newest.body)}</div>` : ''}
+        <div class="cd-tf-meta">${codeChips}${clipBtns}</div>
+        ${olderHtml}
+        <audio id="cdRoFindingsAudio" preload="none" style="display:none"></audio>`;
+    }
+
+    (function bindRoFindingsPlayback() {
+      const host = $('cdRoFindings');
+      if (!host) return;
+      host.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-tf-clip]');
+        if (!btn) return;
+        e.preventDefault();
+        const audio = $('cdRoFindingsAudio');
+        if (!audio) return;
+        const url = btn.getAttribute('data-tf-clip');
+        const wasThis = audio.src === url && !audio.paused;
+        audio.pause();
+        host.querySelectorAll('.cd-tf-play.playing').forEach(b => {
+          b.classList.remove('playing');
+          b.textContent = b.textContent.replace(/^⏸/, '▶');
+        });
+        if (wasThis) return;                     // tapping the playing clip stops it
+        audio.src = url;
+        audio.play().then(() => {
+          btn.classList.add('playing');
+          btn.textContent = btn.textContent.replace(/^▶/, '⏸');
+        }).catch((err) => {
+          // iOS refuses playback outside a gesture and on some codecs — say so
+          // rather than leaving a button that does nothing.
+          console.warn('[TechFindings] playback failed', err);
+          alert('Could not play that voice note — ' + ((err && err.message) || 'unknown error'));
+        });
+        audio.onended = () => {
+          btn.classList.remove('playing');
+          btn.textContent = btn.textContent.replace(/^⏸/, '▶');
+        };
+      });
+    })();
+
+    /* ══════════════════════════════════════════════════════════════
        RO PHOTOS CARD — THE COUNTER CAMERA (#view-cdros detail)
 
        WHY A SECOND CAMERA. The office camera shipped on the customer record
@@ -7380,7 +7664,7 @@
          the open RO's thumbnails from expiring into blanks after an hour on a
          counter iPad that never navigates. resignCdRoPhotos holds off while a
          capture is in flight — see its comment. */
-      refetch: () => { loadRecentList(); resignCdRoPhotos(); },
+      refetch: () => { loadRecentList(); resignCdRoPhotos(); resignRoFindings(); },
       getChannel: () => cdRosChannel,
       resubscribe: subscribeRealtime,
     };

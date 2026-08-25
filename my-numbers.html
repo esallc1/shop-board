@@ -243,17 +243,41 @@
   .pb-acc.open .pb-acc-chev{ color:var(--safety-orange); }
   .pb-acc .photo-grid{ margin-top:0; padding-bottom:12px; }
 
+  /* ── The tech's own findings history, read-only under the box ── */
+  .rof{ margin-top:16px; padding-top:14px; border-top:1px solid var(--stroke);
+        /* THE STICKY CTA OVERLAYS THE BOTTOM OF THIS SCREEN. Without this the
+           last entry sits underneath the Submit bar and cannot be read or
+           scrolled clear of it on a phone. */
+        padding-bottom:calc(96px + env(safe-area-inset-bottom)); }
+  .rof-title{ font-size:12px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase;
+              color:var(--gauge); display:flex; align-items:center; gap:8px; }
+  .rof-count{ background:var(--panel); border:1px solid var(--stroke); border-radius:999px;
+              padding:1px 8px; font-size:11px; }
+  .rof-btn{ margin-top:10px; background:var(--panel); color:var(--ink); border:1px solid var(--stroke);
+            border-radius:8px; padding:9px 14px; font-size:13px; font-weight:700; cursor:pointer;
+            min-height:40px; }
+  .rof-locked{ margin-top:10px; font-size:12px; line-height:1.4; color:var(--gauge);
+               background:var(--panel); border:1px solid var(--stroke); border-radius:8px; padding:9px 12px; }
+  .rof-editing{ margin-top:10px; font-size:12px; line-height:1.4; color:var(--safety-orange);
+                display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+  .rof-editing .rof-btn{ margin-top:0; }
+  .rof-entry{ margin-top:12px; background:var(--panel); border:1px solid var(--stroke);
+              border-radius:10px; padding:11px 13px; }
+  .rof-head{ display:flex; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:5px; }
+  .rof-when{ font-size:11px; font-weight:700; color:var(--gauge); }
+  .rof-who{ font-size:11px; font-weight:700; color:var(--ink); }
+  .rof-badge{ font-size:10px; font-weight:800; letter-spacing:0.05em; text-transform:uppercase;
+              color:var(--safety-orange); }
+  /* pre-wrap keeps the tech's own line breaks; anywhere stops a pasted VIN or
+     part number with no spaces from blowing the card out sideways. */
+  .rof-body{ font-size:13px; line-height:1.45; color:var(--ink);
+             white-space:pre-wrap; overflow-wrap:anywhere; }
   .sticky-cta{
     position:fixed; bottom:0; left:50%; transform:translateX(-50%);
     width:100%; max-width:480px; padding:14px 18px calc(18px + env(safe-area-inset-bottom));
     background:linear-gradient(0deg, var(--asphalt) 60%, rgba(28,30,31,0));
     z-index:15;
   }
-  /* FAB clearance: when a sticky action bar is on screen (RO Diagnosis /
-     job detail), lift the shared "Catch this moment" FAB above it so it
-     never overlaps the Submit button. Views without a sticky-cta leave the
-     FAB at its default bottom-left position. */
-  body:has(.sticky-cta) #cmFab{ bottom:calc(90px + env(safe-area-inset-bottom)) !important; }
 
   /* ---------- Login ---------- */
   .login-wrap{
@@ -350,7 +374,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="shared/supabase-config.js"></script>
 <script src="shared/office-identity.js"></script>
-<script src="shared/catch-moment.js"></script>
 <!-- Photo downscale + EXIF orientation (ESM). Assigns window.PhotoCompress.
      Module scripts are deferred, so this lands after the inline script below
      defines its functions — fine, because nothing touches it until a tech taps
@@ -366,6 +389,15 @@
 <script type="module">
   import * as PhotoBuckets from './shared/photo-buckets.js';
   window.PhotoBuckets = PhotoBuckets;
+</script>
+<!-- The tech's write-up history (ESM). Assigns window.TechFindings. THE SAME
+     module the advisor board parses with — this side formats and writes, that
+     side parses and renders, and if the two ever disagreed about the ␞ FINDINGS ␞
+     header an entry would silently merge into another or vanish. Pure: no db,
+     no DOM. Same deferred-module timing as the two above. -->
+<script type="module">
+  import * as TechFindings from './shared/tech-findings.js';
+  window.TechFindings = TechFindings;
 </script>
 </head>
 <body>
@@ -387,8 +419,15 @@ async function sSet(key, value){
 const { url: SUPABASE_URL, key: SUPABASE_KEY } = window.cdSupabaseCreds();
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// "Catch this moment" capture FAB — lands in the Owner Marketing tab.
-if (window.CatchMoment) CatchMoment.init({ db, getName: () => GREETING.name });
+/* NO "Catch this moment" FAB ON THIS PAGE — REMOVED 2026-08-25, DELIBERATELY.
+   It is a MARKETING capture: its photos go to the owner's Marketing tab, NOT
+   to the repair order. On a tech's phone that put a big purple camera button
+   inches from the real one, so a photo of the job could land somewhere the RO
+   would never show it — and it sat on top of the bucket heading while doing it.
+   shared/catch-moment.js is UNTOUCHED and still runs on every other board; it
+   mounts nothing on its own, so simply not calling init() is the whole removal.
+   If this ever comes back, it needs a different position AND a reason why a
+   tech needs a marketing button mid-job. */
 
 // Supabase status string → local status key
 function sbStatusToLocal(row, table) {
@@ -605,6 +644,18 @@ const I18N = {
     recordingStop: "⏹ Stop",
     clipLabel: "Voice note",
     ctaSubmitRoDiag: "Submit Diagnosis to Service Writer",
+    ctaSaveEdit: "Save Correction",
+    findingsTitle: "Your findings on this RO",
+    findingsLatest: "latest",
+    findingsUndated: "earlier findings",
+    findingsEditBtn: "Edit the latest",
+    findingsEditing: "Editing your latest findings — this replaces it, it does not add a new one.",
+    findingsCancelEdit: "Cancel",
+    findingsLockedNote: "The writer has already seen this — add a follow-up instead.",
+    findingsRaceConfirm: "The service writer just opened this while you were editing.\n\nYour correction can't replace what he already read. Post it as a NEW follow-up instead?",
+    findingsRaceKept: "Nothing sent — your text is still in the box",
+    findingsRaceRetry: "Someone else updated this RO — reloading it",
+    toastDiagEdited: "Findings updated",
     toastNeedSomething: "Add at least one code or a recommendation first",
     toastDiagSubmitted: "Diagnosis sent to service writer",
     toastClipSaved: "Voice note saved",
@@ -695,6 +746,18 @@ const I18N = {
     recordingStop: "⏹ Detener",
     clipLabel: "Nota de voz",
     ctaSubmitRoDiag: "Enviar Diagnóstico al Asesor",
+    ctaSaveEdit: "Guardar Corrección",
+    findingsTitle: "Tus hallazgos en esta OR",
+    findingsLatest: "último",
+    findingsUndated: "hallazgos anteriores",
+    findingsEditBtn: "Editar el último",
+    findingsEditing: "Editando tu último hallazgo — lo reemplaza, no agrega uno nuevo.",
+    findingsCancelEdit: "Cancelar",
+    findingsLockedNote: "El asesor ya lo vio — agrega un seguimiento.",
+    findingsRaceConfirm: "El asesor acaba de abrir esto mientras editabas.\n\nTu corrección no puede reemplazar lo que ya leyó. ¿Publicarla como un seguimiento NUEVO?",
+    findingsRaceKept: "No se envió nada — tu texto sigue en la caja",
+    findingsRaceRetry: "Alguien más actualizó esta OR — recargando",
+    toastDiagEdited: "Hallazgos actualizados",
     toastNeedSomething: "Agrega al menos un código o una recomendación",
     toastDiagSubmitted: "Diagnóstico enviado al asesor",
     toastClipSaved: "Nota de voz guardada",
@@ -785,6 +848,18 @@ const I18N = {
     recordingStop: "⏹ Kanpe",
     clipLabel: "Nòt vwa",
     ctaSubmitRoDiag: "Voye Dyagnostik Bay Konseye a",
+    ctaSaveEdit: "Sove Koreksyon",
+    findingsTitle: "Sa ou jwenn sou RO sa a",
+    findingsLatest: "dènye",
+    findingsUndated: "sa ou te jwenn anvan",
+    findingsEditBtn: "Modifye dènye a",
+    findingsEditing: "W ap modifye dènye a — li ranplase l, li pa ajoute yon nouvo.",
+    findingsCancelEdit: "Anile",
+    findingsLockedNote: "Konseye a gentan wè sa — ajoute yon swivi pito.",
+    findingsRaceConfirm: "Konseye a fèk louvri sa pandan w t ap modifye.\n\nKoreksyon w lan pa ka ranplase sa li gentan li. Poste l kòm yon nouvo swivi?",
+    findingsRaceKept: "Anyen pa voye — tèks ou toujou nan bwat la",
+    findingsRaceRetry: "Yon lòt moun mete RO sa a ajou — n ap rechaje l",
+    toastDiagEdited: "Sa ou jwenn yo mete ajou",
     toastNeedSomething: "Ajoute omwen yon kòd oswa yon rekòmandasyon",
     toastDiagSubmitted: "Dyagnostik voye bay konseye a",
     toastClipSaved: "Nòt vwa sove",
@@ -1565,7 +1640,19 @@ let RO_DIAG = null;
 async function openRoDiag(roId){
   const ro = STATE.roJobs.find(r => r.id === roId);
   if(!ro) return;
-  RO_DIAG = { ro, codes: [], clips: [], photos: [], recommendation: ro.diagnosis_recommendation || '',
+  /* ⚠ THE BOX STARTS EMPTY. IT USED TO BE SEEDED WITH THE STORED COLUMN
+     (`ro.diagnosis_recommendation`) AND THAT IS NOW A TRAP.
+
+     Findings are APPENDED, not overwritten (shared/tech-findings.js). If the
+     textarea still arrived prefilled with the whole stored history, every
+     submit would prepend that history on top of itself and the column would
+     DOUBLE on each one. The tech's previous entries are not lost — they render
+     read-only under the box (roFindingsHtml), where he can Edit the newest or
+     stack a follow-up on top.
+
+     `editing` = he tapped Edit on the newest entry: the box is seeded with THAT
+     entry's body and the submit rewrites it in place instead of adding one. */
+  RO_DIAG = { ro, codes: [], clips: [], photos: [], recommendation: '', editing: false,
               recorder: null, chunks: [], recording: false, recSeconds: 0, recTimer: null,
               // Which photo-bucket accordion panel is open (3+ buckets only).
               // null = "the first one" — resolved by roOpenBucketKey.
@@ -2084,6 +2171,7 @@ function renderRoDiag(){
           <span id="roRecTimer" style="color:var(--gauge);font-variant-numeric:tabular-nums"></span>
         </div>
         <div id="roClipsWrap">${roClipsHtml()}</div>
+        <div id="roFindingsWrap">${roFindingsHtml()}</div>
       </div>
 
       <div id="roPhotosWrap">${roPhotosHtml()}</div>
@@ -2121,6 +2209,10 @@ function bindRoDiag(){
   });
 
   document.getElementById('btnRoSubmit').addEventListener('click', submitDiagnosis);
+  // Edit / Cancel on the read-only history below the box. Bound here for the
+  // FIRST render (the markup ships inside the screen template); every later
+  // re-render goes through refreshFindingsUI, which re-binds them itself.
+  bindFindingsControls();
 }
 
 function bindCodeRemovers(){
@@ -2263,28 +2355,197 @@ async function deleteClip(id){
   refreshClipsUI();
 }
 
+/* ── THE TECH'S OWN FINDINGS HISTORY, READ-ONLY, UNDER THE BOX ──────
+   Everything he has already submitted on this RO, newest first. Read-only
+   because the box above is for the NEW entry — the old ones are a record,
+   not a draft.
+
+   TWO WAYS TO CHANGE WHAT THE WRITER SEES, AND THEY MEAN DIFFERENT THINGS:
+     • Edit         — rewrite the most recent entry in place. For typos.
+                      No new entry appears.
+     • Add follow-up — a new dated entry stacked on top. For new findings.
+
+   THE LOCK: Edit disappears the moment the advisor opens the card
+   (diagnosis_reviewed_at goes non-null). He quotes the job from these words
+   at 11am; if they could change under him at 2pm with nothing saying so, the
+   estimate no longer matches the findings it came from. The button is not
+   silently dropped — it is replaced by the reason, because a control that
+   vanishes teaches nothing. */
+function roFindingsHtml(){
+  const TF = window.TechFindings;
+  if(!TF || !RO_DIAG || !RO_DIAG.ro) return '';
+  const entries = TF.parseFindings(RO_DIAG.ro.diagnosis_recommendation);
+  if(!entries.length) return '';                 // nothing submitted yet — no heading
+  const canEdit = TF.canEditNewest(RO_DIAG.ro);
+
+  const rows = entries.map((e, i) => {
+    const when = e.at ? roFindingsWhen(e.at) : t('findingsUndated');
+    const who  = e.name ? escRo(e.name) : '';
+    // No byline on legacy rows: nobody was recorded, which is not the same
+    // as an unknown person. Same rule as an ownerless photo's date-only tile.
+    const head = `<div class="rof-head"><span class="rof-when">${escRo(when)}</span>${
+      who ? `<span class="rof-who">${who}</span>` : ''}${
+      i === 0 ? `<span class="rof-badge">${escRo(t('findingsLatest'))}</span>` : ''}</div>`;
+    return `<div class="rof-entry">${head}<div class="rof-body">${escRo(e.body)}</div></div>`;
+  }).join('');
+
+  const editCtl = RO_DIAG.editing
+    ? `<div class="rof-editing">${escRo(t('findingsEditing'))}
+         <button type="button" class="rof-btn" id="roFindCancelEdit">${escRo(t('findingsCancelEdit'))}</button></div>`
+    : (canEdit
+        ? `<button type="button" class="rof-btn" id="roFindEdit">${escRo(t('findingsEditBtn'))}</button>`
+        : `<div class="rof-locked">${escRo(t('findingsLockedNote'))}</div>`);
+
+  return `<div class="rof">
+    <div class="rof-title">${escRo(t('findingsTitle'))} <span class="rof-count">${entries.length}</span></div>
+    ${editCtl}
+    ${rows}
+  </div>`;
+}
+
+// "Aug 25, 9:30 AM". Two calls rather than one toLocaleString because a
+// single call lets the engine insert a connector ("Aug 25 at 9:30 AM") that
+// varies by browser — same reasoning as the photo bylines.
+function roFindingsWhen(iso){
+  const d = new Date(iso);
+  if(isNaN(d)) return t('findingsUndated');
+  return d.toLocaleDateString('en-US', { month:'short', day:'numeric' }) + ', ' +
+         d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+}
+
+function refreshFindingsUI(){
+  const wrap = document.getElementById('roFindingsWrap');
+  if(wrap) wrap.innerHTML = roFindingsHtml();
+  bindFindingsControls();
+  const cta = document.getElementById('btnRoSubmit');
+  if(cta) cta.textContent = RO_DIAG.editing ? t('ctaSaveEdit') : t('ctaSubmitRoDiag');
+}
+
+function bindFindingsControls(){
+  const ed = document.getElementById('roFindEdit');
+  if(ed) ed.addEventListener('click', () => {
+    const TF = window.TechFindings;
+    const entries = TF ? TF.parseFindings(RO_DIAG.ro.diagnosis_recommendation) : [];
+    if(!entries.length) return;
+    RO_DIAG.editing = true;
+    RO_DIAG.recommendation = entries[0].body;    // seed the box with THAT entry
+    const box = document.getElementById('roRecText');
+    if(box){ box.value = RO_DIAG.recommendation; box.focus(); }
+    refreshFindingsUI();
+  });
+  const cx = document.getElementById('roFindCancelEdit');
+  if(cx) cx.addEventListener('click', () => {
+    RO_DIAG.editing = false;
+    RO_DIAG.recommendation = '';                 // back to a blank NEW entry
+    const box = document.getElementById('roRecText');
+    if(box) box.value = '';
+    refreshFindingsUI();
+  });
+}
+
+/* SUBMIT — append a new entry, or rewrite the newest one in place.
+
+   NEVER OVERWRITES THE COLUMN FROM MEMORY. RO_DIAG.ro was loaded when the
+   screen opened, possibly a long time ago; writing a value computed from that
+   stale copy would erase anything submitted in between. So the current row is
+   RE-READ immediately before the write, and the write itself is CONDITIONAL on
+   the row still looking the way it did when we read it (optimistic
+   concurrency — there is no transaction available from the client, and this
+   slice adds no SQL). A miss means somebody else wrote first: re-read and try
+   once more, then give up loudly rather than clobber.
+
+   The two modes differ in exactly two ways:
+     ADD FOLLOW-UP  prepends an entry, stamps diagnosis_submitted_at = now, and
+                    CLEARS diagnosis_reviewed_at so the card re-opens in the
+                    writer's queue even if he already reviewed it.
+     EDIT           rewrites the newest entry, leaves diagnosis_submitted_at
+                    ALONE (the queue keeps ordering by when the job was first
+                    handed over) and is REFUSED unless diagnosis_reviewed_at is
+                    still null at write time — see the race below. */
 async function submitDiagnosis(){
+  const TF = window.TechFindings;
   const ro = RO_DIAG.ro;
   const rec = (RO_DIAG.recommendation || '').trim();
   if(RO_DIAG.codes.length === 0 && !rec && RO_DIAG.clips.length === 0){
     showToast(t('toastNeedSomething')); return;
   }
+  if(!TF){ showToast('Save failed'); return; }
   const btn = document.getElementById('btnRoSubmit');
   if(btn) btn.disabled = true;
-  const now = new Date().toISOString();
-  // submitted → queue; clear reviewed so a re-submit re-opens it for the writer
-  const { error } = await db.from('repair_orders')
-    .update({ diagnosis_recommendation: rec || null, diagnosis_submitted_at: now, diagnosis_reviewed_at: null })
-    .eq('id', ro.id);
-  if(error){
-    console.error('[RoDiag] submit failed', error);
-    showToast('Save failed'); if(btn) btn.disabled = false; return;
+
+  const finish = (ok) => { if(btn) btn.disabled = false; return ok; };
+
+  for(let attempt = 0; attempt < 2; attempt++){
+    // a) FRESH READ — never compute the new column from the in-memory copy.
+    const cur = await db.from('repair_orders')
+      .select('diagnosis_recommendation, diagnosis_submitted_at, diagnosis_reviewed_at')
+      .eq('id', ro.id).single();
+    if(cur.error){
+      console.error('[RoDiag] pre-read failed', cur.error);
+      showToast('Save failed'); return finish(false);
+    }
+    const base = cur.data || {};
+
+    /* b) THE EDIT RACE. The advisor can open the card while the tech is
+       mid-edit, and the guard below is on diagnosis_submitted_at — which an
+       edit does NOT change — so it would not catch this on its own. Check
+       reviewed_at explicitly, and DO NOT DROP WHAT HE TYPED: offer to keep the
+       same words as a follow-up, which is the honest way to add something the
+       writer has already seen. */
+    if(RO_DIAG.editing && base.diagnosis_reviewed_at){
+      RO_DIAG.editing = false;
+      refreshFindingsUI();
+      const asFollowUp = confirm(t('findingsRaceConfirm'));
+      if(!asFollowUp){ showToast(t('findingsRaceKept')); return finish(false); }
+      // fall through as a follow-up, same typed text
+    }
+
+    const now = new Date().toISOString();
+    const editing = RO_DIAG.editing;
+    const next = editing
+      ? TF.replaceNewestEntry(base.diagnosis_recommendation, currentTechName() || '', now, rec, base.diagnosis_submitted_at)
+      : TF.prependEntry(base.diagnosis_recommendation, currentTechName() || '', now, rec, base.diagnosis_submitted_at);
+
+    const patch = editing
+      ? { diagnosis_recommendation: next || null }
+      : { diagnosis_recommendation: next || null, diagnosis_submitted_at: now, diagnosis_reviewed_at: null };
+
+    // c) THE GUARD. `.eq` cannot match NULL in PostgREST, so an as-yet
+    //    unsubmitted row has to be guarded with `.is` instead.
+    let q = db.from('repair_orders').update(patch).eq('id', ro.id);
+    q = base.diagnosis_submitted_at
+      ? q.eq('diagnosis_submitted_at', base.diagnosis_submitted_at)
+      : q.is('diagnosis_submitted_at', null);
+    if(editing) q = q.is('diagnosis_reviewed_at', null);   // the lock, enforced at WRITE time
+    const { data: rows, error } = await q.select('id');
+
+    if(error){
+      console.error('[RoDiag] submit failed', error);
+      showToast('Save failed'); return finish(false);
+    }
+    if(!rows || !rows.length){
+      // Somebody wrote between our read and our write. Retry once from fresh.
+      if(attempt === 0) continue;
+      showToast(t('findingsRaceRetry'));
+      await openRoDiag(ro.id);                 // re-render from the truth
+      return finish(false);
+    }
+
+    // d) Local mirrors, so the screen matches the row we just wrote.
+    ro.diagnosis_recommendation = next || null;
+    if(!editing){ ro.diagnosis_submitted_at = now; ro.diagnosis_reviewed_at = null; }
+    const listRo = STATE.roJobs.find(r => r.id === ro.id);
+    if(listRo){
+      listRo.diagnosis_recommendation = next || null;
+      if(!editing){ listRo.diagnosis_submitted_at = now; listRo.diagnosis_reviewed_at = null; }
+    }
+    RO_DIAG.editing = false;
+    RO_DIAG.recommendation = '';
+    showToast(editing ? t('toastDiagEdited') : t('toastDiagSubmitted'));
+    setTimeout(() => { STATE.view = 'list'; STATE.activeTab = 'ro_diag'; render(); }, 700);
+    return finish(true);
   }
-  ro.diagnosis_recommendation = rec || null; ro.diagnosis_submitted_at = now; ro.diagnosis_reviewed_at = null;
-  const listRo = STATE.roJobs.find(r => r.id === ro.id);
-  if(listRo){ listRo.diagnosis_recommendation = rec || null; listRo.diagnosis_submitted_at = now; listRo.diagnosis_reviewed_at = null; }
-  showToast(t('toastDiagSubmitted'));
-  setTimeout(() => { STATE.view = 'list'; STATE.activeTab = 'ro_diag'; render(); }, 700);
+  return finish(false);
 }
 
 /* ---------------- Boot ---------------- */
