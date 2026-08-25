@@ -426,6 +426,136 @@
     /* customer / vehicle each get their own full-width line */
     .cd-ro-header { grid-template-columns: 1fr; }
   }
+  /* ══ RO PHOTOS CARD (RO detail, #view-cdros) ══════════════════════
+     The counter camera. A second office capture surface, on the screen the
+     writer is already on at drop-off — the customer-record camera (§5b) is
+     five taps away and stays exactly as it is.
+
+     WHY A ResizeObserver AND NOT A BREAKPOINT: this card's width is NOT a
+     monotonic function of the viewport. The rail (320px + 16 gap) snaps back
+     at >900px, so the usable width inside the card goes
+       810px viewport -> 481   (iPad portrait, one column)
+       900            -> 571
+       901            -> 236   <- NARROWEST, narrower than any phone
+       1024           -> 359   (older iPad landscape)
+       1194           -> 529   (iPad Pro landscape)
+     A media query tuned to "iPad" would be wrong at 901 and wrong again in
+     Split View. The row measures itself instead (see fitThumbs) and the count
+     of thumbnails follows the space that actually exists. */
+  .cdro-photos-card { container-type: inline-size; }
+  .cdro-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  /* LEFT GROUP — label, count, thumbs. Shrinkable; min-width:0 so the strip
+     is what gives way, never the button. */
+  .cdro-row-left {
+    display: flex; align-items: center; gap: 8px;
+    flex: 1 1 auto; min-width: 0;
+  }
+  /* RIGHT GROUP — the black button (+ chevron). NEVER shrinks and never
+     reorders: at drop-off, with keys in hand, this is the only control on the
+     row that matters. When the row cannot hold both groups it wraps THIS one
+     to its own full-width line — two deliberate lines, never three ragged. */
+  .cdro-row-right { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+  .cdro-row-wrapped .cdro-row-right { flex-basis: 100%; }
+  .cdro-row-wrapped .cdro-cam { flex: 1 1 auto; justify-content: center; }
+
+  .cdro-label {
+    display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+    font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--muted); white-space: nowrap;
+  }
+  .cdro-label .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .cdro-count {
+    flex: 0 0 auto; min-width: 20px; padding: 1px 6px; border-radius: 999px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    font-size: 0.62rem; font-weight: 800; color: var(--text); text-align: center;
+  }
+  .cdro-none { flex: 0 0 auto; font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+
+  /* The closed-row thumbnail strip. overflow:hidden is a belt-and-braces
+     guard only — fitThumbs renders the number that fits, so nothing should
+     ever be clipped; if the measurement is ever wrong the row still cannot
+     push the button off screen. */
+  .cdro-strip { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
+  .cdro-strip-thumb {
+    width: 34px; height: 34px; border-radius: 6px; flex: 0 0 auto;
+    border: 1px solid var(--border); overflow: hidden; background: var(--surface-2);
+  }
+  .cdro-strip-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cdro-more { flex: 0 0 auto; font-size: 0.68rem; font-weight: 800; color: var(--muted); white-space: nowrap; }
+
+  /* THE BLACK BUTTON. Always shoots into the first bucket, no prompt, no
+     picker (rule 2). */
+  .cdro-cam {
+    display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+    border: none; border-radius: 8px; padding: 8px 13px;
+    background: #111; color: #fff; cursor: pointer;
+    font-size: 0.75rem; font-weight: 700; white-space: nowrap;
+    /* 38px tall: a counter iPad is a touch target, not a mouse target. */
+    min-height: 38px;
+  }
+  .cdro-cam:hover { background: #333; }
+  .cdro-cam:active { transform: scale(0.98); }
+  .cdro-cam[disabled] { opacity: 0.55; cursor: default; }
+
+  /* The disclosure. The WHOLE left group is the tap target as well (see the
+     click handler) — on a tablet a 110px "Show photos" label is wasted width,
+     so the chevron is the visible affordance and the row is the target. */
+  .cdro-toggle {
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    flex: 0 0 auto; min-width: 38px; min-height: 38px;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
+    color: var(--text); cursor: pointer; font-size: 0.72rem; font-weight: 700;
+  }
+  .cdro-toggle:hover { border-color: var(--accent); }
+  .cdro-toggle .cdro-chev { transition: transform 0.15s ease; font-size: 0.62rem; }
+  .cdro-open .cdro-toggle .cdro-chev { transform: rotate(180deg); }
+  @media (prefers-reduced-motion: reduce) { .cdro-toggle .cdro-chev { transition: none; } }
+
+  /* ── THE DRAWER — one row per bucket ── */
+  .cdro-drawer { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;
+    display: flex; flex-direction: column; gap: 12px; }
+  .cdro-bucket-head {
+    display: flex; align-items: baseline; gap: 7px; margin-bottom: 5px;
+  }
+  .cdro-bucket-name {
+    font-size: 0.6rem; font-weight: 800; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--text);
+  }
+  .cdro-bucket-count { font-size: 0.58rem; font-weight: 800; color: var(--muted); }
+  .cdro-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 7px; }
+  .cdro-tile { display: block; padding: 0; aspect-ratio: 1; border-radius: 7px; overflow: hidden;
+    border: 1px solid var(--border); background: var(--surface-2); cursor: pointer; }
+  .cdro-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cdro-tile:hover { border-color: var(--accent); }
+  /* The per-bucket [+] — the tech's mid-job photo, straight into THIS bucket
+     (rule 3). Dashed so it reads as "add", not as a photo. */
+  .cdro-add {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    aspect-ratio: 1; border-radius: 7px; border: 1.5px dashed var(--border);
+    background: transparent; color: var(--muted); cursor: pointer;
+    font-size: 0.58rem; font-weight: 700; line-height: 1.1; text-align: center;
+  }
+  .cdro-add .cdro-add-plus { font-size: 17px; line-height: 1; color: var(--accent); }
+  .cdro-add:hover { border-color: var(--accent); color: var(--accent); }
+  .cdro-add[disabled] { opacity: 0.5; cursor: default; }
+
+  /* Capture status. The RED state is the point: a photo that did not save must
+     say so on the screen the person is looking at. Same three states, same
+     reasoning, as the customer record's .cust-cam-note. */
+  .cdro-note { flex: 0 0 auto; font-size: 0.68rem; font-weight: 700; white-space: nowrap; }
+  .cdro-note-busy { color: var(--muted); }
+  .cdro-note-ok   { color: var(--green); }
+  .cdro-note-err  { color: var(--red); white-space: normal; }
+  /* A freshly-arrived thumbnail pulses, so the photo is seen ARRIVING rather
+     than found later — the drawer stays CLOSED on capture (rule 1), so this
+     pulse in the strip is the only thing that says "it landed". */
+  @keyframes cdroNew { 0% { transform: scale(0.82); opacity: 0.35; } 100% { transform: scale(1); opacity: 1; } }
+  .cdro-strip-new { animation: cdroNew 0.5s ease-out; border-color: var(--accent); }
+  @media (prefers-reduced-motion: reduce) {
+    .cdro-strip-new { animation: none; border-color: var(--accent); border-width: 2px; }
+  }
   /* ── RO Call History (read-only) ── */
   .cd-calls-list { display: flex; flex-direction: column; gap: 8px; }
   .cd-calls-empty { color: var(--muted); font-size: 0.82rem; text-align: center; padding: 16px; }
@@ -1773,6 +1903,23 @@
                 <textarea id="cdRoAdvisory" placeholder="Advisories / recommendations beyond the complaint"></textarea>
               </div>
             </div>
+          </div>
+
+          <!-- ══ PHOTOS — the counter camera. Sits between Complaint and Line
+               Items because that is the order the job happens in: hear it,
+               SHOOT IT, price it.
+
+               THE FILE INPUT IS A SIBLING OF #cdRoPhotosBody, NOT INSIDE IT,
+               and its `change` is bound DIRECTLY (bindCdRoCamInput) rather
+               than delegated. This is the ro-photos.md §5b0 rule: an input
+               inside a container whose innerHTML is replaced is DETACHED
+               before iOS delivers `change`, and a delegated listener never
+               sees it — the photo vanishes with no error. #cdRoPhotosBody is
+               replaced on every capture, so an input inside it would rebuild
+               exactly that bug. ══ -->
+          <div class="card cdro-photos-card" id="cdRoPhotosCard">
+            <div id="cdRoPhotosBody"></div>
+            <input type="file" accept="image/*" capture="environment" id="cdRoCamInput" style="display:none">
           </div>
 
           <div class="card">
@@ -3374,6 +3521,8 @@
       // is already on screen, re-render it now — otherwise an advisor who lands
       // straight on a customer sees a read-only record with no explanation.
       // No-op when the record isn't open.
+      try { if (window.cdRoPhotoCardRerender) window.cdRoPhotoCardRerender(); }
+      catch (e) { console.warn('[RoPhotos] RO-card re-render after identity failed', e); }
       try { if (window.cdCustomerRecordRerender) window.cdCustomerRecordRerender(); }
       catch (e) { console.warn('[RoPhotos] record re-render after identity failed', e); }
     }
@@ -4880,6 +5029,23 @@
       loadComebackChain(); // read-only; badge + chain card, also fire-and-forget
       $('cdRoListPanel').style.display = 'none';
       $('cdRoDetailPanel').style.display = 'block';
+
+      /* PHOTOS. The drawer is forced CLOSED on every open (rule 1) — it must
+         never remember being expanded, or one curious tap gives the writer a
+         tall screen on every RO for the rest of the day. openRo is the single
+         choke point: the list, the customer record's "Open RO →",
+         window.cdOpenRo and the ?ro= opener all arrive here.
+
+         The load is FIRE-AND-FORGET, after the panel is already on screen —
+         same treatment as loadCallHistory. It is three round trips (buckets,
+         photos, one batched sign) and not one of them is allowed to sit in
+         front of the RO appearing. The card renders its empty state first, so
+         the writer can shoot a photo before the read has even come back. */
+      cdPhotosOpen = false;
+      cdPhotoNote = null;
+      cdThumbMax = 4;
+      renderCdRoPhotoCard();
+      loadCdRoPhotos(data.id);
     }
 
     // Call History — calls whose ro_id = this RO, newest first, read FRESH each
@@ -6710,6 +6876,477 @@
       msg.className = 'cd-decode-msg ok'; msg.textContent = res.message;
     }
 
+    /* ══════════════════════════════════════════════════════════════
+       RO PHOTOS CARD — THE COUNTER CAMERA (#view-cdros detail)
+
+       WHY A SECOND CAMERA. The office camera shipped on the customer record
+       (ro-photos.md §5b) and is five taps from the front door. At drop-off the
+       writer is standing at the counter with the keys, already on the RO; and
+       mid-job a tech with dirty hands asks the writer to shoot a wire hanging
+       under the car. Both of those happen ON THE RO, so the camera is here too.
+       The customer-record camera is UNCHANGED — this does not replace it.
+
+       WHAT IS SHARED WITH IT AND WHAT IS NOT:
+         • SHARED — the upload itself (capturePhoto): compress, storage key,
+           attachments row, identity gate, no-bucket fallback. One upload path,
+           two surfaces. A second copy of that logic is how the two sides drift.
+         • NOT SHARED — the state maps and the render. This screen keeps its own
+           cdRoPhotos / cdRoBuckets because loadCustomerRecord wipes its maps on
+           its own schedule; two screens sharing one map with two different
+           reset points is precisely the shape this subsystem keeps getting bitten
+           by. The markup is its own too: a one-line summary with a drawer, not
+           the record's full management grids.
+
+       ESTIMATE AND RO ARE THE SAME SCREEN. status is just a column, so there is
+       no branch here — an estimate has buckets (the trigger fires on insert,
+       §1c) and takes photos exactly like an active RO.
+       ══════════════════════════════════════════════════════════════ */
+    let cdRoPhotos  = {};        // roId -> [{id, file_path, bucket_id, url, uploaded_by, created_at}]
+    let cdRoBuckets = {};        // roId -> that RO's buckets, live AND removed, in display order
+    /* ALWAYS false when a screen opens, and DELIBERATELY NOT PERSISTED — not in
+       state that survives openRo, not in storage. A writer who expanded the
+       drawer once must not inherit a tall screen on every RO for the rest of
+       the day. openRo resets it, and openRo is the single choke point every
+       entry goes through (the list, the customer record's "Open RO →",
+       window.cdOpenRo, and the ?ro= opener all call it). */
+    let cdPhotosOpen = false;
+    let cdPhotoNote = null;      // {roId, kind, text} — the capture status line
+    let cdPhotoLoadSeq = 0;      // stale-response guard, same shape as custLoadSeq
+    let cdFlashPhotoId = null;   // the tile to pulse on the next render
+    let cdThumbMax = 4;          // how many strip thumbs FIT — measured, see cdFitRow
+    const CD_THUMB_STEP = 38;    // 34px thumb + 4px gap
+    const CD_MORE_W = 28;        // room the "+N" needs
+
+    function cdBucketsFor(roId) { return cdRoBuckets[String(roId)] || []; }
+    function cdPhotosFor(roId)  { return cdRoPhotos[String(roId)]  || []; }
+
+    /* The RO-detail SURFACE handed to capturePhoto. Everything the shared
+       upload needs to know about "where am I drawing". The customer record has
+       its own (CUST_PHOTO_SURFACE) and neither can reach the other's state. */
+    const CDRO_PHOTO_SURFACE = {
+      buckets: (roId) => cdBucketsFor(roId),
+      push: (roId, photo) => { const k = String(roId); (cdRoPhotos[k] = cdRoPhotos[k] || []).push(photo); },
+      note: (roId, kind, text) => cdSetPhotoNote(roId, kind, text),
+      flash: (photoId) => { cdFlashPhotoId = photoId; renderCdRoPhotoCard(); },
+    };
+
+    function cdSetPhotoNote(roId, kind, text) {
+      cdPhotoNote = roId ? { roId: String(roId), kind, text } : null;
+      renderCdRoPhotoCard();
+    }
+
+    /* Load this ONE RO's buckets + photos. Three round trips (buckets,
+       attachments, one batched sign), which is exactly why openRo calls this
+       fire-and-forget AFTER the panel is on screen — the same treatment
+       loadCallHistory gets. Nothing here may sit in front of the RO appearing.
+
+       Buckets are read WITHOUT the archived filter, for the §5 reason: a photo
+       whose bucket was removed still points at it, and grouping needs to
+       recognise the id to place the photo under "No bucket" rather than treat
+       it as a stray row. Photos filter deleted_at — the FIFTH reader to have to
+       remember that (ro-photos.md §4); an archived photo is a tombstone. */
+    async function loadCdRoPhotos(roId) {
+      const seq = ++cdPhotoLoadSeq;
+      const k = String(roId);
+      const PB = window.PhotoBuckets;
+      try {
+        const bResp = await db.from('photo_buckets')
+          .select('id, ro_id, name, sort_order, archived_at')
+          .eq('ro_id', roId)
+          .order('sort_order', { ascending: true })
+          .limit(200);
+        if (seq !== cdPhotoLoadSeq) return;
+        const buckets = bResp.error ? [] : (bResp.data || []);
+        cdRoBuckets[k] = PB ? PB.sortBuckets(buckets) : buckets;
+
+        const pResp = await db.from('attachments')
+          .select('id, file_path, bucket_id, uploaded_by, created_at')
+          .eq('entity_type', 'repair_order').eq('kind', 'ro_photo')
+          .is('deleted_at', null)
+          .eq('entity_id', roId)
+          .order('created_at', { ascending: true })
+          .limit(500);
+        if (seq !== cdPhotoLoadSeq) return;
+        const rows = pResp.error ? [] : (pResp.data || []);
+
+        // Sign in ONE batch — one round trip for the RO, never one per photo.
+        let signed = {};
+        if (rows.length) {
+          const paths = rows.map((r) => r.file_path);
+          try {
+            const { data: sg } = await db.storage.from('crisdata-attachments').createSignedUrls(paths, 3600);
+            (sg || []).forEach((x, i) => { if (x && x.signedUrl) signed[x.path || paths[i]] = x.signedUrl; });
+          } catch (e) { /* tiles render as placeholders until the next load */ }
+        }
+        if (seq !== cdPhotoLoadSeq) return;
+        cdRoPhotos[k] = rows.map((r) => ({
+          id: r.id, file_path: r.file_path, bucket_id: r.bucket_id,
+          uploaded_by: r.uploaded_by || null, created_at: r.created_at || null,
+          url: signed[r.file_path] || '',
+        }));
+        renderCdRoPhotoCard();
+      } catch (e) {
+        /* Photos are never allowed to break the RO screen. The card renders
+           its empty state and the Take photo button still works. */
+        console.warn('[CdRoPhotos] load failed', e);
+      }
+    }
+
+    /* ⚠ SIGNED URLS EXPIRE IN AN HOUR, AND THIS SCREEN DOES NOT REFETCH ITSELF.
+       The customer record gets away with the same 1h expiry because
+       VIEW_REFRESH.customer reloads it on every focus. The RO detail's refetch
+       is loadRecentList — the LIST only — so a counter iPad left open on an RO
+       would show blank thumbnails after ~60 minutes, which reads exactly like
+       "the photos are gone". So the RO's photos reload on focus/visibility too.
+
+       A full reload rather than re-signing the known paths, deliberately: it
+       costs the same three round trips and it also picks up the photos a TECH
+       just shot from My Numbers on the same RO — the mid-job case this card
+       exists for.
+
+       HELD OFF MID-CAPTURE. Returning from the iOS camera fires
+       visibilitychange + focus; reloading at that moment would race the upload
+       and could drop the row it is about to push. camPendingRo/camBusy both
+       self-clear (setCamPending's 90s backstop, capturePhoto's finally), so
+       this can never be permanently disabled.
+
+       The drawer's open/closed state is PRESERVED here on purpose. Rule 1 is
+       about what a freshly-opened screen looks like; slamming the drawer shut
+       under someone who is reading it would be a different bug. */
+    function resignCdRoPhotos() {
+      if (camPendingRo || camBusy) return;
+      if (!currentRo) return;
+      const panel = $('cdRoDetailPanel');
+      if (!panel || panel.style.display === 'none') return;
+      loadCdRoPhotos(currentRo.id);
+    }
+
+    /* Groups for the drawer. includeEmpty is ON: an empty bucket must still
+       render its heading and its [+], because an empty "Part / Repair" is
+       exactly where the tech's mid-job photo is going. */
+    function cdPhotoGroups(roId) {
+      const PB = window.PhotoBuckets;
+      if (!PB) return [];
+      return PB.groupPhotosByBucket(cdPhotosFor(roId), cdBucketsFor(roId), { includeEmpty: true });
+    }
+
+    function cdPhotoNoteHtml(roId) {
+      if (!cdPhotoNote || cdPhotoNote.roId !== String(roId)) return '';
+      return `<span class="cdro-note cdro-note-${esc(cdPhotoNote.kind)}">${esc(cdPhotoNote.text)}</span>`;
+    }
+
+    /* The CLOSED row — the default state, and the only thing most people ever
+       see. One line when it fits, two when it does not; never three. */
+    function cdRoPhotoCardHtml() {
+      if (!currentRo) return '';
+      const roId = currentRo.id;
+      const photos = cdPhotosFor(roId);
+      const total = photos.length;
+      const canShoot = canManageCustBuckets();   // same office gate as the record
+      const note = cdPhotoNoteHtml(roId);
+
+      /* EMPTY RO — no thumbnails, and NO toggle at all. A control that opens
+         nothing teaches people the app is broken, so it is simply not there;
+         the button says what the photo is FOR instead of just naming itself. */
+      if (!total) {
+        return `<div class="cdro-row">
+          <div class="cdro-row-left">
+            <span class="cdro-label"><span class="dot"></span>Photos</span>
+            <span class="cdro-none">— none yet</span>
+            ${note}
+          </div>
+          <div class="cdro-row-right">
+            ${canShoot ? `<button type="button" class="cdro-cam" data-cdro-cam="1">📷 Take photo — how it came in</button>` : ''}
+          </div>
+        </div>`;
+      }
+
+      // Newest LAST in the array (created_at ascending), and the newest is what
+      // you want to see at the counter — so the strip shows the tail.
+      const shown = cdThumbMax > 0 ? photos.slice(-cdThumbMax) : [];
+      const more = total - shown.length;
+      const strip = shown.map((p) => {
+        const flash = cdFlashPhotoId != null && String(p.id) === String(cdFlashPhotoId) ? ' cdro-strip-new' : '';
+        return `<span class="cdro-strip-thumb${flash}" data-cdro-thumb="${escAttr(String(p.id))}">${
+          p.url ? `<img src="${escAttr(p.url)}" alt="" loading="lazy">` : ''}</span>`;
+      }).join('');
+
+      return `<div class="cdro-row${cdPhotosOpen ? ' cdro-open' : ''}">
+        <div class="cdro-row-left" data-cdro-toggle="1">
+          <span class="cdro-label"><span class="dot"></span>Photos</span>
+          <span class="cdro-count">${total}</span>
+          <span class="cdro-strip">${strip}</span>
+          ${more > 0 ? `<span class="cdro-more">+${more}</span>` : ''}
+          ${note}
+        </div>
+        <div class="cdro-row-right">
+          ${canShoot ? `<button type="button" class="cdro-cam" data-cdro-cam="1">📷 Take photo</button>` : ''}
+          <button type="button" class="cdro-toggle" data-cdro-toggle="1"
+                  aria-expanded="${cdPhotosOpen ? 'true' : 'false'}"
+                  aria-label="${cdPhotosOpen ? 'Hide photos' : 'Show photos'}"><span class="cdro-chev">⌄</span></button>
+        </div>
+      </div>` + (cdPhotosOpen ? cdRoDrawerHtml(roId, canShoot) : '');
+    }
+
+    /* THE DRAWER — one row per bucket, each with its own [+]. Bucket names are
+       shown VERBATIM (free-typed by the office, never translated), and the
+       vocabulary is "bucket" everywhere, same as both other screens. */
+    function cdRoDrawerHtml(roId, canShoot) {
+      const groups = cdPhotoGroups(roId);
+      if (!groups.length) return '';
+      return `<div class="cdro-drawer">` + groups.map((g) => {
+        const tiles = g.photos.map((p) => {
+          const cap = cdPhotoCaption(p);
+          return `<button type="button" class="cdro-tile" data-cdro-photo="${escAttr(String(p.url || ''))}"
+                    data-cdro-cap="${escAttr(cap)}">${p.url ? `<img src="${escAttr(p.url)}" alt="" loading="lazy">` : ''}</button>`;
+        }).join('');
+        /* The [+] files into THIS bucket. It is NOT offered on "No bucket":
+           that group is a rendering of photos whose bucket is gone, not a place
+           you can deliberately file something into. */
+        const add = (canShoot && !g.isNoBucket)
+          ? `<button type="button" class="cdro-add" data-cdro-add="${escAttr(String(g.id))}"
+               aria-label="Add a photo to ${escAttr(g.name)}"><span class="cdro-add-plus">+</span>Add</button>`
+          : '';
+        return `<div class="cdro-bucket">
+          <div class="cdro-bucket-head">
+            <span class="cdro-bucket-name">${esc(g.name)}</span>
+            <span class="cdro-bucket-count">${g.photos.length}</span>
+          </div>
+          <div class="cdro-grid">${tiles}${add}</div>
+        </div>`;
+      }).join('') + `</div>`;
+    }
+
+    // "Aug 25, 9:14 AM · Manny" — same two-part byline as the record, and the
+    // same rule: no uploaded_by means the DATE ALONE, never "· Unknown".
+    function cdPhotoCaption(p) {
+      let out = '';
+      if (p.created_at) {
+        const d = new Date(p.created_at);
+        if (!isNaN(d)) {
+          out = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ', ' +
+                d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        }
+      }
+      if (p.uploaded_by) out = out ? out + ' · ' + p.uploaded_by : String(p.uploaded_by);
+      return out;
+    }
+
+    function renderCdRoPhotoCard() {
+      const body = $('cdRoPhotosBody');
+      if (!body) return;
+      const card = $('cdRoPhotosCard');
+      if (!currentRo) { body.innerHTML = ''; if (card) card.style.display = 'none'; return; }
+      if (card) card.style.display = '';
+      body.innerHTML = cdRoPhotoCardHtml();
+      cdFitRow();
+      // One-shot: the pulse must not replay on every later render.
+      cdFlashPhotoId = null;
+    }
+
+    /* ══ THE ROW MEASURES ITSELF ══════════════════════════════════
+       Not a breakpoint, because this card's width is NOT monotonic in the
+       viewport — the 320px rail snaps back above 900px, so the usable width
+       inside the card runs 481px at an 810px iPad portrait, 571 at 900, and
+       then collapses to 236 at 901 before climbing again (359 at a 1024
+       landscape, 529 at 1194). Any "iPad breakpoint" is wrong at 901 and wrong
+       again in Split View / Stage Manager, where a large device carries a
+       narrow window.
+
+       So: render, measure what the fixed parts actually took, and let the
+       thumbnail count follow the space that is really there. Two rules hold at
+       every width — the black button never shrinks, and it never lands on a
+       third line. When both groups cannot share line one, the button takes a
+       full-width line two, which is a deliberate layout rather than a ragged
+       wrap.
+
+       At most one extra render: measure, and only re-render if the fitted
+       count differs from what is on screen. */
+    let cdFitting = false;
+    function cdFitRow() {
+      if (cdFitting) return;
+      const body = $('cdRoPhotosBody');
+      const row = body && body.querySelector('.cdro-row');
+      if (!row || !currentRo) return;
+      const right = row.querySelector('.cdro-row-right');
+      const strip = row.querySelector('.cdro-strip');
+      if (!strip || !right) return;                 // empty state — nothing to fit
+      const total = cdPhotosFor(currentRo.id).length;
+      if (!total) return;
+
+      /* Measure the parts that never shrink. The strip is the only thing that
+         gives way, and the button is measured rather than assumed because its
+         label is longer in Spanish-length names and longer again with the
+         camera glyph on a font that substitutes. */
+      const GAP = 8;
+      let fixedLeft = 0;
+      row.querySelectorAll('.cdro-label, .cdro-count, .cdro-note').forEach((el) => {
+        fixedLeft += el.offsetWidth + GAP;
+      });
+      const rightW = right.offsetWidth + GAP;
+      const rowW = row.clientWidth;
+
+      const fit = (space) => Math.max(0, Math.min(4, Math.floor(space / CD_THUMB_STEP)));
+      /* "+N" is RESERVED rather than measured — whether it renders depends on
+         the thumb count we are about to choose, so measuring it is circular.
+         Resolved in two passes instead of a loop: fit without the reservation,
+         and only pay for it if that many thumbs still leaves photos over. An
+         RO with two photos and room for two thumbs shows no "+N" and must not
+         be charged 36px for one — that alone was pushing a 2-photo RO onto two
+         lines at a 1024 landscape. */
+      const reserve = (n) => (total > n ? CD_MORE_W + GAP : 0);
+      const fitWith = (space) => { const n = fit(space); return fit(space - reserve(n)); };
+      const oneLine = fitWith(rowW - fixedLeft - rightW);
+
+      /* ONE LINE WINS WHENEVER IT CAN HOLD A REAL STRIP.
+         The threshold is TWO thumbnails, not one: a strip of one photo is not a
+         strip, and at that point the row is worth more as two lines where the
+         photos can actually be seen than as one line with a single 34px tile.
+         Below the threshold the button takes a full-width line two — a
+         deliberate two-line layout, never a third line and never a ragged wrap.
+
+         MEASURED on this exact CSS, 7 photos, card inner width -> result.
+         Every one of these is 38px (one line) or 82px (two) — never three:
+           236 (901px viewport, the rail cliff) -> 2 lines, 2 thumbs
+           318 (390px iPhone)                   -> 2 lines, 4 thumbs
+           359 (1024 iPad landscape)            -> 2 lines, 4 thumbs
+           415 (1080 iPad landscape)            -> 1 line,  2 thumbs
+           481 (810 iPad portrait)              -> 1 line,  4 thumbs   <- the counter
+           505 (834 iPad portrait)              -> 1 line,  4 thumbs   <- the counter
+           529 (1194 iPad Pro landscape)        -> 1 line,  4 thumbs
+         An RO with only two photos fits one line at 359 as well, because the
+         "+N" reservation is only paid when there is actually an overflow. */
+      const wrapped = oneLine < 2;
+      const want = wrapped ? fitWith(rowW - fixedLeft) : oneLine;
+
+      row.classList.toggle('cdro-row-wrapped', wrapped);
+      if (want === cdThumbMax) return;
+
+      cdThumbMax = want;
+      cdFitting = true;
+      try {
+        const b2 = $('cdRoPhotosBody');
+        if (b2) {
+          b2.innerHTML = cdRoPhotoCardHtml();
+          const r2 = b2.querySelector('.cdro-row');
+          if (r2) r2.classList.toggle('cdro-row-wrapped', wrapped);
+        }
+      } finally { cdFitting = false; }
+    }
+
+    /* Rotation, Split View, Stage Manager and the sidebar drawer all change
+       this card's width without changing the viewport in a way a media query
+       would catch. ResizeObserver is the only thing that sees all of them.
+       Guarded on the width actually changing, so our own height changes (the
+       drawer opening) can never feed back into a render loop. */
+    (function observeCdRoPhotoCard() {
+      const card = $('cdRoPhotosCard');
+      if (!card || typeof ResizeObserver === 'undefined') return;
+      let lastW = 0;
+      const ro = new ResizeObserver((entries) => {
+        const w = Math.round(entries[0].contentRect.width);
+        if (w === lastW) return;
+        lastW = w;
+        cdFitRow();
+      });
+      ro.observe(card);
+    })();
+
+    /* Clicks. Delegated on the CARD — safe for buttons, and deliberately NOT
+       how the file input is wired (see bindCdRoCamInput). */
+    (function bindCdRoPhotoClicks() {
+      const card = $('cdRoPhotosCard');
+      if (!card) return;
+      card.addEventListener('click', (e) => {
+        if (!currentRo) return;
+        const roId = currentRo.id;
+
+        // THE BLACK BUTTON — always the first bucket, no prompt, no picker.
+        const cam = e.target.closest('[data-cdro-cam]');
+        if (cam) { e.preventDefault(); cdOpenCamera(roId, null); return; }
+
+        // A bucket's [+] — that bucket, resolved again when the photo is written.
+        const add = e.target.closest('[data-cdro-add]');
+        if (add) { e.preventDefault(); cdOpenCamera(roId, add.getAttribute('data-cdro-add')); return; }
+
+        const tile = e.target.closest('[data-cdro-photo]');
+        if (tile) {
+          e.preventDefault();
+          const url = tile.getAttribute('data-cdro-photo');
+          if (url) openPhotoLightbox(url, tile.getAttribute('data-cdro-cap') || '');
+          return;
+        }
+
+        /* The whole left group toggles, not just the chevron. On a tablet a
+           110px "Show photos" label is wasted width and a small chevron is a
+           poor thumb target, so the row itself is the target and the chevron
+           is only the affordance. A thumbnail inside it opens the drawer too —
+           tapping a photo you can barely see should show you the photos. */
+        if (e.target.closest('[data-cdro-toggle]')) {
+          e.preventDefault();
+          cdPhotosOpen = !cdPhotosOpen;
+          renderCdRoPhotoCard();
+        }
+      });
+    })();
+
+    /* Remember which RO and which bucket, then click the ONE persistent input
+       that lives OUTSIDE #cdRoPhotosBody. The .click() is synchronous inside
+       the user gesture — what iOS requires, and the same shape Capture Invoice
+       has used on the shop's phones since July. */
+    function cdOpenCamera(roId, bucketId) {
+      const inp = $('cdRoCamInput');
+      if (!inp) { cdSetPhotoNote(roId, 'err', 'Camera control missing — reload the page.'); return; }
+      if (!canManageCustBuckets()) {
+        cdSetPhotoNote(roId, 'err', 'Your sign-in did not finish loading. Reopen this board from CrisData.');
+        return;
+      }
+      setCamPending(roId, { surface: 'cdro', bucketId: bucketId || null });
+      inp.value = '';                 // safe here: nothing is in flight yet
+      inp.click();
+    }
+
+    (function bindCdRoCamInput() {
+      const inp = $('cdRoCamInput');
+      if (!inp) return;
+      /* DIRECT listener, never delegated — ro-photos.md §5b0. A direct listener
+         still fires on a detached element; a delegated one cannot, and that
+         single difference is what silently lost every photo taken on a real
+         iPhone in slice 3. */
+      inp.addEventListener('change', async (e) => {
+        const roId = camPendingRo;
+        const ctx  = camPendingCtx || {};
+        const file = e.target.files && e.target.files[0];
+        try {
+          if (!roId) { console.warn('[CdRoPhotos] camera returned with no pending RO'); return; }
+          await capturePhoto(roId, file, CDRO_PHOTO_SURFACE, { bucketId: ctx.bucketId });
+        } catch (err) {
+          console.error('[CdRoPhotos] camera handler threw', err);
+          cdSetPhotoNote(roId, 'err', 'Could not save that photo — ' + ((err && err.message) || 'unknown error'));
+        } finally {
+          /* Reset AFTER the upload settles, never before — clearing mid-flight
+             can invalidate a camera-captured File's bytes on mobile Safari. In
+             a `finally` so a FAILED attempt clears it too: iOS names every
+             capture image.jpg, and an input still holding the last one fires no
+             `change` for the next identical pick. That is why the second
+             attempt used to do nothing at all. */
+          e.target.value = '';
+          setCamPending(null);
+        }
+      });
+    })();
+
+    /* Identity resolves ASYNCHRONOUSLY, so the first render of this card
+       genuinely happens with CHAT_IDENTITY.role still null and the Take photo
+       button hidden. Without this hook an advisor opening an RO on a fresh tab
+       would find the camera simply missing, with nothing to say it was coming.
+       Same treatment, and the same reason, as window.cdCustomerRecordRerender. */
+    window.cdRoPhotoCardRerender = function () {
+      const panel = $('cdRoDetailPanel');
+      if (!panel || panel.style.display === 'none' || !currentRo) return;
+      renderCdRoPhotoCard();
+    };
+
     // expose for the New RO modal's "Open RO" button
     window.cdOpenRo = (roId) => { loadRecentList(); openRo(roId); };
     // exposed for the Desk tab's Declined lane (slice 3b). Quick-receipt fetches
@@ -6739,7 +7376,11 @@
 
     loadRecentList();
     VIEW_REFRESH.cdros = {
-      refetch: loadRecentList,
+      /* Two jobs. loadRecentList keeps the LIST honest; resignCdRoPhotos keeps
+         the open RO's thumbnails from expiring into blanks after an hour on a
+         counter iPad that never navigates. resignCdRoPhotos holds off while a
+         capture is in flight — see its comment. */
+      refetch: () => { loadRecentList(); resignCdRoPhotos(); },
       getChannel: () => cdRosChannel,
       resubscribe: subscribeRealtime,
     };
@@ -7899,12 +8540,29 @@
        office people use is the same fault as the CHAT_IDENTITY guard
        (dbc9f9a) and the resolvePhone ambiguity: inform loudly, never carry on
        quietly. If you add an early return here, give it a message first. */
-    let custCamBusy = false;
-    async function captureCustPhoto(roId, file) {
+    /* ONE camera at a time, across BOTH office surfaces. Shared on purpose:
+       there is one person holding one device, and a second capture starting
+       while the first is still uploading is a mistake on either screen. The
+       message goes to whichever surface asked, via surface.note. */
+    let camBusy = false;
+
+    /* THE OFFICE UPLOAD — ONE path, TWO surfaces.
+         roId    — the repair order the photo belongs to. Never guessed: both
+                   call sites already know it because the button sits on the RO.
+         surface — where to draw: { buckets, push, note, flash }. The customer
+                   record and the RO-detail card each supply their own, so
+                   neither can render into the other's DOM or mutate the other's
+                   state. This indirection is the ONLY thing that differs
+                   between them; the compress/upload/insert/sign body below is
+                   shared so the two sides cannot drift apart.
+         opts.bucketId — a REQUESTED bucket (the RO card's per-bucket [+]), or
+                   null/absent for "the RO's default", which is the black Take
+                   photo button and every customer-record capture. */
+    async function capturePhoto(roId, file, surface, opts) {
       const PB = window.PhotoBuckets;
-      const fail = (msg) => setCustCamNote(roId, 'err', msg);
+      const fail = (msg) => surface.note(roId, 'err', msg);
       if (!file) { fail('No photo came back from the camera. Try again.'); return; }
-      if (custCamBusy) { fail('Still uploading the last photo — one moment.'); return; }
+      if (camBusy) { fail('Still uploading the last photo — one moment.'); return; }
       if (!canManageCustBuckets()) {
         fail('Your sign-in did not finish loading. Reopen this board from CrisData.');
         return;
@@ -7920,8 +8578,8 @@
       const who = custActorName();
       if (!who) { fail('Reopen this board from CrisData so the photo can be signed with your name.'); return; }
 
-      custCamBusy = true;
-      setCustCamNote(roId, 'busy', 'Uploading photo…');
+      camBusy = true;
+      surface.note(roId, 'busy', 'Uploading photo…');
       try {
         const PC = window.PhotoCompress;
         const out = PC ? await PC.compressImage(file) : null;
@@ -7936,7 +8594,13 @@
           .upload(path, blob, { contentType: mime, upsert: false });
         if (upErr) { console.error('[RoPhotos] upload failed', upErr); fail('Upload failed — ' + (upErr.message || 'unknown error')); return; }
 
-        const bucketId = PB ? PB.defaultCaptureBucketId(custBucketsFor(roId)) : null;
+        /* RESOLVED HERE, AT WRITE TIME — never when the button was tapped.
+           The camera can be open for a minute while the office removes a
+           bucket on another screen; writing an id that is no longer live would
+           render the photo under "No bucket" forever and read as a lost photo.
+           resolveCaptureBucketId falls back requested -> default -> null
+           (unbucketed), because a photo is never worth losing over a category. */
+        const bucketId = PB ? PB.resolveCaptureBucketId(surface.buckets(roId), opts && opts.bucketId) : null;
         const { data: row, error: insErr } = await db.from('attachments')
           .insert({ entity_type: 'repair_order', entity_id: roId, kind: 'ro_photo',
                     file_path: path, bucket_id: bucketId, uploaded_by: who })
@@ -7953,8 +8617,7 @@
         // clause. Without them the freshly-pushed object renders a different
         // byline than it will after a reload — the row has the values, the
         // local object would not. Same fix as My Numbers on 2026-08-20.
-        const k = String(roId);
-        (custRoPhotos[k] = custRoPhotos[k] || []).push({
+        surface.push(roId, {
           id: row.id, file_path: path, bucket_id: bucketId, url,
           uploaded_by: (row.uploaded_by !== undefined ? row.uploaded_by : who),
           created_at: row.created_at || new Date().toISOString(),
@@ -7964,9 +8627,9 @@
            he took a photo and had no idea where it landed. "It went in the
            first bucket" is a rule the code knows and the person does not, so
            the answer has to be on screen — by NAME, not "saved". */
-        const landed = custBucketsFor(roId).find(b => String(b.id) === String(bucketId));
-        setCustCamNote(roId, 'ok', landed ? `Added to ${landed.name}` : 'Added — no bucket on this RO yet');
-        flashCustPhoto(row.id);
+        const landed = surface.buckets(roId).find(b => String(b.id) === String(bucketId));
+        surface.note(roId, 'ok', landed ? `Added to ${landed.name}` : 'Added — no bucket on this RO yet');
+        surface.flash(row.id);
       } catch (err) {
         /* THE NET. Anything that throws — a dead phone connection mid-upload,
            storage rejecting the body, a bad response shape — lands here and is
@@ -7976,8 +8639,21 @@
         console.error('[RoPhotos] capture threw', err);
         fail('Could not save that photo — ' + ((err && err.message) || 'unknown error'));
       } finally {
-        custCamBusy = false;
+        camBusy = false;
       }
+    }
+
+    /* THE CUSTOMER RECORD'S SURFACE. Unchanged behaviour: same state, same
+       note, same flash, and no bucket target — captures there still land in
+       the RO's default bucket exactly as they did before this slice. */
+    const CUST_PHOTO_SURFACE = {
+      buckets: (roId) => custBucketsFor(roId),
+      push: (roId, photo) => { const k = String(roId); (custRoPhotos[k] = custRoPhotos[k] || []).push(photo); },
+      note: (roId, kind, text) => setCustCamNote(roId, kind, text),
+      flash: (photoId) => flashCustPhoto(photoId),
+    };
+    function captureCustPhoto(roId, file) {
+      return capturePhoto(roId, file, CUST_PHOTO_SURFACE);
     }
 
     /* Scroll the new tile into view and pulse it, so the photo is seen ARRIVING
@@ -8205,10 +8881,23 @@
        frozen out of its own auto-refresh. */
     let camPendingRo = null;
     let camPendingTimer = null;
-    function setCamPending(roId) {
+    /* WHICH SURFACE and WHICH BUCKET the pending capture belongs to. A SIBLING
+       of camPendingRo rather than a change to it, deliberately: camPendingRo is
+       read as a plain truthiness guard by VIEW_REFRESH.customer.refetch and as
+       an id by both camera handlers, and neither of those shipped guards is
+       worth reshaping to carry a second value.
+         • {surface:'cdro'} — the RO-detail card. bucketId is the bucket its [+]
+           was tapped in, or null for the black Take photo button.
+         • absent — the customer record, whose capture has no target bucket and
+           always takes the RO's default.
+       Cleared with camPendingRo, including by the 90s backstop, so a cancelled
+       camera cannot leave a stale bucket target behind for the next capture. */
+    let camPendingCtx = null;
+    function setCamPending(roId, ctx) {
       camPendingRo = roId;
+      camPendingCtx = roId ? (ctx || null) : null;
       if (camPendingTimer) clearTimeout(camPendingTimer);
-      camPendingTimer = roId ? setTimeout(() => { camPendingRo = null; }, 90000) : null;
+      camPendingTimer = roId ? setTimeout(() => { camPendingRo = null; camPendingCtx = null; }, 90000) : null;
     }
 
     (function bindCustCamInput() {
@@ -8853,7 +9542,7 @@
          camPendingRo self-clears (see setCamPending), so this can never
          permanently disable the record's refresh. */
       refetch: () => {
-        if (camPendingRo || custCamBusy) return;
+        if (camPendingRo || camBusy) return;
         if ($('custRecordPanel').style.display !== 'none' && custCustomer) loadCustomerRecord(custCustomer.id);
       },
     };

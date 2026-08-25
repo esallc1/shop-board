@@ -1,7 +1,8 @@
 # How RO photos are wired
 
 > Doc: `/docs/wiring/ro-photos.md`
-> Last updated: 2026-08-23 — **slice 3 is LIVE ON PROD.** Verified vs commit `484a3e0`.
+> Last updated: 2026-08-25 — **slice 4: a second office camera, on the RO detail screen.**
+> Verified vs commit `9ea06b0`.
 > Status: 🟢 **ALL THREE SLICES LIVE ON PROD.**
 > • Slices 1 + 2 — code `ae4510b`, migrations run by hand on prod **2026-08-20**.
 > • Slice 3 — code `484a3e0` deployed to prod **2026-08-23** (byte-verified on www),
@@ -17,10 +18,11 @@
 > [[staging-db]] §8.
 
 ## 0. In one line
-A tech shoots photos of a job on their phone — and the office can shoot one too, from the
-customer record. They attach to the **repair order**, sort into **buckets that belong to that
-one RO**, and show on the customer record under that vehicle's RO, where the office renames,
-adds and removes those buckets and moves photos between them.
+A tech shoots photos of a job on their phone — and the office can shoot one too, from **either**
+the RO screen (the counter camera, §5d) or the customer record (§5b). They attach to the
+**repair order**, sort into **buckets that belong to that one RO**, and show on the customer
+record under that vehicle's RO, where the office renames, adds and removes those buckets and
+moves photos between them.
 
 ## 1. Where the data lives
 Everything hangs off the existing `attachments` table — no new photo table.
@@ -165,15 +167,20 @@ standing note that **Creole is no longer needed anywhere in the app**.
 Removing a photo sets `deleted_at` + `deleted_by`. **The row stays and the storage object
 stays.** Shape copied exactly from chat's tombstone (`chat_messages.deleted_at/deleted_by`).
 
-**Every reader must filter `deleted_at is null`.** There are FOUR, and missing one silently
+**Every reader must filter `deleted_at is null`.** There are **FIVE**, and missing one silently
 resurrects archived photos:
 
 | Reader | What it reads |
 |---|---|
 | `advisor-board.html` customer record | `ro_photo` for all of a customer's ROs |
+| `advisor-board.html` RO detail `loadCdRoPhotos` | `ro_photo` for one RO — **added by slice 4** |
 | `advisor-board.html` RO card | `diagnosis_audio` for one RO |
 | `my-numbers.html` `loadRoPhotos` | `ro_photo` for one RO |
 | `my-numbers.html` `loadRoClips` | `diagnosis_audio` for one RO |
+
+The count went four → five the moment the counter camera got its own read. This list is the
+whole defence: the filter is a rule every reader has to remember, and the one that forgets is
+invisible until an archived photo reappears on somebody's screen.
 
 **Where each side gets the name for `deleted_by`:** My Numbers uses `currentTechName()`; the
 office uses `CHAT_IDENTITY.name`, the same session identity that renders the "Hi, <name>"
@@ -403,7 +410,11 @@ capture `image.jpg`; an input still holding the previous file does **not** fire
 `change` for the next identical pick. That is why Cris's *second* attempt also
 did nothing. Both boards now clear it on the failure path too.
 
-### 5b. Office capture — the camera sits ON THE RO
+### 5b. Office capture #1 — the camera on the CUSTOMER RECORD
+There are **two** office cameras since 2026-08-25. This is the one on the customer record, under
+each vehicle's RO; the counter camera on the RO detail screen is §5d. They share one upload
+function and differ only in where they draw.
+
 Same upload path as My Numbers, deliberately: `PhotoCompress` downscale + EXIF fix, the same
 private `crisdata-attachments` bucket, the same `repair_order/<ro id>/photos/<ts>-<rand>.<ext>`
 key, the same `attachments` row. **The office is not a second kind of photo.**
@@ -462,6 +473,136 @@ subsystem exists to show. The 5vh is deliberate headroom, not a round number.
 ≤768px `shared/board-shell.css` gives `.sidebar` `z-index:4500` and `.sidebar-backdrop` `4499`.
 The lightbox was `4000`, so opening a photo with the nav drawer open painted the sidebar over
 the image. Desktop was never affected (the sidebar is a static flex column there).
+
+### 5d. Office capture #2 — THE COUNTER CAMERA, on the RO detail screen
+**Why a second camera at all.** §5b is five taps from the front door — Customers → search →
+customer → vehicle → RO row → Take photo. Two things happen constantly that do not survive five
+taps: at **drop-off** the writer is standing at the counter holding the keys and needs "this is
+how it came in", and **mid-job** a tech with dirty hands asks the writer to shoot a wire hanging
+under the car. Both of those happen while the writer is already looking at the RO. So the camera
+is on the RO too. **§5b is unchanged** — this did not replace it, and the customer record is
+still where photos are managed (rename, move, remove).
+
+**Where it sits:** a card in the RO detail's main column, between **Complaint & Notes** and
+**Line Items** — the order the job actually happens in: hear it, shoot it, price it.
+
+**Estimate and RO are the same screen and there is no branch.** `status` is a column, not a
+record (see [[ro-line-items]] and the RO lifecycle), and an estimate is born with buckets like
+anything else (§1c) — so an estimate takes photos exactly like an active RO.
+
+**What is shared with §5b and what is deliberately not:**
+
+| | |
+|---|---|
+| **Shared** | `capturePhoto` — compress, storage key, `attachments` row, identity gate, zero-byte guard, no-bucket fallback. ONE upload path, two surfaces. A second copy is how the two sides drift apart. |
+| **Not shared — state** | its own `cdRoPhotos` / `cdRoBuckets`. `loadCustomerRecord` wipes its maps on its own schedule; two screens sharing one map with two different reset points is the shape this subsystem keeps getting bitten by. |
+| **Not shared — markup** | a one-line summary with a drawer, not the record's management grids. No rename, no move, no remove here: this card **takes** photos, the record **manages** them. |
+
+`capturePhoto(roId, file, surface, opts)` takes a **surface** — `{ buckets, push, note, flash }`.
+That indirection is the only difference between the two callers; everything below it is one body.
+
+**The two buttons, and what each one means:**
+
+- **The black `Take photo`** always files into the RO's **first bucket** (normally *Before*), with
+  no prompt and no picker. Drop-off is the common case and the writer's hands are full — a
+  bucket question at that moment is a question nobody wants to answer.
+- **The dashed `+` inside a bucket** files into **that** bucket. That is the tech's mid-job photo
+  going straight to *Part / Repair* without anyone sorting it afterwards.
+- The `+` is **not** offered on "No bucket": that group is a rendering of photos whose bucket is
+  gone, not a place you can deliberately file something into.
+
+**THE BUCKET IS RESOLVED WHEN THE PHOTO IS WRITTEN, NOT WHEN THE BUTTON WAS TAPPED.**
+`PhotoBuckets.resolveCaptureBucketId(buckets, requestedId)` falls back **requested → default →
+null**. The camera can be open for a minute while the office removes that bucket on another
+screen; writing the dead id would put the photo under "No bucket" forever and read as a lost
+photo. Falling back to the RO's default rather than straight to null because the photo was taken
+*for this RO* — landing in *Before* is closer to the intent than landing nowhere. Six tests in
+`photo-buckets.test.js` pin all of it, including the every-bucket-removed case, which still
+uploads **unbucketed** rather than failing.
+
+#### 5d1. The drawer is ALWAYS closed when the screen opens
+Not in state that survives `openRo`, not in `localStorage`, nowhere. A writer who expanded it
+once must not inherit a tall screen on every RO for the rest of the day. `openRo` is the single
+choke point — the list, the customer record's "Open RO →", `window.cdOpenRo` and the `?ro=`
+opener all arrive there — so one reset covers every entrance.
+
+**A capture does NOT open it.** The photo lands, the row says **"Added to Before"** by name, and
+the new thumbnail slides into the strip and pulses. Saying where it went by name is the §5b rule
+and it matters more here, because the drawer stays shut and the note is the only thing that says
+it landed. (The one exception to "always closed": the focus refetch below preserves whatever the
+drawer is currently doing — rule 1 is about a freshly-opened screen, and slamming the drawer shut
+under someone who is reading it would be a different bug.)
+
+#### 5d2. THE ROW MEASURES ITSELF — why there is no breakpoint here
+The card's width is **not a monotonic function of the viewport**, because the 320px rail snaps
+back at >900px. Card inner width by viewport, from the real CSS:
+
+| viewport | card inner | what it is |
+|---|---|---|
+| 810 | 481 | iPad portrait — **the counter** |
+| 834 | 505 | iPad portrait — **the counter** |
+| 900 | 571 | |
+| **901** | **236** | the rail returns — **narrower than any phone** |
+| 1024 | 359 | older iPad landscape |
+| 1080 | 415 | iPad landscape |
+| 1194 | 529 | iPad Pro landscape |
+
+Any breakpoint tuned to "iPad" is wrong at 901 and wrong again in Split View / Stage Manager,
+where a large device carries a narrow window. So `cdFitRow` renders, **measures what the fixed
+parts actually took**, and lets the thumbnail count follow the space that is really there; a
+`ResizeObserver` on the card re-runs it on rotation, Split View, Stage Manager and the sidebar
+drawer, none of which a media query would catch.
+
+Two rules hold at every width: **the black button never shrinks**, and **it never lands on a
+third line**. One line wins whenever it can hold **two or more** thumbnails — a strip of one
+photo is not a strip, and below that the row is worth more as two lines where the photos can
+actually be seen. Measured, 7 photos, card inner width → result (every case is one 38px line or
+two 82px lines, never three):
+
+| 236 | 318 | 359 | 415 | 481 | 505 | 529 |
+|---|---|---|---|---|---|---|
+| 2 lines, 2 thumbs | 2 lines, 4 | 2 lines, 4 | **1 line, 2** | **1 line, 4** | **1 line, 4** | **1 line, 4** |
+
+An RO with only two photos fits one line at 359 as well: the "+N" reservation is paid only when
+there is an actual overflow, and paying it unconditionally was pushing a 2-photo RO onto two
+lines for a "+N" that never rendered.
+
+**The empty RO has no toggle at all** — no thumbnails and no "Show photos". A control that opens
+nothing teaches people the app is broken. The button says what the photo is *for* instead of
+naming itself: **"📷 Take photo — how it came in"**.
+
+#### 5d3. ⚠ SIGNED URLS EXPIRE IN AN HOUR AND THIS SCREEN DOES NOT REFETCH ITSELF
+The customer record gets away with the same 1h expiry because `VIEW_REFRESH.customer` reloads it
+on every focus. The RO detail's refetch is `loadRecentList` — **the list only** — so a counter
+iPad left open on one RO would show blank thumbnails after ~60 minutes, which reads exactly like
+*"the photos are gone."* `VIEW_REFRESH.cdros.refetch` therefore also calls `resignCdRoPhotos()`.
+
+A **full reload** rather than re-signing the known paths, deliberately: it costs the same three
+round trips and it also picks up the photos a **tech just shot from My Numbers** on the same RO —
+the mid-job case this card exists for.
+
+**Held off mid-capture.** Returning from the iOS camera fires `visibilitychange` + `focus`;
+reloading then would race the upload and could drop the row it is about to push. Guarded on
+`camPendingRo || camBusy`, both of which self-clear (`setCamPending`'s 90s backstop, and
+`capturePhoto`'s `finally`), so the refresh can never be permanently disabled.
+
+#### 5d4. The §5b0 input rule, applied again
+`#cdRoCamInput` is a **sibling of `#cdRoPhotosBody`, not inside it**, and its `change` is bound
+**directly**. `#cdRoPhotosBody` has its innerHTML replaced on every capture, so an input inside it
+would rebuild the exact bug §5b0 describes: detached before iOS delivers `change`, delegated
+listener never fires, photo gone with no error. The input is reset in a `finally` **after** the
+await for the same reason as §3 — iOS names every capture `image.jpg`, and an input still holding
+the last one fires no `change` for the next identical pick.
+
+**`camPendingCtx` is a SIBLING of `camPendingRo`, not a change to it.** `camPendingRo` is read as
+a plain truthiness guard by `VIEW_REFRESH.customer.refetch` and as an id by both camera handlers;
+neither shipped guard was worth reshaping to carry a second value. The ctx holds the surface and
+the requested bucket, and is cleared with `camPendingRo` including by the 90s backstop, so a
+cancelled camera cannot leave a stale bucket target for the next capture.
+
+**Identity is async here too.** The first render genuinely has `CHAT_IDENTITY.role` null and the
+button hidden, so `applyIdentity` calls `window.cdRoPhotoCardRerender()` — the same treatment,
+and the same reason, as `window.cdCustomerRecordRerender` (§5a).
 
 ### 5c. The board-wide unhandled-rejection net
 `window.addEventListener('unhandledrejection')` → a red `.board-fault` bar under
@@ -530,11 +671,15 @@ Not fixed here on purpose — logged so the next person hits the note instead of
 - Schema: `migrations/20260819_photo_buckets.sql` (slice 1),
   `migrations/20260820_photo_archive.sql` (slice 2),
   `migrations/20260822_photo_buckets_per_ro.sql` (slice 3 — **SANDBOX run, applied 2026-08-22**),
-  `migrations/20260822_photo_buckets_per_ro_PROD.sql` (slice 3 — **PROD, NOT RUN**; separate file
-  on purpose, refuses unless `app_env like 'PROD%'`, no data-modifying CTEs, and it must run in
-  the SAME window as the code deploy — see its header note 1).
+  `migrations/20260822_photo_buckets_per_ro_PROD.sql` (slice 3 — **PROD, APPLIED 2026-08-23** by
+  hand, block by block; separate file on purpose, refuses unless `app_env like 'PROD%'`, no
+  data-modifying CTEs, and it had to run in the SAME window as the code deploy — see its header
+  note 1). *(This line read "PROD, NOT RUN" until 2026-08-25; the run happened on the 23rd and
+  the migration's own header recorded it. Corrected against the file, not from memory.)*
+- **Slice 4 (the counter camera) added NO migration and NO schema change** — every RO already has
+  buckets, from the trigger (§1c) and the slice-3 backfill.
 - Storage layout: `migrations/20260819_storage_buckets.sql`, [[hosting-domains]] §5.5.
-- **Bucket rules (pure, shared by both screens): `shared/photo-buckets.js` (+ `.test.js`, 33
+- **Bucket rules (pure, shared by both screens): `shared/photo-buckets.js` (+ `.test.js`, 39
   tests).** Grouping, ordering, the live cap, name validation, the flat/accordion threshold,
   where a capture lands, and the move targets all live here so the tech's grids and the customer
   record cannot disagree.
@@ -544,6 +689,16 @@ Not fixed here on purpose — logged so the next person hits the note instead of
 - Tech capture, grids, archive: `my-numbers.html` (`loadPhotoBuckets(roId)`, `RO_BUCKETS`,
   `roPhotoGroups`, `roPhotoGridHtml`, `roPhotosHtml`, `roOpenBucketKey`, `uploadRoPhoto`,
   `archiveRoPhoto`, `canArchivePhoto`, `bindPhotoInputs`).
+- **Counter camera (RO detail, slice 4): `advisor-board.html`** — `#cdRoPhotosCard` /
+  `#cdRoPhotosBody` / `#cdRoCamInput` in the detail's main column, plus `cdRoPhotos`,
+  `cdRoBuckets`, `cdPhotosOpen`, `loadCdRoPhotos`, `resignCdRoPhotos`, `cdPhotoGroups`,
+  `cdRoPhotoCardHtml`, `cdRoDrawerHtml`, `cdPhotoCaption`, `renderCdRoPhotoCard`, `cdFitRow`,
+  `cdOpenCamera`, `bindCdRoCamInput`, `CDRO_PHOTO_SURFACE`, `window.cdRoPhotoCardRerender`, and
+  the `ResizeObserver` on the card. CSS: the `.cdro-*` block.
+- **The shared upload both office cameras run through: `capturePhoto(roId, file, surface, opts)`**
+  in `advisor-board.html`, with `CUST_PHOTO_SURFACE` / `CDRO_PHOTO_SURFACE` and the thin
+  `captureCustPhoto` wrapper. `camBusy` (renamed from `custCamBusy`) is shared across both
+  surfaces on purpose: one person, one device, one capture at a time.
 - Display + management + office capture: `advisor-board.html` (`canManageCustBuckets`,
   `custBucketsFor`, `escAttr`, `custPhotoGroups`, `custPhotoCellHtml`, `custBucketHeadHtml`,
   `custPhotoBarHtml`, `roPhotosHtml`, `custActorName`, `custSetBuckets`, `addCustBucket`,
@@ -552,6 +707,16 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   listeners).
 
 ## Session change log
+- 2026-08-25 — **Slice 4: the counter camera.** A second office camera on the RO detail screen
+  (§5d), between Complaint & Notes and Line Items, for drop-off and for the tech's mid-job ask.
+  Black button → first bucket, per-bucket `+` → that bucket, resolved at write time by the new
+  `resolveCaptureBucketId` (+6 tests). `captureCustPhoto` refactored into `capturePhoto` +
+  surfaces so both cameras share ONE upload body; the customer-record camera is behaviourally
+  unchanged. The row measures itself (`cdFitRow` + `ResizeObserver`) instead of guessing a
+  breakpoint, because the card is 481px wide at an 810px iPad portrait and **236px at 901px**.
+  Photos re-sign on focus so a counter iPad does not go blank after an hour. No SQL, no schema.
+  Also corrected a stale "PROD, NOT RUN" line under *Where it lives* — slice 3's prod migration
+  ran on 2026-08-23.
 - 2026-08-23 — **SLICE 3 IS LIVE ON PROD.** Code `484a3e0` was deployed to `main` FIRST and
   byte-verified on www, then Cris ran the prod migration by hand, block by block, in the
   Supabase editor on `PROD — KiKi hygemiszxwmyrkmhbjub`. Blocks 00 · 0 · A · B1 · C · B2 · B3 ·

@@ -9,6 +9,7 @@ import {
   BUCKET_MANAGER_ROLES, canManageBuckets, normalizeBucketName, liveBuckets,
   sortBuckets, defaultCaptureBucketId, nextSortOrder, validateBucketName,
   canAddBucket, techLayout, groupPhotosByBucket, totalPhotos, moveTargets,
+  resolveCaptureBucketId,
 } from './photo-buckets.js';
 
 const B = (id, name, sort, archived) => ({ id, name, sort_order: sort, archived_at: archived || null });
@@ -259,4 +260,46 @@ test('there is NO way to express a cross-RO move — moveTargets only ever sees 
   const roA = [B('a1', 'Before', 1)];
   const targets = moveTargets(P('p1', null), roA);
   assert.deepEqual(targets.map((t) => t.id), ['a1']);
+});
+
+// ── resolveCaptureBucketId — where a REQUESTED capture lands ───
+// The per-bucket [+] on the RO-detail photo card asks for one specific bucket.
+// The answer is resolved when the photo is WRITTEN, not when the [+] was
+// tapped, because the camera can be open for a minute while the office edits
+// buckets on another screen.
+test('a requested bucket that is still live is honoured', () => {
+  const buckets = [B('1', 'Before', 1), B('2', 'Part / Repair', 2)];
+  assert.equal(resolveCaptureBucketId(buckets, '2'), '2');
+});
+
+test('no preference (the black Take photo button) lands in the FIRST live bucket', () => {
+  const buckets = [B('2', 'Part / Repair', 2), B('1', 'Before', 1)];
+  assert.equal(resolveCaptureBucketId(buckets, null), '1');
+  assert.equal(resolveCaptureBucketId(buckets, undefined), '1');
+  assert.equal(resolveCaptureBucketId(buckets, ''), '1');
+});
+
+test('a bucket REMOVED while the camera was open falls back to the default, never to the dead id', () => {
+  const buckets = [B('1', 'Before', 1), B('2', 'Part / Repair', 2, '2026-08-25T10:00:00Z')];
+  assert.equal(resolveCaptureBucketId(buckets, '2'), '1',
+    'writing the archived id would render as "No bucket" forever and read as a lost photo');
+});
+
+test('a requested bucket belonging to ANOTHER RO is never written', () => {
+  // The caller only ever holds one RO's buckets, but the resolver must not
+  // trust the id either: an unknown id resolves to this RO's default.
+  const buckets = [B('1', 'Before', 1)];
+  assert.equal(resolveCaptureBucketId(buckets, 'some-other-ros-bucket'), '1');
+});
+
+test('an RO with every bucket removed captures UNBUCKETED rather than failing', () => {
+  const buckets = [B('1', 'Before', 1, '2026-08-25T10:00:00Z')];
+  assert.equal(resolveCaptureBucketId(buckets, '1'), null);
+  assert.equal(resolveCaptureBucketId(buckets, null), null);
+  assert.equal(resolveCaptureBucketId([], null), null);
+});
+
+test('ids are compared as STRINGS — a numeric id and its text form are the same bucket', () => {
+  const buckets = [B(7, 'Before', 1)];
+  assert.equal(resolveCaptureBucketId(buckets, '7'), 7);
 });

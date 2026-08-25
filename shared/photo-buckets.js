@@ -99,6 +99,30 @@ export function defaultCaptureBucketId(buckets) {
   return live.length ? live[0].id : null;
 }
 
+// Where a capture lands when the caller ASKED for a specific bucket — the
+// per-bucket [+] on the RO-detail photo card, which files a mid-job photo
+// straight into the bucket it was tapped in.
+//
+// RESOLVED AT WRITE TIME, NEVER AT TAP TIME. The camera can be open for a
+// minute while the office removes a bucket on another screen; a requested id
+// that is no longer live must not be written, because a photo pointing at a
+// bucket that is not on the RO reads as "No bucket" forever and looks like the
+// photo went missing. The order is deliberate:
+//   1. the requested bucket, if it is still live on THIS RO
+//   2. otherwise the RO's default (first live) bucket
+//   3. otherwise null — upload unbucketed rather than fail
+// Step 2 rather than straight to null because the photo was taken FOR this RO;
+// landing it in Before is closer to the intent than landing it nowhere.
+//
+// `requestedId` of null/undefined means "no preference" and goes straight to
+// the default — that is the black Take photo button's path (rule 2).
+export function resolveCaptureBucketId(buckets, requestedId) {
+  if (requestedId == null || requestedId === '') return defaultCaptureBucketId(buckets);
+  const live = liveBuckets(buckets);
+  const hit = live.find((b) => b && String(b.id) === String(requestedId));
+  return hit ? hit.id : defaultCaptureBucketId(buckets);
+}
+
 export function nextSortOrder(buckets) {
   let max = 0;
   (buckets || []).forEach((b) => {
