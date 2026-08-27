@@ -23,7 +23,8 @@ single self-contained HTML file that talks straight to Supabase with the anon ke
   innerHTML per view (`login | list | detail | roDiag`).
 - **Shared scripts it pulls in:** `shared/pwa-register.js` + `/manifest.webmanifest` (it's an
   installable PWA), `shared/version-check.js`, `shared/photo-compress.js`,
-  `shared/photo-buckets.js`, `shared/tech-findings.js`, and the Supabase JS SDK from jsDelivr CDN.
+  `shared/photo-buckets.js`, `shared/ro-media.js`, `shared/tech-findings.js`, and the Supabase JS
+  SDK from jsDelivr CDN.
 - **NO "Catch this moment" FAB — removed 2026-08-25.** It is a *marketing* capture: its photos go
   to the owner's Marketing tab, **not** to the repair order. On a tech's phone that put a big
   purple camera button inches from the real one, so a photo of the job could land somewhere the RO
@@ -281,13 +282,31 @@ same reason.
   `crisdata-techboard.html` (drag-assign + verbatim `sbStatusToLocal`), gm-board / v1
   `shop-board.html` floor dropdowns.
 - **Shared:** `shared/pwa-register.js`, `shared/version-check.js`, `shared/photo-compress.js`,
-  `shared/photo-buckets.js`, `shared/tech-findings.js`. **Not** `shared/catch-moment.js` — see above.
+  `shared/photo-buckets.js`, `shared/ro-media.js`, `shared/tech-findings.js`. **Not**
+  `shared/catch-moment.js` — see above.
 - **Storage:** private `crisdata-attachments` bucket (diagnosis audio).
 - **Related docs:** `tech-board.md` (dispatcher side of the same state machine),
   `ro-checkin-tech.md` (tech assignment + `shopboard_pickup` no-`status` quirk),
   `recordings-audio.md` (the audio/attachments pattern), `floor-tags.md` (floor lanes).
 
 ## Session change log
+- 2026-08-27 — **Video capture, and one gap logged.** Every photo grid gained a second add tile,
+  **🎬 Add Video** (`accept="video/*"`, deliberately no `capture`, so the camera roll is reachable
+  — a clip is far likelier than a photo to already exist). The clip is the same
+  `kind='ro_photo'` row as a photo and files into the same bucket; full reasoning in
+  [[ro-photos]] §1d, §3b. Size blocks at 100 MB synchronously; duration only advises. The upload
+  status is **persistent, not a toast**, because a 100 MB clip over shop wifi is minutes and a
+  toast that vanishes tells the tech it finished. `roPhotoBusy` stays shared with the photo path
+  but now says so instead of silently doing nothing.
+  Spanish swept from "categoría" to the **bucket** vocabulary (`noBucketLabel`,
+  `toastPhotoNoBucket`) so one screen no longer speaks two vocabularies. **No Haitian keys were
+  added for video** — `t()` is `I18N[lang][key] || I18N.en[key] || key`, so a missing HT key
+  lands on the ENGLISH string, never on the raw key name, which is what makes §2's standing
+  Creole decision safe to act on rather than merely intend.
+  ⚠ **Logged, not fixed: `escRo` does not escape quotes.** It replaces only `<` and `>` — the
+  same gap `escAttr` closed on the advisor board in slice 3. It is safe today because every
+  attribute on this screen holds a signed URL or a UUID, and nothing in this slice changed that.
+  The first free-typed text to reach an attribute here (a bucket name, a caption) reopens it.
 - 2026-08-25 — **Findings are appended, not overwritten** ([[tech-findings]]). `submitDiagnosis`
   now re-reads, prepends a `␞ FINDINGS ␞` entry and writes under an optimistic guard; the tech
   gets **Edit** (rewrite the newest, only until the writer opens it) and **Add follow-up**. The

@@ -615,6 +615,21 @@
     border: 1px solid var(--border); background: var(--surface-2); cursor: pointer; }
   .cdro-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .cdro-tile:hover { border-color: var(--accent); }
+  /* A VIDEO TILE CARRIES NO MEDIA ELEMENT ANYWHERE IN A GRID — not <video>,
+     and specifically not <video preload="metadata">, which renders a free
+     first-frame poster and, to do it, fetches the moov atom plus enough
+     samples to decode a frame, per tile, on every RO open. That is the whole
+     egress guard thrown away for a thumbnail. ro-photos.md §1e. */
+  .cdro-tile.is-video, .cdro-strip-thumb.is-video { background:#14171d;
+    display:flex; align-items:center; justify-content:center; }
+  .cdro-play { width:26px; height:26px; border-radius:50%; color:#fff;
+    background:rgba(255,255,255,0.16); font-size:12px; line-height:1;
+    display:flex; align-items:center; justify-content:center; padding-left:2px; }
+  .cdro-strip-thumb.is-video .cdro-play { width:18px; height:18px; font-size:9px; }
+  .cdro-tile .cdro-dur { position:absolute; left:3px; bottom:3px;
+    background:rgba(0,0,0,0.66); color:#fff; font-size:9px; border-radius:3px;
+    padding:0 3px; font-variant-numeric:tabular-nums; }
+  .cdro-tile { position:relative; }
   /* The per-bucket [+] — the tech's mid-job photo, straight into THIS bucket
      (rule 3). Dashed so it reads as "add", not as a photo. */
   .cdro-add {
@@ -977,6 +992,14 @@
   /* The picker REPLACES the byline in the same footer slot rather than being
      added below it — a 96px cell has no room for both, and growing the cell
      mid-interaction shifts every tile the user was looking at. */
+  .cust-photo-tile.is-video { background:#14171d; display:flex;
+    align-items:center; justify-content:center; position:relative; }
+  .cust-photo-tile .cust-play { width:28px; height:28px; border-radius:50%;
+    background:rgba(255,255,255,0.16); color:#fff; font-size:13px; line-height:1;
+    display:flex; align-items:center; justify-content:center; padding-left:2px; }
+  .cust-photo-tile .cust-dur { position:absolute; left:3px; bottom:3px;
+    background:rgba(0,0,0,0.66); color:#fff; font-size:9px; border-radius:3px;
+    padding:0 3px; font-variant-numeric:tabular-nums; }
   .cust-photo-move-sel { width:100%; font-size:0.58rem; padding:1px 2px;
     border:1px solid var(--accent); border-radius:5px;
     background:var(--surface); color:var(--text); }
@@ -1004,6 +1027,38 @@
     border-radius:50%; border:none; background:rgba(255,255,255,0.14); color:#fff;
     font-size:24px; line-height:1; cursor:pointer; }
   .cust-lightbox-close:hover { background:rgba(255,255,255,0.24); }
+  /* A video is sized exactly like a photo — same viewport units, same reason
+     (see the note above): .cust-lightbox-fig is an auto-height flex item, so
+     a percentage max-height resolves against an indefinite height and
+     constrains nothing. */
+  .cust-lightbox video { max-width:90vw; max-height:85vh; border-radius:10px;
+    box-shadow:0 24px 64px rgba(0,0,0,0.5); background:#000; }
+  /* THE ARROWS. 44px, at the vertical middle of each edge — a thumb target on
+     a tablet, out of the way of the image on a desktop. Deliberately NOT
+     left/right TAP ZONES over the overlay: tapping the backdrop closes the
+     lightbox and has since it shipped, and quietly redefining that gesture
+     would be a worse bug than the one this fixes. */
+  .cust-lightbox-nav { position:absolute; top:50%; transform:translateY(-50%);
+    width:44px; height:44px; border-radius:50%; border:none; padding:0;
+    background:rgba(255,255,255,0.14); color:#fff; font-size:26px; line-height:1;
+    cursor:pointer; display:flex; align-items:center; justify-content:center;
+    -webkit-tap-highlight-color:transparent; }
+  .cust-lightbox-nav:hover:not(:disabled) { background:rgba(255,255,255,0.24); }
+  /* Greyed at the ends rather than wrapping. Wrapping makes a 4-photo RO feel
+     infinite with nothing to say you have gone around — and greying only
+     reads as "the end" rather than "broken" BECAUSE the counter is there. The
+     two ship together or not at all. */
+  .cust-lightbox-nav:disabled { opacity:0.28; cursor:default; }
+  .cust-lightbox-prev { left:14px; }
+  .cust-lightbox-next { right:14px; }
+  /* One item: no arrows at all, so a single photo looks exactly as it did. */
+  .cust-lightbox.solo .cust-lightbox-nav { display:none; }
+  /* Caption and counter share ONE line: the N / M reads as the tail of the
+     byline rather than as a second, competing caption under it. */
+  .cust-lightbox-capline { display:flex; align-items:baseline; gap:10px;
+    flex-wrap:wrap; justify-content:center; max-width:90vw; }
+  .cust-lightbox-pos { color:rgba(255,255,255,0.62); font-size:0.72rem;
+    font-variant-numeric:tabular-nums; letter-spacing:0.04em; }
   .cust-tl-entry { border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:8px; padding:7px 10px; background:#fff; }
   .cust-tl-entry.unconfirmed { border-left-color:var(--amber); }
   .cust-tl-top { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
@@ -1162,6 +1217,17 @@
 <script type="module">
   import * as PhotoCompress from './shared/photo-compress.js';
   window.PhotoCompress = PhotoCompress;
+</script>
+<!-- Photo-or-video (ESM -> window.RoMedia). A tech's clip is the SAME
+     kind='ro_photo' row in the SAME bucket as a photo and is told apart ONLY
+     by the extension on file_path — so this is the one place that knows, and
+     every render site here asks it rather than deciding for itself. Why there
+     is no 'ro_video' enum value, and what it would have cost: ro-photos.md
+     §1d. NOTE the three ro_photo READERS need no change at all — they already
+     pull clips, which is exactly why display is not optional here. -->
+<script type="module">
+  import * as RoMedia from './shared/ro-media.js';
+  window.RoMedia = RoMedia;
 </script>
 <!-- The tech's write-up history (ESM). Assigns window.TechFindings. THE SAME
      module my-numbers.html formats with: that side writes the ␞ FINDINGS ␞
@@ -7600,8 +7666,15 @@
       const more = total - shown.length;
       const strip = shown.map((p) => {
         const flash = cdFlashPhotoId != null && String(p.id) === String(cdFlashPhotoId) ? ' cdro-strip-new' : '';
-        return `<span class="cdro-strip-thumb${flash}" data-cdro-thumb="${escAttr(String(p.id))}">${
-          p.url ? `<img src="${escAttr(p.url)}" alt="" loading="lazy">` : ''}</span>`;
+        /* The strip reads cdPhotosFor() — the RAW array, not the grouped one —
+           so it does NOT carry groupPhotosByBucket's isVideo stamp and has to
+           ask RoMedia itself. Same predicate either way; there is still only
+           one place that knows. */
+        const vid = (window.RoMedia && window.RoMedia.isVideoPath(p.file_path)) ? ' is-video' : '';
+        const inner = vid
+          ? `<span class="cdro-play" aria-hidden="true">\u25B6</span>`
+          : (p.url ? `<img src="${escAttr(p.url)}" alt="" loading="lazy">` : '');
+        return `<span class="cdro-strip-thumb${vid}${flash}" data-cdro-thumb="${escAttr(String(p.id))}">${inner}</span>`;
       }).join('');
 
       return `<div class="cdro-row${cdPhotosOpen ? ' cdro-open' : ''}">
@@ -7628,10 +7701,17 @@
       const groups = cdPhotoGroups(roId);
       if (!groups.length) return '';
       return `<div class="cdro-drawer">` + groups.map((g) => {
+        /* The tile is keyed by the photo's ID, not by its URL. The lightbox
+           needs an index into this RO's ordered list, and a signed URL is a
+           long throwaway string that changes on every load — the id is the
+           thing that actually identifies the row. */
         const tiles = g.photos.map((p) => {
-          const cap = cdPhotoCaption(p);
-          return `<button type="button" class="cdro-tile" data-cdro-photo="${escAttr(String(p.url || ''))}"
-                    data-cdro-cap="${escAttr(cap)}">${p.url ? `<img src="${escAttr(p.url)}" alt="" loading="lazy">` : ''}</button>`;
+          const inner = p.isVideo
+            ? mediaPlayHtml(p, 'cdro')
+            : (p.url ? `<img src="${escAttr(p.url)}" alt="" loading="lazy">` : '');
+          return `<button type="button" class="cdro-tile${p.isVideo ? ' is-video' : ''}"
+                    data-cdro-id="${escAttr(String(p.id))}"
+                    title="${escAttr(p.isVideo ? 'Play this video' : 'Enlarge')}">${inner}</button>`;
         }).join('');
         /* The [+] files into THIS bucket. It is NOT offered on "No bucket":
            that group is a rendering of photos whose bucket is gone, not a place
@@ -7650,9 +7730,25 @@
       }).join('') + `</div>`;
     }
 
+    /* The inside of a VIDEO tile: a ▶ and, when the storage key carries one,
+       the duration. No <video>, on any grid, ever — see the .cdro-tile.is-video
+       CSS note and ro-photos.md §1e. */
+    function mediaPlayHtml(p, cls) {
+      const RM = window.RoMedia;
+      const secs = RM ? RM.videoDurationFromPath(p.file_path) : null;
+      const dur = (RM && secs) ? RM.formatDuration(secs) : '';
+      return `<span class="${cls}-play" aria-hidden="true">\u25B6</span>` +
+             (dur ? `<span class="${cls}-dur">${esc(dur)}</span>` : '');
+    }
+
     // "Aug 25, 9:14 AM · Manny" — same two-part byline as the record, and the
     // same rule: no uploaded_by means the DATE ALONE, never "· Unknown".
-    function cdPhotoCaption(p) {
+    //
+    // `bucketName` is passed ONLY by the lightbox list, because the lightbox
+    // steps across bucket boundaries and the bucket is then the one thing
+    // saying where in the job you are. On a tile it would be noise — the
+    // bucket heading is directly above it.
+    function cdPhotoCaption(p, bucketName) {
       let out = '';
       if (p.created_at) {
         const d = new Date(p.created_at);
@@ -7662,6 +7758,7 @@
         }
       }
       if (p.uploaded_by) out = out ? out + ' · ' + p.uploaded_by : String(p.uploaded_by);
+      if (bucketName) out = out ? bucketName + ' · ' + out : String(bucketName);
       return out;
     }
 
@@ -7802,11 +7899,16 @@
         const add = e.target.closest('[data-cdro-add]');
         if (add) { e.preventDefault(); cdOpenCamera(roId, add.getAttribute('data-cdro-add')); return; }
 
-        const tile = e.target.closest('[data-cdro-photo]');
+        /* THE LIST IS THIS RO'S WHOLE DRAWER, in the order it is drawn —
+           cdPhotoGroups is already bucket-sorted with "No bucket" last, which
+           is the chronology of the job. One RO only; never the next one. */
+        const tile = e.target.closest('[data-cdro-id]');
         if (tile) {
           e.preventDefault();
-          const url = tile.getAttribute('data-cdro-photo');
-          if (url) openPhotoLightbox(url, tile.getAttribute('data-cdro-cap') || '');
+          const { items, index } = lightboxListFor(
+            cdPhotoGroups(roId), tile.getAttribute('data-cdro-id'),
+            (p, bucketName) => cdPhotoCaption(p, bucketName));
+          openPhotoLightbox(items, index);
           return;
         }
 
@@ -8541,7 +8643,7 @@
        replaces only < and >, which was safe while every attribute on this
        screen held a URL or a UUID. It is NOT safe now: bucket names are
        free-typed by the office and land in value="…" and title="…", and an
-       employee name lands in data-caption="…". One double quote closes the
+       employee name lands in the tile's title="…" byline. One double quote closes the
        attribute early — at best the markup breaks, at worst `" onfocus=…`
        becomes an injection on a screen that renders customer data.
        Use this for any attribute that can carry text a human typed. */
@@ -8582,10 +8684,17 @@
       };
     }
     // One-line form, for the tile's title= and the lightbox caption.
-    function photoMetaLine(p) {
+    //
+    // `bucketName` is passed ONLY from the lightbox list. The lightbox steps
+    // across bucket boundaries (all of this RO's buckets, in bucket order —
+    // which is the chronology of the job), so the bucket is the one thing
+    // telling the reader where in that job they are. On a tile it would be
+    // noise: the bucket heading is directly above it.
+    function photoMetaLine(p, bucketName) {
       const { when, who } = photoMetaParts(p);
-      if (when && who) return when + ' · ' + who;
-      return when || who || '';
+      let out = (when && who) ? when + ' · ' + who : (when || who || '');
+      if (bucketName) out = out ? bucketName + ' · ' + out : String(bucketName);
+      return out;
     }
     // "Aug 10, 8:41 AM" — date + time, no year (the RO already carries the date).
     // Built from TWO calls on purpose: a single toLocaleString with both date and
@@ -8598,6 +8707,16 @@
       const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
       return date + ', ' + time;
+    }
+
+    // The duration chip, when the storage key carries one. It does for every
+    // clip whose metadata iOS managed to read at capture time; older clips and
+    // undecodable ones simply have no chip rather than a made-up 0:00.
+    function custDurHtml(p) {
+      const RM = window.RoMedia;
+      const secs = RM ? RM.videoDurationFromPath(p.file_path) : null;
+      const dur = (RM && secs) ? RM.formatDuration(secs) : '';
+      return dur ? `<span class="cust-dur">${esc(dur)}</span>` : '';
     }
 
     /* One photo cell. `manage` adds the office-only controls: Move (opens the
@@ -8626,19 +8745,29 @@
           (m.who  ? `<span class="cust-photo-who">${esc(m.who)}</span>`  : '') +
           `</figcaption>`;
       }
+      /* THE TILE CARRIES ITS ID AND ITS RO, not just its URL. The lightbox
+         is a list + an index now, and it rebuilds that list from this RO's
+         groups — so it needs to know WHICH row was tapped and WHICH RO it
+         belongs to. (data-caption is gone with the single-url lightbox that
+         read it; the caption is built from the photo when the list is built,
+         because only then is the bucket name known.) */
+      const noun = p.isVideo ? 'video' : 'photo';
       return `<figure class="cust-photo-cell">
         ${p.url
-          ? `<button type="button" class="cust-photo-tile" data-photo="${esc(p.url)}"
-                     data-caption="${escAttr(photoMetaLine(p))}" title="${escAttr(photoMetaLine(p) || 'Enlarge')}">
-               <img src="${esc(p.url)}" loading="lazy" alt="">
+          ? `<button type="button" class="cust-photo-tile${p.isVideo ? ' is-video' : ''}" data-photo="${esc(p.url)}"
+                     data-photo-id="${escAttr(String(p.id))}" data-photo-ro="${escAttr(String(roId))}"
+                     title="${escAttr(photoMetaLine(p) || (p.isVideo ? 'Play this video' : 'Enlarge'))}">
+               ${p.isVideo
+                  ? `<span class="cust-play" aria-hidden="true">\u25B6</span>${custDurHtml(p)}`
+                  : `<img src="${esc(p.url)}" loading="lazy" alt="">`}
              </button>`
           : `<span class="cust-photo-tile cust-photo-missing" title="Preview unavailable"></span>`}
         ${footer}
         ${manage ? `<div class="cust-photo-acts">
           <button type="button" class="cust-photo-act" data-move="${escAttr(String(p.id))}"
-                  title="Move this photo to another bucket on this RO">Move</button>
+                  title="Move this ${noun} to another bucket on this RO">Move</button>
           <button type="button" class="cust-photo-act" data-archive="${escAttr(String(p.id))}"
-                  title="Remove this photo from the record">Remove photo</button>
+                  title="Remove this ${noun} from the record">Remove ${noun}</button>
         </div>` : ''}
       </figure>`;
     }
@@ -9205,37 +9334,185 @@
       }, 60);
     }
 
-    // Lightbox — one element reused for every photo. Click the backdrop, press
-    // Escape, or hit the close button to dismiss. Nothing is mutated.
-    function openPhotoLightbox(url, caption) {
+    /* ══ THE LIGHTBOX — A LIST AND AN INDEX ═══════════════════════════
+       It used to take ONE url, so seeing the next picture meant closing this
+       one and finding the next tile. It now takes the RO's ordered items and
+       a starting index, and steps with < > , the arrow keys, or Escape.
+
+       SCOPE IS THE REPAIR ORDER, NOT THE BUCKET, AND NEVER MORE THAN ONE RO.
+       All of this RO's buckets, in bucket order, "No bucket" last — because
+       the unit of work on these screens is the JOB, and Before -> Part /
+       Repair is the chronology of that job, so stepping in bucket order tells
+       it in the order it happened. Stopping at a bucket boundary would leave
+       the advisor closing and reopening exactly as they do today.
+
+       It must never span REPAIR ORDERS, even on the customer record where
+       several are on screen at once. Same rule, and the same reason, as
+       PhotoBuckets.moveTargets: the RO is the boundary, and arrowing out of
+       #6012's last photo into #6001's first is quietly wrong about which job
+       you are looking at. Both callers build their list from ONE roId.
+
+       ENDS ARE GREYED, NOT WRAPPED — with a counter. Wrapping makes a
+       four-photo RO feel infinite with nothing to say you have been round.
+       And greying only reads as "that's the end" rather than "it's broken"
+       BECAUSE the N / M is there. They ship together or not at all. */
+    let lightboxItems = [];
+    let lightboxIndex = 0;
+
+    /* Back-compat: a bare (url, caption) still works and shows one item. Kept
+       so a call site that has no list to give — anything added later, on a
+       screen with a single image — is not forced to invent one. */
+    function openPhotoLightbox(itemsOrUrl, indexOrCaption) {
+      let items, index;
+      if (typeof itemsOrUrl === 'string') {
+        items = [{ url: itemsOrUrl, caption: indexOrCaption || '', isVideo: false }];
+        index = 0;
+      } else {
+        items = (itemsOrUrl || []).filter(it => it && it.url);
+        index = Number(indexOrCaption) || 0;
+      }
+      if (!items.length) return;
+      lightboxItems = items;
+      lightboxIndex = Math.min(Math.max(0, index), items.length - 1);
+
       let box = $('custPhotoLightbox');
       if (!box) {
         box = document.createElement('div');
         box.id = 'custPhotoLightbox';
         box.className = 'cust-lightbox';
-        box.innerHTML = `<button type="button" class="cust-lightbox-close" aria-label="Close">×</button>` +
-                        `<figure class="cust-lightbox-fig"><img alt=""><figcaption class="cust-lightbox-cap"></figcaption></figure>`;
+        box.innerHTML =
+          `<button type="button" class="cust-lightbox-close" aria-label="Close">×</button>` +
+          `<button type="button" class="cust-lightbox-nav cust-lightbox-prev" aria-label="Previous">\u2039</button>` +
+          `<button type="button" class="cust-lightbox-nav cust-lightbox-next" aria-label="Next">\u203A</button>` +
+          `<figure class="cust-lightbox-fig">` +
+            `<figcaption class="cust-lightbox-capline">` +
+              `<span class="cust-lightbox-cap"></span>` +
+              `<span class="cust-lightbox-pos"></span>` +
+            `</figcaption>` +
+          `</figure>`;
         document.body.appendChild(box);
         box.addEventListener('click', (e) => {
+          /* Backdrop-tap-to-close is UNCHANGED. The arrows are children of the
+             overlay, so a tap on one is not `e.target === box` and does not
+             close. There are deliberately no left/right tap ZONES over the
+             backdrop: that would redefine a gesture that has shipped. */
+          if (e.target.closest('.cust-lightbox-prev')) { e.preventDefault(); stepPhotoLightbox(-1); return; }
+          if (e.target.closest('.cust-lightbox-next')) { e.preventDefault(); stepPhotoLightbox(1); return; }
           if (e.target === box || e.target.classList.contains('cust-lightbox-close')) closePhotoLightbox();
         });
       }
-      box.querySelector('img').src = url;
-      const cap = box.querySelector('.cust-lightbox-cap');
-      if (cap) { cap.textContent = caption || ''; cap.style.display = caption ? '' : 'none'; }
+      renderPhotoLightbox();
       box.classList.add('open');
-      document.addEventListener('keydown', photoLightboxEsc);
+      document.addEventListener('keydown', photoLightboxKey);
     }
+
+    /* Tear the current media down BEFORE anything replaces it.
+
+       For a video, clearing src alone is not enough: Safari keeps the in-flight
+       fetch, and without pause() the audio keeps playing behind whatever comes
+       next. pause -> removeAttribute('src') -> load() is the sequence that
+       actually stops it. */
+    function teardownLightboxMedia(box) {
+      const v = box.querySelector('video');
+      if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) { /* best effort */ } }
+      const old = box.querySelector('.cust-lightbox-fig > img, .cust-lightbox-fig > video');
+      if (old && old.parentNode) old.parentNode.removeChild(old);
+    }
+
+    function renderPhotoLightbox() {
+      const box = $('custPhotoLightbox');
+      if (!box) return;
+      const it = lightboxItems[lightboxIndex];
+      if (!it) return;
+      const fig = box.querySelector('.cust-lightbox-fig');
+      teardownLightboxMedia(box);
+
+      /* The media element is BUILT FRESH for the item on screen and removed
+         when we leave it. Never both in the DOM with one hidden: a hidden
+         <video> that still has a src goes on buffering on some engines, which
+         is the whole guard thrown away for a tidier swap. */
+      let el;
+      if (it.isVideo) {
+        el = document.createElement('video');
+        el.setAttribute('controls', '');
+        el.setAttribute('preload', 'none');     // THE GUARD: no bytes until Play
+        el.setAttribute('playsinline', '');     // or iOS yanks it fullscreen and the arrows go away
+        el.src = it.url;                        // and deliberately NO autoplay — see below
+      } else {
+        el = document.createElement('img');
+        el.alt = '';
+        el.src = it.url;
+      }
+      fig.insertBefore(el, fig.firstChild);
+
+      const cap = box.querySelector('.cust-lightbox-cap');
+      if (cap) { cap.textContent = it.caption || ''; cap.style.display = it.caption ? '' : 'none'; }
+      const pos = box.querySelector('.cust-lightbox-pos');
+      if (pos) pos.textContent = lightboxItems.length > 1
+        ? `${lightboxIndex + 1} / ${lightboxItems.length}` : '';
+      box.classList.toggle('solo', lightboxItems.length <= 1);
+      const prev = box.querySelector('.cust-lightbox-prev');
+      const next = box.querySelector('.cust-lightbox-next');
+      if (prev) prev.disabled = lightboxIndex <= 0;
+      if (next) next.disabled = lightboxIndex >= lightboxItems.length - 1;
+    }
+
+    function stepPhotoLightbox(delta) {
+      const n = lightboxIndex + delta;
+      if (n < 0 || n >= lightboxItems.length) return;   // ends stop, never wrap
+      lightboxIndex = n;
+      renderPhotoLightbox();
+    }
+
     function closePhotoLightbox() {
       const box = $('custPhotoLightbox');
       if (box) {
         box.classList.remove('open');
-        box.querySelector('img').src = '';
+        teardownLightboxMedia(box);
         const cap = box.querySelector('.cust-lightbox-cap'); if (cap) cap.textContent = '';
+        const pos = box.querySelector('.cust-lightbox-pos'); if (pos) pos.textContent = '';
       }
-      document.removeEventListener('keydown', photoLightboxEsc);
+      lightboxItems = []; lightboxIndex = 0;
+      document.removeEventListener('keydown', photoLightboxKey);
     }
-    function photoLightboxEsc(e) { if (e.key === 'Escape') closePhotoLightbox(); }
+
+    function photoLightboxKey(e) {
+      if (e.key === 'Escape' || e.key === 'Esc') { closePhotoLightbox(); return; }
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      /* Two guards, both real.
+         1. This listener is on `document`, and the customer record can have an
+            open bucket-rename editor. Arrowing inside a text field must move
+            the caret, not the lightbox.
+         2. <video controls> takes Left/Right for SEEK when it has focus. If
+            the viewer has clicked into the player, the arrows belong to it. */
+      const tgt = e.target;
+      if (tgt && tgt.closest && tgt.closest('input, textarea, select')) return;
+      const ae = document.activeElement;
+      if (ae && ae.tagName === 'VIDEO') return;
+      e.preventDefault();
+      stepPhotoLightbox(e.key === 'ArrowRight' ? 1 : -1);
+    }
+
+    /* Build the ordered list for ONE repair order out of its groups, and find
+       where the tapped row sits in it. Photos with no signed URL are left out:
+       they render as a placeholder, not a button, so they are not reachable —
+       and arrowing onto one would show an empty frame with no explanation.
+
+       `captionFor` differs per surface only because the two screens format
+       their byline slightly differently; both get the bucket name prefixed,
+       which is what makes stepping ACROSS buckets legible. */
+    function lightboxListFor(groups, photoId, captionFor) {
+      const items = [];
+      let index = 0;
+      (groups || []).forEach((g) => {
+        (g.photos || []).forEach((p) => {
+          if (!p.url) return;
+          if (String(p.id) === String(photoId)) index = items.length;
+          items.push({ url: p.url, caption: captionFor(p, g.name), isVideo: !!p.isVideo });
+        });
+      });
+      return { items, index };
+    }
 
     /* Delegated: the vehicle accordion re-renders constantly, so binding per
        tile or per control would leak listeners. THREE listeners on the
@@ -9329,17 +9606,31 @@
         const rm = e.target.closest('[data-archive]');
         if (rm) {
           e.preventDefault();
-          // Confirm before removing. The photo stays saved — say so, so nobody
-          // hesitates over a blurry frame thinking it is destructive.
-          if (confirm('Remove this PHOTO from the record?\n\nJust the one photo — the bucket stays. It stays saved and can be restored; it only stops showing here.')) {
-            archiveCustPhoto(rm.getAttribute('data-archive'));
+          // Confirm before removing. It stays saved — say so, so nobody
+          // hesitates over a blurry frame thinking it is destructive. And say
+          // WHICH NOUN: a confirm reading "PHOTO" over a clip is the same
+          // class of mis-tap as the two identical "Remove" labels (§5a).
+          const rmId = rm.getAttribute('data-archive');
+          const rmRo = roIdForPhoto(rmId);
+          const rmRow = (custRoPhotos[String(rmRo)] || []).find(p => String(p.id) === String(rmId));
+          const rmVid = !!(rmRow && window.RoMedia && window.RoMedia.isVideoPath(rmRow.file_path));
+          const noun = rmVid ? 'VIDEO' : 'PHOTO';
+          const one  = rmVid ? 'video' : 'photo';
+          if (confirm(`Remove this ${noun} from the record?\n\nJust the one ${one} — the bucket stays. It stays saved and can be restored; it only stops showing here.`)) {
+            archiveCustPhoto(rmId);
           }
           return;
         }
         const tile = e.target.closest('[data-photo]');
         if (!tile) return;
         e.preventDefault();
-        openPhotoLightbox(tile.getAttribute('data-photo'), tile.getAttribute('data-caption'));
+        /* Built from the tile's OWN RO, so a record showing six repair orders
+           still steps only through the one that was tapped. */
+        const lbRo = tile.getAttribute('data-photo-ro');
+        const { items, index } = lightboxListFor(
+          custPhotoGroups(lbRo), tile.getAttribute('data-photo-id'),
+          (p, bucketName) => photoMetaLine(p, bucketName));
+        openPhotoLightbox(items, index);
       });
 
       // The bucket picker and the camera input. `change` does not bubble from

@@ -1,8 +1,8 @@
 # How RO photos are wired
 
 > Doc: `/docs/wiring/ro-photos.md`
-> Last updated: 2026-08-25 — **slice 4: a second office camera, on the RO detail screen.**
-> Verified vs commit `9ea06b0`.
+> Last updated: 2026-08-27 — **slice 5: video from the tech's phone, and arrows in the lightbox.**
+> Verified vs commit `36cc4c2`.
 > Status: 🟢 **ALL THREE SLICES LIVE ON PROD.**
 > • Slices 1 + 2 — code `ae4510b`, migrations run by hand on prod **2026-08-20**.
 > • Slice 3 — code `484a3e0` deployed to prod **2026-08-23** (byte-verified on www),
@@ -16,13 +16,22 @@
 > test photos, two ROs assigned to `ZZ Test Tech`) — left in place on purpose.
 > Related: [[my-numbers]], [[customer-record]], [[hosting-domains]] §5.5, [[recordings-audio]],
 > [[staging-db]] §8.
+> **Slice 5 (2026-08-27) added NO migration and NO schema change.** A video is the same
+> `kind='ro_photo'` row in the same bucket as a photo (§1d). Its one manual step is the
+> **project-level 100 MB upload limit**, raised in the Supabase dashboard on BOTH projects
+> BEFORE the code shipped — [[hosting-domains]] §5.5.
 
 ## 0. In one line
-A tech shoots photos of a job on their phone — and the office can shoot one too, from **either**
-the RO screen (the counter camera, §5d) or the customer record (§5b). They attach to the
-**repair order**, sort into **buckets that belong to that one RO**, and show on the customer
-record under that vehicle's RO, where the office renames, adds and removes those buckets and
-moves photos between them.
+A tech shoots photos — **and now short videos** — of a job on their phone, and the office can
+shoot a photo too, from **either** the RO screen (the counter camera, §5d) or the customer
+record (§5b). They attach to the **repair order**, sort into **buckets that belong to that one
+RO**, and show on the customer record under that vehicle's RO, where the office renames, adds
+and removes those buckets and moves photos between them. Opening one on the office boards steps
+through the whole repair order with **< and >** (§5f).
+
+**A video is not a second kind of thing.** It is the same row, in the same bucket, in the same
+folder, moved and archived by the same controls. The only difference is the extension on
+`file_path` — §1d says why, and why that is not the sloppy choice it looks like.
 
 ## 1. Where the data lives
 Everything hangs off the existing `attachments` table — no new photo table.
@@ -30,7 +39,7 @@ Everything hangs off the existing `attachments` table — no new photo table.
 | Column | Meaning for a photo |
 |---|---|
 | `entity_type` / `entity_id` | always `'repair_order'` + the RO's id |
-| `kind` | `'ro_photo'` (added to the `attachment_kind` enum) |
+| `kind` | `'ro_photo'` (added to the `attachment_kind` enum) — **also for videos, see §1d** |
 | `file_path` | object key in the **private** `crisdata-attachments` bucket |
 | `bucket_id` | → `photo_buckets.id`. **NULL is a real state: "No bucket"** |
 | `uploaded_by` | display NAME of whoever shot it. NULL on everything before slice 2 |
@@ -79,6 +88,95 @@ a null `ro_id`. Two reasons, and the second is the real one:
    exactly that shape — the four readers that must filter `deleted_at` (§4), and the
    `CHAT_IDENTITY` guard ([[office-auth]] §1b). A rule enforced by a schema beats a rule
    enforced by everyone remembering.
+
+### 1d. A VIDEO IS A `ro_photo` ROW. THERE IS NO `ro_video` ENUM VALUE — AND THAT IS DELIBERATE.
+
+**Do not "fix" this.** Adding `'ro_video'` to `attachment_kind` looks like the tidy answer and
+it is the wrong one. Read this before you reach for `alter type`.
+
+A tech's clip is stored **identically** to a photo: `kind='ro_photo'`, the same private
+`crisdata-attachments` bucket, the same `repair_order/<ro_id>/photos/` folder, the same
+`bucket_id`, the same `deleted_at` tombstone. It is told apart **only** by the extension on
+`file_path`, through one pure predicate — `isVideoPath()` in `shared/ro-media.js`.
+
+**The reasoning is about which way each option FAILS.**
+
+| | a missed site means | how you find out |
+|---|---|---|
+| **`'ro_video'`** | a reader still filtering `.eq('kind','ro_photo')` **silently drops the video** | you don't. The customer record shows nothing and nothing says anything is missing |
+| **reuse `'ro_photo'`** | a renderer that forgets to branch emits `<img src="clip.mov">` | a broken tile, the first time anyone opens that RO. One line to fix. Nothing lost |
+
+This subsystem's whole posture is anti-silent-loss — §4's six-reader table exists precisely
+because that failure "is invisible until an archived photo reappears", and `groupPhotosByBucket`
+deliberately renders a stray row *somewhere visible instead of vanishing*. A silently-dropped
+video is the exact shape of bug we have spent four slices designing against.
+
+**And §1b's "a rule enforced by a schema beats a rule enforced by everyone remembering" does
+not apply here.** That rule earned its place by making a state **unrepresentable**: `ro_id NOT
+NULL` means an RO-less bucket cannot exist. `'ro_video'` removes no state. It adds a second
+value that **every reader must remember to include in its filter**, *on top of* still having to
+remember to branch on render — strictly more remembering, not less. Counted out on the real
+code: `'ro_video'` costs 3 filters + 3 widened `select()`s (none of the readers select `kind`
+today) + 5 render branches + a hand-run `alter type` on **both** projects. Reuse costs 5 render
+branches and no SQL.
+
+**Two things make extension-detection safe here that usually are not true.**
+
+1. **We author the extension.** The key is `repair_order/<ro_id>/photos/<ts>-<rand>[-<n>s].<ext>`
+   — no user-supplied filename ever enters it. The set is closed and it is ours.
+2. **One place knows.** `shared/ro-media.js` holds the predicate and every render site on both
+   boards asks it. `groupPhotosByBucket` then **stamps `isVideo`** on each photo as it groups, so
+   a render site that forgets to branch is still *handed* the flag rather than having to go and
+   ask. That is the schema-equivalent discipline, achieved in JS, where all five consumers
+   already live.
+
+**The default direction is load-bearing: an unknown or missing extension is a PHOTO, never a
+video.** A broken `<img>` is visible. A `<video>` pointed at JPEG bytes is a silently dead black
+tile that looks like the feature working.
+
+**⚠ THE ONE PERMANENT, RETROACTIVE BUG IN THIS DESIGN, and the test that stands between us and
+it.** `shared/photo-compress.js`'s `extForImageMime()` returns `'jpg'` for **every** non-image
+mime, and `compressImage()` does **not** throw on a video — it returns
+`fallback('not-an-image')` carrying `ext: 'jpg'`. So the minimum plausible implementation of
+this feature (delete the `startsWith('image/')` guard, let the photo path run) uploads a `.mov`'s
+bytes to a **`.jpg`** key. That clip is then classified as a photo **forever**: broken on every
+surface, and **unfixable by any code change**, because the extension is baked into `file_path`
+*and* into a storage object that `crisdata-attachments` has no delete policy to remove (§6).
+Every other bug in this slice is a re-render away from fixed; this one is not. So the video path
+**never calls `compressImage` at all** — not "calls it and skips" — and the extension comes from
+`RoMedia.videoExtFor()`, which cannot return `jpg`. `ro-media.test.js` asserts exactly that
+across ten mimes, including `video/quicktime` and an unknown container.
+
+**What this costs, honestly:** `kind` no longer literally names the content, and the folder is
+still called `photos/`. Both were left alone on purpose — the key is effectively "RO media", and
+renaming the folder would strand every object already under it.
+
+### 1e. NO MEDIA ELEMENT IN ANY GRID, AND SPECIFICALLY NOT `preload="metadata"`
+
+A video **tile** — on the tech's grid, the RO detail strip, the RO detail drawer and the
+customer record — is a dark tile with a CSS ▶ and, when the key carries one, a duration chip.
+There is **no `<video>` element in any grid, anywhere.** You cannot fetch what you never created,
+which makes this the strongest possible form of the egress guard (§5f).
+
+**The tempting shortcut, and why it is refused:** `<video preload="metadata" src=…>` renders the
+first frame as a free poster in both Safari and Chrome. To do it, it fetches the moov atom plus
+enough samples to decode a frame — hundreds of KB **per tile, on every RO open**. That is the
+entire guard traded away for a thumbnail.
+
+**A client-generated poster frame was also rejected**, and the reason is the same one as §1d.
+Drawing a frame to a canvas fails on iOS Safari in four ways — an undecodable codec, a frame not
+yet decoded, autoplay policy blocking the `play()` some devices need, and Low Power Mode — and
+**every one of them produces a black square that looks like a real poster.** It would also need
+a second storage object per clip, with no parent/child column on `attachments` to link it, a
+seventh thing for `deleted_at` to tombstone, and an orphan that §6 cannot delete. If it is ever
+wanted, the honest version generates the poster **and verifies it is not blank** before uploading.
+
+**The duration chip is what recovers most of a poster's value** — four clips on one RO stop being
+indistinguishable — and it is stored in the storage key (`<ts>-<rand>-42s.mp4`), not in memory.
+`attachments` has no duration column and adding one is SQL; a duration held only in memory would
+show for the session that shot the clip and vanish on the next load, which reads as a bug. A
+clip whose duration never arrived simply has no chip. `RoMedia.videoStem()` writes it and
+`RoMedia.videoDurationFromPath()` reads it back; both are pinned by tests.
 
 ### 1c. Born with buckets — a DB trigger, not `mintRo`
 
@@ -146,6 +244,59 @@ That is the design working, not a gap.
   INTO a bucket the office removed. Photos already sitting in a removed bucket are not hidden by
   that filter: grouping puts anything whose `bucket_id` is not in the live list into "No bucket".
 - Works inside the gm-board `?as=` iframe (verified on a phone 2026-08-19).
+
+### 3b. VIDEO from the tech's phone (slice 5, 2026-08-27)
+
+Every photo grid on My Numbers now carries **two** add tiles: **`+ Add Photo`** and
+**`🎬 Add Video`**. The clip files into the bucket whose grid it was tapped in, by ID, resolved
+at write time — the same rules as a photo, because it *is* the same row (§1d).
+
+**Capture is My Numbers ONLY in this slice, but display is on all three surfaces, and that is
+not optional.** The three `ro_photo` readers filter on `kind` and `deleted_at` and nothing else,
+so they pull clips **the moment the first one exists, whether the renderers are ready or not.**
+A half-shipped slice would not mean "video works on the phone and is absent in the office" — it
+would mean **broken tiles on the advisor's customer record and RO detail**. The office cameras
+(§5b, §5d) stay photo-only; what adding video there would cost is in the gaps list.
+
+- **`accept="video/*"`, and deliberately NO `capture`.** With `capture="environment"` iOS Safari
+  opens straight into the video camera and **the camera roll is unreachable**. A clip is far
+  likelier than a photo to already exist: a tech records a noise on a test drive with the stock
+  Camera app — hands on the wheel, phone in a cradle, nobody opens a PWA for that — and iOS
+  trimming lives in Photos, so a 2:10 clip trimmed to 0:50 can only come back through the
+  Library. Without `capture` iOS shows its sheet: Photo Library / Take Video / Choose File.
+  ⚠ The cost is that the video button behaves **differently** from the photo button inches away,
+  which goes straight to the camera — the same adjacency that produced the "Remove"/"Remove"
+  mis-tap (§5a). The labels carry the difference: **"Add" Video** signals a chooser where
+  **"Take"** would not, and the 🎬 separates them at a glance.
+  (This deliberately diverges from `shared/catch-moment.js`, which *does* use `capture` — that
+  is a marketing capture and genuinely "shoot it now".)
+- **COMPRESSION IS NEVER CALLED.** Not called-and-skipped. See the ⚠ in §1d: letting the photo
+  path run over a clip writes video bytes to a `.jpg` key, permanently.
+- **SIZE BLOCKS, DURATION ONLY ADVISES.** `file.size > 100 MB` is refused **synchronously,
+  first, always** — nothing is read, uploaded or even measured until it passes, and the message
+  carries the real number (*"That clip is 128 MB"*), because "too big" tells the tech nothing
+  they can act on. Duration is read from a `<video>`'s `loadedmetadata` over a local object URL,
+  **raced against 2.5s**, and over 60s it warns and uploads anyway.
+  **Why duration can never be the gate:** it *is* reliable on iOS Safari for a local blob — the
+  notorious `duration === Infinity` bug is a server-streamed / range-request problem, not a blob
+  one — but the codec can be undecodable, the decode can hang, and Low Power Mode can stall it.
+  Blocking on a signal that sometimes never arrives would mean sometimes-refusing a clip
+  identical to one just accepted. `file.size` is the only always-available signal.
+- **THE UPLOAD STATE IS PERSISTENT, NOT A TOAST.** Every other upload here is a ~300 KB photo,
+  so a transient toast has always been honest. A clip is up to 100 MB, which over shop wifi is
+  **minutes** — and a toast that vanishes after three seconds on a three-minute job tells the
+  tech it finished. They tap again, or switch apps, and **backgrounding on iOS can kill the
+  request.** So: a line that stays (*"Uploading video — keep this screen open"*), a spinner, and
+  the add tiles going dead beneath it (`.media-busy`). Deliberately **not** a percentage bar:
+  the Supabase JS client's `upload()` exposes no progress callback, so a real percentage means
+  rewriting this as a raw `XMLHttpRequest` against the storage REST endpoint. That is its own
+  slice if the floor asks; it is not worth doing blind.
+- **`roPhotoBusy` is SHARED with the photo path** — one person, one phone, one capture at a time,
+  the same reasoning as `camBusy` on the office side. But a clip can hold it for minutes, so the
+  guard now **says so** instead of silently doing nothing: *"Uploading a video — wait for it to
+  finish before taking a photo."*
+- **The × names its noun** — "Remove video" on a clip, "Remove photo" on a photo, and the confirm
+  sheet matches. They are the same 24px target inches apart, and §5a is what happens otherwise.
 
 ### 3a. The tech's layout — two grids, or an accordion
 `PhotoBuckets.techLayout` decides, and the threshold is **two**:
@@ -610,6 +761,68 @@ cancelled camera cannot leave a stale bucket target for the next capture.
 button hidden, so `applyIdentity` calls `window.cdRoPhotoCardRerender()` — the same treatment,
 and the same reason, as `window.cdCustomerRecordRerender` (§5a).
 
+### 5f. THE LIGHTBOX IS A LIST AND AN INDEX (slice 5)
+
+`openPhotoLightbox` took **one url**, so seeing the next picture meant closing this one and
+finding the next tile. It now takes the RO's ordered items and a starting index, and steps with
+**< >**, the **arrow keys**, or **Escape**. Both office callers build their own list; the tech's
+grids are unchanged (My Numbers has no lightbox — a tile is a link that Safari opens).
+
+**SCOPE IS THE REPAIR ORDER, NOT THE BUCKET, AND NEVER MORE THAN ONE RO.** All of this RO's
+buckets, in bucket order, "No bucket" last. The unit of work on these screens is the **job**, and
+Before → Part / Repair *is the chronology of that job*, so stepping in bucket order tells it in
+the order it happened. Stopping at a bucket boundary would leave the advisor closing and
+reopening exactly as they do today, which was the complaint.
+
+⚠ **It must never span repair orders**, even on the customer record where six are on screen at
+once. Same rule and same reason as `PhotoBuckets.moveTargets` (§5a): the RO is the boundary, and
+arrowing out of #6012's last photo into #6001's first is quietly wrong about which job you are
+looking at. Both callers pass **one** `roId`'s groups, so there is no input that could express
+otherwise.
+
+**The bucket name goes into the caption** — `Before · Aug 27, 9:14 AM · Manny`. Once you cross
+bucket boundaries the bucket is the only thing saying where in the job you are. It is passed
+**only** by the lightbox list; on a tile it would be noise, because the bucket heading is
+directly above it.
+
+**Tiles are keyed by photo ID, not by URL.** A signed URL is a long throwaway that regenerates on
+every load; the id is what identifies the row. `data-cdro-id` on the drawer tile, and
+`data-photo-id` + `data-photo-ro` on the record tile. (`data-caption` / `data-cdro-cap` were
+**deleted**, not left dead — the caption is built when the list is built, because only then is
+the bucket name known.)
+
+**ENDS ARE GREYED, NOT WRAPPED — AND THE COUNTER IS WHY THAT WORKS.** Wrapping makes a
+four-photo RO feel infinite with nothing to say you have been round. But greying **alone** reads
+as *broken* rather than *that's the end*, so the `3 / 11` counter sits on the caption line and
+the two ship together or not at all. One item hides the arrows entirely, so a single photo looks
+exactly as it did before.
+
+**A video renders `<video controls preload="none" playsinline>`, built fresh per item.**
+- `preload="none"` is **the egress guard**: opening an RO with four clips pulls **zero** video
+  bytes. Verified at runtime, not just by attribute — the element reports
+  `networkState === NETWORK_EMPTY/IDLE` until Play is pressed.
+- `playsinline` or iOS Safari yanks the clip into its native fullscreen player and the arrows
+  become unreachable.
+- **No `autoplay`**, and the decisive reason is the arrows: with stepping, you *pass through*
+  items, and autoplay would fire a download on every clip you arrow past. (`owner-board.html`'s
+  marketing player does autoplay — a modal opened to watch one clip, with no stepping.)
+- **The media element is removed on the way out, never hidden.** A hidden `<video>` that still
+  has a `src` goes on buffering on some engines. Teardown is
+  `pause() → removeAttribute('src') → load()` **in that order**, on both arrow-away and close:
+  clearing `src` alone does not abort Safari's in-flight fetch, and without `pause()` the audio
+  keeps playing behind the next photo.
+
+**Keyboard, and both guards.** `←` `→` step, `Escape` closes. The handler is on `document`, so:
+1. arrows inside an `input` / `textarea` / `select` are left alone — the record can have an open
+   bucket-rename editor, and the caret must win;
+2. arrows are left alone when a `<video>` has focus — `<video controls>` takes Left/Right for
+   **seek**, and if the viewer has clicked into the player the arrows belong to it.
+
+**Arrows only — no swipe, and no left/right tap zones.** A horizontal drag on a `<video>`
+scrubber would advance the lightbox instead of seeking, and tap zones would redefine
+**backdrop-tap-to-close**, a gesture that has shipped. The arrows are 44px at the vertical middle
+of each edge; backdrop-tap-to-close is untouched.
+
 ### 5c. The board-wide unhandled-rejection net
 `window.addEventListener('unhandledrejection')` → a red `.board-fault` bar under
 the header. An `async` event listener that rejects produces an unhandled
@@ -619,7 +832,28 @@ refactor away from the same fault, so the net catches what escapes and says so.
 It can only inform: it never blocks the board and never grants anything. Same
 posture as `reportAmbiguous` in `shared/office-identity.js`.
 
-## Known gaps & open questions (as of 2026-08-22)
+## Known gaps & open questions (as of 2026-08-27)
+- **The office cameras are still photo-only.** Capture is My Numbers only (§3b). Adding video to
+  the counter camera (§5d) or the record camera (§5b) is **cheap in logic and real in layout**:
+  `capturePhoto`'s `startsWith('image/')` guard is one line and the upload body is already
+  shared, but each surface needs its **own** `<input>` (widening `#cdRoCamInput` to
+  `image/*,video/*` would change the *photo* button's iOS behaviour from "opens camera" to
+  "shows a sheet" — a regression on a shipped control), and the RO detail needs a **second
+  button in a row that measures itself**. §5d2's whole width table would need re-measuring at
+  236 / 318 / 359 / 415 / 481 / 505 / 529. Budget it as half a day of `cdFitRow`, not one line.
+- **No progress percentage on a video upload** (§3b). The persistent status line and the disabled
+  add tiles are the v1; a real bar means rewriting the upload as `XMLHttpRequest`.
+- **⚠ §6 just acquired a deadline.** An archived *photo* orphans ~300 KB in
+  `crisdata-attachments`, which nothing can delete. An archived *clip* orphans up to **100 MB**.
+  The unknown-size backlog stops being an accounting curiosity and starts being a storage bill,
+  so the delete-policy decision §6 deferred is now on a clock.
+- **The 100 MB project limit applies to all six buckets**, not just this one — it is a
+  *project*-level setting and the bucket's own `file_size_limit` is deliberately left `null` so
+  there is one number, not two. Accepted knowingly: it also raises the ceiling for Capture
+  Invoice and the marketing FAB. [[hosting-domains]] §5.5.
+- **A clip's duration lives in its storage key** (§1e). Clips whose metadata iOS could not read
+  carry no duration and show no chip — correct, but it does mean the chip is not universal.
+
 - **⚠ Storage deletes have been silently failing since July — see §6.** Not caused by this
   subsystem, but this is where the trail leads.
 - **No hard purge.** Archive hides; it does not erase. Wrong-customer photos need purge.
@@ -685,8 +919,19 @@ Not fixed here on purpose — logged so the next person hits the note instead of
 - **Slice 4 (the counter camera) added NO migration and NO schema change** — every RO already has
   buckets, from the trigger (§1c) and the slice-3 backfill.
 - Storage layout: `migrations/20260819_storage_buckets.sql`, [[hosting-domains]] §5.5.
-- **Bucket rules (pure, shared by both screens): `shared/photo-buckets.js` (+ `.test.js`, 39
-  tests).** Grouping, ordering, the live cap, name validation, the flat/accordion threshold,
+- **Slice 5 (video + lightbox arrows) added NO migration and NO schema change.** Its one manual
+  step is the project-level 100 MB upload limit on both Supabase projects ([[hosting-domains]]
+  §5.5), raised BEFORE the code shipped.
+- **Photo-or-video (pure, shared by both boards): `shared/ro-media.js` (+ `.test.js`, 20
+  tests).** `isVideoPath` (the predicate every render site asks), `videoExtFor` (which can never
+  return `jpg` — §1d), `checkVideoFile` (the synchronous size gate), `formatDuration`,
+  `videoStem` / `videoDurationFromPath` (the duration in the key), and the browser-side
+  `readVideoDuration` (raced, never blocking).
+- **Bucket rules (pure, shared by both screens): `shared/photo-buckets.js` (+ `.test.js`, 42
+  tests).** `groupPhotosByBucket` **stamps `isVideo`** on every photo it groups (a shallow copy,
+  never a mutation — the boards own those arrays), so a render site that forgets to branch is
+  still handed the flag.
+- **The old line said 39 tests; it is 42 since slice 5.** Grouping, ordering, the live cap, name validation, the flat/accordion threshold,
   where a capture lands, and the move targets all live here so the tech's grids and the customer
   record cannot disagree.
 - Compression + EXIF: `shared/photo-compress.js` (+ `.test.js`). Loaded by **both** boards now.
@@ -694,7 +939,15 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   `trg_repair_orders_photo_buckets` on `repair_orders`.
 - Tech capture, grids, archive: `my-numbers.html` (`loadPhotoBuckets(roId)`, `RO_BUCKETS`,
   `roPhotoGroups`, `roPhotoGridHtml`, `roPhotosHtml`, `roOpenBucketKey`, `uploadRoPhoto`,
-  `archiveRoPhoto`, `canArchivePhoto`, `bindPhotoInputs`).
+  `archiveRoPhoto`, `canArchivePhoto`, `bindPhotoInputs`) — plus, from slice 5,
+  **`uploadRoVideo`**, `tf()` (placeholder interpolation for the messages carrying numbers),
+  `setMediaStatus` / `applyMediaStatus` / `MEDIA_STATUS` (the persistent upload line), the
+  `roVideoInput_<bucketId>` inputs, and the `.photo-thumb-video` / `.media-status` CSS.
+- **The lightbox (slice 5): `advisor-board.html`** — `openPhotoLightbox(items, index)` (with the
+  `(url, caption)` back-compat overload), `renderPhotoLightbox`, `stepPhotoLightbox`,
+  `teardownLightboxMedia`, `closePhotoLightbox`, `photoLightboxKey`, `lightboxListFor`,
+  `lightboxItems` / `lightboxIndex`. CSS: the `.cust-lightbox-nav` / `-pos` / `-capline` /
+  `video` block.
 - **Counter camera (RO detail, slice 4): `advisor-board.html`** — `#cdRoPhotosCard` /
   `#cdRoPhotosBody` / `#cdRoCamInput` in the detail's main column, plus `cdRoPhotos`,
   `cdRoBuckets`, `cdPhotosOpen`, `loadCdRoPhotos`, `resignCdRoPhotos`, `cdPhotoGroups`,
@@ -713,6 +966,39 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   listeners).
 
 ## Session change log
+- 2026-08-27 — **Slice 5: video from the tech's phone, and arrows in the lightbox.** One slice,
+  because both land in the same grids. A tech can now shoot or pick a clip into the existing
+  per-RO buckets, sitting in the same grid as the photos with a ▶ on the tile; the office
+  lightbox became a **list + index** that steps across the whole RO with `<`/`>`, `←`/`→` and
+  Escape. **No SQL and no schema change** — a video is the same `kind='ro_photo'` row
+  (§1d), which cost 5 render branches instead of `'ro_video'`'s 12 touches and a hand-run
+  `alter type` on two projects, and which fails LOUDLY (a broken tile) rather than silently (a
+  video nobody can see). New pure module `shared/ro-media.js` (20 tests);
+  `groupPhotosByBucket` now stamps `isVideo` (+3 tests, 42 total). The one manual step was the
+  **project-level 100 MB upload limit**, raised on both projects **before** the code shipped —
+  the reverse of slice 3's deploy-first rule, because code-first would have meant a tech's 70 MB
+  clip refused by Storage on day one and reading exactly like a bug in the new feature.
+  Five things found or decided while building, worth keeping:
+  (1) **`compressImage` does not throw on a video — it returns `ext:'jpg'`.** The lazy version of
+  this feature writes a `.mov`'s bytes to a `.jpg` key, classifying the clip as a photo forever,
+  on a storage object §6 cannot delete. The only permanent, retroactive failure in the slice; the
+  video path therefore never calls the compressor at all and `ro-media.test.js` pins
+  `videoExtFor` against ten mimes.
+  (2) **Display was not optional.** The three `ro_photo` readers need **no change** to pull
+  clips, so a capture-only slice would have shipped broken tiles to the advisor, not a missing
+  feature.
+  (3) **Duration had to go in the storage key**, not in memory: with no duration column, a chip
+  that showed for the capturing session and vanished on the next load reads as a bug.
+  (4) **`preload="metadata"` as a free poster frame was refused** — it fetches per tile, per RO
+  open, and throws the whole egress guard away for a thumbnail (§1e). So was a canvas-generated
+  poster: four iOS failure modes, and every one of them produces a black square that looks real.
+  (5) **A video upload is minutes, not milliseconds**, so the toast became a persistent line —
+  a toast that vanishes on a three-minute job tells the tech it finished, and backgrounding on
+  iOS can kill the request.
+  Also swept the Spanish "Sin categoría" / "sin categoría" to the **bucket** vocabulary, so one
+  screen no longer speaks two vocabularies. **No Haitian keys were added** — `t()` falls back to
+  English, not to the raw key name, which is exactly what "Creole is no longer needed" means in
+  practice ([[my-numbers]] §2).
 - 2026-08-25 — **Slice 4: the counter camera.** A second office camera on the RO detail screen
   (§5d), between Complaint & Notes and Line Items, for drop-off and for the tech's mid-job ask.
   Black button → first bucket, per-bucket `+` → that bucket, resolved at write time by the new

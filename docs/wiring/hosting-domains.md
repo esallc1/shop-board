@@ -196,7 +196,7 @@ single answer to "how do I give a new environment storage".
 
 | Bucket | Public | Read as | Used by |
 |---|---|---|---|
-| `crisdata-attachments` | no | `createSignedUrl` | chat + To-Do attachments, Requests screenshots, RO diagnosis audio, **RO photos** |
+| `crisdata-attachments` | no | `createSignedUrl` | chat + To-Do attachments, Requests screenshots, RO diagnosis audio, **RO photos AND RO video** |
 | `invoice-images` | no | `createSignedUrl` | Capture Invoice, bookkeeping |
 | `marketing-content` | no | `createSignedUrl` | the "Catch this moment" FAB → owner Marketing tab |
 | `call-recordings` | no | **server-side** signing | recordings cron + `api/recording-links.js` |
@@ -218,6 +218,42 @@ Two things worth knowing before touching any of it:
   > objects here. Adding a delete policy would change those two features from "silently orphan"
   > to "actually destroy" — a deliberate decision, not a side-effect. Full write-up:
   > [[ro-photos]] §6.
+
+### 5.5a The project-level upload limit — 100 MB since 2026-08-27
+
+There are **two** size limits and they are not the same thing:
+
+| | where | current value |
+|---|---|---|
+| **Project global upload limit** | Dashboard → Storage → **Settings** → "Upload file size limit" | **100 MB** on BOTH projects (raised by hand 2026-08-27) |
+| **Per-bucket `file_size_limit`** | `storage.buckets.file_size_limit` | **`null` on every bucket** — deliberately |
+
+**A bucket's limit can never exceed the project's** — the dashboard refuses it — so the project
+value has to be raised **first**. On the Free plan the project cap is fixed at 50 MB and cannot
+be raised at all; both projects sit under the Pro "Lee Transmission" org, which is what makes
+100 MB available.
+
+**The bucket limit is left `null` on purpose.** A `null` inherits the project value, so there is
+**one** number to keep true instead of two — and an explicit 100 on the bucket would buy nothing
+(the project already is the backstop) while making
+`migrations/20260819_storage_buckets.sql` start lying: that file creates every bucket with
+`(id, name, public)` and no limit, and it is meant to be the single answer to "how do I give a
+new environment storage".
+
+⚠ **This is a PROJECT setting, so it raised the ceiling for all six buckets** — Capture Invoice,
+the marketing FAB and the rest, not just RO media. Accepted knowingly when RO video shipped
+([[ro-photos]] §3b). The alternative — pinning the other five with explicit `file_size_limit`
+values — is five more numbers to keep in sync and was refused for the same reason as above.
+
+⚠ **It is NOT visible in `storage.buckets`.** `select id, public, file_size_limit ... ` shows
+`null` and always will. The only proof is the dashboard field plus one real >50 MB upload. Do
+not read a `null` here as "no limit".
+
+⚠ **AND IT MUST BE RAISED BEFORE THE CODE THAT NEEDS IT DEPLOYS** — on each environment
+separately. This is the **reverse** of the deploy-first rule in [[staging-db]] §8.5, and the
+reason is which way each ordering fails: code-first means a tech shoots a 70 MB clip, the
+client-side check passes, and **Storage rejects it at the old limit** — a day-one failure that
+reads exactly like a bug in the new feature.
 
 **Buckets do NOT travel with a schema dump.** `pg_dump --schema-only` of `public` does not carry
 `storage.buckets` rows, and neither does the data copy. A new environment has *zero* buckets

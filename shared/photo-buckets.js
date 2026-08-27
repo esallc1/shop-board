@@ -29,7 +29,17 @@
       the office and shown verbatim to every tech in every language. There is
       no name_es/name_ht. Only the surrounding chrome ("No bucket", "Add
       Photo") is translated.
+   4. A "PHOTO" HERE MAY BE A VIDEO. Since 2026-08-27 a tech can shoot a clip
+      into the same buckets, stored as the same kind='ro_photo' row and
+      distinguished only by the extension on file_path (shared/ro-media.js,
+      and ro-photos.md §1d for why there is no 'ro_video' enum value).
+      groupPhotosByBucket stamps `isVideo` on the way past so that a render
+      site which forgets to branch is still HANDED the flag rather than
+      having to go and ask — the one thing standing between a clip and an
+      <img src="clip.mov">.
    ============================================================ */
+
+import { isVideoPath } from './ro-media.js';
 
 // A live bucket cap. Not a database constraint — a usability floor. Past a
 // dozen the tech's accordion is a scroll and the office's own list stops being
@@ -195,7 +205,13 @@ export const NO_BUCKET_LABEL = 'No bucket';
    `opts.includeEmpty` emits every live bucket even with zero photos — that is
    what the tech's grids and the office's manageable list need (you cannot put
    a photo INTO a bucket that does not render), while the read-only case wants
-   only groups that have something in them. */
+   only groups that have something in them.
+
+   EVERY PHOTO COMES OUT WITH `isVideo` STAMPED ON IT, derived from file_path.
+   Grouping is otherwise completely blind to media type — a clip files,
+   moves, archives and lands in "No bucket" exactly as a photo does. The
+   stamp is a SHALLOW COPY, never a mutation of the caller's object: this
+   module is pure, and the boards own those arrays. */
 export function groupPhotosByBucket(photos, buckets, opts) {
   const o = opts || {};
   const live = sortBuckets(liveBuckets(buckets));
@@ -208,9 +224,10 @@ export function groupPhotosByBucket(photos, buckets, opts) {
   const none = { id: null, name: NO_BUCKET_LABEL, bucket: null, isNoBucket: true, photos: [] };
 
   (photos || []).forEach((p) => {
-    const key = p && p.bucket_id != null ? String(p.bucket_id) : null;
+    if (!p) return;
+    const key = p.bucket_id != null ? String(p.bucket_id) : null;
     const g = key && liveById.has(key) ? byId.get(key) : none;
-    g.photos.push(p);
+    g.photos.push({ ...p, isVideo: isVideoPath(p.file_path) });
   });
 
   const out = o.includeEmpty ? groups : groups.filter((g) => g.photos.length);

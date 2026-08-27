@@ -303,3 +303,48 @@ test('ids are compared as STRINGS — a numeric id and its text form are the sam
   const buckets = [B(7, 'Before', 1)];
   assert.equal(resolveCaptureBucketId(buckets, '7'), 7);
 });
+
+// ── media type never changes how grouping behaves ─────────────
+test('GROUPING IS BLIND TO MEDIA TYPE — a video files, and lands in "No bucket", exactly like a photo', () => {
+  // The guard against someone later "helpfully" segregating clips into
+  // their own group. A bucket is a bucket: the tech shot both for the same
+  // job, and splitting them would break the chronology the buckets exist to
+  // carry (Before -> Part / Repair is the story of the job).
+  const buckets = [B('b1', 'Before', 1), B('b2', 'Teardown', 2, '2026-08-27T00:00:00Z')];
+  const photos = [
+    { id: 'p1', bucket_id: 'b1', file_path: 'repair_order/r/photos/1-a.jpg' },
+    { id: 'v1', bucket_id: 'b1', file_path: 'repair_order/r/photos/2-a-42s.mp4' },
+    { id: 'v2', bucket_id: 'b2', file_path: 'repair_order/r/photos/3-a.mov' },  // REMOVED bucket
+    { id: 'v3', bucket_id: null, file_path: 'repair_order/r/photos/4-a.mp4' },
+  ];
+  const groups = groupPhotosByBucket(photos, buckets);
+  assert.deepEqual(groups.map(g => g.name), ['Before', NO_BUCKET_LABEL]);
+  assert.deepEqual(groups[0].photos.map(p => p.id), ['p1', 'v1']);
+  // A clip in a removed bucket drops to "No bucket" like any photo would,
+  // and un-archiving the bucket walks it straight back in.
+  assert.deepEqual(groups[1].photos.map(p => p.id), ['v2', 'v3']);
+  assert.equal(totalPhotos(groups), 4);
+});
+
+test('isVideo is STAMPED from file_path, and the caller\'s objects are not mutated', () => {
+  const buckets = [B('b1', 'Before', 1)];
+  const photos = [
+    { id: 'p1', bucket_id: 'b1', file_path: 'repair_order/r/photos/1-a.jpg' },
+    { id: 'v1', bucket_id: 'b1', file_path: 'repair_order/r/photos/2-a.MOV' },
+    { id: 'x1', bucket_id: 'b1', file_path: 'repair_order/r/photos/3-a' },      // no extension
+  ];
+  const out = groupPhotosByBucket(photos, buckets)[0].photos;
+  assert.deepEqual(out.map(p => p.isVideo), [false, true, false]);
+  // Unknown extension is a PHOTO — a broken <img> is visible, a <video>
+  // pointed at image bytes is a silently dead black tile.
+  assert.equal(out[2].isVideo, false);
+  // Purity: the board owns these arrays and re-uses them across renders.
+  assert.equal('isVideo' in photos[0], false);
+  assert.equal('isVideo' in photos[1], false);
+});
+
+test('a moved video is offered the same targets as a moved photo', () => {
+  const buckets = [B('b1', 'Before', 1), B('b2', 'Part / Repair', 2)];
+  const clip = { id: 'v1', bucket_id: 'b1', file_path: 'repair_order/r/photos/1-a.mp4' };
+  assert.deepEqual(moveTargets(clip, buckets).map(t => t.name), ['Part / Repair', NO_BUCKET_LABEL]);
+});
