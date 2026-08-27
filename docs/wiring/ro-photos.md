@@ -171,6 +171,46 @@ a second storage object per clip, with no parent/child column on `attachments` t
 seventh thing for `deleted_at` to tombstone, and an orphan that §6 cannot delete. If it is ever
 wanted, the honest version generates the poster **and verifies it is not blank** before uploading.
 
+#### ⚠ A TILE WITH NO `<img>` IN IT HAS NO WIDTH. `width:100%` IS THE FIX, NOT A TIDY-UP.
+
+**This shipped broken in slice 5 and Cris found it on staging.** Video tiles rendered at
+**30px** beside 96px photos on the customer record, and because the tile had collapsed, the
+absolutely-positioned Move / Remove buttons landed **on top of** it instead of in its corner.
+
+The mechanism, measured rather than reasoned:
+
+- `.cust-photo-tile` is a **`<button>`**, and a button shrink-to-fits its content **whatever its
+  `display` says**. It is also **not the grid item** — `.cust-photo-cell` (the `<figure>`) is,
+  and the button sits inside it — so nothing stretches it to the track.
+- A **photo** tile only ever looked 96px **by accident**. Its `<img>` is `width:100%`, and for
+  intrinsic sizing a percentage falls back to the image's **natural** width; a real 1600px photo
+  overflows the column, so shrink-to-fit clamps to the available 96px. Measured with a **1px**
+  test image, that same tile is **3px**.
+- A **video** tile has no `<img>` at all, so it shrink-to-fit around the 28px play badge.
+
+So the bug was never "video tiles are wrong" — it was **"no tile has a width, and photos hide
+it"**. `.cust-photo-tile` and `.cdro-tile` both carry `width:100%` now. Do not remove it, and do
+not "simplify" it back to relying on the image.
+
+**Only ONE of the four render sites was actually affected**, which is worth knowing before
+anyone goes looking:
+
+| site | tile | why | measured photo / video |
+|---|---|---|---|
+| customer record | `<button>` inside `.cust-photo-cell` | **BROKEN** — button shrink-to-fit, not the grid item | 96×96 / **30×30** → now 96×96 / 96×96 |
+| RO detail drawer | `<button>`, IS the `.cdro-grid` item | fine — `justify-items:stretch` fills the track | 84×84 / 84×84 |
+| RO detail strip | `<span>` with explicit `34px` | fine — explicitly sized | 34×34 / 34×34 |
+| My Numbers grid | `<div class="photo-thumb">` | fine — a div fills | equal |
+
+`.cdro-tile` got `width:100%` anyway. It measures correctly today, but that is a property of
+**where it sits**, not of what it is — wrap it in anything and it collapses exactly as
+`.cust-photo-tile` did.
+
+**The lesson worth keeping: this passed a screenshot.** It was reviewed by eye, on a grid whose
+photos happened to be wide enough to hide the defect, and shipped. The tile harness now
+**measures** photo and video in all four sites and asserts they are equal — which is the only
+check that could have caught it.
+
 **The duration chip is what recovers most of a poster's value** — four clips on one RO stop being
 indistinguishable — and it is stored in the storage key (`<ts>-<rand>-42s.mp4`), not in memory.
 `attachments` has no duration column and adding one is SQL; a duration held only in memory would
@@ -511,6 +551,32 @@ it opens the editor, with a 32px tap target. The name used to be the button, and
 on a phone that is a wide target sitting exactly where a thumb lands — Cris
 renamed a bucket by accident just by tapping it, with no confirmation and no
 undo. The affordance is now small, deliberate, and separate from the label.
+
+#### ⚠ THE ACTS ROW HAS BEEN WIDER THAN ITS CELL SINCE SLICE 3, AND NOBODY HAD MEASURED IT
+
+`.cust-photo-acts` is `position:absolute; top:3px; right:3px` on a 96px cell. Measured:
+
+| row | width | vs the 96px cell |
+|---|---|---|
+| `"Move"` 34.5px + `"Remove photo"` 73.1px | **110.6px** | spilled **17.6px** |
+| `"Move"` 34.5px + `"Remove video"` 71.7px | **109.2px** | spilled **16.2px** |
+
+With only `right` set, an over-wide absolutely-positioned row **grows leftward** — so the
+controls were landing on top of the **neighbouring cell's** photo.
+
+**This arrived in slice 3, not slice 5.** It is the direct cost of the §5a fix that made the
+label name its noun: `"Remove"` → `"Remove photo"`. `"video"` and `"photo"` are both five
+characters, so slice 5 changed this row by **1.45px** — it did not cause it, and the video row
+is in fact the *narrower* of the two. It went unnoticed for four days because the controls are
+`opacity:0` until hover and nobody had put a ruler on them.
+
+**The fix is NOT to shorten the label back.** Naming the noun is the entire point of §5a — it is
+what stopped Cris archiving a photo when he meant the bucket. Instead the row is **bounded to
+the cell and allowed to wrap**: `max-width:calc(100% - 6px)`, `flex-wrap:wrap`,
+`justify-content:flex-end`. It becomes two right-aligned lines at 90×41px, inside the cell, with
+both buttons still rendered and clickable. Covering more of the tile is acceptable here in a way
+it would not be elsewhere: the row is only visible while the cell is hovered or focused, which
+is already the design.
 
 **An empty bucket renders as a heading with no grid** — enough to rename or remove it, without
 two empty grids per RO cluttering a vehicle that has six repair orders.
@@ -966,6 +1032,25 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   listeners).
 
 ## Session change log
+- 2026-08-27 (later) — **Slice 5 follow-up: the video tiles had no width, and the acts row never
+  had one either.** Cris found 30px video tiles beside 96px photos on staging. Root cause was not
+  the video branch: `.cust-photo-tile` is a `<button>` (shrink-to-fit) that is **not** its grid
+  item, so **no** tile there has ever had a width — a photo tile only measured 96px because its
+  `<img>`'s natural 1600px overflowed the column and clamped shrink-to-fit to the track. With a
+  1px test image the same photo tile measures **3px**. `width:100%` on `.cust-photo-tile` and
+  `.cdro-tile` (§1e).
+  **Measured all four render sites rather than the two that were reported: only the customer
+  record was affected.** The drawer tile IS its grid item (84×84 both), the strip is explicitly
+  34px, and My Numbers uses a `<div>`. All three were already correct.
+  Found while measuring, and **not caused by this slice**: the `.cust-photo-acts` row has been
+  **110.6px on a 96px cell since slice 3**, spilling 17.6px left onto the neighbouring cell's
+  photo — the cost of renaming `"Remove"` → `"Remove photo"` to name its noun. `"video"` and
+  `"photo"` are the same length, so slice 5 moved it by 1.45px. Fixed by bounding and wrapping
+  the row, **not** by shortening the label back (§5a).
+  The tile harness now measures photo vs video geometry in all four sites and asserts equality,
+  each board in **its own iframe** — the first version injected both boards' stylesheets into one
+  document and mis-measured My Numbers at 68×56 as a result. **This bug shipped because it was
+  reviewed by eye on a grid whose photos hid the defect.**
 - 2026-08-27 — **Slice 5: video from the tech's phone, and arrows in the lightbox.** One slice,
   because both land in the same grids. A tech can now shoot or pick a clip into the existing
   per-RO buckets, sitting in the same grid as the photos with a ▶ on the tile; the office

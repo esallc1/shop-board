@@ -611,7 +611,14 @@
   }
   .cdro-bucket-count { font-size: 0.58rem; font-weight: 800; color: var(--muted); }
   .cdro-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 7px; }
-  .cdro-tile { display: block; padding: 0; aspect-ratio: 1; border-radius: 7px; overflow: hidden;
+  /* `width:100%` and `position:relative` are stated here rather than inherited
+     from circumstance. This tile IS the grid item, so `justify-items:stretch`
+     already fills the 84px track and it measures correctly today — but that is
+     a property of WHERE it sits, not of what it is, and moving it inside a
+     wrapper would silently collapse it exactly as `.cust-photo-tile` did.
+     position:relative is what the duration chip anchors to. */
+  .cdro-tile { display: block; width: 100%; padding: 0; aspect-ratio: 1; border-radius: 7px;
+    overflow: hidden; position: relative;
     border: 1px solid var(--border); background: var(--surface-2); cursor: pointer; }
   .cdro-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .cdro-tile:hover { border-color: var(--accent); }
@@ -629,7 +636,6 @@
   .cdro-tile .cdro-dur { position:absolute; left:3px; bottom:3px;
     background:rgba(0,0,0,0.66); color:#fff; font-size:9px; border-radius:3px;
     padding:0 3px; font-variant-numeric:tabular-nums; }
-  .cdro-tile { position:relative; }
   /* The per-bucket [+] — the tech's mid-job photo, straight into THIS bucket
      (rule 3). Dashed so it reads as "add", not as a photo. */
   .cdro-add {
@@ -895,7 +901,20 @@
     cursor:pointer; opacity:0; transition:opacity .12s; }
   .cust-photo-cell:hover .cust-photo-archive,
   .cust-photo-archive:focus-visible { opacity:1; }
-  .cust-photo-tile { display:block; padding:0; aspect-ratio:1; border-radius:7px;
+  /* ⚠ `width:100%` IS LOAD-BEARING, AND IT IS NOT DEFENSIVE — IT IS THE FIX.
+     This tile is a <button>, and a button shrink-to-fits its content whatever
+     its `display` says. It is ALSO not the grid item — `.cust-photo-cell` is,
+     and the button sits inside it — so nothing stretches it to the track.
+     A photo tile only looked 96px by ACCIDENT: its <img> is `width:100%`,
+     which for intrinsic sizing falls back to the image's NATURAL width, and a
+     real 1600px photo overflows the column so shrink-to-fit clamps it to the
+     available 96px. Measured with a 1px test image the same tile is **3px**.
+     A video tile has no <img> at all, so it shrink-to-fit around the 28px play
+     badge and rendered at **30px** beside 96px photos — which is exactly the
+     bug Cris found on staging. Do not remove this line, and do not "simplify"
+     it back to relying on the image. Contrast `.cdro-tile`, which IS its
+     grid item and is therefore stretched for free. */
+  .cust-photo-tile { display:block; width:100%; padding:0; aspect-ratio:1; border-radius:7px;
     overflow:hidden; background:var(--surface-2); border:1px solid var(--border);
     cursor:pointer; }
   .cust-photo-tile img { width:100%; height:100%; object-fit:cover; display:block; }
@@ -983,7 +1002,22 @@
   /* Move + Remove sit together in one corner block so they cannot overlap, and
      stay hidden until the cell is hovered or something inside it is focused —
      keyboard users must be able to reach them without a mouse. */
+  /* ⚠ BOUNDED AND WRAPPING, because this row has ALWAYS been wider than the
+     cell it sits on and nobody had measured it. On a 96px cell:
+       "Move" 34.5px + "Remove photo" 73.1px  = 110.6px  -> spilled 17.6px LEFT
+       "Move" 34.5px + "Remove video" 71.7px  = 109.2px  -> spills  16.2px LEFT
+     It is absolutely positioned with only `right` set, so an over-wide row
+     grows leftward and lands on top of the NEIGHBOURING cell's photo. That
+     regression arrived in slice 3, when the label went "Remove" -> "Remove
+     photo" to name its noun (§5a) — "video" and "photo" are both five
+     characters, so slice 5 changed the width by 1.45px and did not cause this.
+     The answer is NOT to shorten the label back: naming the noun is why the
+     label exists, and it is what stopped Cris archiving a photo when he meant
+     the bucket. So the row is bounded to the cell and allowed to wrap onto a
+     second right-aligned line instead. It is only visible on hover/focus, so
+     covering more of the tile at that moment is already the accepted design. */
   .cust-photo-acts { position:absolute; top:3px; right:3px; display:flex; gap:3px;
+    max-width:calc(100% - 6px); flex-wrap:wrap; justify-content:flex-end;
     opacity:0; transition:opacity .12s; }
   .cust-photo-cell:hover .cust-photo-acts,
   .cust-photo-cell:focus-within .cust-photo-acts { opacity:1; }
