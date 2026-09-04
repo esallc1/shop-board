@@ -4518,10 +4518,18 @@
     // Shared open handle for the New RO wizard. The sidebar "New RO" tab was
     // retired; the RO Board "+ New RO" button (cdRoNewBtn) calls this directly.
     window.cdOpenNewRo = openModal;
-    // Desk (slice 3b) "open the customer": there's no standalone customer page,
-    // so open the New RO wizard and run its phone-first lookup, which lands on
-    // the matched customer's vehicles + history (or the new-customer step).
-    window.cdOpenCustomerByPhone = (phone) => {
+    // Open the wizard with the phone ALREADY FILLED and looked up, landing on
+    // that customer's vehicles + history (or the new-customer step).
+    //
+    // ⚠ NAMING. This was `window.cdOpenCustomerByPhone` when the Desk was its
+    // only caller and there was no standalone customer page. There is one now,
+    // and the customer IIFE deliberately REPOINTS that name at the record
+    // (search for "Repoint the ONE phone entry point"), which runs later and
+    // therefore always wins — so under the old name this function was dead code
+    // that merely LOOKED live. It has its own name now precisely so it cannot be
+    // shadowed again. `cdOpenCustomerByPhone` still means "show me the customer";
+    // this means "start an RO for the customer on this phone".
+    window.cdOpenNewRoForPhone = (phone) => {
       openModal();
       const inp = $('cdPhoneInput');
       if (inp && phone) { inp.value = phone; lookupPhone(); }
@@ -10438,10 +10446,14 @@
       });
 
       // "+ New RO" on the profile card. This is a CALLER, not new matching
-      // logic: cdOpenCustomerByPhone opens the New RO wizard and runs its own
+      // logic: cdOpenNewRoForPhone opens the New RO wizard and runs its own
       // lookupPhone, landing on this customer's vehicle list — so the advisor
       // never retypes a phone number. #cdRoModal is a top-level overlay, not
       // nested in any .view, so it opens cleanly from #view-customer.
+      //
+      // ⚠ NOT cdOpenCustomerByPhone — that name is repointed further down this
+      // file to open the customer RECORD, so calling it from the record would
+      // just re-open the page we are already on.
       function startNewRoForCustomer() {
         const c = custCustomer; if (!c) return;
         const phone = (c.phone_primary || '').trim();
@@ -10451,7 +10463,7 @@
         // hand — otherwise the button walks the advisor into the wizard's own
         // error state. Never a no-op, and the button is never hidden for this.
         const d = phone.replace(/\D/g, '');
-        if (d.length >= 7 && window.cdOpenCustomerByPhone) window.cdOpenCustomerByPhone(phone);
+        if (d.length >= 7 && window.cdOpenNewRoForPhone) window.cdOpenNewRoForPhone(phone);
         else if (window.cdOpenNewRo) window.cdOpenNewRo();
       }
       // The filter box is static markup (not re-rendered), so it takes direct

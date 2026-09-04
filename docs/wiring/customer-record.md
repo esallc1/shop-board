@@ -142,10 +142,18 @@ listener, so they survive every re-render.
   own line under the primary action).
 
 **`+ New RO` is a caller, not new matching logic.** `startNewRoForCustomer` reads
-`custCustomer.phone_primary` and hands it to `window.cdOpenCustomerByPhone` (§ [[intake-wizard]]),
-which opens the wizard and runs its own `lookupPhone` — landing on this customer's vehicle list.
-`#cdRoModal` is a **top-level overlay**, not nested in any `.view`, which is why it opens cleanly
-from `#view-customer`.
+`custCustomer.phone_primary` and hands it to **`window.cdOpenNewRoForPhone`**
+(§ [[intake-wizard]]), which opens the wizard and runs its own `lookupPhone` — landing on this
+customer's vehicle list. `#cdRoModal` is a **top-level overlay**, not nested in any `.view`, which
+is why it opens cleanly from `#view-customer`.
+
+> ⚠ **NOT `cdOpenCustomerByPhone`.** That name is assigned twice in `advisor-board.html`: the
+> wizard version first, then **repointed by this file's own customer IIFE** to open the customer
+> RECORD ("Repoint the ONE phone entry point every call-log row / Desk row / chip uses"). The
+> repoint runs later and always wins, so the wizard version was **dead code that looked live**.
+> Calling it from the record would simply re-open the page you are already on. The wizard opener
+> now has its own name, `cdOpenNewRoForPhone`, so it cannot be shadowed again. Found by clicking
+> the button on staging, 2026-09-04 — not by reading, which is exactly how it hid.
 
 Two behaviours worth knowing, both deliberate:
 
@@ -394,7 +402,9 @@ then branches on whether the search box has text:
 - **Profile actions (§4d):** `.cust-openro` / `.cust-newro` CSS in `advisor-board.html`;
   `renderCustProfile`'s `canNewRo` gate (`window.CustomerArchive.isArchived`);
   `startNewRoForCustomer` + the `[data-new-ro]` branch in `wireCustRecordDelegation`;
-  entry points `window.cdOpenCustomerByPhone` / `window.cdOpenNewRo` (see [[intake-wizard]]).
+  entry points `window.cdOpenNewRoForPhone` / `window.cdOpenNewRo` (see [[intake-wizard]]).
+  `window.cdOpenCustomerByPhone` (`advisor-board.html`, customer IIFE) is a DIFFERENT thing —
+  it opens the customer RECORD and is what the Desk / call-log rows / phone chips use.
 - **Pure logic:** `shared/customer-record.js` (`buildRecordingCalls`, `customerCounts`,
   `openRosOf`, `sortNewestFirst`, `totalsByRo`/`roInvoiceTotal`, `canAssignRecording`,
   `isSecondaryLearned`, and the §4a filter: `VEHICLE_FILTER_MIN`, `shouldShowVehicleFilter`,
@@ -410,6 +420,10 @@ then branches on whether the search box has text:
   and mint a duplicate of the row that was just merged away. A phone under 7 digits falls back
   to the plain wizard rather than into `lookupPhone`'s own error state. No schema change, no new
   query, no new module.
+  **Also found + fixed:** `cdOpenCustomerByPhone` is assigned twice, and the second assignment
+  (the customer IIFE's repoint to the record page) had silently made the first — the wizard
+  opener — dead code. The wizard opener is now `cdOpenNewRoForPhone` so it cannot be shadowed
+  again; every existing `cdOpenCustomerByPhone` caller wants the record and is unchanged.
 - 2026-08-18 — **Added the fleet filter to the vehicles accordion** (§4a). A search box over
   plate / VIN / year / make / model, shown only at ≥6 vehicles, filtering the already-loaded
   list client-side with no new query and no write. Sort and expansion state are both preserved
