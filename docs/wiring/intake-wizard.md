@@ -1,7 +1,10 @@
 # How the intake wizard (New RO flow) is wired
 
 > Doc: `/docs/wiring/intake-wizard.md`
-> Last updated: 2026-08-18 — verified vs branch `fix/intake-phone-lookup-cap` (base `7652c65`)
+> Last updated: 2026-09-04 — "Where it lives in the code": the wizard now has a THIRD entry
+> point (the customer record's "+ New RO"). Nothing about the flow itself changed. Verified vs
+> commit `035f1bd` + this slice's working tree.
+> Previously: 2026-08-18 — verified vs branch `fix/intake-phone-lookup-cap` (base `7652c65`)
 > (§4 added: `lookupPhone` FIXED — it was silently blind to 62.6% of customers. §5 added: the
 > full unbounded-read audit. §3 = the vehicle dup guard; §1–§2 unchanged from `bea25cf`.)
 > Status: ✅ verified — the guard driven end-to-end in the wizard against the sandbox with every
@@ -175,6 +178,11 @@ Full reasoning — including why it is not a second write inside `mintRo` — is
 ## Where it lives in the code
 - `advisor-board.html` — wizard steps array (~2837), `selectExistingVehicle` (~3011),
   `goToMint` (~3046), legacy-PO field (~1720) + mint write (~3265)
+- **Three entry points** into the wizard, all going through `openModal`: the RO Board's
+  `+ New RO` button (`cdRoNewBtn` → `window.cdOpenNewRo`); the **Desk**'s "open the customer"
+  (`window.cdOpenCustomerByPhone`, which prefills step 1 and runs `lookupPhone`); and — since
+  2026-09-04 — the **customer record's `+ New RO`** button, which calls the same
+  `cdOpenCustomerByPhone` (see [[customer-record]] §4d).
 - **Phone lookup (§4):** `shared/phone-lookup.js` (`last10`, `ilikePatternFor`, `phoneOrFilter`,
   `matchesLast10`, `confirmPhoneMatches`), tested by `shared/phone-lookup.test.js` (12 tests).
   Board side: `lookupPhone` in `advisor-board.html`.

@@ -733,6 +733,12 @@
   .cust-learned { font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:#3C3489; background:#EEEDFE; border-radius:999px; padding:1px 7px; margin-left:5px; }
   .cust-openro { display:inline-block; margin-top:9px; font-size:0.78rem; font-weight:700; color:var(--accent); border:1px solid var(--accent); border-radius:7px; padding:4px 11px; cursor:pointer; background:#fff; }
   .cust-openro:hover { background:var(--accent); color:#fff; }
+  /* "+ New RO" — SECONDARY to .cust-openro above it. Same size/radius, but a
+     muted border + muted text so it never competes with "Open now". display:block
+     puts it on its own line under the primary action (a button still shrinks to
+     fit its text), which is why it needs no width of its own. */
+  .cust-newro { display:block; margin-top:7px; font-size:0.78rem; font-weight:700; color:var(--muted); border:1px solid var(--border); border-radius:7px; padding:4px 11px; cursor:pointer; background:#fff; }
+  .cust-newro:hover { color:var(--text); border-color:var(--muted); }
   .cust-stats { display:flex; gap:18px; margin-top:12px; }
   .cust-stat .n { font-size:1.05rem; font-weight:800; color:var(--text); }
   .cust-stat .k { font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; color:var(--muted); }
@@ -2050,6 +2056,7 @@
             </div>
             <div class="intake-field cd-hf-full">
               <button type="button" class="modal-btn sec" id="cdRoDecodeBtn" style="width:auto;padding:5px 12px;font-size:0.75rem">Decode VIN (NHTSA)</button>
+              <button type="button" class="modal-btn sec" id="cdRoVinCopyBtn" style="width:auto;padding:5px 12px;font-size:0.75rem;margin-left:8px">Copy VIN</button>
               <p class="cd-decode-msg" id="cdRoDecodeMsg"></p>
             </div>
             <div class="intake-field">
@@ -7331,6 +7338,62 @@
       msg.className = 'cd-decode-msg ok'; msg.textContent = res.message;
     }
 
+    // ── Copy VIN ──────────────────────────────────────────────
+    // One tap puts the VIN on the clipboard to paste into ALLDATA, a parts
+    // lookup or a text message. This is the FIRST clipboard use in the board,
+    // so the iOS rules are set here:
+    //
+    // ⚠ navigator.clipboard.writeText MUST be called SYNCHRONOUSLY inside the
+    // click handler. Any await before it — or an async handler that yields —
+    // and iOS Safari drops the user gesture and silently copies nothing. This
+    // handler is therefore NOT async and never awaits before the write:
+    // #cdRoVin is a plain <input> filled synchronously when the RO detail
+    // renders (`$('cdRoVin').value = v.vin || ''` in openRo), so reading .value
+    // is a property read, not a fetch. The label feedback hangs off
+    // .then()/.catch(), which only runs after the write is already queued.
+    //
+    // Feedback is the button label itself — no alert, no confirm; a modal over
+    // a tapped button is worse than the thing it reports.
+    let vinCopyTimer = null;
+    function flashVinCopy(text) {
+      const btn = $('cdRoVinCopyBtn');
+      if (vinCopyTimer) clearTimeout(vinCopyTimer);   // a double-tap must not restore early
+      btn.textContent = text;
+      // Restore the LITERAL label, never a captured textContent — capturing it
+      // would latch "Copied ✓" permanently on a fast second tap.
+      vinCopyTimer = setTimeout(() => { $('cdRoVinCopyBtn').textContent = 'Copy VIN'; vinCopyTimer = null; }, 1200);
+    }
+    // Non-secure context / older Safari, where navigator.clipboard is absent or
+    // rejects: a throwaway textarea + execCommand. Cheap, synchronous, and it
+    // keeps the button from being dead on an old iPad.
+    function copyVinFallback(text) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);     // iOS ignores select() alone
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch (_) { return false; }
+    }
+    $('cdRoVinCopyBtn').addEventListener('click', () => {
+      const vin = ($('cdRoVin').value || '').trim();
+      // Empty VIN: copy nothing, say so on the label. The field is always
+      // rendered, so the button stays visible either way.
+      if (!vin) { flashVinCopy('No VIN'); return; }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(vin)             // ⚠ first statement — do not move
+          .then(() => flashVinCopy('Copied ✓'))
+          .catch(() => flashVinCopy(copyVinFallback(vin) ? 'Copied ✓' : 'Copy failed'));
+      } else {
+        flashVinCopy(copyVinFallback(vin) ? 'Copied ✓' : 'Copy failed');
+      }
+    });
+
     /* ══════════════════════════════════════════════════════════════
        TECH FINDINGS BLOCK — the tech's write-up, in front of the advisor
        the whole time he is working the RO.
@@ -9923,6 +9986,14 @@
       // "This record was merged into …" — shown only on an archived row that has
       // a keeper. custMergedKeeper is filled by loadCustomerRecord.
       const CAR = window.CustomerArchive;
+      // "+ New RO" is NOT offered on an ARCHIVED (merged-away) record. The
+      // wizard's lookupPhone deliberately excludes archived rows, so it would
+      // match nobody and land on create-new-customer — minting a fresh duplicate
+      // of the very customer that was just merged away, the exact failure the
+      // dedupe work exists to prevent. Gated on isArchived rather than
+      // shouldShowMergedBanner because lookupPhone excludes ALL archived rows,
+      // keeper or no keeper. Not emitted at all; never disabled-and-greyed.
+      const canNewRo = !(CAR && CAR.isArchived(c));
       const mergedBanner = (CAR && CAR.shouldShowMergedBanner(c))
         ? `<div class="cust-merged-note">${esc(CAR.mergedBannerText(custMergedKeeper && (custMergedKeeper.business_name || custMergedKeeper.name)))}` +
           (custMergedKeeper ? `<button type="button" class="cust-merged-go" data-open-cust="${esc(custMergedKeeper.id)}">Open ${esc(custMergedKeeper.business_name || custMergedKeeper.name)}</button>` : '') +
@@ -9935,6 +10006,7 @@
         (isBiz && c.name && c.name.trim() ? `<div class="cust-biz">Contact: ${esc(c.name.trim())}</div>` : '') +
         (contact.length ? `<div class="cust-contact">${contact.join('')}</div>` : '') +
         (open ? `<button type="button" class="cust-openro" data-open-ro="${esc(open.id)}">Open now — RO #${esc(open.ro_number)} · ${esc(STATUS_LABEL[open.status] || open.status)}</button>` : '') +
+        (canNewRo ? `<button type="button" class="cust-newro" data-new-ro="1">+ New RO</button>` : '') +
         `<div class="cust-since">` +
           `<div><div class="k">Customer since</div><div class="v">${esc(since)}</div></div>` +
           `<div><div class="k">Last activity</div><div class="v">${esc(custLastActivity())}</div></div>` +
@@ -10361,7 +10433,27 @@
         if (roHead) { toggleRo(roHead.dataset.ro); return; }
         const goCust = e.target.closest('[data-open-cust]');
         if (goCust) { showCustomerRecord(goCust.dataset.openCust); return; }
+        const newRo = e.target.closest('[data-new-ro]');
+        if (newRo) { startNewRoForCustomer(); return; }
       });
+
+      // "+ New RO" on the profile card. This is a CALLER, not new matching
+      // logic: cdOpenCustomerByPhone opens the New RO wizard and runs its own
+      // lookupPhone, landing on this customer's vehicle list — so the advisor
+      // never retypes a phone number. #cdRoModal is a top-level overlay, not
+      // nested in any .view, so it opens cleanly from #view-customer.
+      function startNewRoForCustomer() {
+        const c = custCustomer; if (!c) return;
+        const phone = (c.phone_primary || '').trim();
+        // ⚠ lookupPhone rejects anything under 7 DIGITS with "Enter a full phone
+        // number." So a missing OR junk phone (ALLDATA imports, business records)
+        // has to open the PLAIN wizard on step 1 for the phone to be typed by
+        // hand — otherwise the button walks the advisor into the wizard's own
+        // error state. Never a no-op, and the button is never hidden for this.
+        const d = phone.replace(/\D/g, '');
+        if (d.length >= 7 && window.cdOpenCustomerByPhone) window.cdOpenCustomerByPhone(phone);
+        else if (window.cdOpenNewRo) window.cdOpenNewRo();
+      }
       // The filter box is static markup (not re-rendered), so it takes direct
       // listeners — which is also what keeps focus and the caret alive while
       // the accordion below it re-renders on every keystroke.

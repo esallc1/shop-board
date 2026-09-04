@@ -1,7 +1,10 @@
 # Customer duplicates & multi-phone (investigation + design)
 
 > Doc: `/docs/wiring/customer-dedupe.md`
-> Last updated: 2026-08-19 — verified vs branch `feat/customer-merge-slice1` (base `85ffc5b`)
+> Last updated: 2026-09-04 — §2 + §5 corrected: both called `cdOpenCustomerByPhone` a
+> "known-buggy full-digit-string lookup" and said to retire it. Stale since the 2026-08-18
+> `lookupPhone` fix. Verified vs commit `035f1bd` + this slice's working tree.
+> Previously: 2026-08-19 — verified vs branch `feat/customer-merge-slice1` (base `85ffc5b`)
 > (§3 re-measured; §6 corrected — the FK list and the `is_primary` collision were both wrong;
 > §7 corrected — **Phase A HAS been run, on sandbox AND prod**; §8 added — the merge as built.)
 > Status: 🟡 **Phase A RUN (sandbox + prod). Phase C DONE (both intake guards + the phone-lookup
@@ -56,8 +59,11 @@ ALLDATA import already brought in. Proposal: a **multi-phone table**, an **intak
 ## 2. Match + creation (how dupes are minted)
 - **Caller popup match** (`advisor-board.html:6134` `matchCustomers`): **last-10 digits, phone only**
   — `last10(phone_primary)===key || last10(phone_secondary)===key`. **Name is never used.** The Desk
-  index (`ensureCustIndex:7169`) builds the same `byPhone[last10]`. (A third, **known-buggy**
-  full-digit-string lookup `cdOpenCustomerByPhone` is flagged in-code at `:6115-6116` — retire it.)
+  index (`ensureCustIndex:7169`) builds the same `byPhone[last10]`. (`cdOpenCustomerByPhone` is
+  **not** a third matcher — it opens the New RO wizard and delegates to `lookupPhone`, so it
+  inherits that path's last-10 + server-side-ilike matching and its archived-row filter. It was
+  a buggy full-digit-string lookup until the 2026-08-18 fix; **corrected 2026-09-04**, and now
+  load-bearing on a second surface — see [[customer-record]] §4d and [[intake-wizard]] §4.)
 - **Customer SEARCH** (`:6077` `renderCustSearch`): client-side JS **substring** over the cached
   list — name/business OR (≥3 digits) phone. Not exact, not SQL.
 - **The ONE dupe-minting insert** — `createCustomer` (`advisor-board.html:3331`) is the **only
@@ -196,9 +202,11 @@ At the single insert (`createCustomer`, `advisor-board.html:3331`) and its wizar
   customer]** — instead of silently inserting.
 - **Re-check immediately before insert** inside `createCustomer` (defense-in-depth; the cached scan
   can be stale — this closes the "ANTHONY twice" self-dupe).
-- Retire the known-buggy `cdOpenCustomerByPhone` full-string lookup; unify on `cdLast10` +
-  `customer_phones`. All client-side + reversible; **do this early — it stops future growth so the
-  cleanup is one-time.**
+- ~~Retire the known-buggy `cdOpenCustomerByPhone` full-string lookup~~ — **DONE, differently.**
+  The bug was in `lookupPhone`, which `cdOpenCustomerByPhone` merely calls; fixing that
+  (2026-08-18: last-10 key + server-side ilike + archived-row filter) fixed this too, so there is
+  nothing left to retire. The function is now a deliberate shared entry point into the wizard
+  ([[intake-wizard]]). Still open: unify on `customer_phones` once Phase B is built.
 
 ## 6. Safe merge / cleanup — reviewed, per-cluster, off-hours, reversible
 - **Archive, never delete.** Add (additive) `customers.merged_into uuid` + `archived_at timestamptz`;
@@ -375,6 +383,12 @@ Then: the 54 zero-history high-confidence clusters, then bucket B, then the 2 ri
 - Attach/learn-a-number: `shared/call-attach.js` (`phone_secondary` single slot).
 
 ## Session change log
+- 2026-09-04 — **Corrected two stale claims about `cdOpenCustomerByPhone` (§2, §5).** Both
+  described it as a known-buggy full-digit-string lookup to be retired. It is neither: it opens
+  the wizard and delegates to `lookupPhone`, whose 2026-08-18 fix (last-10 + server-side ilike +
+  archived filter) is what the "bug" referred to. Corrected now because the customer record's new
+  "+ New RO" button makes the function load-bearing on a second surface, and a doc saying "retire
+  it" would be worse than no doc. Verified against the live code, not carried forward.
 - 2026-08-19 — **Slice 1 of the merge built (§8), and four stale claims corrected.** §7's
   "Phase A hand-run pending" was **wrong — it has been run on sandbox AND prod** (2,766 rows).
   §3's counts and its "0 mix import+call-in" claim were stale. §6's FK list was missing

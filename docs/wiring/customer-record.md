@@ -1,7 +1,10 @@
 # How the customer record is wired
 
 > Doc: `/docs/wiring/customer-record.md`
-> Last updated: 2026-08-22 — §0 + §4b: the RO photo buckets are now managed on this page, so
+> Last updated: 2026-09-04 — §4d added: the profile card's two actions ("Open now" and the new
+> "+ New RO"), and why "+ New RO" is not rendered on an archived record. Verified vs commit
+> `035f1bd` + this slice's working tree.
+> Previously: 2026-08-22 — §0 + §4b: the RO photo buckets are now managed on this page, so
 > "read-only except needs-filing" is no longer true. Verified vs `085e239` + the slice-3 working
 > tree (UNMERGED — see [[ro-photos]]).
 > Previously: 2026-08-18 — verified vs branch `feat/customer-record-veh-filter` (base `bd1f445`)
@@ -105,7 +108,8 @@ exist**:
   only). A row is skipped entirely when its field is blank.
 - **Customer since** (§1) and **Last activity** (§1).
 - **Stat tiles:** `# vehicles`, `# repair orders`, and **lifetime $** (only when derivable —
-  §1). An **Open now — RO #… button** appears when an RO is open (jumps to the RO).
+  §1).
+- **Two action buttons** — see §4d.
 - The **CrisData-only** caveat line.
 
 **RIGHT — vehicles accordion (`#custVehicles`, `renderCustVehicles` → `vehRowHtml`).**
@@ -124,6 +128,39 @@ exist**:
   `ro_id` is this RO). A per-RO timeline **caps at 260px and scrolls inside the card**. Below
   the ROs, a **"Calls & notes · this vehicle"** timeline holds any vehicle-linked calls not
   tied to a specific RO (§5).
+
+### 4d. The profile card's two actions (`renderCustProfile`, `wireCustRecordDelegation`)
+
+Both are emitted into `#custProfile` and both are handled by the panel's **delegated** click
+listener, so they survive every re-render.
+
+- **`Open now — RO #… · <stage>`** (`.cust-openro`, `data-open-ro`) — **conditional**: rendered
+  only when `CR().openRosOf(custRos)` returns one. Primary styling (accent border + fill on
+  hover). Jumps to that RO, passing the `custBack` target so Back returns here (§3a).
+- **`+ New RO`** (`.cust-newro`, `data-new-ro`) — starts a new RO for this customer without
+  retyping the phone. Secondary styling (muted border/text, `display:block` so it sits on its
+  own line under the primary action).
+
+**`+ New RO` is a caller, not new matching logic.** `startNewRoForCustomer` reads
+`custCustomer.phone_primary` and hands it to `window.cdOpenCustomerByPhone` (§ [[intake-wizard]]),
+which opens the wizard and runs its own `lookupPhone` — landing on this customer's vehicle list.
+`#cdRoModal` is a **top-level overlay**, not nested in any `.view`, which is why it opens cleanly
+from `#view-customer`.
+
+Two behaviours worth knowing, both deliberate:
+
+1. **Not rendered on an ARCHIVED record.** `lookupPhone` excludes archived (merged-away)
+   customers on purpose, so on such a record the wizard would match nobody and land on
+   **create-new-customer — minting a fresh duplicate of the customer that was just merged away**.
+   The gate is `!CustomerArchive.isArchived(c)`; the button is **not emitted at all**, never
+   disabled-and-greyed. The merged banner's **"Open &lt;keeper&gt;"** is the route those users want.
+   (Gated on `isArchived` rather than `shouldShowMergedBanner` because `lookupPhone` drops **all**
+   archived rows, keeper or no keeper. See [[customer-dedupe]].)
+2. **A missing OR junk phone falls back to the plain wizard.** `lookupPhone` rejects anything
+   under **7 digits** with "Enter a full phone number", so `startNewRoForCustomer` checks
+   `phone_primary`'s digit count and calls `window.cdOpenNewRo()` (step 1, empty) when it is
+   short — ALLDATA imports and business records do have such rows. The button is never a no-op
+   and is never hidden for this reason; Josh just types the number himself.
 
 ### 4a. The fleet filter (`#custVehFilter`, `renderCustVehicles`)
 A search box above the accordion, rendered **only when the customer has ≥
@@ -344,7 +381,7 @@ then branches on whether the search box has text:
   `vehCallCount`, `custVehiclesSorted`, `pickAutoOpenVeh`; `custRecVehId`, `assignRecVehicle`,
   `rerenderCustBody`, `toggleVeh`; format helpers `custFmtDate`/`custFmtWhen`/`custAddrLines`/
   `custLastActivity`/`custLifetimeClosed`. Delegated events: `wireCustRecordDelegation`
-  (play / open-RO / accordion toggle / file-to-vehicle). Recording playback reuses
+  (play / open-RO / accordion toggle / file-to-vehicle / **new-RO**). Recording playback reuses
   `window.RecordingPlayer` + `/api/recording-links`; filing uses `/api/recording-assign`.
 - **List JS (§7):** `custSurnameSplit`/`custSortName`/`custListLabel`/`custDisplayName`,
   `custBucket`/`custAlphaCmp`, `renderCustBrowse`/`renderCustAzBar`/`custJumpToLetter`, the
@@ -354,6 +391,10 @@ then branches on whether the search box has text:
   `.cust-veh-filter*` CSS in `advisor-board.html`; state `custVehQuery`; applied in
   `renderCustVehicles`, reset in `loadCustomerRecord`, listeners in
   `wireCustRecordDelegation`. Rules in `shared/customer-record.js`.
+- **Profile actions (§4d):** `.cust-openro` / `.cust-newro` CSS in `advisor-board.html`;
+  `renderCustProfile`'s `canNewRo` gate (`window.CustomerArchive.isArchived`);
+  `startNewRoForCustomer` + the `[data-new-ro]` branch in `wireCustRecordDelegation`;
+  entry points `window.cdOpenCustomerByPhone` / `window.cdOpenNewRo` (see [[intake-wizard]]).
 - **Pure logic:** `shared/customer-record.js` (`buildRecordingCalls`, `customerCounts`,
   `openRosOf`, `sortNewestFirst`, `totalsByRo`/`roInvoiceTotal`, `canAssignRecording`,
   `isSecondaryLearned`, and the §4a filter: `VEHICLE_FILTER_MIN`, `shouldShowVehicleFilter`,
@@ -362,6 +403,13 @@ then branches on whether the search box has text:
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
+- 2026-09-04 — **Added "+ New RO" to the profile card** (§4d). Starts a new RO for the customer
+  on screen by calling the wizard's existing `cdOpenCustomerByPhone`, so the phone is never
+  retyped — no new matching logic. **Not rendered on an archived record**, because `lookupPhone`
+  excludes merged-away customers and would otherwise walk the advisor into create-new-customer
+  and mint a duplicate of the row that was just merged away. A phone under 7 digits falls back
+  to the plain wizard rather than into `lookupPhone`'s own error state. No schema change, no new
+  query, no new module.
 - 2026-08-18 — **Added the fleet filter to the vehicles accordion** (§4a). A search box over
   plate / VIN / year / make / model, shown only at ≥6 vehicles, filtering the already-loaded
   list client-side with no new query and no write. Sort and expansion state are both preserved
