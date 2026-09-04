@@ -4518,21 +4518,27 @@
     // Shared open handle for the New RO wizard. The sidebar "New RO" tab was
     // retired; the RO Board "+ New RO" button (cdRoNewBtn) calls this directly.
     window.cdOpenNewRo = openModal;
-    // Open the wizard with the phone ALREADY FILLED and looked up, landing on
-    // that customer's vehicles + history (or the new-customer step).
+    // Open the wizard for a customer we ALREADY HAVE THE ROW FOR, landing
+    // straight on their vehicles. Takes the row, not a phone: the caller knows
+    // the id, so there is nothing to look up and nothing to disambiguate.
     //
-    // ⚠ NAMING. This was `window.cdOpenCustomerByPhone` when the Desk was its
-    // only caller and there was no standalone customer page. There is one now,
-    // and the customer IIFE deliberately REPOINTS that name at the record
-    // (search for "Repoint the ONE phone entry point"), which runs later and
-    // therefore always wins — so under the old name this function was dead code
-    // that merely LOOKED live. It has its own name now precisely so it cannot be
-    // shadowed again. `cdOpenCustomerByPhone` still means "show me the customer";
-    // this means "start an RO for the customer on this phone".
-    window.cdOpenNewRoForPhone = (phone) => {
+    // ⚠ ID, NOT PHONE. A phone is not a key — "Allen Dave" and "Dave Allen" both
+    // sit on 239-265-4987 on staging — so re-deriving the customer from the phone
+    // would throw away the exact row we hold and show Step 1's "multiple
+    // customers on this phone" picker. If the wrong twin were picked the RO would
+    // attach to the wrong record and split that customer's history further, which
+    // is the precise harm the dedupe work exists to prevent. See
+    // docs/wiring/customer-record.md §4d.
+    //
+    // ORDERING: openModal() runs resetAll() synchronously before returning, so
+    // loadExistingCustomer's state survives — reset first, then load, never the
+    // other way round. openModal's deferred cdPhoneInput.focus() is harmless
+    // here: by then step 1 is `display:none` and a hidden input cannot take
+    // focus, so no keyboard opens on the iPad.
+    window.cdOpenNewRoForCustomer = (c) => {
+      if (!c || !c.id) return;
       openModal();
-      const inp = $('cdPhoneInput');
-      if (inp && phone) { inp.value = phone; lookupPhone(); }
+      loadExistingCustomer(c);
     };
     $('cdCloseBtn').addEventListener('click', closeModal);
     $('cdPhoneCancelBtn').addEventListener('click', closeModal);
@@ -9994,13 +10000,18 @@
       // "This record was merged into …" — shown only on an archived row that has
       // a keeper. custMergedKeeper is filled by loadCustomerRecord.
       const CAR = window.CustomerArchive;
-      // "+ New RO" is NOT offered on an ARCHIVED (merged-away) record. The
-      // wizard's lookupPhone deliberately excludes archived rows, so it would
-      // match nobody and land on create-new-customer — minting a fresh duplicate
-      // of the very customer that was just merged away, the exact failure the
-      // dedupe work exists to prevent. Gated on isArchived rather than
-      // shouldShowMergedBanner because lookupPhone excludes ALL archived rows,
-      // keeper or no keeper. Not emitted at all; never disabled-and-greyed.
+      // "+ New RO" is NOT offered on an ARCHIVED (merged-away) record: that row's
+      // work now belongs to the keeper, so a new RO must be opened there.
+      //
+      // ⚠ THIS GATE IS NOW THE ONLY THING STOPPING IT. It used to be a belt on
+      // top of braces — the button went through lookupPhone, which drops archived
+      // rows on its own. It no longer does: the button opens the wizard by id
+      // (cdOpenNewRoForCustomer), and an id opens ANY row, archived or not. So do
+      // not remove this on the grounds that the lookup already handles it. It
+      // doesn't, and there is no longer a lookup.
+      //
+      // Gated on isArchived rather than shouldShowMergedBanner so an archived row
+      // with no keeper is covered too. Not emitted at all; never disabled-and-greyed.
       const canNewRo = !(CAR && CAR.isArchived(c));
       const mergedBanner = (CAR && CAR.shouldShowMergedBanner(c))
         ? `<div class="cust-merged-note">${esc(CAR.mergedBannerText(custMergedKeeper && (custMergedKeeper.business_name || custMergedKeeper.name)))}` +
@@ -10446,24 +10457,26 @@
       });
 
       // "+ New RO" on the profile card. This is a CALLER, not new matching
-      // logic: cdOpenNewRoForPhone opens the New RO wizard and runs its own
-      // lookupPhone, landing on this customer's vehicle list — so the advisor
-      // never retypes a phone number. #cdRoModal is a top-level overlay, not
-      // nested in any .view, so it opens cleanly from #view-customer.
+      // logic: cdOpenNewRoForCustomer opens the wizard on this customer's
+      // vehicle list. #cdRoModal is a top-level overlay, not nested in any
+      // .view, so it opens cleanly from #view-customer.
       //
-      // ⚠ NOT cdOpenCustomerByPhone — that name is repointed further down this
-      // file to open the customer RECORD, so calling it from the record would
-      // just re-open the page we are already on.
+      // ⚠ We pass the ROW, never the phone. This surface already holds the exact
+      // customer, so there is nothing to look up: a phone lookup would re-derive
+      // the customer we already have and, on a shared number, ask us to pick
+      // between twins — a question we have the answer to, and one a wrong answer
+      // splits a customer's history over. There is deliberately NO phone
+      // fallback here.
+      //
+      // ⚠ NOT cdOpenCustomerByPhone either — that name is repointed further down
+      // this file to open the customer RECORD, so calling it from the record
+      // would just re-open the page we are already on.
       function startNewRoForCustomer() {
-        const c = custCustomer; if (!c) return;
-        const phone = (c.phone_primary || '').trim();
-        // ⚠ lookupPhone rejects anything under 7 DIGITS with "Enter a full phone
-        // number." So a missing OR junk phone (ALLDATA imports, business records)
-        // has to open the PLAIN wizard on step 1 for the phone to be typed by
-        // hand — otherwise the button walks the advisor into the wizard's own
-        // error state. Never a no-op, and the button is never hidden for this.
-        const d = phone.replace(/\D/g, '');
-        if (d.length >= 7 && window.cdOpenNewRoForPhone) window.cdOpenNewRoForPhone(phone);
+        const c = custCustomer;
+        // The only reason to fall back to the empty wizard is having no customer
+        // at all. A customer with a missing or junk phone (the ALLDATA imports)
+        // still has an id, so it takes the normal path and lands on its vehicles.
+        if (c && c.id && window.cdOpenNewRoForCustomer) window.cdOpenNewRoForCustomer(c);
         else if (window.cdOpenNewRo) window.cdOpenNewRo();
       }
       // The filter box is static markup (not re-rendered), so it takes direct

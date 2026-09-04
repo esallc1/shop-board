@@ -2,8 +2,9 @@
 
 > Doc: `/docs/wiring/customer-record.md`
 > Last updated: 2026-09-04 — §4d added: the profile card's two actions ("Open now" and the new
-> "+ New RO"), and why "+ New RO" is not rendered on an archived record. Verified vs commit
-> `035f1bd` + this slice's working tree.
+> "+ New RO"), why "+ New RO" opens the wizard BY ID rather than by phone, and why the archived
+> gate is now load-bearing rather than belt-and-braces. Verified vs commit `035f1bd` + this
+> slice's working tree, and by clicking the button on staging.
 > Previously: 2026-08-22 — §0 + §4b: the RO photo buckets are now managed on this page, so
 > "read-only except needs-filing" is no longer true. Verified vs `085e239` + the slice-3 working
 > tree (UNMERGED — see [[ro-photos]]).
@@ -141,34 +142,53 @@ listener, so they survive every re-render.
   retyping the phone. Secondary styling (muted border/text, `display:block` so it sits on its
   own line under the primary action).
 
-**`+ New RO` is a caller, not new matching logic.** `startNewRoForCustomer` reads
-`custCustomer.phone_primary` and hands it to **`window.cdOpenNewRoForPhone`**
-(§ [[intake-wizard]]), which opens the wizard and runs its own `lookupPhone` — landing on this
-customer's vehicle list. `#cdRoModal` is a **top-level overlay**, not nested in any `.view`, which
-is why it opens cleanly from `#view-customer`.
+**`+ New RO` opens the wizard BY ID.** `startNewRoForCustomer` passes the whole `custCustomer`
+**row** to `window.cdOpenNewRoForCustomer` (§ [[intake-wizard]]), which is
+`openModal(); loadExistingCustomer(c);` — landing straight on that customer's vehicles.
+`#cdRoModal` is a **top-level overlay**, not nested in any `.view`, which is why it opens cleanly
+from `#view-customer`.
 
-> ⚠ **NOT `cdOpenCustomerByPhone`.** That name is assigned twice in `advisor-board.html`: the
-> wizard version first, then **repointed by this file's own customer IIFE** to open the customer
-> RECORD ("Repoint the ONE phone entry point every call-log row / Desk row / chip uses"). The
-> repoint runs later and always wins, so the wizard version was **dead code that looked live**.
-> Calling it from the record would simply re-open the page you are already on. The wizard opener
-> now has its own name, `cdOpenNewRoForPhone`, so it cannot be shadowed again. Found by clicking
-> the button on staging, 2026-09-04 — not by reading, which is exactly how it hid.
+> ⚠ **The phone is never used, and there is deliberately no phone fallback.** This surface already
+> holds the exact customer row, so there is nothing to look up. Re-deriving from the phone would
+> throw that away and — on a shared number, e.g. "Allen Dave" and "Dave Allen" both on
+> 239-265-4987 — show Step 1's **"multiple customers on this phone"** picker: a question we have
+> the answer to. Pick the wrong twin and the RO attaches to the wrong record, splitting that
+> customer's history further, which is the precise harm the dedupe work exists to prevent.
+> A phone-first opener existed briefly (`cdOpenNewRoForPhone`) and was **deleted** when this
+> replaced it — it had no callers left, and an uncalled live-looking global is what caused the
+> bug below.
+
+> ⚠ **NOT `cdOpenCustomerByPhone`.** That name is assigned twice in `advisor-board.html`: a wizard
+> version first, then **repointed by this file's own customer IIFE** to open the customer RECORD
+> ("Repoint the ONE phone entry point every call-log row / Desk row / chip uses"). The repoint runs
+> later and always wins, so the wizard version was **dead code that looked live**, and calling it
+> from the record would simply re-open the page you are already on. Found by clicking the button on
+> staging, 2026-09-04 — not by reading, which is exactly how it hid.
+
+**Ordering, for anyone changing `cdOpenNewRoForCustomer`:** `openModal()` runs `resetAll()`
+synchronously before it returns, so it must come **first** and `loadExistingCustomer(c)` second —
+the reverse would blank the state that was just set. `openModal`'s deferred
+`cdPhoneInput.focus()` (+30ms) is harmless here: by then step 1 is `display:none`
+(`.cd-step`/`.cd-step.active`, CSS ~:239) and a hidden input cannot take focus, so no keyboard
+opens on the iPad.
 
 Two behaviours worth knowing, both deliberate:
 
-1. **Not rendered on an ARCHIVED record.** `lookupPhone` excludes archived (merged-away)
-   customers on purpose, so on such a record the wizard would match nobody and land on
-   **create-new-customer — minting a fresh duplicate of the customer that was just merged away**.
-   The gate is `!CustomerArchive.isArchived(c)`; the button is **not emitted at all**, never
-   disabled-and-greyed. The merged banner's **"Open &lt;keeper&gt;"** is the route those users want.
-   (Gated on `isArchived` rather than `shouldShowMergedBanner` because `lookupPhone` drops **all**
-   archived rows, keeper or no keeper. See [[customer-dedupe]].)
-2. **A missing OR junk phone falls back to the plain wizard.** `lookupPhone` rejects anything
-   under **7 digits** with "Enter a full phone number", so `startNewRoForCustomer` checks
-   `phone_primary`'s digit count and calls `window.cdOpenNewRo()` (step 1, empty) when it is
-   short — ALLDATA imports and business records do have such rows. The button is never a no-op
-   and is never hidden for this reason; Josh just types the number himself.
+1. **Not rendered on an ARCHIVED record.** That row's work belongs to the keeper now, so a new RO
+   has to be opened there; the merged banner's **"Open &lt;keeper&gt;"** is the route those users
+   want. The gate is `!CustomerArchive.isArchived(c)`; the button is **not emitted at all**, never
+   disabled-and-greyed. Gated on `isArchived` rather than `shouldShowMergedBanner` so an archived
+   row with **no** keeper is covered too. See [[customer-dedupe]].
+   > ⚠ **This gate is now the only thing enforcing that.** It used to be a belt on top of braces:
+   > the button went through `lookupPhone`, which drops archived rows by itself. Since 2026-09-04
+   > it opens by **id**, and an id opens any row, archived or not. Do not remove this gate on the
+   > grounds that the lookup already handles it — there is no longer a lookup.
+2. **A missing or junk phone is no longer a special case.** The 18 phoneless ALLDATA imports on
+   staging have an `id` like anyone else, so they take the normal path and land on their vehicle
+   picker. The empty-wizard fallback (`window.cdOpenNewRo()`, step 1) now fires **only when there
+   is no customer row at all** — a state the record page should never be in. (Until 2026-09-04
+   this button went through `lookupPhone`, which rejects anything under 7 digits, so a phoneless
+   customer was dumped on step 1 to be typed in by hand. Going ID-first fixed that for free.)
 
 ### 4a. The fleet filter (`#custVehFilter`, `renderCustVehicles`)
 A search box above the accordion, rendered **only when the customer has ≥
@@ -402,7 +422,7 @@ then branches on whether the search box has text:
 - **Profile actions (§4d):** `.cust-openro` / `.cust-newro` CSS in `advisor-board.html`;
   `renderCustProfile`'s `canNewRo` gate (`window.CustomerArchive.isArchived`);
   `startNewRoForCustomer` + the `[data-new-ro]` branch in `wireCustRecordDelegation`;
-  entry points `window.cdOpenNewRoForPhone` / `window.cdOpenNewRo` (see [[intake-wizard]]).
+  entry points `window.cdOpenNewRoForCustomer` / `window.cdOpenNewRo` (see [[intake-wizard]]).
   `window.cdOpenCustomerByPhone` (`advisor-board.html`, customer IIFE) is a DIFFERENT thing —
   it opens the customer RECORD and is what the Desk / call-log rows / phone chips use.
 - **Pure logic:** `shared/customer-record.js` (`buildRecordingCalls`, `customerCounts`,
@@ -424,6 +444,14 @@ then branches on whether the search box has text:
   (the customer IIFE's repoint to the record page) had silently made the first — the wizard
   opener — dead code. The wizard opener is now `cdOpenNewRoForPhone` so it cannot be shadowed
   again; every existing `cdOpenCustomerByPhone` caller wants the record and is unchanged.
+- 2026-09-04 — **"+ New RO" switched from phone-derived to ID-first** (§4d), after staging turned
+  up "Allen Dave" / "Dave Allen" sharing 239-265-4987: the phone path showed the "multiple
+  customers on this phone" picker on a page that already held the exact row, and picking the wrong
+  twin would have attached the RO to the wrong customer. It now passes the row to
+  `cdOpenNewRoForCustomer` (`openModal` + `loadExistingCustomer`) with **no phone fallback**.
+  `cdOpenNewRoForPhone` was deleted — no callers left. Two knock-ons: the 18 phoneless ALLDATA
+  imports now reach their vehicle picker instead of an empty step 1, and the archived gate stopped
+  being redundant with `lookupPhone`'s own archive filter and became the only thing enforcing it.
 - 2026-08-18 — **Added the fleet filter to the vehicles accordion** (§4a). A search box over
   plate / VIN / year / make / model, shown only at ≥6 vehicles, filtering the already-loaded
   list client-side with no new query and no write. Sort and expansion state are both preserved

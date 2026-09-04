@@ -182,8 +182,11 @@ Full reasoning — including why it is not a second write inside `mintRo` — is
   `goToMint` (~3046), legacy-PO field (~1720) + mint write (~3265)
 - **Two entry points** into the wizard, both going through `openModal`: the RO Board's
   `+ New RO` button (`cdRoNewBtn` → `window.cdOpenNewRo`, step 1 empty); and the **customer
-  record's `+ New RO`** button (`window.cdOpenNewRoForPhone`, which prefills step 1 with the
-  customer's phone and runs `lookupPhone` — see [[customer-record]] §4d).
+  record's `+ New RO`** button (`window.cdOpenNewRoForCustomer`, which takes the customer ROW and
+  calls `loadExistingCustomer`, skipping steps 1–2 entirely and landing on **`cdStepVehicles`** —
+  see [[customer-record]] §4d). The second never touches the phone: its caller already holds the
+  id, and on a shared number a phone lookup would raise the `cdStepPick` twin picker for no
+  reason.
 - ⚠ **`window.cdOpenCustomerByPhone` does NOT open this wizard**, despite a comment near
   `cdOpenNewRo` that said so until 2026-09-04. The name is assigned twice in `advisor-board.html`
   and the customer IIFE's later assignment — which opens the customer RECORD — always wins. The
