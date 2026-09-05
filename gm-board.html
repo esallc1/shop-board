@@ -1444,10 +1444,14 @@
 
   // ══════════════════════════════════════════════════════════════
   // OVERVIEW DASHBOARD — customizable card library.
-  // status 'live' = real (or completed_jobs-backed, may be sparse
-  // until jobs flow through Picked Up) data. status 'comingSoon' =
-  // no data source yet; shown greyed-out in Customize only, never
-  // in the normal view, never toggleable on.
+  // status 'live' = real data. status 'comingSoon' = no data source
+  // yet; shown greyed-out in Customize only, never in the normal view,
+  // never toggleable on. status 'retired' = HAD a data source, now
+  // withdrawn: never rendered, never listed in Customize, and dropped
+  // from a saved layout the next time that employee hits Save. Retiring
+  // is how a card is taken off EVERYONE's board — including anyone who
+  // already has it visible: per-employee prefs are matched against this
+  // library on every load, so status here always wins over saved state.
   // domId overrides the id used for `kpi-${domId}-val/-delta` so the
   // two pre-existing cards keep their original element ids.
   // ══════════════════════════════════════════════════════════════
@@ -1468,12 +1472,32 @@
     { id: 'ro_aging',             label: `RO Aging (${RO_AGING_THRESHOLD_DAYS_LABEL})`, group: 'Shop Floor',     status: 'live',       icon: '⏳', theme: 'kpi-red'    },
     { id: 'new_jobs_week',        label: 'New Jobs This Week',         group: 'Shop Floor',     status: 'live', icon: '🆕', theme: 'kpi-purple' },
 
-    { id: 'comeback_rate',        label: 'Comeback Rate',              group: 'Completed Jobs', status: 'live', icon: '↩',  theme: 'kpi-red'    },
-    { id: 'avg_days_to_complete', label: 'Avg Days to Complete',       group: 'Completed Jobs', status: 'live', icon: '📅', theme: 'kpi-purple' },
-    { id: 'jobs_completed_week',  label: 'Jobs Completed This Week',   group: 'Completed Jobs', status: 'live', icon: '✅', theme: 'kpi-green'  },
-    { id: 'jobs_completed_month', label: 'Jobs Completed This Month',  group: 'Completed Jobs', status: 'live', icon: '✅', theme: 'kpi-green'  },
-    { id: 'jobs_by_category',     label: 'Jobs by Category',           group: 'Completed Jobs', status: 'live', icon: '🗂',  theme: 'kpi-blue'   },
-    { id: 'warranty_job_count',   label: 'Warranty Job Count',         group: 'Completed Jobs', status: 'live', icon: '🛡',  theme: 'kpi-gold'   },
+    // ── RETIRED 2026-09-05 — the whole 'Completed Jobs' group. ────────────────
+    // These six were the only consumers of the unbounded `completed_jobs` read
+    // in loadAndRender(). Two independent faults, either one fatal:
+    //
+    //   1. NO CATEGORY AT SOURCE. 68 of 83 archived jobs have no job_category,
+    //      and there is no category field anywhere on the RO for an advisor to
+    //      set one. "Jobs by Category" was therefore reporting on a column
+    //      nobody can fill, and the rest inherited the same empty archive.
+    //   2. THE 1,000-ROW CAP. The read had no .limit/.range/date filter and no
+    //      .order(), so PostgREST silently returns the first 1,000 rows in heap
+    //      order — the OLDEST 1,000. Past that these don't go "a bit low", they
+    //      FREEZE in the shop's past: "Jobs Completed This Week/Month" would
+    //      read 0 forever while the shop closed jobs every day, with nothing on
+    //      screen signalling the cap. See docs/wiring/intake-wizard.md §5 and
+    //      Session_Handoff_20260828.md ("THE MONEY ONE").
+    //
+    // DO NOT flip these back to 'live' until BOTH are fixed: a real category
+    // field on the RO, and a paged/filtered read (window it by date, or page it
+    // with .range() like window.cdFetchAllCustomers). Restoring one without the
+    // other just re-ships a confidently wrong number to the GM.
+    { id: 'comeback_rate',        label: 'Comeback Rate',              group: 'Completed Jobs', status: 'retired', icon: '↩',  theme: 'kpi-red'    },
+    { id: 'avg_days_to_complete', label: 'Avg Days to Complete',       group: 'Completed Jobs', status: 'retired', icon: '📅', theme: 'kpi-purple' },
+    { id: 'jobs_completed_week',  label: 'Jobs Completed This Week',   group: 'Completed Jobs', status: 'retired', icon: '✅', theme: 'kpi-green'  },
+    { id: 'jobs_completed_month', label: 'Jobs Completed This Month',  group: 'Completed Jobs', status: 'retired', icon: '✅', theme: 'kpi-green'  },
+    { id: 'jobs_by_category',     label: 'Jobs by Category',           group: 'Completed Jobs', status: 'retired', icon: '🗂',  theme: 'kpi-blue'   },
+    { id: 'warranty_job_count',   label: 'Warranty Job Count',         group: 'Completed Jobs', status: 'retired', icon: '🛡',  theme: 'kpi-gold'   },
 
     { id: 'techs_clocked_in',        label: 'Techs Currently Clocked In',     group: 'Labor',   status: 'comingSoon', icon: '🕐' },
     { id: 'tech_efficiency_pct',     label: 'Tech Efficiency %',              group: 'Labor',   status: 'comingSoon', icon: '⚡' },
@@ -1507,7 +1531,11 @@
     // (e.g. Core Bank) which append visible so they show up on an existing
     // saved layout without the employee having to enable them. Once saved,
     // the card is in `seen`, so this only ever forces it on the first time.
-    const missing = CARD_LIBRARY.filter(c => !seen.has(c.id)).map(c => ({ card_id: c.id, visible: !!c.forceDefaultOn }));
+    // Retired cards are never added to a layout — they can't render and can't
+    // be toggled, so an entry for one would be dead weight in the saved JSONB.
+    const missing = CARD_LIBRARY
+      .filter(c => !seen.has(c.id) && c.status !== 'retired')
+      .map(c => ({ card_id: c.id, visible: !!c.forceDefaultOn }));
     return [...base, ...missing];
   }
 
@@ -1730,12 +1758,6 @@
     date.setHours(0, 0, 0, 0);
     return date;
   }
-  function startOfMonth(d) {
-    const date = new Date(d);
-    date.setDate(1);
-    date.setHours(0, 0, 0, 0);
-    return date;
-  }
 
   // ── Supabase — READ ONLY (no insert/update/delete anywhere in this file)
   const { url: SUPABASE_URL, key: SUPABASE_KEY } = window.cdSupabaseCreds();
@@ -1790,11 +1812,14 @@
       renderOverviewSkeleton(DASHBOARD_LAYOUT);
     }
 
-    const [{ data: lifts }, { data: parking }, { data: pickup }, { data: completedJobsData }] = await Promise.all([
+    // The `completed_jobs` read that used to sit at the end of this Promise.all
+    // is gone with the six retired 'Completed Jobs' cards (see CARD_LIBRARY) —
+    // it was an unbounded, unordered select whose only consumers no longer
+    // exist. Do not re-add it without a paged or date-windowed read.
+    const [{ data: lifts }, { data: parking }, { data: pickup }] = await Promise.all([
       db.from('shopboard_lifts').select('id,status,assigned_tech,po,vehicle,job_category,warranty,arrival_date,created_at').order('id'),
       db.from('shopboard_parking').select('id,status,assigned_tech,po,vehicle,job_category,warranty,arrival_date,created_at').order('created_at'),
       db.from('shopboard_pickup').select('id,po,vehicle,assigned_tech,job_category,warranty,created_at').order('created_at'),
-      db.from('completed_jobs').select('id,warranty,comeback_flagged_at,job_category,created_at,picked_up_at'),
     ]);
 
     const activeLifts   = (lifts   || []).filter(hasVehicleData);
@@ -1820,58 +1845,11 @@
     setText('kpi-ro_aging-val', String(agingJobs.length));
     setText('kpi-ro_aging-delta', agingJobs.length === 1 ? '1 job open 7+ days' : agingJobs.length + ' jobs open 7+ days');
 
-    // ── completed_jobs-backed KPIs — sparse/empty is expected while the
-    // archive table is new; every metric below degrades to "—" or a
-    // zero count instead of dividing by zero or throwing.
-    const completedJobs = completedJobsData || [];
-    const weekStart  = startOfWeek(new Date());
-    const monthStart = startOfMonth(new Date());
-
-    // Comeback Rate
-    setText('kpi-comeback_rate-val', completedJobs.length
-      ? Math.round((completedJobs.filter(j => j.comeback_flagged_at).length / completedJobs.length) * 100) + '%'
-      : '—');
-    setText('kpi-comeback_rate-delta', completedJobs.length
-      ? completedJobs.filter(j => j.comeback_flagged_at).length + ' of ' + completedJobs.length + ' jobs'
-      : 'No completed jobs yet');
-
-    // Avg Days to Complete
-    const cycleDurationsDays = completedJobs
-      .filter(j => j.created_at && j.picked_up_at)
-      .map(j => (new Date(j.picked_up_at) - new Date(j.created_at)) / 86400000);
-    setText('kpi-avg_days_to_complete-val', cycleDurationsDays.length
-      ? (cycleDurationsDays.reduce((a, b) => a + b, 0) / cycleDurationsDays.length).toFixed(1)
-      : '—');
-    setText('kpi-avg_days_to_complete-delta', cycleDurationsDays.length
-      ? 'across ' + cycleDurationsDays.length + ' completed jobs'
-      : 'No completed jobs yet');
-
-    // Jobs Completed This Week / Month
-    const completedThisWeek  = completedJobs.filter(j => j.picked_up_at && new Date(j.picked_up_at) >= weekStart).length;
-    const completedThisMonth = completedJobs.filter(j => j.picked_up_at && new Date(j.picked_up_at) >= monthStart).length;
-    setText('kpi-jobs_completed_week-val', String(completedThisWeek));
-    setText('kpi-jobs_completed_week-delta', 'since ' + weekStart.toLocaleDateString());
-    setText('kpi-jobs_completed_month-val', String(completedThisMonth));
-    setText('kpi-jobs_completed_month-delta', 'since ' + monthStart.toLocaleDateString());
-
-    // Jobs by Category — top category as the headline value
-    const catCounts = {};
-    completedJobs.forEach(j => {
-      const cat = (j.job_category || '').trim() || 'Uncategorized';
-      catCounts[cat] = (catCounts[cat] || 0) + 1;
-    });
-    const catEntries = Object.entries(catCounts).sort((a, b) => b[1] - a[1]);
-    setText('kpi-jobs_by_category-val', catEntries.length ? catEntries[0][0] : '—');
-    setText('kpi-jobs_by_category-delta', catEntries.length
-      ? catEntries[0][1] + ' of ' + completedJobs.length + ' jobs'
-      : 'No completed jobs yet');
-
-    // Warranty Job Count
-    const warrantyCount = completedJobs.filter(j => j.warranty).length;
-    setText('kpi-warranty_job_count-val', String(warrantyCount));
-    setText('kpi-warranty_job_count-delta', completedJobs.length
-      ? warrantyCount + ' of ' + completedJobs.length + ' jobs'
-      : 'No completed jobs yet');
+    // The six 'Completed Jobs' KPIs that were computed here are RETIRED —
+    // see the block comment in CARD_LIBRARY for why (no job_category field on
+    // the RO + the silent 1,000-row cap on the archive read). weekStart stays:
+    // 'New Jobs This Week' below reads the live floor tables, not the archive.
+    const weekStart = startOfWeek(new Date());
 
     // New Jobs This Week — sourced from the live tables (not
     // completed_jobs), since a job should count the moment it enters
@@ -2006,6 +1984,11 @@
     listEl.innerHTML = OVERVIEW_DRAFT_LAYOUT.map((entry, idx) => {
       const card = CARD_BY_ID[entry.card_id];
       if (!card) return '';
+      // Retired cards are not offered here — a toggle for a card that can never
+      // render is a trap. Skipped BEFORE the group header, so a group that is
+      // entirely retired ('Completed Jobs') prints no heading at all. An
+      // employee who still has one saved visible simply stops seeing it.
+      if (card.status === 'retired') return '';
       const groupHeader = card.group !== lastGroup
         ? `<div class="ov-customize-group-label">${card.group}</div>` : '';
       lastGroup = card.group;

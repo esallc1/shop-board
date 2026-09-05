@@ -89,6 +89,7 @@ Every file under `/docs/wiring/` follows this shape:
 | RO check-in / tech assign | `ro-checkin-tech.md` | `advisor-board.html` (`checkInArrived`, `assignTechCore`), `crisdata-techboard.html`, `shared/status-mirror.js` |
 | Tech Board (dispatcher) | `tech-board.md` (§2a = columns key off assignment) | `crisdata-techboard.html`, `my-numbers.html`, gm-board Shop Floor · Tech Status · Teardown, `shared/assignee-picker.js` |
 | Manager board Technicians (Billed Hrs) | `manager-board.md` | `gm-board.html` (`renderTechnicians`, `computeBilledHours`); `repair_orders`, `ro_line_items` |
+| Manager board Overview cards (card library · per-employee layout · `status: retired`) | `gm-overview-cards.md` (§2 = the three `status` values; §4 = why the `completed_jobs` group is retired) | `gm-board.html` (`CARD_LIBRARY`, `mergeOverviewLayout`, `renderOverviewSkeleton`, `renderCustomizeList`), `dashboard_preferences` |
 | My Numbers (tech phone tool) | `my-numbers.md` | `my-numbers.html`; consumers: `advisor-board.html`, `gm-board.html` |
 | Book-hours (tech pay) / flagged-hours | `flat-rate-hours.md` | `repair_orders.book_hours`, `shopboard_*.flag_hours`, `ro_line_items`, `completed_jobs`, `repair_orders.technician` |
 | Advisor Commission (GP rollup + payout) | `advisor-commission.md` | `shared/commission-engine.js`, `shared/commission-cards.js`; `repair_orders.service_writer_id`, `ro_line_items`, `package_units`, `employees`; advisor/owner/bookkeeping boards |

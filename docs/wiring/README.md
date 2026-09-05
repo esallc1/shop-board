@@ -114,6 +114,7 @@ you can prove succeeded, not merely one that didn't throw.
 | Cost & Profit (Build Sheet) | [cost-profit.md](cost-profit.md) | ✅ Step 1 + Step 2a built vs branch `profit-by-ro` |
 | Hosting & domains (Vercel · DNS · Supabase) | [hosting-domains.md](hosting-domains.md) | ✅ verified vs `c17db7e` — §3.5 + §5 corrected for the sandbox split (2026-08-19) |
 | Manager board Technicians (Billed Hrs) | [manager-board.md](manager-board.md) | ✅ BUILT + verified live vs `8c93cee` |
+| Manager board Overview cards (library vs per-employee layout) | [gm-overview-cards.md](gm-overview-cards.md) | ✅ verified in-browser vs the commit that adds it · §4 = the retired `completed_jobs` group |
 | Packages (unit prices + Package line) | [packages.md](packages.md) | ✅ BUILT vs `17d4b02`, behind `feature_packages` (default OFF) |
 | RO payments ledger | [payments.md](payments.md) | ✅ verified vs `455693f` |
 | Profit by RO (per-job profit) | [profit-by-ro.md](profit-by-ro.md) | ✅ Steps A + B + C built vs branch `profit-by-ro` |

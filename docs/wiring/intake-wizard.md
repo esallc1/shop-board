@@ -127,8 +127,8 @@ rollup queries on small tables. Ranked by what breaks when the table passes 1,00
 | File:line | Table | Rows now | Can exceed 1,000? | What silently breaks |
 |---|---|---:|---|---|
 | ~~`advisor-board.html:3380` `lookupPhone`~~ | `customers` | 2,717 | **ALREADY OVER** | **FIXED (§4)** — was inventing duplicate customers |
-| `bookkeeping-board.html:3098` | `completed_jobs` | 49 | yes, slowly | Financial Pulse job-category rollup — **wrong TOTALS**, silently understated. Worst of the survivors: a number, not a list |
-| `gm-board.html:1788` | `completed_jobs` | 49 | yes, slowly | GM comeback/warranty stats under-count |
+| `bookkeeping-board.html:3098` | `completed_jobs` | 49 | yes, slowly | Financial Pulse income-donut **category split** — paid ROs fall to "Other". ⚠ **Corrected 2026-09-05:** this read does NOT feed the income total (that is `ro_payments` + `ro_line_items`); the dollars stay right, the mix stops being readable |
+| ~~`gm-board.html:1788`~~ | `completed_jobs` | 49 | yes, slowly | **FIXED 2026-09-05** — the six GM Overview cards it fed are retired and the read is deleted; `gm-board.html` no longer reads `completed_jobs`. See [[gm-overview-cards]] §4 |
 | `advisor-board.html:4075/4080` | `repair_orders` | 54 | yes | RO Board stops showing older ROs (ordered newest-first, so the tail drops first) |
 | `owner-board.html:785` | `marketing_content` | 11 | eventually | Marketing tab loses the oldest items |
 | `shared/report-change.js:1067` | `change_requests` | 23 | eventually | Requests list truncates |
@@ -169,8 +169,13 @@ Full reasoning — including why it is not a second write inside `mintRo` — is
 ## Known gaps & open questions (as of 2026-08-18)
 - The vehicle guard cannot catch a duplicate typed with **no VIN and a different plate** —
   nothing links the two rows. Measured cost: 4 rows in the whole table have neither identifier.
-- The `completed_jobs` rollups (§5) are the highest-value survivors: they produce **totals**, so
-  truncation is invisible rather than merely ugly. Not fixed.
+- The `completed_jobs` rollups (§5) — **half resolved 2026-09-05.** The GM Overview read is
+  gone (cards retired, [[gm-overview-cards]] §4). The Bookkeeping one survives, but on
+  re-reading the code it is **not** a total: it maps `po → job_category` for the income
+  donut only, so truncation greys the mix into "Other" and leaves the dollars correct.
+  ⚠ The reads on that same `loadOverview()` that DO sum into money — `ro_payments`,
+  the open-RO `repair_orders`, and processed `invoice_queue` — are all still unbounded
+  and are the real exposure here. Not fixed.
 - **RESOLVED (verified `bea25cf`):** the comeback question is gated on a **prior RO for that exact
   vehicle** existing — no prior → no question, by design (see step 2 above). Intended, not a bug.
   Corollary: a returning customer bringing a **new** vehicle gets no comeback question.
