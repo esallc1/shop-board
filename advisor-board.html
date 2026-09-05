@@ -418,7 +418,32 @@
   }
   .cd-ro-main, .cd-ro-rail { min-width: 0; }
   .cd-ro-rail-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 2px 0 14px; }
-  .cd-ro-edit.cd-ro-rail-fields { grid-template-columns: 1fr; }
+  /* minmax(0, 1fr), not 1fr: a bare `1fr` track floors at min-content, so ONE
+     un-wrappable child (see .cd-bh-na) drags the whole track past the rail's
+     320px and everything in it paints outside the card. Matches the two-column
+     .cd-ro-edit rule above, which had it right. */
+  .cd-ro-edit.cd-ro-rail-fields { grid-template-columns: minmax(0, 1fr); }
+  /* ── Book Hours row (rail): value + "0 hrs" chip + the N/A tick ──
+     Sized for the 320px rail on an iPad, not for the desktop width it was
+     written at. Three things were letting "N/A · no labor" render past the
+     right border of the card:
+       1. the checkbox inherited `width:100%` from `.intake-field input`
+          (shared/board-shell.css) — a bare checkbox obeys it, so it grew to
+          fill its whole <label>, and the label's text was painted OUTSIDE
+          that box, ~70px past the card edge at 320px;
+       2. `white-space:nowrap` on the label meant the text could not fall to a
+          second line to save itself;
+       3. the grid track above had no minmax(0, …) to clamp any of it.
+     Fixed here as a row, not as a string: any value in it (a long hours
+     figure, a longer status word) now wraps instead of escaping. */
+  .cd-bh-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-width: 0; }
+  .cd-bh-row > * { min-width: 0; }
+  .cd-bh-row input[type="checkbox"] { width: auto; flex: 0 0 auto; padding: 0; margin: 0; }
+  .cd-bh-total { font-weight: 800; font-size: 1rem; overflow-wrap: anywhere; }
+  .cd-bh-na {
+    display: flex; align-items: center; gap: 5px; font-size: 0.75rem;
+    color: var(--muted); flex: 0 1 auto; overflow-wrap: anywhere;
+  }
   .cd-table-scroll { overflow-x: auto; }
   @media (max-width: 900px) {
     /* three columns collapse to one: top strip → complaint → line items → rail */
@@ -2224,14 +2249,16 @@
                    when the owner's Book Hours master switch is ON. -->
               <div class="intake-field" id="cdRoBookHoursField" style="display:none">
                 <label>Book Hours <span style="font-weight:600;color:var(--muted);font-size:0.72rem">· auto-total from lines · tech pay</span></label>
-                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                  <span id="cdRoBookHoursTotal" style="font-weight:800;font-size:1rem">0 hrs</span>
+                <!-- Layout lives in .cd-bh-* (see the style block) so this row
+                     holds up at the 320px rail width. -->
+                <div class="cd-bh-row">
+                  <span id="cdRoBookHoursTotal" class="cd-bh-total">0 hrs</span>
                   <!-- Same derived "0 hrs" chip the kanban card carries, so the
                        two screens say the same thing about the same RO. -->
                   <span id="cdRoNoHrsChip" class="cd-kc-badge cd-kc-nohrs" style="display:none"
                         title="This RO left Estimate with no book hours and no parts-only tick">0 hrs</span>
-                  <label style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--muted);white-space:nowrap;min-width:0">
-                    <input type="checkbox" id="cdRoBookHoursNA" style="flex:0 0 auto"> N/A · no labor
+                  <label class="cd-bh-na">
+                    <input type="checkbox" id="cdRoBookHoursNA"> N/A · no labor
                   </label>
                 </div>
                 <span id="cdRoBookHoursHint" style="font-size:0.72rem;color:var(--muted)"></span>

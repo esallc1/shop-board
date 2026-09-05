@@ -353,6 +353,17 @@ markup + package margin), not hours. Fully documented in [[advisor-commission]].
   `settings.md`.
 
 ## Session change log
+- 2026-09-05 — **The "N/A · no labor" row on the RO-detail rail overflowed the card again**
+  (reported on RO #6070). This is a REGRESSION of the 2026-08-07 fix below: that pass tidied
+  the label while the row's only other item was a 90px number input; `hours-engine-1`
+  (`fd3b61c`) then replaced that input with the wide bold auto-total span + the "0 hrs" chip,
+  and the label was pushed out again. Root cause was never the label: a **bare checkbox
+  inherits `width:100%` from `.intake-field input`** (`shared/board-shell.css:550`), so it
+  grew to fill its whole `<label>` and the `white-space:nowrap` text painted ~70px outside
+  the 320px rail — with `grid-template-columns: 1fr` (min-content floor) on the rail fields
+  letting the whole track blow out. Fixed as a ROW, in CSS classes (`.cd-bh-row`,
+  `.cd-bh-total`, `.cd-bh-na` + `minmax(0, 1fr)`), so any value in it wraps instead of
+  escaping. Presentation only — no book-hours, pay or gate logic touched.
 - 2026-08-25 — **The gate warns instead of blocking** (§8.4), behind the single
   `BOOK_HOURS_ENFORCE` constant; the browser `alert()` both call sites raised is replaced by an
   inline amber notice carrying **Open RO** and **Parts-only — mark N/A · no labor**; a derived
