@@ -1607,7 +1607,17 @@ function initTeamChat(config) {
           'x-cd-push-secret': 'YQ87V5nheXAcwx7tMI6w50LjRxOSB9NuVLFqyrF5_sc',
         },
         body: JSON.stringify(body),
-      }).catch(function (e) { console.warn('[Chat] push notify failed (ignored)', e); });
+      })
+        .then(function (r) {
+          // BREADCRUMB ONLY — never surfaced to the sender. fetch() resolves on
+          // a 403/401 (it only rejects on a network error), so discarding the
+          // response meant a rejected push looked identical to a delivered one.
+          // That is exactly how the www-origin 403 hid for months: the gate was
+          // rejecting every front-desk push and nothing anywhere said so.
+          // Console only, on purpose — the contract above still holds.
+          if (!r.ok) console.warn('[Chat] push notify rejected (ignored) — HTTP ' + r.status);
+        })
+        .catch(function (e) { console.warn('[Chat] push notify failed (ignored)', e); });
     } catch (e) { /* swallow — never affects the send */ }
   }
 

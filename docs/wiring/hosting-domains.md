@@ -1,11 +1,14 @@
 # How hosting & domains are wired
 
 > Doc: `/docs/wiring/hosting-domains.md`
-> Last updated: 2026-08-19 — **corrected §3.5 and §5 for the sandbox split** (writes on staging are
+> Last updated: 2026-09-10 — **§2a added: the push origin gate**, replacing the two stale
+> references to the deleted `ALLOWED_ORIGINS` constant. Verified vs commit `d356329` + this change.
+> Previously 2026-08-19 — **corrected §3.5 and §5 for the sandbox split** (writes on staging are
 > safe), added **§3.6: deploys happen by PUSH, never by CLI**, and added **§5.5: the six storage
 > buckets**, which this doc never covered — the gap that let the staging sandbox run for a week
 > with no buckets at all. Verified vs commit `c26bca9` + the photo-buckets branch.
-> Status: 🟢 current. §3.5/§5 re-verified this session against `shared/supabase-config.js`,
+> Status: 🟢 current. §2a verified this session against `api/send-push.js`, `api/send-push.test.js`
+> and `shared/team-chat.js`. §3.5/§5 re-verified 2026-08-19 against `shared/supabase-config.js`,
 > `api/*`, and all 12 pages. Vercel/DNS facts carried forward from the 2026-08-03 session
 > (`vercel` CLI as `esallc1-5351`, team `leetransmission-kiki`, live `curl`). Items I could not
 > read directly (Supabase dashboard, Namecheap DNS panel) are marked **[owner-reported]** or
@@ -19,8 +22,8 @@ lives at Namecheap; both apps share one Supabase project.
 ## 1. Vercel projects (team `leetransmission-kiki`)
 - **shop-board** — repo `esallc1/shop-board`. The CrisData boards (static HTML) + `/api`
   serverless functions. Prod alias: `shop-board-ten.vercel.app` (from `vercel projects ls`).
-  Also aliased `shop-board-leetransmission-kiki.vercel.app` (the "stable" alias in
-  `api/send-push.js` ALLOWED_ORIGINS).
+  Also aliased `shop-board-leetransmission-kiki.vercel.app` (the "stable" alias). **Both** are
+  accepted by the push origin gate — see §2a.
 - **kiki** — repo `esallc1/kiki`, Next.js 16 (App Router). The transmission database.
   Prod alias: `kiki-cyan.vercel.app`.
 
@@ -38,6 +41,40 @@ lives at Namecheap; both apps share one Supabase project.
   attachment on kiki should be removed from the kiki project's Domains settings.
 - **`usekiki.app`** → still parked at Namecheap **[owner-reported]**; confirmed **NOT on
   Vercel** (`vercel domains ls` lists only `leetransmissionshop.com`).
+
+## 2a. Which of those origins may send a push (`api/send-push.js` GATE 1)
+
+`/api/send-push` is the one endpoint whose access depends on **which hostname the board was
+loaded from**, so the domain map above is also its allow-list. The rule lives in the exported
+pure function **`isAllowedOrigin(origin)`** (`api/send-push.js`), pinned by 16 tests in
+`api/send-push.test.js`.
+
+**The rule, in order:**
+1. The two `vercel.app` prod aliases (§1) match as **exact strings**. `vercel.app` is a shared
+   namespace anyone can deploy into, so there is deliberately **no suffix matching** there.
+2. Otherwise the origin is **parsed** (`new URL`, in a try/catch — a malformed value is rejected,
+   never thrown). It must be **`https:`**, and its **hostname** must be `leetransmissionshop.com`
+   or end in `.leetransmissionshop.com`.
+3. Everything else → a generic **403** that does not echo the origin back.
+
+**Why the hostname is parsed and not string-matched.** An `endsWith`/`includes` test on the raw
+origin string accepts `https://evil-leetransmissionshop.com` (no dot before the apex) and
+`https://leetransmissionshop.com.evil.com` (the apex as a prefix, attacker owns the real domain).
+Comparing a *parsed* hostname to the apex, or to a `.`-prefixed suffix of it, cannot be spoofed
+either way. Both strings have a test.
+
+**Two deliberate exclusions — do not "fix" either one:**
+- **`test.leetransmissionshop.com`** and
+- **`shop-board-git-staging-…vercel.app`** (kept off the exact-match list in §1)
+
+Both serve the **`staging`** branch, which talks to the **sandbox** Supabase project (§3.5, §5) —
+whose `push_subscriptions` table is a **copy of prod's**. A send from either would deliver a
+**real push to the crew's real phones** from test data. Staging must never be able to ring the
+shop. The reason is repeated in a comment at the exclusion in `api/send-push.js`.
+
+**Consequence of rule 2:** a future prod subdomain (§2) is accepted automatically, with no code
+change — matching how `shared/supabase-config.js` already resolves a new `*.leetransmissionshop.com`
+to the prod database. The two files now agree; before 2026-09-10 they did not (see the change log).
 
 ## 3. DNS
 - **`leetransmissionshop.com`** — registrar "Third Party"; nameservers
@@ -281,7 +318,9 @@ bucket layout should now come from `migrations/20260819_storage_buckets.sql`, no
 
 ## Where it lives in the code
 - Front-door rewrite: root `vercel.json` (`"/" → "/crisdata.html"`) → `crisdata.html`.
-- Prod-alias allowlist: `api/send-push.js` (ALLOWED_ORIGINS).
+- Push origin gate (§2a): `api/send-push.js` — `isAllowedOrigin()` (parsed hostname, https-only,
+  `*.leetransmissionshop.com`, `test.*` excluded) + `ALLOWED_VERCEL_ORIGINS` (exact match).
+  Tests: `api/send-push.test.js`. Caller: `shared/team-chat.js` (`firePush`).
 - Supabase URL/key: every `*-board.html`, `crisdata.html`, `office-login.html`, `api/*`, and
   `kiki/` (`NEXT_PUBLIC_SUPABASE_URL`).
 - KiKi redirect constants: `kiki/src/app/auth/forgot-password/actions.ts:11`,
@@ -289,7 +328,19 @@ bucket layout should now come from `migrations/20260819_storage_buckets.sql`, no
 - Client-side idle logout: `shared/office-identity.js` (`armIdleLogout`) — see [[office-auth]] §8.8.
 
 ## Session change log
-- 2026-08-19 — **§5.5 added: storage buckets.** This doc described the Supabase project but never
+- 2026-09-10 — **§2a added: the push origin gate; `ALLOWED_ORIGINS` is gone.** The gate was an
+  exact-string list of `board.*` + one vercel alias, but the office works from
+  **`www.leetransmissionshop.com`** — so every Team Chat push from the front desk had 403'd since
+  the gates landed in `90628b9`, and it was invisible because `firePush` discarded the response
+  (a 403 resolves; only a network error rejects). Replaced with the parsed-hostname
+  `isAllowedOrigin()`; `www`, the apex and `shop-board-ten.vercel.app` now pass, `test.*` and the
+  staging vercel alias stay rejected on purpose (sandbox `push_subscriptions` is a copy of prod —
+  a staging send would ring real phones). Added a `console.warn` breadcrumb on `!r.ok` in
+  `firePush`, still fire-and-forget and never surfaced to the sender. GATE 1 had **zero** test
+  coverage before this — `api/send-push.test.js` imported only `_push-recipients.js`; it now has
+  16 tests including the two spoofing strings (`evil-leetransmissionshop.com`,
+  `leetransmissionshop.com.evil.com`). Suite 474 → 490, all green. Gate order (405→403→401→500→400),
+  the Referer fallback and the origin-blind 403 are unchanged. This doc described the Supabase project but never
   its STORAGE, and nothing else did either — buckets were side-effects of five unrelated feature
   migrations plus one made by hand in the dashboard (`employee-photos`). The staging sandbox was
   consequently built with ZERO buckets and stayed that way for a week: `staging-rls-and-storage.sql`

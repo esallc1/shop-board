@@ -32,16 +32,53 @@ const VAPID_PUBLIC = 'BByOPsrzKI55qegn0RENJRoA0ijuf4Axb3rVpt4UJ7SYBlqRSMJiITi1JZ
 // Contact push services use to reach the shop about delivery problems.
 const VAPID_CONTACT = 'mailto:esallc1@yahoo.com';
 
-// GATE 1 allow-list — only these origins may call this endpoint. Small array
-// so domains are easy to add later. Both are stable hostnames (the vercel.app
-// entry is the project's stable production alias, NOT a per-deploy hash URL).
-const ALLOWED_ORIGINS = [
-  'https://board.leetransmissionshop.com',              // custom production domain (what the team uses)
+// ── GATE 1 allow-list ───────────────────────────────────────────────────────
+// The shop's own domain, matched on the PARSED HOSTNAME. It used to be an
+// exact-string array holding only `board.*` + one vercel alias — but the office
+// works from `https://www.leetransmissionshop.com`, so every push from the front
+// desk 403'd from the day the gates landed, silently (firePush never read the
+// response). Hostnames, not strings, so a new prod subdomain works on its own.
+const SHOP_APEX = 'leetransmissionshop.com';
+
+// ⚠️ `test.` IS EXCLUDED ON PURPOSE — do NOT "fix" this by deleting it.
+// Staging talks to the SANDBOX Supabase project, whose `push_subscriptions`
+// table is a COPY of prod's. A send from test.leetransmissionshop.com would
+// therefore deliver a REAL push to the crew's REAL phones from test data.
+// Staging must never be able to ring the shop. See docs/wiring/staging-db.md.
+const EXCLUDED_SHOP_HOSTS = new Set(['test.' + SHOP_APEX]);
+
+// vercel.app is a shared namespace ANYONE can deploy into, so these stay an
+// EXPLICIT exact-match list. Never suffix-match a vercel.app host.
+const ALLOWED_VERCEL_ORIGINS = [
+  'https://shop-board-ten.vercel.app',                  // prod alias (vercel projects ls)
   'https://shop-board-leetransmission-kiki.vercel.app', // stable Vercel production alias
 ];
 
+// Is this origin allowed to call the endpoint? Pure + exported so the rules are
+// locked by tests without standing up the handler.
+//
+// PARSE FIRST, then compare the hostname. Testing the raw origin STRING with
+// endsWith/includes is the trap this function exists to avoid: it would accept
+// both `https://evil-leetransmissionshop.com` (no dot before the apex) and
+// `https://leetransmissionshop.com.evil.com` (apex as a prefix, attacker owns
+// the real domain). Comparing a parsed hostname to the apex, or to a
+// '.'-prefixed suffix of it, cannot be spoofed either way.
+export function isAllowedOrigin(origin) {
+  if (!origin || typeof origin !== 'string') return false;
+  // Exact match only for the vercel aliases (see above).
+  if (ALLOWED_VERCEL_ORIGINS.includes(origin)) return true;
+  let u;
+  try { u = new URL(origin); } catch (e) { return false; }   // malformed → reject, never throw
+  if (u.protocol !== 'https:') return false;                 // plaintext is never allowed
+  const host = u.hostname.toLowerCase();
+  if (EXCLUDED_SHOP_HOSTS.has(host)) return false;           // staging carve-out
+  return host === SHOP_APEX || host.endsWith('.' + SHOP_APEX);
+}
+
 // Origin of the request — prefer the Origin header, fall back to Referer.
-function getRequestOrigin(req) {
+// Exported (unchanged behavior) so the tests can drive the REAL resolver for
+// the origin-absent / Referer-fallback cases instead of re-implementing it.
+export function getRequestOrigin(req) {
   const o = req.headers && req.headers.origin;
   if (o) return o;
   const ref = req.headers && req.headers.referer;
@@ -63,9 +100,10 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   // GATE 1 — origin allow-list. Reject unknown origins with a generic 403
-  // (don't echo the origin back).
+  // (don't echo the origin back). isAllowedOrigin already treats a null /
+  // malformed origin as "not allowed", so this stays one check.
   const origin = getRequestOrigin(req);
-  if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
+  if (!isAllowedOrigin(origin)) {
     return res.status(403).json({ error: 'forbidden' });
   }
 
