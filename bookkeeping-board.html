@@ -210,20 +210,48 @@
     width: 100%; max-height: 300px; overflow: hidden; border-radius: 8px;
     background: var(--surface-2); margin-bottom: 12px; display: flex; align-items: center; justify-content: center;
   }
-  .invoice-detail-img-wrap img { width: 100%; height: auto; max-height: 300px; object-fit: contain; }
+  .invoice-detail-img-wrap img {
+    width: 100%; height: auto; max-height: 300px; object-fit: contain;
+    /* zoom/pan happen as a transform on this element and NOTHING else —
+       the wrap's overflow:hidden crops it, so the form below never moves */
+    transform-origin: center center;
+    /* one finger still scrolls the form; pinch is ours (see invZoom* in JS) */
+    touch-action: pan-y;
+    -webkit-user-drag: none; user-drag: none; user-select: none;
+  }
+  /* Only once she's zoomed past fit does the photo take over the gesture:
+     drag = pan, and one-finger scroll is traded away for it. */
+  .invoice-detail-img-wrap.is-zoomed img { cursor: grab; touch-action: none; }
+  .invoice-detail-img-wrap.is-panning img { cursor: grabbing; }
   /* Rotate controls — overlay bottom-right of the receipt preview. Rotating
      re-saves the corrected file to storage so the AI extractor reads it upright. */
   .invoice-rotate-controls {
     position: absolute; bottom: 8px; right: 8px; display: flex; gap: 6px; z-index: 2;
   }
-  .invoice-rotate-btn {
+  /* Zoom controls — VIEW-ONLY, and deliberately a SEPARATE cluster in the
+     bottom-LEFT corner rather than appended to the rotate group. Zoom is safe
+     and she uses it on nearly every receipt; rotate re-uploads the file and
+     re-runs auto-detect. Those two must not sit a thumb-width apart. */
+  .invoice-zoom-controls {
+    position: absolute; bottom: 8px; left: 8px; display: flex; gap: 6px; z-index: 2;
+    align-items: center;
+  }
+  .invoice-rotate-btn, .invoice-zoom-btn {
     width: 32px; height: 32px; border-radius: 6px; border: none; cursor: pointer;
     background: rgba(20,22,40,0.62); color: #fff; font-size: 1rem; line-height: 1;
     display: flex; align-items: center; justify-content: center;
     transition: background 0.15s;
   }
-  .invoice-rotate-btn:hover { background: rgba(20,22,40,0.85); }
-  .invoice-rotate-btn:disabled { opacity: 0.5; cursor: default; }
+  .invoice-rotate-btn:hover, .invoice-zoom-btn:hover { background: rgba(20,22,40,0.85); }
+  .invoice-rotate-btn:disabled, .invoice-zoom-btn:disabled { opacity: 0.5; cursor: default; }
+  .invoice-zoom-btn.wide { width: auto; padding: 0 9px; font-size: 0.72rem; font-weight: 700; }
+  /* % readout only exists while zoomed, so "why does this look odd" has an
+     answer on screen. Driven purely by the .is-zoomed class — no JS toggle. */
+  .invoice-zoom-level {
+    display: none; font-size: 0.7rem; font-weight: 700; color: #fff;
+    background: rgba(20,22,40,0.62); border-radius: 6px; padding: 5px 7px; line-height: 1;
+  }
+  .invoice-detail-img-wrap.is-zoomed .invoice-zoom-level { display: block; }
   .invoice-detail-uploader { font-size: 0.75rem; color: var(--muted); margin-bottom: 14px; }
   .auto-detect-status { font-size: 0.78rem; color: var(--accent); margin-bottom: 14px; font-weight: 600; }
   .auto-badge {
@@ -962,6 +990,12 @@
     <h3 id="invModalTitle">Process Invoice</h3>
     <div class="invoice-detail-img-wrap">
       <img id="invDetailImg" alt="Invoice">
+      <div class="invoice-zoom-controls">
+        <button type="button" class="invoice-zoom-btn" id="invZoomOut" title="Zoom out" aria-label="Zoom out">&minus;</button>
+        <button type="button" class="invoice-zoom-btn" id="invZoomIn" title="Zoom in (view only — never changes the saved photo)" aria-label="Zoom in">+</button>
+        <button type="button" class="invoice-zoom-btn wide" id="invZoomFit" title="Back to fit" aria-label="Reset zoom to fit">Fit</button>
+        <span class="invoice-zoom-level" id="invZoomLevel" aria-live="polite">100%</span>
+      </div>
       <div class="invoice-rotate-controls">
         <button type="button" class="invoice-rotate-btn" id="invRotateLeft" title="Rotate left (re-saves the file)" aria-label="Rotate left">↺</button>
         <button type="button" class="invoice-rotate-btn" id="invRotateRight" title="Rotate right (re-saves the file)" aria-label="Rotate right">↻</button>
@@ -2363,6 +2397,7 @@
     resetMultiPo();
 
     document.getElementById('invDetailImg').src = '';
+    invZoomReset();                    // next receipt opens at fit, never inheriting the last one's zoom
     document.getElementById('invDetailUploader').textContent = `Uploaded by ${row.uploaded_by_name} · ${formatDateTime(row.uploaded_at)}`;
     document.getElementById('invTypeInput').value = '';
     document.getElementById('invPoInput').value = '';
@@ -2425,6 +2460,7 @@
     resetMultiPo();
 
     document.getElementById('invDetailImg').src = '';
+    invZoomReset();                    // next receipt opens at fit, never inheriting the last one's zoom
     document.getElementById('invDetailUploader').textContent = `Uploaded by ${row.uploaded_by_name} · ${formatDateTime(row.uploaded_at)}`;
     document.getElementById('invTypeInput').value = row.invoice_type || '';
     document.getElementById('invPoInput').value = row.po || '';
@@ -2640,6 +2676,191 @@
   document.getElementById('invRotateLeft').addEventListener('click', () => rotateInvoiceImage('left'));
   document.getElementById('invRotateRight').addEventListener('click', () => rotateInvoiceImage('right'));
 
+  // ── Zoom / pan the receipt preview — STRICTLY VIEW-ONLY ──────
+  // Daiana reads part numbers and totals off a phone photo while typing them
+  // into the fields below, so magnification has to happen IN PLACE: a CSS
+  // transform on the <img>, cropped by the wrap's existing overflow:hidden.
+  // She is never made to close or leave anything to type.
+  //
+  // NOT the rotate pattern above. Rotate re-encodes and re-uploads the stored
+  // file (and re-runs auto-detect) because the extractor reads stored bytes.
+  // Zoom does none of that: no canvas, no upload, no re-crop, no extractor
+  // re-run. If you are tempted to "make the zoom stick", don't — that turns a
+  // free view control into a destructive write on every receipt.
+  const ZOOM_MIN = 1, ZOOM_MAX = 6, ZOOM_STEP = 1.4;
+  const invZoom = { scale: 1, tx: 0, ty: 0 };   // tx/ty are SCREEN px, post-scale
+
+  // On-screen size of the actual pixels. object-fit:contain letterboxes a tall
+  // receipt inside the full-width element, so clamping against the element box
+  // would let her drag the empty bars into view and lose the photo.
+  // offsetWidth/Height, not getBoundingClientRect — the latter reports the
+  // box we just transformed, which would feed our own scale back in.
+  function invZoomContentBox() {
+    const img = document.getElementById('invDetailImg');
+    const ew = img.offsetWidth, eh = img.offsetHeight;
+    const nw = img.naturalWidth, nh = img.naturalHeight;
+    if (!nw || !nh || !ew || !eh) return { w: ew, h: eh };
+    const fit = Math.min(ew / nw, eh / nh);
+    return { w: nw * fit, h: nh * fit };
+  }
+
+  // Clamp so some part of the receipt is always on screen, then paint.
+  // Order matters: translate() then scale() means a point u px from the image
+  // centre lands at u*scale + t — which is the math invZoomAt() inverts.
+  function invZoomApply() {
+    const img = document.getElementById('invDetailImg');
+    const wrap = document.querySelector('.invoice-detail-img-wrap');
+    if (!img || !wrap) return;
+    const box = invZoomContentBox();
+    const maxX = Math.max(0, (box.w * invZoom.scale - wrap.clientWidth) / 2);
+    const maxY = Math.max(0, (box.h * invZoom.scale - wrap.clientHeight) / 2);
+    invZoom.tx = Math.min(maxX, Math.max(-maxX, invZoom.tx));
+    invZoom.ty = Math.min(maxY, Math.max(-maxY, invZoom.ty));
+    img.style.transform = 'translate(' + invZoom.tx + 'px, ' + invZoom.ty + 'px) scale(' + invZoom.scale + ')';
+    const zoomed = invZoom.scale > 1.001;
+    wrap.classList.toggle('is-zoomed', zoomed);
+    document.getElementById('invZoomLevel').textContent = Math.round(invZoom.scale * 100) + '%';
+    document.getElementById('invZoomOut').disabled = !zoomed;
+    document.getElementById('invZoomFit').disabled = !zoomed;
+  }
+
+  // Scale about a point (px,py = offset from the wrap's centre, screen px).
+  // Keeping the pixel under the cursor/fingers put is the whole difference
+  // between "zoom" and "the number I was reading just left the frame".
+  function invZoomAt(factor, px, py) {
+    const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, invZoom.scale * factor));
+    if (Math.abs(next - invZoom.scale) < 0.0005) return;
+    const ux = (px - invZoom.tx) / invZoom.scale;
+    const uy = (py - invZoom.ty) / invZoom.scale;
+    invZoom.scale = next;
+    invZoom.tx = px - ux * next;
+    invZoom.ty = py - uy * next;
+    invZoomApply();
+  }
+
+  function invZoomPoint(clientX, clientY) {
+    const r = document.querySelector('.invoice-detail-img-wrap').getBoundingClientRect();
+    return { x: clientX - (r.left + r.width / 2), y: clientY - (r.top + r.height / 2) };
+  }
+
+  // Full reset to fit. Called by the Fit button, by both modal-open paths and
+  // by closeInvoiceDetail(), so the next invoice always opens clean.
+  function invZoomReset() {
+    invZoom.scale = 1; invZoom.tx = 0; invZoom.ty = 0;
+    invZoomApply();
+  }
+
+  // ROTATE × ZOOM. Rotate swaps the stored file out from under an active
+  // transform: the replacement comes back with width/height swapped, so the
+  // pan offset she had now points at nothing and would dump her on a corner
+  // with no way back but closing the modal. On every new image we therefore
+  // KEEP her magnification (she zoomed in for a reason and is mid-field) but
+  // re-centre the pan — the only offset still meaningful across the swap —
+  // and let invZoomApply() re-clamp against the new dimensions. Fit always
+  // gets her the whole receipt back.
+  document.getElementById('invDetailImg').addEventListener('load', () => {
+    invZoom.tx = 0; invZoom.ty = 0;
+    invZoomApply();
+  });
+
+  document.getElementById('invZoomIn').addEventListener('click', () => invZoomAt(ZOOM_STEP, 0, 0));
+  document.getElementById('invZoomOut').addEventListener('click', () => invZoomAt(1 / ZOOM_STEP, 0, 0));
+  document.getElementById('invZoomFit').addEventListener('click', invZoomReset);
+
+  (function wireInvoiceZoomGestures() {
+    const wrap = document.querySelector('.invoice-detail-img-wrap');
+    if (!wrap) return;
+
+    // Trackpad / wheel. preventDefault is mandatory, not tidiness: .modal-box
+    // is overflow-y:auto (shared/board-shell.css), so without it the form
+    // scrolls out from under the photo instead of zooming.
+    wrap.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      // normalise line/page deltas (Firefox) to pixels before they become a factor
+      let dy = e.deltaY;
+      if (e.deltaMode === 1) dy *= 16; else if (e.deltaMode === 2) dy *= 100;
+      // a macOS trackpad pinch arrives as ctrl+wheel with much smaller deltas
+      const p = invZoomPoint(e.clientX, e.clientY);
+      invZoomAt(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0025)), p.x, p.y);
+    }, { passive: false });
+
+    // Mouse drag-to-pan — only meaningful past fit, which is also when the
+    // grab cursor appears.
+    let pan = null;
+    wrap.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || e.target.closest('button')) return;
+      if (invZoom.scale <= 1.001) return;
+      e.preventDefault();                 // kill the native image-drag ghost
+      pan = { x: e.clientX, y: e.clientY, tx: invZoom.tx, ty: invZoom.ty };
+      wrap.classList.add('is-panning');
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!pan) return;
+      invZoom.tx = pan.tx + (e.clientX - pan.x);
+      invZoom.ty = pan.ty + (e.clientY - pan.y);
+      invZoomApply();
+    });
+    document.addEventListener('mouseup', () => {
+      if (!pan) return;
+      pan = null;
+      wrap.classList.remove('is-panning');
+    });
+
+    // Touch: two fingers pinch-and-drag, one finger pans once zoomed. A
+    // one-finger swipe at fit is left alone so the form still scrolls.
+    let g = null;
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const mid = (t) => invZoomPoint((t[0].clientX + t[1].clientX) / 2, (t[0].clientY + t[1].clientY) / 2);
+
+    function beginPinch(touches) {
+      const m = mid(touches);
+      g = { kind: 'pinch', d0: dist(touches) || 1, s0: invZoom.scale,
+            ux: (m.x - invZoom.tx) / invZoom.scale, uy: (m.y - invZoom.ty) / invZoom.scale };
+    }
+    function beginDrag(touch) {
+      const p = invZoomPoint(touch.clientX, touch.clientY);
+      g = { kind: 'drag', x: p.x, y: p.y, tx: invZoom.tx, ty: invZoom.ty };
+    }
+
+    wrap.addEventListener('touchstart', (e) => {
+      if (e.target.closest('button')) return;
+      if (e.touches.length >= 2) { beginPinch(e.touches); e.preventDefault(); }
+      else if (e.touches.length === 1 && invZoom.scale > 1.001) { beginDrag(e.touches[0]); e.preventDefault(); }
+      else g = null;
+      if (g) wrap.classList.add('is-panning');
+    }, { passive: false });
+
+    wrap.addEventListener('touchmove', (e) => {
+      if (!g) return;
+      e.preventDefault();
+      if (g.kind === 'pinch' && e.touches.length >= 2) {
+        const m = mid(e.touches);
+        // pinch and two-finger drag in one step: scale from the finger spread,
+        // then put the pixel that was between her fingers back under them
+        invZoom.scale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, g.s0 * (dist(e.touches) / g.d0)));
+        invZoom.tx = m.x - g.ux * invZoom.scale;
+        invZoom.ty = m.y - g.uy * invZoom.scale;
+        invZoomApply();
+      } else if (g.kind === 'drag' && e.touches.length === 1) {
+        const p = invZoomPoint(e.touches[0].clientX, e.touches[0].clientY);
+        invZoom.tx = g.tx + (p.x - g.x);
+        invZoom.ty = g.ty + (p.y - g.y);
+        invZoomApply();
+      }
+    }, { passive: false });
+
+    function endTouch(e) {
+      // lifting one of two fingers must re-baseline, or the remaining finger
+      // inherits the pinch anchor and the receipt jumps
+      if (e.touches.length === 1 && invZoom.scale > 1.001) { beginDrag(e.touches[0]); return; }
+      if (e.touches.length >= 2) { beginPinch(e.touches); return; }
+      g = null;
+      wrap.classList.remove('is-panning');
+    }
+    wrap.addEventListener('touchend', endTouch);
+    wrap.addEventListener('touchcancel', endTouch);
+  })();
+
   // Auto-detected badges are a hint, not a guarantee — clear a field's
   // badge as soon as she edits it, since it no longer reflects what's
   // actually in the box.
@@ -2750,6 +2971,7 @@
 
   function closeInvoiceDetail() {
     document.getElementById('invoiceDetailModal').style.display = 'none';
+    invZoomReset();                    // zoom is per-invoice, not a sticky preference
     detailInvoice = null;
     isEditingHistoryRow = false;
     coreEditState = [];
