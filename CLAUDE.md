@@ -99,7 +99,7 @@ Every file under `/docs/wiring/` follows this shape:
 | RO line items (Add/Edit-Line pop-up) | `ro-line-items.md` | `ro_line_items` (+ `unit_cost`), `advisor-board.html` (`#cdLineModal`, `renderLines`, `openLineModal`/`saveLineModal`) |
 | Invoice capture & classify (Process-Invoice modal · preview zoom) | `invoice-classify.md` (**§4a rotate WRITES to storage · §4b zoom is view-only CSS transform**; §5 = rotate × zoom compose) | `advisor-board.html` (`#view-capture`), `bookkeeping-board.html` (`#invoiceDetailModal`, `rotateInvoiceImage`, `invZoom*`), `api/extract-invoice.js`, `invoice_queue` |
 | Financial Pulse (bookkeeping) | `financial-pulse.md` | `bookkeeping-board.html` (`#finPulse`, `FinancialPulse`); `invoice_queue`, `repair_orders` + `ro_line_items`, `completed_jobs` |
-| RO / invoice document (print + embed) | `ro-invoice.md` | `shared/ro-invoice.js`; `advisor-board.html` (`printRo` wrapper), `bookkeeping-board.html` (RO-detail left pane) |
+| RO / invoice document (print + embed) | `ro-invoice.md` (**§4 = the three consumers; the builder is the ONLY copy of the document AND of `DOC_LABEL`**) | `shared/ro-invoice.js`; `advisor-board.html` (`printRo` wrapper), `bookkeeping-board.html` (RO-detail left pane + `printRoDetail` / `#finRoPrint`) |
 | RO payments ledger | `payments.md` | `ro_payments`; `advisor-board.html` (`recordPayment`/balance), `bookkeeping-board.html` (income + RO detail) |
 | Settings hub | `settings.md` | `shared/board-settings.js`, `shop_settings`, `employees`, `crisdata.html`, `api/announcement.js` |
 | File Cabinet tab | `file-cabinet.md` | `shared/file-cabinet.js`, `owner-board.html` |

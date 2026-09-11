@@ -1,12 +1,13 @@
 # How the RO / invoice document builder is wired
 
 > Doc: `/docs/wiring/ro-invoice.md`
-> Last updated: 2026-08-09 — verified vs commit `455693f` (merged to main)
-> Status: ✅ BUILT + verified this session. `printRo` was extracted into a shared PURE builder
-> `shared/ro-invoice.js` (+ `ro-invoice.test.js`, 11 tests). Two consumers render the identical
-> document: the advisor board prints it; the bookkeeping RO-detail LEFT pane embeds it. Verified
-> live: paid RO 6022 → PAID document (stamp, $0 balance, combined method); estimate 6025 →
-> unchanged authorization + signature layout.
+> Last updated: 2026-09-11 — verified vs commit `0fcc863` (the commit this doc ships with)
+> Status: ✅ BUILT + verified. `printRo` was extracted into a shared PURE builder
+> `shared/ro-invoice.js` (+ `ro-invoice.test.js`, 11 tests). **THREE** consumers now render the
+> identical document: the advisor board prints it, the bookkeeping RO-detail LEFT pane embeds it,
+> and (2026-09-11) that same panel PRINTS it for QuickBooks. Re-verified 2026-09-11 by generating
+> the document from HEAD's builder and the working tree's and diffing: byte-identical across all
+> four stages + receipt mode, and the bookkeeping print is byte-identical to the advisor print.
 
 ## 0. In one line
 One shared function builds the customer-facing **Estimate / Repair Order / Invoice / Receipt**
@@ -59,7 +60,7 @@ PAID state instead of a blank signature line.
   real payment data exists; it never regresses an untracked RO. **No feature switch** — it's a
   data-gated correctness fix (see the session report for the rationale).
 
-## 4. The two consumers
+## 4. The three consumers
 - **Advisor board — `printRo(receipt)`** (`advisor-board.html`): a **thin wrapper** — gathers
   `currentRo` / `currentLines` / `shop_settings` / `currentPayments` (+ `receipt` for diag mode)
   → `window.RoInvoice.buildPrintDoc(...)` → `window.open` + `document.write`. No visual change to
@@ -69,14 +70,31 @@ PAID state instead of a blank signature line.
   `<div class="roinv roinv-embed">${buildInvoiceHtml(...)}</div>` — the **full real invoice**
   instead of the old brief summary. It fetches the full RO fields + `ro_payments` for this (so a
   closed/paid RO shows PAID inside the panel too). The RIGHT pane keeps receipts + profit-over-parts.
+- **Bookkeeping board — `printRoDetail()`, the "🖨 Print / Save PDF" button** in the RO-detail
+  header (`#finRoPrint`, hidden until an RO actually loads): Daiana attaches the customer invoice
+  to the job in QuickBooks, and used to screenshot the LEFT pane in pieces. It calls
+  `buildPrintDoc` with **the same opts the LEFT pane already embeds** (`ro`, `ro.ro_line_items`,
+  `shop_settings`, `ro_payments`, `receipt: null`), so print and embed cannot diverge: the two
+  differ only by `buildPrintDoc`'s `@page` + `INVOICE_CSS` wrapper. Renders from **RO data, not
+  from the screen**, so scroll position and the split layout are irrelevant.
+  - **LEFT SIDE ONLY.** The parts receipts and the cost/profit column are this board's own
+    analysis, not the customer document, and never appear in what the button produces.
+  - **Never receipt mode** — the quick diag-fee receipt stays an advisor-only entry point.
+  - The button is **hidden for an ALLDATA-only job** (no `repair_orders` row → nothing to print)
+    and is cleared while a new RO loads, so the previous RO can't be printed mid-fetch.
 
-## Known gaps & open questions (as of 2026-08-09)
+## Known gaps & open questions (as of 2026-09-11)
 - **Embed width** — the invoice is designed for a 7.5in page; in the bookkeeping split it renders
   in a ~1.5fr column (modal widened to 1140px) with `overflow-x:auto`. Fine on desktop; tight on
   a phone (the modal isn't a mobile target for the bookkeeper).
 - **`printRo` still reads `currentPayments`** (module global) for the paid state — correct while
   the RO detail is open (payments are loaded there). Printing a paid RO whose payments haven't
   loaded would fall back to the unpaid layout (fails safe).
+- **A second `DOC_LABEL` map sat unread in `advisor-board.html`** until 2026-09-11, when it was
+  deleted (it was declared and never referenced — the live map is `shared/ro-invoice.js:50`).
+  `shared/ro-invoice.js` is now the ONLY copy; don't re-add one.
+- **The bookkeeping print button shares `printRo`'s pop-up dependency** — a blocked pop-up shows
+  the same "please allow pop-ups" alert. There is no in-page fallback on either board.
 - **`esc` now also escapes `&`/`"`/`'`** (the old inline board `esc` did only `<`/`>`); output
   renders identically in HTML text — no visual change, slightly more correct.
 
@@ -84,13 +102,20 @@ PAID state instead of a blank signature line.
 - **Builder:** `shared/ro-invoice.js` (`buildInvoiceHtml`, `buildPrintDoc`, `INVOICE_CSS`) +
   `shared/ro-invoice.test.js`.
 - **Advisor wrapper:** `advisor-board.html` `printRo` + the `import * as RoInvoice` module tag.
-- **Bookkeeping embed:** `bookkeeping-board.html` `openRoDetail` (full RO + payments fetch) /
-  `renderRoDetail` (LEFT pane embed + pre-tax profit) + the `import * as RoInvoice` module tag.
+- **Bookkeeping embed + print:** `bookkeeping-board.html` `openRoDetail` (full RO + payments
+  fetch) / `renderRoDetail` (LEFT pane embed + pre-tax profit; arms the print button) /
+  `printRoDetail` + `#finRoPrint` + `.fin-drill-print` + the `import * as RoInvoice` module tag.
 - **Related docs:** [[payments]] (the `ro_payments` the PAID state reads), [[financial-pulse]]
   (§9 the bookkeeping consumer), [[ro-line-items]] (the lines the totals sum; package fold-in),
   [[packages]] (package lines print under Parts), [[settings]] (shop profile + `payment_methods`).
 
 ## Session change log
+- 2026-09-11 — Added the bookkeeping **"🖨 Print / Save PDF"** button (`printRoDetail`) so Daiana
+  can save the customer invoice as a PDF for QuickBooks instead of screenshotting the panel. No
+  new document code: it reuses `buildPrintDoc` with the LEFT pane's own opts. Deleted the unread
+  duplicate `DOC_LABEL` in `advisor-board.html`. Verified the customer document is byte-identical
+  before/after (all four stages + receipt mode) and identical across both boards, incl. the PAID
+  document; confirmed the printed doc carries no receipts/cost/profit content.
 - 2026-08-09 — Created. Extracted `advisor-board.html` `printRo` into the shared PURE builder
   `shared/ro-invoice.js` (`buildInvoiceHtml` / `buildPrintDoc` / scoped `INVOICE_CSS`; 11 tests).
   Refactored `printRo` to a thin wrapper (no visual change to the estimate/unpaid printout).

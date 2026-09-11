@@ -382,6 +382,15 @@
     width: 30px; height: 30px; border-radius: 8px; font-size: 0.9rem; cursor: pointer; flex-shrink: 0;
   }
   .fin-drill-close:hover { color: var(--text); border-color: var(--accent); }
+  /* Header actions — Print sits LEFT of the ✕ so the close button stays exactly
+     where it has always been in every other drill modal. */
+  .fin-drill-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .fin-drill-print {
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+    height: 30px; padding: 0 11px; border-radius: 8px; font-size: 0.74rem; font-weight: 700;
+    cursor: pointer; white-space: nowrap;
+  }
+  .fin-drill-print:hover { border-color: var(--accent); color: var(--accent); }
   .fin-drill-body { padding: 6px 18px 18px; overflow-y: auto; }
   .fin-drill-scroll { overflow-x: auto; }
   .fin-drill-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
@@ -848,7 +857,11 @@
             <div class="fin-drill-title" id="finRoTitle">RO detail</div>
             <div class="fin-drill-sub" id="finRoSub"></div>
           </div>
-          <button type="button" class="fin-drill-close" id="finRoClose" aria-label="Close">✕</button>
+          <div class="fin-drill-actions">
+            <button type="button" class="fin-drill-print" id="finRoPrint" style="display:none"
+                    title="Print the customer invoice, or Save as PDF from the print dialog">🖨 Print / Save PDF</button>
+            <button type="button" class="fin-drill-close" id="finRoClose" aria-label="Close">✕</button>
+          </div>
         </div>
         <div class="fin-drill-body" id="finRoBody"></div>
       </div>
@@ -3968,6 +3981,9 @@
       if (title) title.textContent = `RO #${po}`;
       if (subEl) subEl.textContent = 'Loading…';
       if (body) body.innerHTML = '<div class="fin-rc-empty">Loading RO + receipts…</div>';
+      roDetailPrintCtx = null;                       // never print the PREVIOUS RO while this one loads
+      const printBtn0 = document.getElementById('finRoPrint');
+      if (printBtn0) printBtn0.style.display = 'none';
       if (overlay) overlay.style.display = 'flex';
       let ro = null, receipts = [], poLines = [], payments = [];
       // Full RO fields so the LEFT pane can render the real invoice document.
@@ -4000,7 +4016,49 @@
     }
     function closeRoDetail() {
       roDetailOpen = false;
+      roDetailPrintCtx = null;
+      const pb = document.getElementById('finRoPrint'); if (pb) pb.style.display = 'none';
       const m = document.getElementById('finRoDetail'); if (m) m.style.display = 'none';
+    }
+
+    // ── Print / Save PDF — the customer invoice, for QuickBooks ──
+    // Daiana needs the finished invoice as a file to attach; she used to
+    // screenshot the LEFT pane in pieces. This prints the SAME document the
+    // advisor board prints, because it is literally the same call: the shared
+    // builder's buildPrintDoc() is INVOICE_CSS + buildInvoiceHtml(opts), and
+    // the opts here are the ones the LEFT pane already embeds. There is no
+    // second copy of the invoice markup on this board and there must never be
+    // one — see docs/wiring/ro-invoice.md.
+    //
+    // LEFT SIDE ONLY. The parts receipts and the cost/profit column are this
+    // board's own analysis, NOT part of the customer document, and are
+    // deliberately absent from what this button produces.
+    //
+    // Renders from RO DATA, not from what's on screen, so the document is the
+    // full one-page invoice regardless of how the split pane is scrolled.
+    let roDetailPrintCtx = null;
+
+    function printRoDetail() {
+      // No CrisData RO (an ALLDATA-only job) → nothing to print; the button is
+      // hidden in that case, so this is just belt-and-braces.
+      if (!roDetailPrintCtx || !roDetailPrintCtx.ro) return;
+      if (!window.RoInvoice || !window.RoInvoice.buildPrintDoc) {
+        alert('Invoice builder still loading — please try again in a moment.');
+        return;
+      }
+      const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
+      const methodLabel = (window.BoardSettings && BoardSettings.paymentMethodLabel) ? BoardSettings.paymentMethodLabel : undefined;
+      const doc = window.RoInvoice.buildPrintDoc({
+        ro: roDetailPrintCtx.ro,
+        lines: roDetailPrintCtx.ro.ro_line_items || [],
+        settings: cfg,
+        payments: roDetailPrintCtx.payments || [],
+        receipt: null,          // never receipt mode from this board
+        methodLabel,
+      });
+      const w = window.open('', '_blank', 'width=850,height=1100');
+      if (!w) { alert('Please allow pop-ups to print the invoice.'); return; }
+      w.document.open(); w.document.write(doc); w.document.close();
     }
 
     async function renderRoDetail(po, ro, receipts, poLines, provisional, payments) {
@@ -4058,6 +4116,13 @@
       if (window.RoInvoice && window.RoInvoice.INVOICE_CSS && !document.getElementById('roinv-css')) {
         const st = document.createElement('style'); st.id = 'roinv-css'; st.textContent = window.RoInvoice.INVOICE_CSS; document.head.appendChild(st);
       }
+      // The print button prints exactly what the LEFT pane just rendered —
+      // same ro, same lines, same payments — so it arms here, next to the
+      // embed, and stays hidden for an ALLDATA-only job with no RO document.
+      roDetailPrintCtx = ro ? { ro, payments: payments || [] } : null;
+      const printBtn = document.getElementById('finRoPrint');
+      if (printBtn) printBtn.style.display = ro ? '' : 'none';
+
       const leftHtml = (ro && window.RoInvoice && window.RoInvoice.buildInvoiceHtml)
         ? `<div class="roinv roinv-embed">${window.RoInvoice.buildInvoiceHtml({ ro, lines: ro.ro_line_items || [], settings: cfg, payments: payments || [], methodLabel })}</div>`
         : `<div class="fin-rc-empty">No CrisData RO record for PO ${esc(po)} (likely an ALLDATA-only job). Receipts still shown at right.</div>`;
@@ -4145,6 +4210,8 @@
       const roModal = document.getElementById('finRoDetail');
       const roClose = document.getElementById('finRoClose');
       if (roClose) roClose.addEventListener('click', closeRoDetail);
+      const roPrint = document.getElementById('finRoPrint');
+      if (roPrint) roPrint.addEventListener('click', printRoDetail);
       if (roModal) roModal.addEventListener('click', e => { if (e.target === roModal) closeRoDetail(); });
       // receipt-photo thumbnails (delegated on the RO detail body) + lightbox
       const roBody = document.getElementById('finRoBody');

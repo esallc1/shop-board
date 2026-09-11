@@ -4743,7 +4743,9 @@
     // Stage drives the printed document's IDENTITY — same layout/engine,
     // same one ro_number, only the header label changes. This is what
     // gives the estimate-vs-invoice paper distinction off ONE number.
-    const DOC_LABEL = { estimate: 'ESTIMATE', ro: 'REPAIR ORDER', invoice: 'INVOICE', closed: 'INVOICE', receipt: 'RECEIPT' };
+    // The DOC_LABEL map itself lives in shared/ro-invoice.js (the ONLY copy) —
+    // a duplicate sat here unread until 2026-09-11. Don't re-add one: BOTH
+    // boards print off that map now, and a second copy can only drift.
 
     // ── PAYMENT METHODS (Phase 5) — the active list now comes from the
     // editable payment_methods table via BoardSettings (Slice 2); this

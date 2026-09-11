@@ -119,7 +119,7 @@ you can prove succeeded, not merely one that didn't throw.
 | Packages (unit prices + Package line) | [packages.md](packages.md) | ✅ BUILT vs `17d4b02`, behind `feature_packages` (default OFF) |
 | RO payments ledger | [payments.md](payments.md) | ✅ verified vs `455693f` |
 | Profit by RO (per-job profit) | [profit-by-ro.md](profit-by-ro.md) | ✅ Steps A + B + C built vs branch `profit-by-ro` |
-| RO / invoice document (print + embed) | [ro-invoice.md](ro-invoice.md) | ✅ BUILT + verified vs `455693f` |
+| RO / invoice document (print + embed + bookkeeping print) | [ro-invoice.md](ro-invoice.md) | ✅ BUILT + verified vs `0fcc863` · §4 = the THREE consumers; bookkeeping can now print the customer invoice for QuickBooks |
 | RO line items (Add/Edit-Line pop-up) | [ro-line-items.md](ro-line-items.md) | ✅ BUILT + verified live vs `17d4b02` |
 | Staging database (isolated `test.*` DB) | [staging-db.md](staging-db.md) | ⚠ **Needs review** — header still reads 🟡 in-progress (2026-08-12), but the sandbox is live and prod-deployed |
 | Employee roster (hire · retire · test accounts · assignment-vs-role) | [employee-roster.md](employee-roster.md) | ✅ §7a = the assignee write-safety rule |
