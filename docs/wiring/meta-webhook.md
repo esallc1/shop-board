@@ -1,9 +1,12 @@
 # How the Meta / Facebook webhook is wired
 
 > Doc: `/docs/wiring/meta-webhook.md`
-> Last updated: 2026-09-12 — created with the receive-and-verify slice.
-> Verified vs commit `42a5e94` (the tree this endpoint was written against).
-> Status: 🟡 **skeleton on a branch + staging. Not on prod. Nothing is stored yet.**
+> Last updated: 2026-09-12 — created with the receive-and-verify slice, then
+> corrected the same day once it shipped and both paths were proven live.
+> Verified vs commit `8e9f250` (the commit that SHIPPED it — not `42a5e94`, the
+> tree it was written against; see the change log for why that distinction bit).
+> Status: 🟢 **LIVE ON PROD, both paths proven against real Meta traffic (§8).
+> Nothing is stored yet** — receiving is all this slice does.
 > Related: [[hosting-domains]] (env vars, domains), [[call-window-desk]] and
 > [[call-auto-attach]] (where a future Messenger lead would eventually land).
 
@@ -35,9 +38,27 @@ on top of a request we already know is genuine.
 | App name | Lee Transmission CrisData |
 | App ID | `1075837401512965` |
 | Mode | Development |
+| Prod callback URL | `https://www.leetransmissionshop.com/api/meta-webhook` |
 
 The app itself is configured by hand in Meta's dashboard — there is no code in
 this repo that creates or changes it.
+
+### 2a. Its dashboard state as of 2026-09-12 — three things that look like faults and are not
+Read this before concluding the integration is broken:
+
+- **Field subscriptions are deliberately still Unsubscribed.** The callback URL
+  is verified and the `messages` field has been test-fired, but no field is
+  actually subscribed. So Meta sends **nothing** on its own — not because the
+  endpoint is failing, but because we have not asked for traffic we cannot yet
+  store (§1). Subscribing is a decision for the slice that adds storage.
+- **The app is UNPUBLISHED.** Only webhook tests fired from the dashboard
+  arrive. A real customer messaging the Page produces no delivery at all.
+- **No business portfolio is attached** — blocked on Meta's device-verification
+  wall. That matters later, not now: it is what gates **App Review**, and
+  therefore gates ever receiving live customer messages in production.
+
+Taken together: today this endpoint can only be reached by Meta's own test
+button and by anyone who guesses the URL. The second is why §4 enforces.
 
 **Unrelated, and easy to confuse:** `advisor-board.html`'s `TRACKING_SOURCE`
 maps `'2399320855' → 'Facebook'`. That is a **CallTrackingMetrics tracking
@@ -76,6 +97,9 @@ Order matters:
 Step 4 is not decoration: `timingSafeEqual` **throws** on unequal lengths, so a
 short, long or odd-length hex has to be rejected before it reaches the compare.
 An odd-length hex is the sneaky one — `Buffer.from` silently truncates it.
+
+Confirmed against real Meta traffic on 2026-09-12 — see **§8**, and §8a for why
+that confirmation only counts alongside the unsigned-POST `403`.
 
 Two more properties, both tested: the comparison is over the **raw bytes**
 (`bodyParser` is off and the body is read as a `Buffer`, never a utf8
@@ -130,20 +154,69 @@ before designing a schema for it — not to put customer messages into the Verce
 log. A test asserts the summary of a real-shaped Messenger delivery contains
 none of the message body.
 
+## 8. What has actually been proven against live Meta traffic
+Both halves were exercised from Meta's dashboard on **2026-09-12**, against prod
+at `8e9f250`:
+
+| Path | How | Result |
+|---|---|---|
+| GET handshake | "Verify and save" on the Page object, callback `https://www.leetransmissionshop.com/api/meta-webhook` | **succeeded** — Meta accepted the echoed challenge |
+| POST + signature | Webhook fields → `messages` → Test → "Send to server v26.0", 8:00am | **"Successfully tested the messages v26.0 webhook field"** — Meta signed a real sample payload with the live App Secret and got `200` |
+
+### 8a. Why the 200 is only meaningful as one half of a PAIR
+**A success message on its own proves nothing here.** An endpoint that returned
+`200` to *everything* — no signature check at all, or a check that silently fell
+open when the secret was missing — would produce that exact same
+"Successfully tested" line. The `200` alone cannot distinguish a working
+verifier from no verifier.
+
+What makes it evidence is the **contrasting negative**, measured against the
+same URL on the same deployment:
+
+| Request to the prod URL | Status | What it rules out |
+|---|---|---|
+| Meta's signed sample POST | `200` | the secret is wrong, or the signing rule is misread |
+| unsigned POST, no `X-Hub-Signature-256` | `403` | the handler 200s indiscriminately |
+| GET with a wrong `hub.verify_token` | `403` | the handshake echoes any challenge |
+| a route that does not exist | `404` | the `403`s are a platform artifact rather than this handler's |
+
+Only the **pair** — signed `200` *and* unsigned `403`, on the same live URL —
+shows that enforcement is real and that the live `META_APP_SECRET` is the same
+secret Meta signs with. Either reading alone is worthless: a `403`-everything
+endpoint would also reject Meta, and a `200`-everything endpoint would also
+accept it.
+
+**Same discipline as `send-push`'s gate order** ([[hosting-domains]] §2a, gates
+`405→403→401→500→400`): there, `403` means *origin rejected* and `401` means
+*secret rejected*, and that distinction is the only thing that separates the two
+failures — which is exactly why the front-desk outage stayed invisible for weeks
+when `firePush` discarded the response and never read the code at all
+(`1fc57fa`). A single outcome is not a diagnosis; the status code is.
+
+Inherit it: when you next change anything in §4, re-run **both** probes, not the
+happy path. A regression that turns this endpoint permissive would keep Meta's
+test green and would be invisible from the success message alone.
+
 ## Known gaps & open questions (as of 2026-09-12)
 - **Nothing is durable.** A delivery is proven authentic, logged, and dropped.
   If Meta sends a lead today, it is gone tomorrow.
 - **The next slice needs schema decisions**: does a Messenger conversation
   become a `calls` row, a new table, or a lead on the Desk? Where does a PSID
   live, and what is the retention rule for it?
-- **Not deployed to prod.** Staging only, and the Meta app is in Development
-  mode, so only app roles can trigger deliveries.
 - **No delivery log table.** Unlike CTM (`ctm_webhook_log`) there is no
   persisted record, so a rejected delivery leaves only a Vercel log line. If we
   need to debug a signature mismatch against real traffic, that's the first
   thing to add.
-- **Untested against real Meta traffic** — the signature format is implemented
-  from Meta's documented rule, not yet confirmed against a live delivery.
+- **What §8 proves, and what it does not.** The signing rule and the live
+  secret are confirmed (§8), but only against **Meta's dashboard test payload**
+  for the `messages` field. No real end-user delivery has ever reached this
+  endpoint — the app is unpublished and no field is subscribed (§2a). A genuine
+  customer message may carry a shape the sample does not; §5 is why that would
+  be logged and `200`d rather than error out, but it is untested in the wild.
+- **`test.*` cannot do the handshake.** The env vars are set on Vercel's
+  **Production** scope only, so staging 403s everything. That is fine while
+  nothing is stored, but a future slice testing real payloads on staging needs
+  its own `META_VERIFY_TOKEN` and a second callback registered with Meta.
 
 ## Where it lives in the code
 - `api/meta-webhook.js` — the whole endpoint. Exports: `default handler`,
@@ -161,3 +234,21 @@ none of the message body.
 - **2026-09-12** — created. `api/meta-webhook.js` + `api/meta-webhook.test.js`:
   GET handshake, enforced `X-Hub-Signature-256`, structured log line, 200-fast
   discipline. No DB, no UI, no migration. Test suite 490 → 515.
+- **2026-09-12** — shipped to prod as `8e9f250` (fast-forward of `main`, branch
+  push). Verified live: `/api/version` on `www` + `board`, `advisor-board.html`
+  byte-identical to the commit, unsigned POST `403` (not `404`), and the owner
+  board's File Cabinet still rendering all 27 rows.
+- **2026-09-12** — **both paths proven with real Meta traffic** (§8). GET:
+  "Verify and save" on the Page object succeeded. POST: Webhook fields →
+  `messages` → "Send to server v26.0" returned "Successfully tested the
+  messages v26.0 webhook field" at 8:00am — Meta signed a sample with the live
+  App Secret and got `200`. §8a records **why that `200` only counts paired with
+  the unsigned-POST `403`**, since a permissive endpoint would report the same
+  success. Also documented the dashboard state (§2a): fields still
+  Unsubscribed, app unpublished, no business portfolio.
+- **2026-09-12** — doc corrected. It had shipped saying "🟡 skeleton on a branch
+  + staging. Not on prod" while running on prod, and carried
+  `Verified vs 42a5e94` — the tree the code was *written against*, not the
+  commit that *shipped* it. The File Cabinet's chip derives from that line, so
+  it rendered a confident green "verified vs 42a5e94" on a doc whose own status
+  line said the opposite. **Stamp the shipping commit, not the writing commit.**
