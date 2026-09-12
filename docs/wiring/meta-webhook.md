@@ -5,8 +5,8 @@
 > corrected the same day once it shipped and both paths were proven live.
 > Verified vs commit `8e9f250` (the commit that SHIPPED it — not `42a5e94`, the
 > tree it was written against; see the change log for why that distinction bit).
-> Status: 🟢 **LIVE ON PROD, both paths proven against real Meta traffic (§8).
-> Nothing is stored yet** — receiving is all this slice does.
+> Status: 🟢 **LIVE ON PROD — both paths proven against real Meta traffic (§8).**
+> **Nothing is stored yet** — receiving is all this slice does.
 > Related: [[hosting-domains]] (env vars, domains), [[call-window-desk]] and
 > [[call-auto-attach]] (where a future Messenger lead would eventually land).
 

@@ -49,6 +49,13 @@ and renders their markdown — the File Cabinet the CLAUDE.md rules describe, ma
   app's no-CDN-for-logic convention). Handles headings, bulleted lists (with wrapped
   continuation lines + one level of nesting), tables, blockquotes, fenced + inline
   code, links, bold/italic, and horizontal rules.
+- ⚠ **Bold cannot span two `> ` lines.** The blockquote branch renders each quoted
+  line on its own (`buf.map(b => inline(b))`, `shared/file-cabinet.js:160`), and
+  `inline()` pairs `**` only within the string it is given. A paragraph is joined
+  before `inline()` runs, so cross-line bold works there — but in a doc's `>`
+  header block, a `**` opened on one line and closed on the next renders as
+  literal asterisks. Verified 2026-09-12 by hitting it in `meta-webhook.md`'s
+  Status line. Keep each header line's emphasis self-contained.
 - HTML is escaped but **real entities are preserved** (the docs contain a literal
   `&nbsp;`). Inline code is split out before the emphasis/link passes so code contents
   are never altered.
