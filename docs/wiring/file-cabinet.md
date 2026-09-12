@@ -53,21 +53,28 @@ and renders their markdown — the File Cabinet the CLAUDE.md rules describe, ma
   `&nbsp;`). Inline code is split out before the emphasis/link passes so code contents
   are never altered.
 
-## ⚠ The manifest is INCOMPLETE (as of 2026-08-23)
-`shared/file-cabinet.js` lists **25** docs. `/docs/wiring/` contains **33**. Eight subsystems are
-therefore written up but **invisible on the owner board** — the File Cabinet shows a shop that is
-less documented than it is:
+## ⚠ The manifest is INCOMPLETE (recounted 2026-09-12)
+`shared/file-cabinet.js` lists **27** entries (26 subsystem docs + the README). `/docs/wiring/`
+contains **37** files. **Ten** subsystems are therefore written up but **invisible on the owner
+board** — the File Cabinet shows a shop that is less documented than it is:
 
 | Missing from the manifest |
 |---|
 | `advisor-commission.md` |
 | `customer-dedupe.md` |
 | `employee-roster.md` |
+| `gm-overview-cards.md` |
+| `invoice-classify.md` |
 | `manager-board.md` |
 | `packages.md` |
 | `payments.md` |
 | `ro-invoice.md` |
 | `ro-line-items.md` |
+
+The 2026-08-23 version of this section said 25 / 33 / eight, and listed eight. That count had
+drifted: two more docs (`gm-overview-cards.md`, `invoice-classify.md`) were written afterwards
+without a manifest row, which is exactly the drift the section warns about. The list above was
+recomputed from the two sources on 2026-09-12, not carried forward.
 
 This is the cabinet's own version of the failure the README's second recurring-hazard section
 describes: **a doc that is missing from the list looks exactly like a subsystem nobody wrote up.**

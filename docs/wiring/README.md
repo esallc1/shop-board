@@ -125,6 +125,8 @@ you can prove succeeded, not merely one that didn't throw.
 | Employee roster (hire · retire · test accounts · assignment-vs-role) | [employee-roster.md](employee-roster.md) | ✅ §7a = the assignee write-safety rule |
 | RO photos (**per-RO** buckets · capture · move · archive) | [ro-photos.md](ro-photos.md) | 🟢 all three slices LIVE ON PROD (2026-08-23, `484a3e0`); **carries a live FINDING in §6** and one open item (block E) |
 | Page map (which pages exist, who reaches them) | [page-map.md](page-map.md) | ✅ verified vs `c17db7e` — replaces the flat 12-name handoff list |
+| Meta / Facebook webhook (receive + verify) | [meta-webhook.md](meta-webhook.md) | 🟡 skeleton on `staging` only — GET handshake + ENFORCED `X-Hub-Signature-256`; nothing stored yet |
+| Tech findings (diagnosis handoff · append-not-overwrite) | [tech-findings.md](tech-findings.md) | ⚠ **Needs review** — never listed here; and its own header still reads 🟡 "on staging, not yet on prod" while `shared/tech-findings.js` is on `main` (`8a80aa3`) |
 
 _Seeded 2026-07-30 from the Jul 29 session handoff. Verified 2026-07-30 against commit `bea25cf`:
 every claim re-checked against source; two docs remain partial (noted above) but contain no
