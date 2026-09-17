@@ -4213,6 +4213,7 @@
         .update({ name, phone_primary: phone }).eq('id', state.customerId);
       btn.disabled = false; btn.textContent = 'Save details';
       if (error) { console.error('[CdRO] edit customer failed', error); errEl.textContent = 'Save failed: ' + error.message; return; }
+      if (window.cdInvalidateCustList) window.cdInvalidateCustList();   // a renamed customer must be findable by the new name
       state.customerName = name; state.customerPhone = phone;
       $('cdVehiclesCustomerBanner').innerHTML = customerBannerHtml(name, state.customerBusiness, 'existing');
       $('cdEditCustBox').style.display = 'none';
@@ -4254,6 +4255,7 @@
       try {
         const { data, error } = await db.from('customers').insert(row).select('id, name, business_name, phone_primary').single();
         if (error) throw error;
+        if (window.cdInvalidateCustList) window.cdInvalidateCustList();   // the Customers search must find them without a reload
         // brand-new customer → no vehicles yet, go straight to create-vehicle
         setCustomer(data);
         state.parentRoId = null; state.priorRo = null;
@@ -8227,6 +8229,53 @@
       return custAllList;
     }
 
+    /* THE CACHE MUST LEARN ABOUT NEW AND RENAMED PEOPLE.
+       It used to be filled once per page load and invalidated ONLY by the
+       error-retry button, so a customer created in the intake wizard minutes
+       earlier — or by Manny in another tab — stayed invisible to this search
+       until the page was fully closed and reopened. The search then said
+       "No customers." / "No matches" about somebody who exists, which is exactly
+       how a duplicate customer file gets made. Caught on prod 2026-09-17.
+
+       Two nets, because they fail in different ways:
+         • invalidateCustAllList() — called by every customer write in this page
+           (published as window.cdInvalidateCustList below). Synchronous, local,
+           cannot miss.
+         • realtime on `customers` — covers the OTHER tab and the other person.
+       Neither refetches on its own: the list is re-read the next time somebody
+       opens or types in it, so this costs nothing per keystroke. */
+    function invalidateCustAllList() {
+      custAllList = null;
+      custAllLoaded = false;
+    }
+    // The writers live in other IIFEs (the intake wizard; the Desk attach
+    // phone-learning), so the invalidator is published on window — the same
+    // shape as window.cdFetchAllCustomers, which this cache already consumes.
+    window.cdInvalidateCustList = invalidateCustAllList;
+
+    // Live refresh when customers change elsewhere. Matches this board's other
+    // channels (advisor-board-cdros-live / -desk-live / -todos-live). `customers`
+    // IS in the supabase_realtime publication (20260716_ro_foundation.sql, the
+    // REALTIME block), so this actually fires — and if the socket ever drops, the
+    // invalidate calls and the focus backstop still keep the list honest.
+    let custChannel = null;
+    function subscribeCustomersRealtime() {
+      if (custChannel) db.removeChannel(custChannel);
+      custChannel = db.channel('advisor-board-customers-live')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, () => {
+          invalidateCustAllList();
+          // Re-read only when the list is actually on screen; otherwise the next
+          // ensureCustAllList() picks it up.
+          const panel = $('custListPanel');
+          if (panel && panel.style.display !== 'none') {
+            const box = $('custSearchInput');
+            ensureCustAllList().then(() => renderCustSearch(box ? box.value : ''));
+          }
+        })
+        .subscribe();
+    }
+    subscribeCustomersRealtime();
+
     // ── LIST panel ──
     function showCustomerList() {
       const a = $('custRecAudio'); if (a && !a.paused) a.pause();
@@ -10537,6 +10586,11 @@
          permanently disable the record's refresh. */
       refetch: () => {
         if (camPendingRo || camBusy) return;
+        /* Returning to the tab is exactly when a stale list bites — the customer
+           was created in the OTHER tab. Mark it stale rather than fetching:
+           showCustomerList / renderCustSearch re-read it when they next need it.
+           This is the backstop for a dropped realtime socket. */
+        invalidateCustAllList();
         if ($('custRecordPanel').style.display !== 'none' && custCustomer) loadCustomerRecord(custCustomer.id);
       },
     };
@@ -11454,6 +11508,7 @@
       const r = await db.from('customers').update({ phone_secondary: value })
         .eq('id', custId).is('phone_secondary', null).select('id');
       if (r.error) throw r.error;
+      if (window.cdInvalidateCustList) window.cdInvalidateCustList();   // the list is searched by phone too
       return (r.data || []).length;          // 1 = claimed the empty slot, 0 = already occupied
     };
 
@@ -11575,6 +11630,7 @@
         const { error } = await db.from('customers').update({ phone_secondary: null })
           .eq('id', call.customer_id).eq('phone_secondary', key).select('id');
         if (error) { console.error('[desk] un-learn phone failed', error); alert('Could not update the customer: ' + error.message); return; }
+        if (window.cdInvalidateCustList) window.cdInvalidateCustList();   // the number just left this customer
       }
       const patch = { ...CA.unattachCallPatch(), ...autoPatch };
       const { error } = await db.from('calls').update(patch).eq('id', call.id);

@@ -79,7 +79,7 @@ Every file under `/docs/wiring/` follows this shape:
 |---|---|---|
 | Comeback / warranty | `comeback-warranty.md` | `advisor-board.html`, `shared/comeback-chain.js` |
 | Recordings / audio | `recordings-audio.md` | `api/recording-links.js`, `shared/recording-player.js`, `api/recording-assign.js` |
-| Customer record | `customer-record.md` | `#view-customer` in `advisor-board.html` |
+| Customer record | `customer-record.md` (§4c/§4e = the list cache's two honesty rules) | `#view-customer` in `advisor-board.html`, `shared/cust-cache-guard.test.js` |
 | Intake wizard | `intake-wizard.md` | `advisor-board.html` |
 | Floor tags & lanes | `floor-tags.md` | `advisor-board.html` |
 | Call window & Desk | `call-window-desk.md` | `advisor-board.html` (`callerCard` + `desk` IIFEs) |
