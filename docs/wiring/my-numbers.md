@@ -47,8 +47,8 @@ single self-contained HTML file that talks straight to Supabase with the anon ke
      `name, phone, role` on success and **zero rows for every failure** — unknown phone, wrong
      PIN, inactive, ambiguous phone, or **locked** (5 misses → 15 min) are deliberately
      indistinguishable, so the error line says "…After 5 tries, wait 15 minutes." Only rows
-     with a hash can log in: `Cristian Tech` everywhere, `ZZ Test Tech` on the sandbox only
-     (M1 backfill). The old client-side ambiguity alert (`reportAmbiguousTech`) no longer fires
+     with a hash **and** `active` can log in: `Cristian Tech` on prod, `ZZ Test Tech` on the
+     sandbox (M1 backfill; each is inactive on the other project). The old client-side ambiguity alert (`reportAmbiguousTech`) no longer fires
      on this path — the function resolves an ambiguous phone to nobody, silently; the partial
      unique index on active phones ([[employee-roster]] §5) is what prevents it.
   2. **Session restore** — after a successful login the tech's **phone** (never the PIN) is

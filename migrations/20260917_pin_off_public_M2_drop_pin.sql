@@ -9,13 +9,10 @@
 --     prod → leetransmissionshop.com). The old my-numbers.html selects `pin` and
 --     the old gm-board.html writes it — both error the moment the column is gone.
 --   • On prod: Cris has logged in as Cristian Tech through login_with_pin.
---   • ⚠ THE COLUMN LIST BELOW IS FROM THE REPO'S MIGRATIONS, NOT FROM THE LIVE
---     SCHEMA (employees was created in the dashboard). Compare it with preflight
---     query 2 first. If it's wrong the post-check raises, naming the missing /
---     extra columns, and the whole transaction rolls back — nothing changes.
---     Known gap: docs/wiring/employee-roster.md §1a recorded 14 columns on both
---     projects (2026-08-21); the repo's migrations name only these 12 + pin = 13.
---     Expect at least one column (likely a timestamp) to be missing from the list.
+--   • The column list below matches preflight query 2 as run on BOTH projects
+--     2026-09-17: 14 columns, identical order, minus `pin` = 13. If the schema
+--     has drifted since, the post-check raises, naming the missing / extra
+--     columns, and the whole transaction rolls back — nothing changes.
 --
 -- IRREVERSIBLE for the PIN values: they exist only as bcrypt hashes after this.
 -- (Accepted — see the M2 rollback.)
@@ -64,6 +61,7 @@ select id,
        role,
        active,
        photo_url,
+       created_at,
        background_photo_url,
        avatar_path,
        auth_user_id,              -- kept: nothing resolves identity through the view

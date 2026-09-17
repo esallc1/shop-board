@@ -75,7 +75,8 @@ migration would have quietly opened the hole the security phase is meant to clos
 - `login_with_pin(p_phone, p_pin)` is the only reader ([[my-numbers]] §1). bcrypt
   (`gen_salt('bf', 8)`), 5 misses → locked 15 min, zero rows for every kind of failure.
 - **Who has a hash:** M1 backfills `Cristian Tech` on every project and `ZZ Test Tech` on
-  non-PROD only (`app_env`). Nobody else can PIN-login — nobody else needs to (office staff use
+  non-PROD only (`app_env`). `login_with_pin` also requires `active`, so the working PIN login
+  is **Cristian Tech on prod** and **ZZ Test Tech on the sandbox** (§6a). Nobody else can PIN-login — nobody else needs to (office staff use
   email; techs don't use My Numbers yet).
 - **Setting / rotating / unlocking a PIN is hand-run SQL** — the snippets are at the bottom of
   `migrations/20260917_pin_off_public_M1_employee_secrets.sql`. No UI writes a PIN.
@@ -241,11 +242,17 @@ Five rows retired on **both** projects. Cristian (owner) untouched.
 | Cory | left the shop — the byline that was being borrowed to test |
 | Josh | left; one of his two rows |
 | Jay Tech | left; Josh's other row, same phone `9416260382`, same PIN |
-| Cristian Tech | no longer needed once ZZ Test Tech existed |
+| Cristian Tech | no longer needed once ZZ Test Tech existed — **later re-activated on prod** (see below) |
 | Alex | left the shop |
 
 Retiring **Cristian Tech** cleared the `2396001971` collision; retiring **Josh + Jay Tech**
 cleared `9416260382` outright. That is what unblocked the §5 index.
+
+**Cristian Tech is ACTIVE again on prod** (preflight 2026-09-17): phone ending `0000`, no longer
+sharing the owner's phone, so the §5 index is satisfied. It is the one PIN login in real use
+(Cris diagnosing on `my-numbers.html`). The sandbox still holds the stale retired copy (`…1971`,
+`active = false`), so on `test.*` the PIN login is tested with **ZZ Test Tech** only — which is
+the reverse on prod, where ZZ Test Tech is `active = false`.
 
 ### Verify with counts, NOT with an empty result
 The obvious check — "duplicates query returns zero rows" — cannot tell a passing check from a
@@ -368,9 +375,10 @@ are claiming about.
   are SQL only too (§1c).
 - **Phase 2 is not live** until M1 → code → M2 run in order (sandbox, then prod). If the
   gm-board code ships before M1, **Add Employee fails** (`pin` still NOT NULL).
-- **M2's explicit column list comes from the repo, not the live schema.** §1a recorded 14
-  columns on 2026-08-21; the repo's migrations only name 13 (incl. `pin`). M2's post-check refuses
-  on any mismatch — fill the list from `…_PREFLIGHT_READONLY.sql` query 2 first.
+- **M2's explicit column list** was checked against preflight query 2 on both projects
+  (2026-09-17): `id, name, phone, role, active, photo_url, created_at, background_photo_url,
+  avatar_path, auth_user_id, commission_base_weekly, commission_gp_pct, is_test` (the live 14
+  minus `pin`). The post-check still refuses on any later drift.
 
 ## Where it lives in the code
 - Schema: `is_test` + `employees_visible` (applied by hand to both projects 2026-08-21; the
@@ -387,6 +395,7 @@ are claiming about.
 - Employee CRUD UI: `gm-board.html` (`loadEmployees`, `saveEmployee`, the delete confirm).
 
 ## Session change log
+- 2026-09-17 — Preflight results folded in: M2 view list gains `created_at` (14 live columns confirmed on both projects); §6a/§1c corrected — Cristian Tech is active on prod (…0000), retired only on the sandbox copy.
 - 2026-09-17 — **Security Phase 2 (branch `security/phase2-pins` (UNMERGED; migrations M1/M2 NOT applied anywhere)):** §1c/§1d added, §1/§1a rewritten for the explicit view list; PIN values scrubbed from §3/§6/§6a; §5 negative test no longer inserts a `pin`. Gaps + code map updated.
 - 2026-09-17 — §2 base-table readers and §3 "restored staging" updated: the `?u=&p=` URL login and `crisdata.html`'s phone/PIN lookup are deleted. Rest (incl. counts elsewhere) not re-verified.
 - 2026-08-21 — **§7 added: assignment is not role.** Audited every `employees` read; 5 of 12

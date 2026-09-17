@@ -9,7 +9,8 @@
 --      RLS ON, NO policies, all grants revoked from anon/authenticated/public.
 --      Only SECURITY DEFINER functions (owned by postgres) can touch it.
 --   2. Backfills a bcrypt hash from the CURRENT employees.pin for:
---        • 'Cristian Tech'  — every project (the one PIN in real use)
+--        • 'Cristian Tech'  — every project (the one PIN in real use; ACTIVE on prod,
+--                             retired on the sandbox's stale copy, so it can't log in there)
 --        • 'ZZ Test Tech'   — NON-PROD ONLY. Its PIN is written in a wiring doc that
 --          was served publicly, so on prod it must never become a working login.
 --      `on conflict do nothing`: re-running M1 never overwrites a rotated hash.
@@ -162,7 +163,8 @@ commit;
 --    select e.name, right(e.phone, 4) as phone_last4, e.active,
 --           s.failed_attempts, s.locked_until
 --      from public.employee_secrets s join public.employees e on e.id = s.employee_id;
---    expect: sandbox → Cristian Tech (if present) + ZZ Test Tech; prod → Cristian Tech only.
+--    expect: sandbox → Cristian Tech (active=false, inert) + ZZ Test Tech (active);
+--            prod    → Cristian Tech only (active). ZZ Test Tech is inactive on prod anyway.
 --
 -- b) The API roles cannot read the table (expect: false, false, false, false):
 --    select has_table_privilege('anon', 'public.employee_secrets', 'select'),
