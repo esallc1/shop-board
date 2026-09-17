@@ -1,7 +1,11 @@
 # How My Numbers (the tech's phone tool) is wired
 
 > Doc: `/docs/wiring/my-numbers.md`
-> Last updated: 2026-08-22 — §2's trilingual note now carries the **standing Creole cleanup**,
+> ⚠ **2026-09-17 — Security Phase 2 on branch `security/phase2-pins` (UNMERGED; migrations M1/M2 NOT applied anywhere).** The PIN is no longer checked in the browser:
+> `findEmployee` calls `shared/pin-login.js` → the SECURITY DEFINER RPC `login_with_pin` (§1, §8).
+> **This code needs M1 applied first** — on a database without `login_with_pin`, every PIN login
+> fails. §1 / §5-reads / §8 / gaps re-verified vs `141a4e7` + that branch; rest not re-verified.
+> Previously: 2026-08-22 — §2's trilingual note now carries the **standing Creole cleanup**,
 > and the RO-photo grids moved to **per-RO buckets** ([[ro-photos]] §3/§3a). Verified vs
 > `085e239` + the slice-3 working tree (UNMERGED).
 > Status: ⚠ **Needs review.** The 2026-07-30 pass below is still the last full verification of
@@ -36,8 +40,17 @@ single self-contained HTML file that talks straight to Supabase with the anon ke
   browser** using the publishable anon key hard-coded at `my-numbers.html:336-338`. There is
   **no service-role endpoint anywhere in this subsystem** (contrast the recordings/RO slices).
 - **How a tech reaches it — three auth paths** (see `boot()` at the bottom of the file):
-  1. **Direct visit + PIN** — the login screen: phone (10 digits) + 4-digit PIN, verified live
-     against the `employees` table (`findEmployee`).
+  1. **Direct visit + PIN** — the login screen: phone (10 digits) + 4-digit PIN. `findEmployee`
+     → `PinLogin.login` (`shared/pin-login.js`) → `db.rpc('login_with_pin', { p_phone, p_pin })`.
+     The check runs **inside Postgres** against a bcrypt hash in `employee_secrets` (a table no
+     API role can read); the browser never sees a PIN or a hash. The function returns
+     `name, phone, role` on success and **zero rows for every failure** — unknown phone, wrong
+     PIN, inactive, ambiguous phone, or **locked** (5 misses → 15 min) are deliberately
+     indistinguishable, so the error line says "…After 5 tries, wait 15 minutes." Only rows
+     with a hash can log in: `Cristian Tech` everywhere, `ZZ Test Tech` on the sandbox only
+     (M1 backfill). The old client-side ambiguity alert (`reportAmbiguousTech`) no longer fires
+     on this path — the function resolves an ambiguous phone to nobody, silently; the partial
+     unique index on active phones ([[employee-roster]] §5) is what prevents it.
   2. **Session restore** — after a successful login the tech's **phone** (never the PIN) is
      stored in `localStorage['myNumbersTechId']`; a reload restores the session silently.
   3. **Operate-as `?as=<phone>`** — the manager path. `gm-board.html` embeds
@@ -113,7 +126,9 @@ translated. The old `beforePhotosLabel`/`partPhotosLabel` keys were deleted, not
   handoff stamps `diagnosis_recommendation, diagnosis_submitted_at, diagnosis_reviewed_at`.
 - `ro_diagnostic_codes` (per RO), `attachments` (kind=`diagnosis_audio`, per RO) + short-lived
   **signed URLs** from the private `crisdata-attachments` storage bucket.
-- `employees` — for login verify (`phone,pin,role,active`), session restore, and the greeting
+- `login_with_pin(p_phone, p_pin)` RPC — login verify (returns `name, phone, role`). **No read of
+  `employees.pin` anywhere** (guarded by `shared/pin-login.test.js`).
+- `employees` — session restore / `?as=` (`name, phone, role` where `active`), and the greeting
   (`name,photo_url`). `punches` — today's rows to rebuild the clock.
 
 **Writes (all anon, all client-side, no ownership check on the server):**
@@ -226,18 +241,23 @@ There are **two independent handoffs**, and both **surface only in the advisor's
   with the publishable key and update rows **by id with no server-side ownership check** — the
   "only my jobs" boundary is a client-side read filter, not an enforced write rule. Anyone with
   the (embedded, public) anon key and a row id can write.
-- **Login reads the `pin` column client-side.** `findEmployee` does
-  `.select('name, phone, pin, role').eq('phone',…).eq('pin',…)` — i.e. it relies on the anon
-  role being able to read `employees` (including `pin`). If RLS on `employees` permits anon
-  SELECT of `pin` (which this code's shape implies but this doc **cannot confirm from the client
-  alone**), PINs are readable by anyone holding the anon key. **Needs a server-side RLS check to
-  confirm/deny** (ask Cris to run SQL — see the "sensitive read via SQL" convention).
+- **The PIN is checked server-side** (`login_with_pin`, SECURITY DEFINER, `search_path` pinned,
+  execute granted to anon + authenticated). Confirmed 2026-09-17: before Phase 2 every
+  `employees.pin` (21 rows) was anon-readable. M1 adds the function + hashes; M2 drops the column.
+- **⚠ The PIN only guards the login SCREEN, not the session.** Session restore
+  (`findEmployeeByPhone`) trusts whatever phone is in `localStorage['myNumbersTechId']`, and
+  `employees` (name/phone/role) is still anon-readable — so anyone who sets that key to a tech's
+  phone is that tech, no PIN. Phase 2 does not change this; real tech sessions are Phase 4
+  (deferred).
 - **`?as=` is the one path with a real gate** (`isSafeEmbeddedAs`: iframe + same-origin top),
   and it correctly refuses a raw top-level `my-numbers.html?as=<phone>` visit.
 
 ## Known gaps & open questions (as of 2026-07-30)
-- Cannot confirm from client code whether anon SELECT of `employees.pin` is actually open —
-  needs an RLS check in Supabase.
+- ~~Cannot confirm whether anon SELECT of `employees.pin` is open~~ — **it was** (confirmed
+  2026-09-17, 21 rows). Phase 2 moves the check into `login_with_pin`; M2 drops the column.
+- **Session = a phone in localStorage** (§8) — a bearer value anyone can type. Phase 4.
+- **Anyone can lock a tech out for 15 minutes** by missing 5 times on their phone. Accepted for a
+  one-user login; clear it with the "CLEAR A LOCK" snippet in the M1 migration.
 - **No push/notification on either handoff — still true, and still the biggest gap here.** It
   relies on the advisor watching the Approval Queue. The 2026-08-25 slice put the tech's write-up
   in front of him *once he opens the RO* ([[tech-findings]] §4a) and did **not** solve the alert.
@@ -255,8 +275,8 @@ There are **two independent handoffs**, and both **surface only in the advisor's
    waiting/finished job and stomp its raw status back through the state machine. **This is the
    highest-impact seam** — the floor vocabulary and My Numbers' six states are out of sync.
 2. **Unauthenticated write surface (§8).** Every status/diagnosis/punch write is anon, by row id,
-   with no server-side ownership or role check; scoping is client-side only. Combined with the
-   possibility that PINs are anon-readable, the whole write surface leans on the anon key staying
+   with no server-side ownership or role check; scoping is client-side only. Combined with a
+   session that is just a phone in localStorage (§8), the whole write surface leans on the anon key staying
    private — which it can't, since it's embedded in a public HTML file. Wants RLS / a
    service-role write path before wider rollout.
 3. **Silent-stale on a dead socket + pull-only handoff (§5, §7).** Realtime recovers on
@@ -283,6 +303,8 @@ same reason.
 - **Related raw-status writers:** `shared/status-mirror.js` (canonical `STATUS_OPTIONS`),
   `crisdata-techboard.html` (drag-assign + verbatim `sbStatusToLocal`), gm-board Shop Floor
   dropdowns (v1 `shop-board.html` deleted 2026-09-17).
+- **Login:** `shared/pin-login.js` (+`.test.js`); SQL `migrations/20260917_pin_off_public_*`
+  (`PREFLIGHT_READONLY`, `M1_employee_secrets` + `M1_ROLLBACK`, `M2_drop_pin` + `M2_ROLLBACK`).
 - **Shared:** `shared/pwa-register.js`, `shared/version-check.js`, `shared/photo-compress.js`,
   `shared/photo-buckets.js`, `shared/ro-media.js`, `shared/tech-findings.js`. **Not**
   `shared/catch-moment.js` — see above.
@@ -292,6 +314,7 @@ same reason.
   `recordings-audio.md` (the audio/attachments pattern), `floor-tags.md` (floor lanes).
 
 ## Session change log
+- 2026-09-17 — **Security Phase 2 (branch `security/phase2-pins` (UNMERGED; migrations M1/M2 NOT applied anywhere)):** PIN login moved to the `login_with_pin` RPC via `shared/pin-login.js`; no read of `employees.pin` remains; lockout copy added in EN/ES/HT. §1, reads, §8, gaps rewritten.
 - 2026-09-17 — Deleted the `?u=&p=` pass-through login from `boot()`; auth paths 4 → 3 (§1). Locked for the office boards by `shared/office-identity.test.js`. Rest not re-verified.
 - 2026-09-17 — v1 `shop-board.html` deleted; removed it from the raw-status writers list. Rest not re-verified.
 - 2026-08-27 — **Video capture, and one gap logged.** Every photo grid gained a second add tile,

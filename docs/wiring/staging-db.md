@@ -296,7 +296,7 @@ row contents are not independently confirmed here):
 
 | Phone | Rows sharing it | PINs |
 |---|---|---|
-| `9416260382` | Josh (`advisor`) + Jay Tech (`tech`) | **the same** — `1738` both |
+| `9416260382` | Josh (`advisor`) + Jay Tech (`tech`) | **the same** |
 | `2396001971` | Cristian (`owner`) + Cristian Tech (`tech`) | different |
 
 Both branches of `resolvePhone` end at the same statement in `shared/office-identity.js`:
@@ -606,6 +606,7 @@ it will be followed.
 - **Employee ↔ auth mapping:** see [[office-auth]].
 
 ## Session change log
+- 2026-09-17 — §7.2: PIN value removed (this doc is served publicly). Nothing else re-verified.
 - 2026-09-17 — §7: noted that the `?u/p` passthrough and `expectedRole` it describes were deleted. Rest not re-verified.
 - 2026-08-23 — **§8.5 added: deploy backwards-compatible code BEFORE the migration.** Taken from
   the per-RO photo-bucket release, where deploying first removed the misfiling window instead of

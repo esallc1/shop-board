@@ -1310,10 +1310,6 @@
       <input type="tel" inputmode="numeric" id="empPhoneInput" placeholder="2395550101" maxlength="10">
     </div>
     <div class="emp-field">
-      <label>PIN</label>
-      <input type="text" inputmode="numeric" id="empPinInput" placeholder="1234" maxlength="4">
-    </div>
-    <div class="emp-field">
       <label>Role</label>
       <select id="empRoleInput">
         <option value="tech">Technician</option>
@@ -4375,7 +4371,6 @@
       document.getElementById('employeeFormTitle').textContent = 'Add Employee';
       document.getElementById('empNameInput').value = '';
       document.getElementById('empPhoneInput').value = '';
-      document.getElementById('empPinInput').value = '';
       document.getElementById('empRoleInput').value = 'tech';
       document.getElementById('empActiveInput').checked = true;
       document.getElementById('empFormError').textContent = '';
@@ -4392,7 +4387,6 @@
       document.getElementById('employeeFormTitle').textContent = 'Edit Employee';
       document.getElementById('empNameInput').value = emp.name || '';
       document.getElementById('empPhoneInput').value = emp.phone || '';
-      document.getElementById('empPinInput').value = emp.pin || '';
       document.getElementById('empRoleInput').value = emp.role || 'tech';
       document.getElementById('empActiveInput').checked = !!emp.active;
       document.getElementById('empFormError').textContent = '';
@@ -4410,14 +4404,13 @@
     async function saveEmployee() {
       const name = document.getElementById('empNameInput').value.trim();
       const phone = document.getElementById('empPhoneInput').value.trim();
-      const pin = document.getElementById('empPinInput').value.trim();
       const role = document.getElementById('empRoleInput').value;
       const active = document.getElementById('empActiveInput').checked;
       const errEl = document.getElementById('empFormError');
       errEl.textContent = '';
 
-      if (!name || !phone || !pin || !role) {
-        errEl.textContent = 'Name, phone, PIN, and role are all required.';
+      if (!name || !phone || !role) {
+        errEl.textContent = 'Name, phone, and role are all required.';
         return;
       }
 
@@ -4439,7 +4432,10 @@
           photoUrl = pub.publicUrl;
         }
 
-        const payload = { name, phone, pin, role, active, photo_url: photoUrl };
+        // No PIN here, ever. PINs are bcrypt hashes in employee_secrets, which no
+        // API role can read or write; a PIN is set by hand-run SQL
+        // (migrations/20260917_pin_off_public_M1_employee_secrets.sql, "SET / ROTATE A PIN").
+        const payload = { name, phone, role, active, photo_url: photoUrl };
 
         if (isNew) {
           const { error: insErr } = await db.from('employees').insert({ id: employeeId, ...payload });

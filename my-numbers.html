@@ -406,6 +406,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="shared/supabase-config.js"></script>
 <script src="shared/office-identity.js"></script>
+<script src="shared/pin-login.js"></script>
 <!-- Photo downscale + EXIF orientation (ESM). Assigns window.PhotoCompress.
      Module scripts are deferred, so this lands after the inline script below
      defines its functions — fine, because nothing touches it until a tech taps
@@ -610,7 +611,7 @@ const I18N = {
     phoneLabel: "Phone Number",
     pinLabel: "PIN",
     loginBtn: "Log In",
-    loginErrorMsg: "Phone number or PIN not recognized",
+    loginErrorMsg: "Phone number or PIN not recognized. After 5 tries, wait 15 minutes.",
     tabUpNext: "Up Next",
     tabHistory: "History",
     emptyUpNextTitle: "Board's clear",
@@ -725,7 +726,7 @@ const I18N = {
     phoneLabel: "Número de Teléfono",
     pinLabel: "PIN",
     loginBtn: "Iniciar Sesión",
-    loginErrorMsg: "Número de teléfono o PIN no reconocido",
+    loginErrorMsg: "Número de teléfono o PIN no reconocido. Después de 5 intentos, espere 15 minutos.",
     tabUpNext: "Próximos",
     tabHistory: "Historial",
     emptyUpNextTitle: "Tablero vacío",
@@ -840,7 +841,7 @@ const I18N = {
     phoneLabel: "Nimewo Telefòn",
     pinLabel: "PIN",
     loginBtn: "Konekte",
-    loginErrorMsg: "Nimewo telefòn oswa PIN pa rekonèt",
+    loginErrorMsg: "Nimewo telefòn oswa PIN pa rekonèt. Apre 5 esè, tann 15 minit.",
     tabUpNext: "Pwochen",
     tabHistory: "Istorik",
     emptyUpNextTitle: "Tablo a vid",
@@ -1057,17 +1058,13 @@ function reportAmbiguousTech(phone, rows){
   try { console.error(msg); } catch(e) {}
   try { alert('This phone number is on two staff records, so we cannot tell who you are.\n\nTell Cristian — it needs fixing in the employee list. (Nothing is wrong with your PIN.)'); } catch(e) {}
 }
-// Verify credentials against the real employees table (mirrors crisdata.html).
+// Verify credentials INSIDE the database: shared/pin-login.js → the SECURITY
+// DEFINER function login_with_pin (migrations/20260917_pin_off_public_M1_*).
+// No PIN or hash is ever read here. Every failure — unknown phone, wrong PIN,
+// inactive, ambiguous phone, locked after 5 misses — returns null, identically.
 // Returns a normalized tech object { id, name, phone, role } or null.
 async function findEmployee(phone, pin){
-  const { data, error } = await db.from('employees')
-    .select('name, phone, pin, role')
-    .eq('phone', phone).eq('pin', pin).eq('active', true).limit(2);
-  if(error){ console.error('[Login] employee verify failed', error); return null; }
-  const rows = data || [];
-  if(rows.length > 1){ reportAmbiguousTech(phone, rows.length); return null; }
-  const d = rows[0];
-  return d ? { id: d.phone, name: d.name, phone: d.phone, role: d.role } : null;
+  return window.PinLogin ? window.PinLogin.login(db, phone, pin) : null;
 }
 // Restore an already-authenticated session by phone alone (no PIN re-entry).
 async function findEmployeeByPhone(phone){

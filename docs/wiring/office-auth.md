@@ -136,7 +136,7 @@ behaviour above is verified):
 
 | Phone | Rows | PINs | Effect |
 |---|---|---|---|
-| `9416260382` | Josh (`advisor`) + Jay Tech (`tech`) | **identical** (`1738`) | never resolves — even the fresh `?u/p` lookup is ambiguous |
+| `9416260382` | Josh (`advisor`) + Jay Tech (`tech`) | **identical** | never resolves — even the fresh `?u/p` lookup is ambiguous |
 | `2396001971` | Cristian (`owner`) + Cristian Tech (`tech`) | differ | **first** login works, every return visit fails |
 
 The Cristian case is the nastier one. `?u=…&p=…` disambiguates on the PIN, so the initial login
@@ -764,7 +764,8 @@ the login username. Everything else (name/role/active/photos) is non-sensitive b
   .eq(auth_user_id)`; `shared/office-identity.js:71/88` `select('id,name,photo_url,role')` by
   `auth_user_id` (auth branch) or `phone` (phone branch).
 - **Staff-mgmt read (manager, reads pin):** `gm-board.html:4156` `select('*')` — the Employee
-  Management list; `openEditEmployee` prefills the PIN field from it. Reads **all** columns incl `pin`.
+  Management list; `openEditEmployee` prefilled the PIN field from it. **Phase 2 (2026-09-17, branch):
+  the PIN field is removed and M2 drops `pin`** — see [[employee-roster]] §1c/§1d.
 - **Non-pin board/roster reads (anon or auth):** `my-numbers.html:768/828`, `owner-board.html:332`,
   `gm-board.html:2132/2413/2877/3615/3927`, `advisor-board.html:2519/2893/2920/4474`,
   `bookkeeping-board.html:2930`, `crisdata-techboard.html:385`, `shared/board-settings.js:1026`,
@@ -939,6 +940,7 @@ pin column; all board reads/greeting/roster still populate.
   identity-first, §8 enforcement), [[change-requests]] (§5 — a feature that deferred to this).
 
 ## Session change log
+- 2026-09-17 — Security Phase 2 (branch): PIN value scrubbed from §1c table; staff-mgmt read note points at employee-roster §1c/§1d. Not otherwise re-verified.
 - 2026-09-17 — Deleted the `?u=&p=` URL login (readers in `my-numbers.html` + `shared/office-identity.js`, writer in `crisdata.html`) and `expectedRole`. Added a top banner; §8.3 item 2 rewritten; other `?u/p` mentions left as history. Not otherwise re-verified.
 - 2026-08-20 — Added §1b: `CHAT_IDENTITY` is a lexical `let`, never `window.CHAT_IDENTITY`. Four
   advisor-board writes had been silently storing NULL attribution (one photo-archive, three
