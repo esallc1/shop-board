@@ -1254,7 +1254,7 @@ function rtFlushPending(){
 }
 
 // Idempotent (re)subscribe for the current tech. Called from render()'s list
-// branch, so all login paths (submit / pass-through / session-restore) wire it
+// branch, so all login paths (submit / operate-as / session-restore) wire it
 // without duplication. Subscribes to ALL changes on the three tables; the
 // per-tech filter lives in loadSupabaseData.
 function ensureRealtime(){
@@ -2848,23 +2848,9 @@ async function submitDiagnosis(){
     }
   }
 
-  // Pass-through login from CrisData: if arriving with ?u=phone&p=pin, auto-authenticate
-  const passPhone = params.get('u');
-  const passPin = params.get('p');
-  if(!authenticated && passPhone && passPin){
-    const tech = await findEmployee(passPhone, passPin);
-    if(tech){
-      STATE.currentTech = tech;
-      STATE.currentTechId = tech.id;
-      localStorage.setItem(SESSION_KEY, tech.id);
-      STATE.activeTab = 'up_next';
-      window.history.replaceState({}, '', window.location.pathname);
-      await loadSupabaseData(tech.name);
-      await loadGreeting(tech.phone);
-      STATE.view = 'list';
-      authenticated = true;
-    }
-  }
+  // No URL login: the old ?u=phone&p=pin pass-through was deleted 2026-09-17 (a
+  // PIN in a URL lands in history and server logs). A tech signs in on this
+  // page's own PIN screen (doLogin), then session-restore below keeps them on.
 
   // Restore a persisted session (e.g. after an accidental or intentional reload)
   if(!authenticated){

@@ -67,8 +67,9 @@ billed-hours id→name map; the GM Settings employee editor; `shared/adoption.js
 `shared/commission-engine.js`; `shared/board-settings.js` advisor-pay editor; and both
 `shared/team-chat.js` rosters.
 
-**19 stay on the base table:** the three login doors (`crisdata.html` ×2, `office-login.html`),
-all three `shared/office-identity.js` branches, both `my-numbers.html` lookups + its greeting,
+**Stay on the base table:** the login doors (`crisdata.html` ×1 — its phone/PIN lookup was
+deleted 2026-09-17 — and `office-login.html`), the three `shared/office-identity.js` reads
+(auth, persisted id, legacy phone — the `?u/p` read was deleted 2026-09-17), both `my-numbers.html` lookups + its greeting,
 `board-settings.js`'s own-profile read, and all nine writes (GM employee CRUD, own name /
 background / avatar, advisor pay).
 
@@ -100,9 +101,11 @@ that map produces an account that signs in and routes nowhere.
 missed the test rows sort **last** and read as obviously fake, rather than blending in among
 real staff. Never name a real employee `ZZ …`.
 
-**They also restored staging.** Because the ZZ phones are unique and collision-free,
-`test.leetransmissionshop.com/advisor-board.html?u=5550100002&p=4002` resolves a full identity
-with **no `auth.users` row at all** — working around [[staging-db]] §7 without Step 4b.
+**They no longer sign in by URL.** Until 2026-09-17 a ZZ phone + PIN in the query string
+(`advisor-board.html?u=…&p=…`) resolved a full identity with no `auth.users` row. That
+pass-through was **deleted** (a PIN in a URL is logged and kept in history), so on `test.*` the
+office boards are exercised with the ZZ accounts' **email logins** on the front door, and the tech
+account with its phone + PIN typed on `my-numbers.html`.
 
 ## 4. RETIRE AN EMPLOYEE — the procedure
 
@@ -179,8 +182,8 @@ resolved to **nobody** — and because identity is passive by design, the board 
 and showed nothing. No greeting, no To-Do, no commission card, and every `CHAT_IDENTITY.name`
 write landed `NULL`.
 
-The Cristian case is the nastier shape: `?u/p` disambiguates on the PIN, so the **first** login
-works; only the phone was persisted, so **every return visit failed**. Works once, then stops.
+The Cristian case is the nastier shape: the then-existing `?u/p` URL login (deleted 2026-09-17)
+disambiguated on the PIN, so the **first** login worked; only the phone was persisted, so **every return visit failed**. Works once, then stops.
 
 Fixed 2026-08-21 in three layers, so no single one has to be perfect:
 - **Structural** — the §5 index makes two active rows sharing a phone impossible.
@@ -342,6 +345,7 @@ are claiming about.
 - Employee CRUD UI: `gm-board.html` (`loadEmployees`, `saveEmployee`, the delete confirm).
 
 ## Session change log
+- 2026-09-17 — §2 base-table readers and §3 "restored staging" updated: the `?u=&p=` URL login and `crisdata.html`'s phone/PIN lookup are deleted. Rest (incl. counts elsewhere) not re-verified.
 - 2026-08-21 — **§7 added: assignment is not role.** Audited every `employees` read; 5 of 12
   keyed off role as a proxy for assignment. Fixed: three pickers now use the shared write-safety
   rule (`shared/assignee-picker.js` + 11 tests), and Tech Status + the dispatcher render the

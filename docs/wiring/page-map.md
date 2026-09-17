@@ -32,8 +32,10 @@ not something a person navigates to by name. Sections 2–6 are that missing hal
 
   `boardFor()` returns `null` for any role not in that map, so an unrecognised role gets the
   "signed in, nothing to route to" notice rather than a redirect to `undefined`.
-- The older phone + PIN form still exists in the file but is **not surfaced** — on load the page
-  runs `bootDoor()` instead of `render()`. It is kept for the planned tech door.
+- There is **no phone + PIN form** in this file any more. The old hidden one (`render()` /
+  `doLogin()`) was deleted 2026-09-17: it was never shown, and it was the only code that put a
+  PIN into a URL (`?u=phone&p=pin`) on the way to a board. On load the page runs `bootDoor()`.
+  Techs sign in on `my-numbers.html`'s own PIN screen.
 - The door deliberately does **not** call `OfficeIdentity.resolve()`: `resolve()` arms the shared
   120-minute idle auto-logout, which redirects to `crisdata.html` — the door must never arm a
   timer pointing at itself.
@@ -156,6 +158,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Tab shell: `.sidebar-item[data-view]` + `<div class="view" id="view-…">` in each board.
 
 ## Session change log
+- 2026-09-17 — §2: the dead phone/PIN form + `?u=&p=` writer deleted from `crisdata.html`; `ROLE_DEST` still at `:175`.
 - 2026-09-17 — **Deleted the three v1 doors** (`shop-board.html`, `teardown.html`,
   `tech-board.html`) and the `/teardown` + `/tech-board` rewrites. Re-grepped for live references
   first (only comments remain). Page count 12 → 9; §0, §1, §6, §8, gaps and "Where it lives"

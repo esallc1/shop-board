@@ -321,6 +321,10 @@ if (p.data) { return {...}; }
 to the persisted-phone branch nor to the final `employees` lookup above — and only
 `owner-board.html` passes it at all (the advisor, gm and bookkeeping boards do not).
 
+> 2026-09-17: the fresh `?u/p` branch described here no longer exists — the URL passthrough and
+> `expectedRole` were both deleted from `shared/office-identity.js`. The paragraphs above are the
+> 2026-08-21 bug as it was; the phone branch now reads only the persisted session value.
+
 ### 7.3 What this cost us, concretely
 **The `CHAT_IDENTITY` fix (`3278d68` + `dbc9f9a`) shipped straight to prod, untested on
 staging, because staging could not reach the screen the bug was on.** The four
@@ -602,6 +606,7 @@ it will be followed.
 - **Employee ↔ auth mapping:** see [[office-auth]].
 
 ## Session change log
+- 2026-09-17 — §7: noted that the `?u/p` passthrough and `expectedRole` it describes were deleted. Rest not re-verified.
 - 2026-08-23 — **§8.5 added: deploy backwards-compatible code BEFORE the migration.** Taken from
   the per-RO photo-bucket release, where deploying first removed the misfiling window instead of
   shortening it. Includes the part that makes it safe rather than lucky: backwards-compatibility

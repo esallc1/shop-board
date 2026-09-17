@@ -1,5 +1,10 @@
 # How office login could adopt Supabase Auth (investigation + lockout-safe plan)
 
+> ⚠ **2026-09-17 — the URL login is GONE.** The `?u=phone&p=pin` passthrough's readers in `my-numbers.html` and
+> `shared/office-identity.js` (`resolvePhone`, plus `expectedRole`) and its only writer, the hidden
+> phone/PIN form in `crisdata.html` (`render()`/`doLogin()`), were deleted. Every `?u/p` mention
+> below is HISTORY, not current wiring. Status: ⚠ Needs review.
+
 > Doc: `/docs/wiring/office-auth.md`
 > Last updated: 2026-08-21 — §1c added and then CLOSED (duplicate-phone → `resolvePhone`
 > resolved to nobody; fixed in code, and the index + retirements landed same day);
@@ -590,9 +595,9 @@ calls first, returning `{ employee_id, name, role, photo_url, via }` (via = `'au
 1. **Auth branch:** `db.auth.getSession()`; if a session's `user.id` maps to an `employees` row via
    `auth_user_id` → `{id, name, photo_url, role}`, `via:'auth'`. (Same lookup as `office-login.html`
    `:193/:200`.) A session that isn't linked to an employee yet falls through to phone (no hard-fail).
-2. **Phone branch (today's path, unchanged):** else `resolvePhone()` mirrors the boards' existing
-   logic exactly — `?u=phone&p=pin` passthrough (pin [+ `expectedRole`] validated, persisted to
-   `sessionPhoneKey`, URL cleaned) → else the persisted `*BoardPhone` → lookup by phone, `via:'phone'`.
+2. **Phone branch:** else `resolvePhone()` reads the persisted `sessionPhoneKey` value (employee
+   UUID → lookup by id; legacy phone → lookup by phone, rewritten as the id), `via:'phone'`. (Until
+   2026-09-17 a `?u=phone&p=pin` URL passthrough ran first; deleted, with `expectedRole`.)
    Techs stay here permanently.
 3. **Neither:** returns `null` → boards behave exactly as today (greeting hidden, per-viewer features
    show their existing "reopen from CrisData" message). No regression.
@@ -934,6 +939,7 @@ pin column; all board reads/greeting/roster still populate.
   identity-first, §8 enforcement), [[change-requests]] (§5 — a feature that deferred to this).
 
 ## Session change log
+- 2026-09-17 — Deleted the `?u=&p=` URL login (readers in `my-numbers.html` + `shared/office-identity.js`, writer in `crisdata.html`) and `expectedRole`. Added a top banner; §8.3 item 2 rewritten; other `?u/p` mentions left as history. Not otherwise re-verified.
 - 2026-08-20 — Added §1b: `CHAT_IDENTITY` is a lexical `let`, never `window.CHAT_IDENTITY`. Four
   advisor-board writes had been silently storing NULL attribution (one photo-archive, three
   `calls`); all fixed, no backfill. Repo-wide sweep found no other instance. Records the

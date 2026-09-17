@@ -80,12 +80,14 @@ gate and no server-side enforcement**, so "hidden" today means "removed from the
   you are. (`visible: canEditShopMoney` in the `cats` array.)
 
 ## 3. Identity & roles TODAY — the crux
-- **There IS a real login:** `crisdata.html` is the PIN hub — phone + PIN verified against
-  `employees` (`phone`,`pin`,`active`), then it routes by `employees.role` to that role's board
+- **There IS a real login:** `crisdata.html` is the email + password front door (Supabase Auth
+  session → `employees.auth_user_id`), then it routes by `employees.role` to that role's board
   (`ROLE_DEST`: tech→my-numbers, advisor→advisor-board, manager→gm-board, owner→owner-board,
-  bookkeeping→bookkeeping-board) with a `?u=phone&p=pin` pass-through.
-- **Each board resolves the viewer:** `captureSessionAndGreet()` takes the pass-through phone (or
-  a restored `localStorage` phone), looks up `employees` → `{ id, name, role, photo_url }`, and
+  bookkeeping→bookkeeping-board). No credential travels in the URL (the old `?u=phone&p=pin`
+  pass-through was deleted 2026-09-17). Techs sign in with phone + PIN on `my-numbers.html` itself.
+- **Each board resolves the viewer:** `OfficeIdentity.resolve()` (`shared/office-identity.js`)
+  takes the auth session first, else a persisted `localStorage` session value, looks up
+  `employees` → `{ id, name, role, photo_url }`, and
   sets `CURRENT_EMPLOYEE_ID` + `CHAT_IDENTITY = { name, role }`, then `BoardSettings.refresh(id)`.
   **So the viewer's `role` is already known client-side on every board.**
 - **BUT the session is not server-verifiable.** After login the board persists **only the phone
@@ -303,6 +305,7 @@ mechanism, in preference order:
   [[my-numbers]] (no viewer role today), [[announcements]] (a live service-role write path).
 
 ## Session change log
+- 2026-09-17 — §3 first two bullets rewritten: `crisdata.html` is the email door, the `?u=&p=` pass-through is deleted, boards resolve via `OfficeIdentity.resolve()`. Rest not re-verified.
 - 2026-08-09 — **Cost & Profit Step 2b: no settings change.** The shared parts library
   (`parts_library`) + `unit_parts.library_part_id` are cost-side (Build Sheet) tables;
   `shared/board-settings.js` is byte-unchanged. Marker bumped only. See [[cost-profit]] §8–§9.

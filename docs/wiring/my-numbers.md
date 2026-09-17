@@ -35,19 +35,21 @@ single self-contained HTML file that talks straight to Supabase with the anon ke
 - **No API/serverless files.** Every read and write is a **direct Supabase call from the
   browser** using the publishable anon key hard-coded at `my-numbers.html:336-338`. There is
   **no service-role endpoint anywhere in this subsystem** (contrast the recordings/RO slices).
-- **How a tech reaches it — four auth paths** (see `boot()` at the bottom of the file):
+- **How a tech reaches it — three auth paths** (see `boot()` at the bottom of the file):
   1. **Direct visit + PIN** — the login screen: phone (10 digits) + 4-digit PIN, verified live
      against the `employees` table (`findEmployee`).
-  2. **Pass-through link `?u=<phone>&p=<pin>`** — auto-authenticates, then strips the query from
-     the URL (`history.replaceState`). Used to hand a tech straight in from CrisData.
-  3. **Session restore** — after a successful login the tech's **phone** (never the PIN) is
+  2. **Session restore** — after a successful login the tech's **phone** (never the PIN) is
      stored in `localStorage['myNumbersTechId']`; a reload restores the session silently.
-  4. **Operate-as `?as=<phone>`** — the manager path. `gm-board.html` embeds
+  3. **Operate-as `?as=<phone>`** — the manager path. `gm-board.html` embeds
      `my-numbers.html?as=<techPhone>` in a same-origin `<iframe>` (its "My Numbers" tab) so
      Kevin can *see and use* a tech's board. Gated by `isSafeEmbeddedAs()`: must be inside an
      iframe **and** `window.top` must be same-origin, else `?as=` is ignored and the PIN screen
      shows. In this mode `AS_MODE=true` hides the logout chrome and **no session is persisted**
      — closing the frame ends it, and every write lands on that tech's real jobs.
+  - **There is no URL login.** The old `?u=<phone>&p=<pin>` pass-through was **deleted 2026-09-17**
+    (a PIN in a URL lands in browser history and Vercel request logs); `?u`/`?p`
+    are now ignored and the PIN screen shows. Its only writer, the hidden phone/PIN form in
+    `crisdata.html`, was deleted with it.
 
 ## 2. What a tech sees and can do (step by step)
 The signed-in view (`renderList`) is: greeting ("Hi, <name>" with avatar) · **Flagged Hours —
@@ -290,6 +292,7 @@ same reason.
   `recordings-audio.md` (the audio/attachments pattern), `floor-tags.md` (floor lanes).
 
 ## Session change log
+- 2026-09-17 — Deleted the `?u=&p=` pass-through login from `boot()`; auth paths 4 → 3 (§1). Locked for the office boards by `shared/office-identity.test.js`. Rest not re-verified.
 - 2026-09-17 — v1 `shop-board.html` deleted; removed it from the raw-status writers list. Rest not re-verified.
 - 2026-08-27 — **Video capture, and one gap logged.** Every photo grid gained a second add tile,
   **🎬 Add Video** (`accept="video/*"`, deliberately no `capture`, so the camera roll is reachable

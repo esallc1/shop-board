@@ -494,8 +494,8 @@ does not exist on that board.
 null and every control hidden.** `applyIdentity` therefore calls `window.cdCustomerRecordRerender()`
 once the role lands (a no-op unless the record is on screen). Without it an advisor opening a
 record on a fresh tab would find the controls simply missing, with nothing to say they were
-coming. `advisor-board.html` passes no `expectedRole` to `OfficeIdentity.resolve` — only
-owner-board does — so the role is the only gate here.
+coming. `OfficeIdentity.resolve` has no `expectedRole` option any more (deleted 2026-09-17 with the
+`?u/p` URL login, the only branch that applied it), so the role is the only gate here.
 
 **THE LABELS NAME THEIR NOUN, AND THAT IS A BUG FIX.** The photo tile's control
 says **"Remove photo"**; the bucket heading's says **"Remove bucket"**. They used
@@ -1032,6 +1032,7 @@ Not fixed here on purpose — logged so the next person hits the note instead of
   listeners).
 
 ## Session change log
+- 2026-09-17 — Updated the `expectedRole` note: the option was deleted from `OfficeIdentity.resolve`. Rest not re-verified.
 - 2026-08-27 (later) — **Slice 5 follow-up: the video tiles had no width, and the acts row never
   had one either.** Cris found 30px video tiles beside 96px photos on staging. Root cause was not
   the video branch: `.cust-photo-tile` is a `<button>` (shrink-to-fit) that is **not** its grid

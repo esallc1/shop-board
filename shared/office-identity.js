@@ -6,9 +6,13 @@
 
      (a) AUTH  — a Supabase office-login session (getSession → auth_user_id →
                  employees row). Same lookup office-login.html does (:193/:200).
-     (b) PHONE — else the phone/PIN path: the ?u=phone&p=pin passthrough from
-                 crisdata.html (validated by pin [+ role]), or the persisted
-                 per-board session value in localStorage.
+     (b) PHONE — else the persisted per-board session value in localStorage
+                 (an employee UUID, or a legacy phone). NOTHING READS A PIN HERE:
+                 the old ?u=phone&p=pin URL passthrough was DELETED 2026-09-17
+                 (a PIN in a URL lands in history and server logs), together
+                 with its only writer, the dead phone/PIN form in crisdata.html.
+                 Do not re-add a URL credential; the tech login moves to a real
+                 Supabase session instead.
 
    Returns { employee_id, name, role, photo_url, via } (via = 'auth' | 'phone'),
    or null when neither resolves — in which case the board behaves exactly as it
@@ -30,7 +34,7 @@
 
    Usage (per board):
      const who = await OfficeIdentity.resolve({
-       db, sessionPhoneKey: 'ownerBoardPhone', expectedRole: 'owner',
+       db, sessionPhoneKey: 'ownerBoardPhone',
      });
      if (who) applyIdentity(who);      // set CURRENT_EMPLOYEE_ID / CHAT_IDENTITY
    ============================================================ */
@@ -74,8 +78,9 @@
     return rows[0] || null;
   }
 
-  // (b) Phone/PIN resolution — fresh ?u/p passthrough (pin [+ role] validated,
-  // persisted, URL cleaned) → else the persisted per-board session value.
+  // (b) Phone resolution — the persisted per-board session value only. (The
+  // ?u/p URL passthrough that used to run first was deleted 2026-09-17, and
+  // with it `expectedRole`, which only that branch ever applied.)
   //
   // WHAT IS PERSISTED CHANGED: the storage key now holds the employee's UUID, not
   // their phone. A phone is mutable, reusable and — as above — not unique; an id
@@ -88,23 +93,6 @@
   async function resolvePhone(opts) {
     var db = opts.db;
     var key = opts.sessionPhoneKey || null;
-    var params = new URLSearchParams(window.location.search);
-    var passPhone = params.get('u');
-    var passPin = params.get('p');
-
-    if (passPhone && passPin) {
-      var q = db.from('employees').select(EMP_COLS)
-        .eq('phone', passPhone).eq('pin', passPin).eq('active', true);
-      if (opts.expectedRole) q = q.eq('role', opts.expectedRole);
-      var res = await q.limit(2);
-      var hits = (res && res.data) || [];
-      if (hits.length > 1) { reportAmbiguous(passPhone, hits.length); return null; }
-      if (hits.length === 1) {
-        if (key) localStorage.setItem(key, hits[0].id);      // persist the ID
-        window.history.replaceState({}, '', window.location.pathname);
-        return hits[0];
-      }
-    }
 
     if (key) {
       var persisted = localStorage.getItem(key);

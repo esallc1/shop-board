@@ -3793,7 +3793,7 @@
     }
 
     // Resolve WHO is viewing: an office-login auth session first, else the
-    // existing phone/PIN path (?u/p passthrough or persisted phone) — additive,
+    // persisted phone/UUID session (no URL credential since 2026-09-17) — additive,
     // the phone path is unchanged. Null → board loads normally, greeting hidden.
     const who = await OfficeIdentity.resolve({ db, sessionPhoneKey: SESSION_PHONE_KEY });
     if (who) {
