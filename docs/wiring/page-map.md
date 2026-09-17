@@ -1,21 +1,21 @@
 # How the page map is wired
 
 > Doc: `/docs/wiring/page-map.md`
-> Last updated: 2026-08-19 — created; replaces the flat 12-name list carried in the
-> session handoffs, which recorded *which files exist* and was read as *which pages are used*.
-> Verified vs commit `c17db7e`. Status: 🟢 current — every claim below re-checked against
-> `crisdata.html`, `vercel.json`, the four board files, and the five unguarded pages this session.
+> Last updated: 2026-09-17 — the three legacy v1 doors (`shop-board.html`, `teardown.html`,
+> `tech-board.html`) were **deleted** along with their two `vercel.json` routes; §0, §1, §6, §8
+> rewritten. Originally created 2026-08-19 vs `c17db7e`.
+> Status: ⚠ Needs review — §0, §1, §6, §8 and "Where it lives" re-checked vs `9447b68` + this change; §§2–5, 7 last full check vs `c17db7e`.
 
 ## 0. In one line
-Twelve HTML pages deploy; **one** is the front door, **five** are role destinations, **two** are
-also embedded inside other boards, **one** is direct-URL only, and **three** are legacy v1 doors
-that nothing in the current system links to — and **all twelve** resolve their database by hostname.
+Nine HTML pages deploy; **one** is the front door, **five** are role destinations, **two** are
+also embedded inside other boards, and **one** is direct-URL only — and **all nine** resolve their
+database by hostname. (The three legacy v1 doors were deleted 2026-09-17 — §6.)
 
 ## 1. The count that keeps getting misread
-There are 12 `*.html` files at the repo root, all git-tracked, all deployed. That number is
-correct and has not changed. What the handoff list did **not** record is that *existing and
-deploying* is not the same as *reachable* or *used* — six of the twelve are not something a
-person navigates to by name. Sections 2–6 are that missing half.
+There are **9** `*.html` files at the repo root, all git-tracked, all deployed (12 until
+2026-09-17, when the three v1 doors in §6 were deleted). What the old handoff list did **not**
+record is that *existing and deploying* is not the same as *reachable* or *used* — several are
+not something a person navigates to by name. Sections 2–6 are that missing half.
 
 ## 2. The front door — `crisdata.html`
 - Served at **`/`** via the root `vercel.json` rewrite `"/" → "/crisdata.html"`.
@@ -91,31 +91,27 @@ noting that the floor *deep-links each car back into the advisor board* — i.e.
 floor → advisor, never advisor → floor. It is reached by typing/bookmarking the URL, which
 suits a wall-mounted screen. It carries **no auth guard**.
 
-## 6. Legacy v1 doors — still deployed, no longer used
-Three pages are the original "v1" shop tools. The current system **ported** their behaviour into
-Manager Board tabs — it did not embed or redirect to them, and the old files were left untouched
-and still deploy.
+## 6. Legacy v1 doors — DELETED 2026-09-17
+Three pages were the original "v1" shop tools. The current system **ported** their behaviour into
+Manager Board tabs (it did not embed or redirect to them), so the files were deleted outright,
+together with the two `vercel.json` clean routes `/teardown` and `/tech-board`. All five URLs
+(`/shop-board.html`, `/teardown.html`, `/tech-board.html`, `/teardown`, `/tech-board`) now 404.
 
-| v1 page | Title | Absorbed into | Ported at |
-|---|---|---|---|
-| `shop-board.html` | Shop Board | Manager → **Shop Floor** | `gm-board.html:415, 1111, 2890` |
-| `tech-board.html` | Shop **Flow** | Manager → **Tech Status** | `gm-board.html:727, 1197, 3677` |
-| `teardown.html` | Teardown Tables | Manager → **Teardown** | `gm-board.html:4014` |
+| deleted v1 page | Title | Lives on as |
+|---|---|---|
+| `shop-board.html` | Shop Board | Manager → **Shop Floor** (`gm-board.html` `#view-shopfloor`) |
+| `tech-board.html` | Shop **Flow** | Manager → **Tech Status** (`gm-board.html` "TECH STATUS" block) |
+| `teardown.html` | Teardown Tables | Manager → **Teardown** (`gm-board.html` `#view-teardown`) |
 
-Two facts that make these easy to misjudge:
+Before deleting, every reference was re-checked: the only *live* links to any of the three came
+from the three pages themselves (plus the two rewrites). References that remain in current code
+(`gm-board.html`, `advisor-board.html`, `crisdata-floor.html`, `crisdata-techboard.html`,
+`shared/status-mirror.js`, `shared/warranty-mirror.js`) are **comments** naming v1 as the thing
+that was ported from — they name a file that no longer exists, which is expected. `sw.js` and
+`manifest.webmanifest` never referenced them.
 
-1. **They still link to each other.** Every *live* link to `shop-board.html` in the repo comes
-   from `tech-board.html:197` and `teardown.html:120` — two v1 pages linking to a third. Every
-   reference from a current board (`advisor-board.html:4477, 5118`, `gm-board.html:415…`,
-   `crisdata-floor.html:16`, `crisdata-techboard.html:16, 419`) is a **comment** naming v1 as the
-   thing that was ported from. So the cluster looks alive from inside itself and is dead from
-   everywhere else.
-2. **Two of them have clean URLs.** `vercel.json` still rewrites **`/teardown` → `teardown.html`**
-   and **`/tech-board` → `tech-board.html`**. They are not merely reachable by filename; they have
-   deliberate short routes. None of the three has an auth guard.
-
-Naming trap: **`tech-board.html` is the v1 "Shop Flow" page and is dead.** The live v2 dispatcher
-is **`crisdata-techboard.html`** (§4). The two are unrelated despite the near-identical names.
+Naming trap that survives the deletion: the live v2 dispatcher is **`crisdata-techboard.html`**
+(§4), unrelated to the deleted `tech-board.html` despite the near-identical name.
 
 ## 7. `office-login.html`
 Reached only from the front door's "Reset password" link. No `OfficeIdentity` guard (correctly —
@@ -127,26 +123,22 @@ That has not been true since the single front door shipped (§2). The code is ri
 is the stale part. It also references `crisdata-office-login-shopfront.html`, a file that **does
 not exist** in the repo.
 
-## 8. Which pages resolve a database by hostname — all twelve
-Every one of the 12 pages loads `shared/supabase-config.js` and calls
-`window.cdSupabaseCreds()`. **No page hardcodes a Supabase URL** (verified: a search for
-`https://*.supabase.co` across all 12 returns nothing). So the prod/staging database choice is
-made identically on the front door, the five role boards, the two embedded panes, the floor
-screen, and all three dead v1 doors:
+## 8. Which pages resolve a database by hostname — all nine
+Every one of the 9 pages loads `shared/supabase-config.js` and calls
+`window.cdSupabaseCreds()`. **No page hardcodes a Supabase URL** (re-verified 2026-09-17: a search
+for `https://*.supabase.co` across all 9 returns nothing). So the prod/staging database choice is
+made identically on the front door, the five role boards, the two embedded panes, and the floor
+screen:
 
 - **PROD** (`hygemiszxwmyrkmhbjub`) — the apex, `www`, `board.*`, any future
   `*.leetransmissionshop.com` **except** `test.*`, plus the two known prod Vercel aliases.
 - **STAGING** (`efhmefpaijjncwgbvwki`) — `test.leetransmissionshop.com`, every Vercel preview,
   and `localhost`.
 
-Consequence worth stating plainly: **the three dead v1 doors also read and write the production
-database** when opened on a prod hostname. Dead means "nothing links to them", not "inert".
-See [[staging-db]] for the switch itself.
+The three v1 doors used to be a consequence worth stating: unguarded, unlinked, and still writing
+the production database. Deleting them (§6) closed that. See [[staging-db]] for the switch itself.
 
-## Known gaps & open questions (as of 2026-08-19)
-- **The three v1 doors have no auth guard and still write prod.** No decision recorded on whether
-  to retire them, guard them, or drop the two `vercel.json` clean routes. Worth an explicit call
-  rather than leaving them to rot in place.
+## Known gaps & open questions (as of 2026-09-17)
 - **`crisdata-floor.html` has no inbound link from anywhere.** Intentional (wall screen) or an
   unfinished wiring step? Not recorded.
 - **`office-login.html`'s header comment is stale** (§7) and names a non-existent file.
@@ -156,15 +148,18 @@ See [[staging-db]] for the switch itself.
 
 ## Where it lives in the code
 - Front door + role routing: `crisdata.html` (`ROLE_DEST` at `:175`, `boardFor()`, `bootDoor()`).
-- Route rewrites: `vercel.json` — `/` → `crisdata.html`, `/teardown` → `teardown.html`,
-  `/tech-board` → `tech-board.html`.
+- Route rewrites: `vercel.json` — `/` → `crisdata.html` (the only rewrite).
 - Auth guard: `shared/office-identity.js` (`OfficeIdentity.resolve`, 120-min idle logout).
 - Embedded panes: `advisor-board.html:1749` (techboard iframe), `gm-board.html:1223` + `:3984`
   (My Numbers operate-as iframe).
-- Hostname → DB: `shared/supabase-config.js` (`pickSupabaseCreds`), loaded by all 12 pages.
+- Hostname → DB: `shared/supabase-config.js` (`pickSupabaseCreds`), loaded by all 9 pages.
 - Tab shell: `.sidebar-item[data-view]` + `<div class="view" id="view-…">` in each board.
 
 ## Session change log
+- 2026-09-17 — **Deleted the three v1 doors** (`shop-board.html`, `teardown.html`,
+  `tech-board.html`) and the `/teardown` + `/tech-board` rewrites. Re-grepped for live references
+  first (only comments remain). Page count 12 → 9; §0, §1, §6, §8, gaps and "Where it lives"
+  rewritten; re-verified all 9 load `shared/supabase-config.js` with no hardcoded Supabase URL.
 - 2026-08-19 — Created. Built by reading the code rather than the handoff list: enumerated the 12
   deployed pages, extracted `ROLE_DEST`, mapped every inter-page reference and separated live
   links from ported-from comments, found the two real iframes, checked `OfficeIdentity` presence

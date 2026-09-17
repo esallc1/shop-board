@@ -67,12 +67,14 @@ closed** without recording what the customer said and what we did.
   badge + chain-card render in `advisor-board.html` (~4146, ~4155)
 - Close gate: `advisor-board.html:4910` (RO detail close), backed by `shared/comeback-chain.js` `validateComebackClose`
 - Red floor **COMEBACK** tag (the `warranty` flag — separate from the chain): renders in
-  `shop-board.html` (`.comeback-tag`, ~line 973/1145/1254); the RO-detail toggle writes it via
+  `gm-board.html`'s Shop Floor tab (`.comeback-tag`, ~line 3186/3349/3446; v1 `shop-board.html` deleted 2026-09-17); the RO-detail toggle writes it via
   `shared/warranty-mirror.js` into `shopboard_lifts / shopboard_parking / shopboard_pickup`.
   `repair_orders` has **no** warranty column — the flag lives only on the floor row.
 - Migrations: `20260729_comeback_capture.sql` (`comeback_resolution`), `20260729_repair_orders_no_delete.sql` (anon loses DELETE)
 
 ## Session change log
+- 2026-09-17 — v1 `shop-board.html` deleted; repointed the floor COMEBACK-tag render to
+  `gm-board.html` Shop Floor (verified). Rest not re-verified.
 - 2026-07-29 — Shipped badge, chain card & blocked close (`3f17c6f`). Added `comeback_resolution` column.
 - 2026-07-29 — Killed W-numbering after finding the `po` string-join would silently drop lettered rows.
 - 2026-07-30 — Seeded this doc from the handoff; opened the call-window warranty-tag idea; flagged the intake comeback-question gap.

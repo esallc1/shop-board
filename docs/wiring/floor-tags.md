@@ -3,15 +3,15 @@
 > Doc: `/docs/wiring/floor-tags.md`
 > Last updated: 2026-07-30 — verified vs commit `bea25cf`
 > Status: ✅ verified vs commit `bea25cf` (claims below re-checked). Still partial — the full lane
-> taxonomy of `shop-board.html` isn't documented yet.
+> taxonomy of the Shop Floor tab (`gm-board.html`) isn't documented yet. 2026-09-17: v1 `shop-board.html` deleted; render refs repointed.
 
 ## 0. In one line
 Floor tags (e.g. the red COMEBACK tag) and the board lanes that group ROs by state.
 
 ## 1. Notes (verified vs code)
 - Red **COMEBACK** floor tag = the `warranty` boolean on the floor rows
-  (`shopboard_lifts / shopboard_parking / shopboard_pickup`); renders in **`shop-board.html`**
-  (`.comeback-tag`, ~lines 973 / 1145 / 1254). It is **separate from the RO's permanent comeback
+  (`shopboard_lifts / shopboard_parking / shopboard_pickup`); renders in the **Manager board's Shop Floor
+  tab** (`gm-board.html` `.comeback-tag`, ~lines 3186 / 3349 / 3446; v1 `shop-board.html` deleted 2026-09-17). It is **separate from the RO's permanent comeback
   record** (`repair_orders.parent_ro_id`) — two different data sources. Turning it OFF sets
   `warranty=false` but **keeps** `comeback_flagged_at` (the historical stamp the comeback-rate
   metric reads), per `shared/warranty-mirror.js`.
@@ -27,15 +27,17 @@ Floor tags (e.g. the red COMEBACK tag) and the board lanes that group ROs by sta
 - comeback ↔ floor-tag sync not built: choosing **Comeback** in the intake wizard sets
   `parent_ro_id` but does **not** flip the floor `warranty` flag. The flag is set only by the
   manual "Warranty / Comeback" toggle on the RO detail (`advisor-board.html:4400`, via
-  `shared/warranty-mirror.js`) or on `shop-board.html` / gm-board. Verified still true at `bea25cf`.
+  `shared/warranty-mirror.js`) or on gm-board's Shop Floor tab. Verified still true at `bea25cf`.
 
 ## Where it lives in the code
-- Red COMEBACK tag render: **`shop-board.html`** (`.comeback-tag`, ~973 / 1145 / 1254)
+- Red COMEBACK tag render: **`gm-board.html`** Shop Floor tab (`.comeback-tag`, ~3186 / 3349 / 3446)
 - Warranty/comeback floor-flag write: `shared/warranty-mirror.js`; RO-detail toggle at `advisor-board.html:4400`
 - Declined lane + relative-date phrase: `advisor-board.html:6173` (`agoLabel`), `:6298` (Declined render)
 - `checking_on_car` picker sort: `shared/ro-calls.js` (`roPickerRank` / `sortRosForPicker`)
 
 ## Session change log
+- 2026-09-17 — v1 `shop-board.html` deleted; repointed the COMEBACK-tag render location to
+  `gm-board.html` (verified the three `class="comeback-tag"` renders). Rest not re-verified.
 - 2026-07-30 — Stub created.
 - 2026-07-30 — Verified vs `bea25cf`: **corrected "where it lives"** — the red COMEBACK tag renders in
   `shop-board.html` (via the `warranty` floor flag / `shared/warranty-mirror.js`), not `advisor-board.html`

@@ -39,9 +39,11 @@ export function buildBackfillRows(logRows, callIdMap) {
   return deduped.map((b) => mapRecordingRow(b, map[b.id])).filter(Boolean);
 }
 
-function authorized(req) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) { console.warn('[backfill-recordings] CRON_SECRET not set — running unauthenticated.'); return true; }
+// FAIL CLOSED: no CRON_SECRET → refuse (401 + error log), never run open.
+// Exported (env injectable) for a test.
+export function authorized(req, env = process.env) {
+  const secret = env.CRON_SECRET;
+  if (!secret) { console.error('[backfill-recordings] CRON_SECRET not set — refusing (fail closed).'); return false; }
   const auth = (req.headers && (req.headers.authorization || req.headers.Authorization)) || '';
   return auth === `Bearer ${secret}`;
 }

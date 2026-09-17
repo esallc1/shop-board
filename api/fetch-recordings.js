@@ -52,12 +52,13 @@ export function nextFetchState(prevAttempts, ok, opts) {
   };
 }
 
-// Vercel cron auth: when CRON_SECRET is set, Vercel sends
-// `Authorization: Bearer <CRON_SECRET>`. Require it if configured; if it isn't
-// set, allow (and warn) so the very first deploy still runs.
-function cronAuthorized(req) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) { console.warn('[fetch-recordings] CRON_SECRET not set — running unauthenticated.'); return true; }
+// Vercel cron auth: Vercel sends `Authorization: Bearer <CRON_SECRET>`.
+// FAIL CLOSED: if CRON_SECRET is missing the endpoint REFUSES (401 + error log)
+// rather than running unauthenticated — a missing env var must never open a
+// service-role job to the internet. Exported (env injectable) for a test.
+export function cronAuthorized(req, env = process.env) {
+  const secret = env.CRON_SECRET;
+  if (!secret) { console.error('[fetch-recordings] CRON_SECRET not set — refusing (fail closed).'); return false; }
   const auth = (req.headers && (req.headers.authorization || req.headers.Authorization)) || '';
   return auth === `Bearer ${secret}`;
 }

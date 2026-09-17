@@ -15,6 +15,12 @@ All audio is served through server endpoints with short-lived signed URLs; the
   is an internal shop id and *is* returned (not in the secret class).
 - Signed URLs: service-role, ids only, ready-only, expire in **5 minutes**.
 
+- **The fetch cron and the backfill fail CLOSED.** `api/fetch-recordings.js` (`cronAuthorized`)
+  and `api/backfill-recordings.js` (`authorized`) require `Authorization: Bearer <CRON_SECRET>`.
+  If `CRON_SECRET` is **unset**, both refuse with 401 and log an error — they no longer run
+  unauthenticated (changed 2026-09-17; locked by `api/recordings-jobs.test.js`). Both use the
+  service-role key, so an open endpoint would bypass the default-deny RLS for anyone.
+
 ## 2. Which vehicle a recording belongs to (precedence, highest first)
 - Session assignment
 - Persisted `vehicle_id` &nbsp;**← a human said it, so it beats derivation**
@@ -45,6 +51,9 @@ Notes:
   `20260729_recordings_links.sql` (`vehicle_id`, `ro_id` columns)
 
 ## Session change log
+- 2026-09-17 — Cron auth made fail-closed in `api/fetch-recordings.js` + `api/backfill-recordings.js`
+  (missing `CRON_SECRET` → 401, was: run unauthenticated); §1 bullet added. Rest of doc not
+  re-verified this session.
 - 2026-07-29 — Slice B play button (`4f76540`); Slice C RO Call History play buttons
   (`fe2b9c3`); customer-record oldest-first recordings (`4ef6544`); unknown-vehicle under
   every chip + assign endpoint (`966d033`); assignments survive reload (`bea25cf`).

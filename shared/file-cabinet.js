@@ -48,7 +48,6 @@ window.FileCabinet = (function () {
     { id: 'costprofit', file: 'cost-profit.md',      icon: '📈', title: 'Cost & Profit (Build Sheet)' },
     { id: 'profitro',  file: 'profit-by-ro.md',     icon: '📈', title: 'Profit by RO (per-job profit)' },
     { id: 'settings',  file: 'settings.md',         icon: '⚙️', title: 'Settings hub (storage · roles · enforcement)' },
-    { id: 'officeauth', file: 'office-auth.md',      icon: '🔐', title: 'Office auth (Supabase Auth adoption)' },
     { id: 'hosting',   file: 'hosting-domains.md',   icon: '🌐', title: 'Hosting & domains (Vercel · DNS · Supabase)' },
     { id: 'stagingdb', file: 'staging-db.md',        icon: '🧪', title: 'Staging database (isolated test.* DB)' },
     { id: 'metahook',  file: 'meta-webhook.md',     icon: '📨', title: 'Meta / Facebook webhook (receive + verify)' },

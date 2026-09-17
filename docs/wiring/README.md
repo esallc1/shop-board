@@ -106,7 +106,6 @@ you can prove succeeded, not merely one that didn't throw.
 | Invoice capture & Process-Invoice modal (**§4 = rotate WRITES, zoom does NOT**) | [invoice-classify.md](invoice-classify.md) | ✅ verified vs `1fc57fa` · §5 = why rotate re-centres an active zoom |
 | Financial Pulse (bookkeeping Overview) | [financial-pulse.md](financial-pulse.md) | ✅ verified vs `0168264` · incl. §8 Clover-vs-board reconciliation model (example 2026-08-06) |
 | Settings hub (storage · roles · enforcement) | [settings.md](settings.md) | ✅ verified vs `0663cbd` (investigation + proposal — not built) |
-| Office auth (Supabase Auth adoption) | [office-auth.md](office-auth.md) | ⚠ investigation + plan vs `77bf5c5` (not built) |
 | To-Do list | [todo-list.md](todo-list.md) | ✅ verified vs the commit that adds it |
 | Requests & Feedback intake | [change-requests.md](change-requests.md) | ✅ Phase 1 + 2 + 3 built vs `4bf7eb0` (live) |
 | File Cabinet (this tab) | [file-cabinet.md](file-cabinet.md) | ✅ verified vs the commit that adds it |

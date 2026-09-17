@@ -4,8 +4,8 @@
    ============================================================ */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeStoragePath, nextFetchState, MAX_FETCH_ATTEMPTS } from './fetch-recordings.js';
-import { dedupeByCtmCallId, buildBackfillRows } from './backfill-recordings.js';
+import { computeStoragePath, nextFetchState, MAX_FETCH_ATTEMPTS, cronAuthorized } from './fetch-recordings.js';
+import { dedupeByCtmCallId, buildBackfillRows, authorized as backfillAuthorized } from './backfill-recordings.js';
 
 // ── storage path convention ─────────────────────────────────
 test('computeStoragePath = <yyyy-mm>/<ctm_call_id>.mp3 from recorded_at (UTC)', () => {
@@ -74,3 +74,22 @@ test('buildBackfillRows is deterministic/idempotent-friendly: same input → sam
   const logRows = [{ body: { id: 10, audio: 'https://ctm/10' } }];
   assert.deepEqual(buildBackfillRows(logRows, {}), buildBackfillRows(logRows, {}));
 });
+
+// ── cron auth fails CLOSED ──────────────────────────────────
+for (const [name, fn] of [['fetch-recordings', cronAuthorized], ['backfill-recordings', backfillAuthorized]]) {
+  test(`${name} auth: CRON_SECRET missing → refuses, even with a Bearer header`, () => {
+    const origError = console.error; console.error = () => {};
+    try {
+      assert.equal(fn({ headers: {} }, {}), false);
+      assert.equal(fn({ headers: { authorization: 'Bearer ' } }, { CRON_SECRET: '' }), false);
+      assert.equal(fn({ headers: { authorization: 'Bearer undefined' } }, {}), false);
+    } finally { console.error = origError; }
+  });
+  test(`${name} auth: CRON_SECRET set → only the exact Bearer passes`, () => {
+    const env = { CRON_SECRET: 's3cret' };
+    assert.equal(fn({ headers: { authorization: 'Bearer s3cret' } }, env), true);
+    assert.equal(fn({ headers: {} }, env), false);
+    assert.equal(fn({ headers: { authorization: 'Bearer wrong' } }, env), false);
+    assert.equal(fn({ headers: { authorization: 's3cret' } }, env), false);
+  });
+}

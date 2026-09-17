@@ -72,7 +72,7 @@ and the tech's "time in state."
 
 ## 4. "Category" is a plain field
 `job_category` is a plain text tag on the floor row (Rebuild, R&R, etc.) — no state machine.
-Today it's written on the **gm-board / v1 `shop-board.html` "Shop Floor" tab** (the manager's
+Today it's written on the **gm-board "Shop Floor" tab** (the manager's
 floor editor); `my-numbers.html` reads it but does not write it. So editing category is
 low-risk — last-write-wins, nothing derived depends on it.
 
@@ -99,8 +99,7 @@ being read-only makes it feel pointless.**
   board** (they use My Numbers), and the board **already writes** on drag-assign (§5). So a
   manager editing from here is not inherently against the design — the modal is just Slice-1
   read-only.
-- **The manager already has an edit path:** the **gm-board "Shop Floor" tab** (and v1
-  `shop-board.html`) let the manager edit floor `status` + `job_category` directly. Kevin's
+- **The manager already has an edit path:** the **gm-board "Shop Floor" tab** lets the manager edit floor `status` + `job_category` directly. Kevin's
   capability exists — just on a different screen than the card he tapped.
 - **Category** is safe to make editable inline (plain field, last-write-wins). **Status** is
   not — it's the derived state machine (§3); a naive status dropdown that writes the raw column
@@ -132,17 +131,19 @@ the My Numbers transition writer (option 3), never a raw dropdown.
 - No viewer identity/role on the tech board (§2, §7) — the blocker for safe manager-only editing.
 - The read-only modal's premise ("techs update from My Numbers") understates that the board
   already writes on assignment (§5).
-- `job_category` has no shared writer/module — it's edited in gm-board / shop-board (v1) only.
+- `job_category` has no shared writer/module — it's edited in gm-board's Shop Floor tab only.
 
 ## Where it lives in the code
 - Dispatcher: `crisdata-techboard.html` — `deriveLocalStatus`, `toJob`, `openJob` (read-only
   modal), `assignTechCore` (drag-assign write), the drag/drop wiring.
 - Tech phone flow: `my-numbers.html` — `sbStatusToLocal` / `localStatusToSb` / `writeJobStatus`.
-- Manager floor editor (status + category today): `gm-board.html` "Shop Floor" tab, `shop-board.html` (v1).
+- Manager floor editor (status + category today): `gm-board.html` "Shop Floor" tab (v1 `shop-board.html` deleted 2026-09-17).
 - Related docs: `ro-checkin-tech.md` (tech assignment + the `shopboard_pickup` no-`status`
   quirk), `floor-tags.md` (floor tags & lanes).
 
 ## Session change log
+- 2026-09-17 — v1 `shop-board.html` deleted; dropped it from the manager floor-editor references
+  (§4, §7, gaps, "Where it lives"). Rest not re-verified.
 - 2026-08-21 — **Columns now key off assignment, not role (§2a).** Jobs assigned to a name
   outside `role='tech'` had no column while still counting as Assigned — the counter and the
   columns disagreed and the work showed nowhere. Undeferred from the "no phantom columns"

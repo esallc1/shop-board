@@ -177,7 +177,12 @@ back to `vercel --prod`. Deploying that way caused two real problems, both diagn
   notes, a marketing business-model doc, `setup_shopboard.sql`, `.claude/`. All were confirmed
   readable at `https://www.leetransmissionshop.com/...` (HTTP 200) before being ignored in `c17db7e`.
   No credential values were exposed, but nothing in that set was app content. A git-integration
-  build ships only what is committed and cannot do this.
+  build ships only what is committed **minus what `.vercelignore` names** and cannot do this.
+  (Verified 2026-09-17 that git deploys honour `.vercelignore`: tracked + listed
+  `migrations/*.sql` → 404, tracked + not listed `staging/staging-rls-and-storage.sql` → 200.
+  So `.vercelignore` is also how a *tracked* file is kept off the public origin — currently
+  `docs/wiring/office-auth.md`, see [[file-cabinet]] §4a. Everything else tracked is public,
+  including `CLAUDE.md` and `docs/wiring/*`.)
 - **It broke the version stamp.** `/api/version` exists so an installed PWA can detect a new deploy
   ([[page-map]] §3, `shared/version-check.js`). It reads `VERCEL_GIT_COMMIT_SHA`, which a CLI deploy
   populates from whatever your local HEAD happens to be — so it reported a SHA that matched no
@@ -328,6 +333,10 @@ bucket layout should now come from `migrations/20260819_storage_buckets.sql`, no
 - Client-side idle logout: `shared/office-identity.js` (`armIdleLogout`) — see [[office-auth]] §8.8.
 
 ## Session change log
+- 2026-09-17 — §3.6: recorded that git-integration deploys honour `.vercelignore` (proved by
+  status-code difference), and that it now hides the tracked `docs/wiring/office-auth.md`.
+  `vercel.json` lost its `/teardown` + `/tech-board` rewrites ([[page-map]] §6). Rest of doc not
+  re-verified this session.
 - 2026-09-10 — **§2a added: the push origin gate; `ALLOWED_ORIGINS` is gone.** The gate was an
   exact-string list of `board.*` + one vercel alias, but the office works from
   **`www.leetransmissionshop.com`** — so every Team Chat push from the front desk had 403'd since

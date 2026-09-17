@@ -1,7 +1,9 @@
 # The shop-board Vercel project deploys the root static site + api/ + shared/.
-# Everything below is untracked local cruft that the git-integration deploys
-# already exclude (they only ship git-tracked files); this makes `vercel --prod`
-# CLI deploys upload the same set instead of the whole working tree.
+# This file is honoured by the GIT-INTEGRATION deploys too, not just the CLI
+# (verified 2026-09-17: `migrations/*.sql` is git-tracked AND listed below and
+# returns 404 on www + test.*, while the git-tracked, NOT-listed
+# `staging/staging-rls-and-storage.sql` returns 200). So a line here is the way
+# to keep a TRACKED file off the public origin, not only untracked cruft.
 
 # kiki/ is a SEPARATE Next.js project with its own deployment — not part of
 # shop-board. Its build cache + bundled manual PDF blow past Vercel's 100 MB
@@ -38,3 +40,10 @@ shop-lot-map.svg
 # there is no fetch/readFile/require/import of a .sql file anywhere in served
 # code, and vercel.json neither routes nor includes them.
 migrations
+
+# ── Tracked but NOT public (added 2026-09-17) ──────────────────────────────
+# The office-auth wiring doc describes the auth design in detail; it stays in git
+# for developers but must not be served. It is also removed from the File Cabinet
+# manifest (shared/file-cabinet.js) — pulling it from the manifest alone would
+# NOT remove its URL. No runtime code fetches it (only comments name it).
+docs/wiring/office-auth.md

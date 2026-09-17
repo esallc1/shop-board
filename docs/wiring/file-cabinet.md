@@ -1,8 +1,8 @@
 # How the File Cabinet tab is wired
 
 > Doc: `/docs/wiring/file-cabinet.md`
-> Last updated: 2026-07-30 — verified vs commit `1259692`
-> Status: ✅ verified vs commit `1259692` — built and checked this session against `shared/file-cabinet.js` and `owner-board.html`.
+> Last updated: 2026-09-17 — §4a added: `office-auth.md` is deliberately NOT in the cabinet and NOT served.
+> Status: ⚠ Needs review — §4, §4a and the manifest recount re-checked vs `9447b68` + this change; §§1–3, 5 last full check vs `1259692`.
 
 ## 0. In one line
 A read-only tab on the **owner board** that lists the wiring docs in `/docs/wiring/`
@@ -37,12 +37,26 @@ and renders their markdown — the File Cabinet the CLAUDE.md rules describe, ma
   set of docs is the `DOCS` manifest at the top of `shared/file-cabinet.js`
   (`{id, file, icon, title}` per doc), in display order. **Adding a new wiring doc
   means adding a manifest row** — it will not appear otherwise.
-- `/docs/wiring/` is served as static files: `.vercelignore` does not exclude `docs/`,
-  the docs are git-tracked, and `vercel.json` has no rewrite over `/docs/*`, so
-  `fetch('/docs/wiring/<file>.md')` returns the raw markdown.
+- `/docs/wiring/` is served as static files: the docs are git-tracked, `vercel.json` has
+  no rewrite over `/docs/*`, and `.vercelignore` excludes only `docs/wiring/office-auth.md`
+  (§4a), so `fetch('/docs/wiring/<file>.md')` returns the raw markdown for every other doc.
+  ⚠ Served means **public**: anyone with the URL can read a doc; the owner-board login does
+  not protect `/docs/*`.
 - Internal `*.md` links inside a doc (e.g. the README index table) are rewritten to
   switch folders in-tab rather than navigate; `http(s)` links open in a new tab;
   other relative links render inert (read-only surface).
+
+## 4a. Deliberately excluded: `office-auth.md`
+- `docs/wiring/office-auth.md` stays in git but is **off the public surface** on purpose (it
+  details the auth design). Two separate things had to change, because they are independent:
+  1. **No manifest row** in `shared/file-cabinet.js` — so the tab doesn't list or fetch it, and
+     it is dropped from `README.md`'s Index.
+  2. **A `.vercelignore` line** — so the URL itself returns 404. Removing the manifest row alone
+     leaves the file served. Git-integration deploys honour `.vercelignore` (verified 2026-09-17,
+     see the comment at the top of that file).
+- `[[office-auth]]` references in other docs render as plain text: `inline()` only makes a
+  link for a filename that is in `byFile`.
+- It is therefore **not** a "missing from the manifest" gap below — do not add it back.
 
 ## 5. Markdown rendering
 - A small self-contained renderer in the module (no external library — matches the
@@ -60,9 +74,10 @@ and renders their markdown — the File Cabinet the CLAUDE.md rules describe, ma
   `&nbsp;`). Inline code is split out before the emphasis/link passes so code contents
   are never altered.
 
-## ⚠ The manifest is INCOMPLETE (recounted 2026-09-12)
-`shared/file-cabinet.js` lists **27** entries (26 subsystem docs + the README). `/docs/wiring/`
-contains **37** files. **Ten** subsystems are therefore written up but **invisible on the owner
+## ⚠ The manifest is INCOMPLETE (recounted 2026-09-17)
+`shared/file-cabinet.js` lists **26** entries (25 subsystem docs + the README). `/docs/wiring/`
+contains **37** files. One of the 11 not listed is `office-auth.md`, excluded on purpose (§4a).
+The other **ten** subsystems are written up but **invisible on the owner
 board** — the File Cabinet shows a shop that is less documented than it is:
 
 | Missing from the manifest |
@@ -111,6 +126,10 @@ about naming rather than a mechanical fix.
 - Design blueprint (not shipped): `docs/_design/file-cabinet-mockup.html`.
 
 ## Session change log
+- 2026-09-17 — **Took `office-auth.md` off the public surface:** removed its `DOCS` row and its
+  README Index row, and added it to `.vercelignore` so its URL 404s (§4a). Corrected §4, which
+  said `.vercelignore` excludes nothing under `docs/`. Recounted the manifest: 26 entries / 37
+  files / 10 genuinely missing + 1 excluded.
 - 2026-08-23 — **Recorded that the manifest is incomplete: 25 of 33 docs.** Eight subsystems are
   documented but not shown on the owner board. Also noted that `README.md`'s Index and
   `file-cabinet.js`'s `DOCS` array are two hand-maintained lists of the same thing that had

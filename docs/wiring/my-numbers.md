@@ -279,8 +279,8 @@ same reason.
   `approveJob` (writes `approved`), `loadCdDiagCards` + `diagnosis_reviewed_at` stamp (RO diag).
 - **Operate-as host:** `gm-board.html` "My Numbers" tab (`my-numbers.html?as=<phone>` iframe).
 - **Related raw-status writers:** `shared/status-mirror.js` (canonical `STATUS_OPTIONS`),
-  `crisdata-techboard.html` (drag-assign + verbatim `sbStatusToLocal`), gm-board / v1
-  `shop-board.html` floor dropdowns.
+  `crisdata-techboard.html` (drag-assign + verbatim `sbStatusToLocal`), gm-board Shop Floor
+  dropdowns (v1 `shop-board.html` deleted 2026-09-17).
 - **Shared:** `shared/pwa-register.js`, `shared/version-check.js`, `shared/photo-compress.js`,
   `shared/photo-buckets.js`, `shared/ro-media.js`, `shared/tech-findings.js`. **Not**
   `shared/catch-moment.js` — see above.
@@ -290,6 +290,7 @@ same reason.
   `recordings-audio.md` (the audio/attachments pattern), `floor-tags.md` (floor lanes).
 
 ## Session change log
+- 2026-09-17 — v1 `shop-board.html` deleted; removed it from the raw-status writers list. Rest not re-verified.
 - 2026-08-27 — **Video capture, and one gap logged.** Every photo grid gained a second add tile,
   **🎬 Add Video** (`accept="video/*"`, deliberately no `capture`, so the camera roll is reachable
   — a clip is far likelier than a photo to already exist). The clip is the same

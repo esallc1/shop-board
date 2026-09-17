@@ -19,8 +19,8 @@ Bookkeeping). No chat, no to-do.
 - **Owner board** (`owner-board.html`) shows the active announcement **unfiltered** — a
   broadcaster preview (init with **no** `role`) — and is where announcements are **posted**
   (the sidebar **📣 Announcement** tab → `#announce-manage`).
-- **NOT on** the tech-floor screens (`tech-board.html`, `crisdata-floor.html`,
-  `crisdata-techboard.html`, `shop-board.html`) — they don't include the module.
+- **NOT on** the tech-floor screens (`crisdata-floor.html`, `crisdata-techboard.html`) — they
+  don't include the module. (v1 `tech-board.html` / `shop-board.html` were deleted 2026-09-17.)
 - The banner mounts at the top of each board's `.content`, above the views, so it persists
   across tabs.
 
@@ -114,6 +114,7 @@ dismiss** (so the owner can still Remove it).
   (post/remove panel with the audience picker), init with `manageMount` + `getName`.
 
 ## Session change log
+- 2026-09-17 — Dropped the deleted v1 `tech-board.html` / `shop-board.html` from the "NOT on" list. Rest not re-verified.
 - 2026-07-30 — Built v1: `announcements` table (anon SELECT; service-role writes), the
   `api/announcement.js` create/remove endpoint, and `shared/announcement-banner.js` (banner +
   owner post/remove + realtime with encapsulated self-heal + per-device dismiss). Wired into
