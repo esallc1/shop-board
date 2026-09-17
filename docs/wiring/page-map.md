@@ -35,7 +35,13 @@ not something a person navigates to by name. Sections 2–6 are that missing hal
 - There is **no phone + PIN form** in this file any more. The old hidden one (`render()` /
   `doLogin()`) was deleted 2026-09-17: it was never shown, and it was the only code that put a
   PIN into a URL (`?u=phone&p=pin`) on the way to a board. On load the page runs `bootDoor()`.
-  Techs sign in on `my-numbers.html`'s own PIN screen.
+  Techs sign in on `my-numbers.html`'s own PIN screen — and since 2026-09-17 that PIN is checked
+  **inside the database** (`login_with_pin`), because `employees.pin` no longer exists on either
+  project ([[employee-roster]] §1c, [[my-numbers]] §1).
+
+  There is exactly **one working PIN login per database**: Cristian Tech on prod, ZZ Test Tech on
+  the sandbox. Everyone else — all four office users and the other four ZZ accounts — comes in
+  through `crisdata.html` with email + password.
 - The door deliberately does **not** call `OfficeIdentity.resolve()`: `resolve()` arms the shared
   120-minute idle auto-logout, which redirects to `crisdata.html` — the door must never arm a
   timer pointing at itself.
@@ -158,6 +164,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Tab shell: `.sidebar-item[data-view]` + `<div class="view" id="view-…">` in each board.
 
 ## Session change log
+- 2026-09-17 — §2: noted that the My Numbers PIN screen now verifies through `login_with_pin` (Security Phase 2, live on both projects) and that it is the only PIN door left. Nothing else re-verified.
 - 2026-09-17 — §2: the dead phone/PIN form + `?u=&p=` writer deleted from `crisdata.html`; `ROLE_DEST` still at `:175`.
 - 2026-09-17 — **Deleted the three v1 doors** (`shop-board.html`, `teardown.html`,
   `tech-board.html`) and the `/teardown` + `/tech-board` rewrites. Re-grepped for live references

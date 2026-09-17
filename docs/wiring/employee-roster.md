@@ -1,10 +1,12 @@
 # How the employee roster is wired
 
 > Doc: `/docs/wiring/employee-roster.md`
-> ⚠ **2026-09-17 — Security Phase 2 on branch `security/phase2-pins` (UNMERGED; migrations M1/M2 NOT applied anywhere).** PINs move to `employee_secrets` (hashes) and
-> `employees.pin` is dropped (§1c); the GM editor loses its PIN box (§1d); `employees_visible`
-> gets an explicit column list (§1a). PIN values removed from this doc (it is served publicly).
-> Until M1/M2 run, the LIVE databases are still as described in the older text.
+> ✅ **2026-09-17 — Security Phase 2 is LIVE on prod + sandbox.** M1 + M2 hand-run on both
+> projects; code at `1f55c3e` on `main` = `staging`. PINs are bcrypt hashes in
+> `employee_secrets` and `employees.pin` **no longer exists** (§1c); the GM editor has no PIN box
+> (§1d); `employees_visible` is the 13-column explicit list, `security_invoker = true`, grants
+> identical to the pre-change capture (§1/§1a). PIN values removed from this doc (it is served
+> publicly).
 > Previously: 2026-08-21 — §7 added (assignment-vs-role audit + the write-safety rule);
 > slice COMPLETE: retirements + unique index applied.
 > Verified vs commit `617b419` (live on prod).
@@ -25,11 +27,12 @@ retiring a leaver, or logging in as a test account must never silently break who
 | Login, identity resolution, anything that stamps a name on a write | **`public.employees`** | a test account must be able to log in |
 
 ```sql
--- LIVE today (both projects):
-create or replace view public.employees_visible as
-  select * from public.employees where not is_test;
--- After M2 (migrations/20260917_pin_off_public_M2_drop_pin.sql): same filter,
--- security_invoker = true, an EXPLICIT column list = every employees column (pin is gone).
+-- LIVE on both projects since 2026-09-17
+-- (migrations/20260917_pin_off_public_M2_drop_pin.sql):
+create view public.employees_visible with (security_invoker = true) as
+select id, name, phone, role, active, photo_url, created_at, background_photo_url,
+       avatar_path, auth_user_id, commission_base_weekly, commission_gp_pct, is_test
+  from public.employees where not is_test;     -- 13 columns; `pin` is gone from the base table
 ```
 
 `is_test boolean not null default false`. **It is not the same as `active`:**
@@ -39,10 +42,10 @@ create or replace view public.employees_visible as
 
 Conflating them would make a retired employee indistinguishable from a fake one.
 
-### 1a. ⚠ The `select *` trap
+### 1a. ⚠ The `select *` trap — now an explicit list
 The view's column list is **expanded when the view is created**, not at query time. Add a
-column to `employees` and the view will not have it — quietly. **After M2 the list is written
-out explicitly**, so this is no longer a trap but a rule: a new `employees` column is NOT on the
+column to `employees` and the view will not have it — quietly. **Since 2026-09-17 the list is
+written out explicitly**, so this is no longer a trap but a rule: a new `employees` column is NOT on the
 view until you add it to the list (`create or replace view` may append columns at the end; it
 may not drop one — that needs drop + create + re-grant, as M2 does). **Never add a secret to
 it.** Either way, after ANY `alter table public.employees add column`, check:
@@ -55,13 +58,20 @@ select
      where table_schema='public' and table_name='employees_visible') as view_cols;
 ```
 
-**These must match.** They were 14 = 14 on both projects on 2026-08-21.
+**These must match.** 13 = 13 on both projects on 2026-09-17 (they were 14 = 14 until M2
+dropped `pin`).
 
 ### 1b. The anon grant is preserved, not endorsed
 `grant select on public.employees_visible to anon` keeps today's posture: `employees` is
 already anon-readable ([[settings]] §3) and every board depends on that with the publishable
 key. **Read that grant as "unchanged", not as "reviewed and blessed."** Revisiting it is
 tracked as its own security phase.
+
+**Still true after Phase 2, and the biggest thing left here:** M2 re-created the view with the
+same grants it had before (verified against the pre-change capture), so **anyone holding the
+publishable key can still read the whole roster** — name, phone, role, `auth_user_id`. Only the
+PIN left. That read is what makes [[my-numbers]] §8's forged-session hole reachable, and closing
+it is the **Phase 5** RLS cutover.
 
 The view is declared `security_invoker = true` **specifically** so that when the roster is
 locked down, this view is covered by that change instead of routing around it. Without it a
@@ -74,20 +84,25 @@ migration would have quietly opened the hole the security phase is meant to clos
   public. Only SECURITY DEFINER functions touch it.
 - `login_with_pin(p_phone, p_pin)` is the only reader ([[my-numbers]] §1). bcrypt
   (`gen_salt('bf', 8)`), 5 misses → locked 15 min, zero rows for every kind of failure.
-- **Who has a hash:** M1 backfills `Cristian Tech` on every project and `ZZ Test Tech` on
-  non-PROD only (`app_env`). `login_with_pin` also requires `active`, so the working PIN login
-  is **Cristian Tech on prod** and **ZZ Test Tech on the sandbox** (§6a). Nobody else can PIN-login — nobody else needs to (office staff use
-  email; techs don't use My Numbers yet).
-- **Setting / rotating / unlocking a PIN is hand-run SQL** — the snippets are at the bottom of
-  `migrations/20260917_pin_off_public_M1_employee_secrets.sql`. No UI writes a PIN.
+- **Who has a hash (live):** prod holds **one row — Cristian Tech** (active; PIN **rotated
+  2026-09-17**, after M2, because the old one had been publicly readable for months). The sandbox
+  holds two (Cristian Tech, inactive in that stale copy, and ZZ Test Tech, active). M1 skipped
+  ZZ Test Tech on prod by design. `login_with_pin` also requires `active`, so there is exactly
+  **one working PIN login per database** — Cristian Tech on prod, ZZ Test Tech on the sandbox.
+  Nobody else can PIN-login and nobody else needs to (office staff use email; techs don't use
+  My Numbers yet).
+- **Setting / rotating / unlocking a PIN is hand-run SQL** — the `employee_secrets` snippets at
+  the bottom of `migrations/20260917_pin_off_public_M1_employee_secrets.sql` ("SET / ROTATE A
+  PIN", "CLEAR A LOCK"). **There is no other way:** no UI writes a PIN, `set_employee_pin` was
+  deliberately not built, and there is no `pin` column to update any more.
 - **PIN values are never written in a doc** (these docs are served on the public origin).
 
 ### 1d. The GM editor has no PIN box (Phase 2)
 Kevin uses GM board → Employees only to add / edit / remove people so they appear as Tech Board
 columns; nobody he adds logs in. `saveEmployee` now requires **name, phone, role** and writes
-`{ name, phone, role, active, photo_url }`. Add needs M1 (`employees.pin` DROP NOT NULL) until M2
-removes the column. Edit and delete are otherwise unchanged. `set_employee_pin` was deliberately
-**not** built.
+`{ name, phone, role, active, photo_url }` — no `pin` key, and the column it used to write no
+longer exists. Add / edit role / delete were all retested live on `test.*` after the drop.
+`set_employee_pin` was deliberately **not** built.
 
 ## 2. Who reads what (verified 2026-08-21)
 
@@ -113,20 +128,30 @@ ROs, photos, to-dos, calls — is ordinary data and needs cleaning up by hand.
 
 ## 3. The test accounts
 
-Five rows, `is_test = true`, `active = true` (active is REQUIRED — every login path filters
-it). Phones are in the reserved-for-fiction `555-01xx` range so they can never collide with a
-real hire.
+Five rows, `is_test = true`. Phones are in the reserved-for-fiction `555-01xx` range so they can
+never collide with a real hire.
+
+**`active` differs per project since 2026-09-17:** the ZZ rows are **`active = false` on prod**
+and **`active = true` on the sandbox**. Active is REQUIRED to sign in (every login path filters
+it), so **the ZZ accounts are test logins on `test.*` only** — which is the point: a test login
+that works on prod is a real login. Re-activating one on prod is a deliberate act, not a
+convenience.
 
 | Name | Phone | Role | Lands on |
 |---|---|---|---|
-| ZZ Test Tech | 5550100001 | `tech` | `my-numbers.html` (PIN — sandbox only, §1c) |
+| ZZ Test Tech | 5550100001 | `tech` | `my-numbers.html` (the sandbox's one PIN login, §1c) |
 | ZZ Test Advisor | 5550100002 | `advisor` | `advisor-board.html` |
 | ZZ Test GM | 5550100003 | `manager` | `gm-board.html` |
 | ZZ Test Owner | 5550100004 | `owner` | `owner-board.html` |
 | ZZ Test Bookkeeping | 5550100005 | `bookkeeping` | `bookkeeping-board.html` |
 
-PINs are not listed here. An earlier version of this table printed them on a publicly served
-page, so the sandbox ZZ Test Tech PIN is burned — rotate it with the M1 snippet if it matters.
+**There is no PIN column any more** (§1c): ZZ Test Tech's PIN is a hash in `employee_secrets`
+on the sandbox only, set or rotated by the M1 snippet. The other four ZZ accounts sign in with
+**email + password** on the front door and never had a usable PIN after Phase 2.
+
+PIN values are not listed here. An earlier version of this table printed them on a publicly
+served page, so the sandbox ZZ Test Tech PIN is burned — rotate it with the M1 snippet if it
+ever matters.
 
 Roles are the five `ROLE_DEST` keys (`crisdata.html`): **`manager`, not `gm`.** A role outside
 that map produces an account that signs in and routes nowhere.
@@ -200,7 +225,6 @@ but never fires is indistinguishable from no index — the same failure shape as
 run-id guard ([[staging-db]] §8.1). Re-run the negative test after any restore:
 ```sql
 begin;
--- needs M1 (pin nullable) — before M1 this raises 23502 not-null instead, proving nothing
 insert into public.employees (id, name, phone, role, active, is_test)
 values (gen_random_uuid(), 'ZZ Dup Probe', '5550100002', 'tech', true, true);
 rollback;    -- expect: ERROR 23505 before this line is reached
@@ -370,11 +394,15 @@ are claiming about.
   failure loud in the meantime.
 - **Test data is not cleaned up.** `is_test` hides the person, not the ROs, photos, to-dos or
   calls they create. No tooling for that yet.
-- **The anon grant** (§1b) is preserved pending a security phase.
+- **The anon grant** (§1b) is preserved pending the **Phase 5** RLS cutover: the roster
+  (including every phone and `auth_user_id`) is still readable with the publishable key.
 - **No UI can create or edit a test account.** SQL only — a deliberate choice. PINs for anyone
   are SQL only too (§1c).
-- **Phase 2 is not live** until M1 → code → M2 run in order (sandbox, then prod). If the
-  gm-board code ships before M1, **Add Employee fails** (`pin` still NOT NULL).
+- ~~Phase 2 is not live~~ — **it is** (M1 + M2 on both projects, 2026-09-17; anon
+  `employees?select=pin` → 400 `42703` on prod, was 200).
+- **The order was M1 → code → M2, and it has to be.** The code needs `login_with_pin` to exist
+  (and `pin` nullable for Add) before it ships, and the old code needs `pin` to exist until it
+  is gone. Repeat it that way on any future environment.
 - **M2's explicit column list** was checked against preflight query 2 on both projects
   (2026-09-17): `id, name, phone, role, active, photo_url, created_at, background_photo_url,
   avatar_path, auth_user_id, commission_base_weekly, commission_gp_pct, is_test` (the live 14
@@ -395,8 +423,9 @@ are claiming about.
 - Employee CRUD UI: `gm-board.html` (`loadEmployees`, `saveEmployee`, the delete confirm).
 
 ## Session change log
+- 2026-09-17 — **Security Phase 2 COMPLETE — live on prod + sandbox** (M1 + M2 hand-run on both; code `1f55c3e` on `main` = `staging`). `employee_secrets` + `login_with_pin` created and `employees.pin` DROPPED on both projects; `employees_visible` recreated as a 13-column explicit list with its original grants; Cristian Tech's PIN rotated; the ZZ rows left inactive on prod. §1/§1a/§1b/§1c/§1d and §3 rewritten to match; Phase 4 / Phase 5 residual risks recorded here and in [[my-numbers]] §8.
 - 2026-09-17 — Preflight results folded in: M2 view list gains `created_at` (14 live columns confirmed on both projects); §6a/§1c corrected — Cristian Tech is active on prod (…0000), retired only on the sandbox copy.
-- 2026-09-17 — **Security Phase 2 (branch `security/phase2-pins` (UNMERGED; migrations M1/M2 NOT applied anywhere)):** §1c/§1d added, §1/§1a rewritten for the explicit view list; PIN values scrubbed from §3/§6/§6a; §5 negative test no longer inserts a `pin`. Gaps + code map updated.
+- 2026-09-17 — **Security Phase 2, first pass (code + SQL written):** §1c/§1d added, §1/§1a rewritten for the explicit view list; PIN values scrubbed from §3/§6/§6a; §5 negative test no longer inserts a `pin`. Gaps + code map updated.
 - 2026-09-17 — §2 base-table readers and §3 "restored staging" updated: the `?u=&p=` URL login and `crisdata.html`'s phone/PIN lookup are deleted. Rest (incl. counts elsewhere) not re-verified.
 - 2026-08-21 — **§7 added: assignment is not role.** Audited every `employees` read; 5 of 12
   keyed off role as a proxy for assignment. Fixed: three pickers now use the shared write-safety

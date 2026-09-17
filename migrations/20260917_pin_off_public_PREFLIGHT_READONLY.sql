@@ -2,6 +2,8 @@
 -- SECURITY PHASE 2 — PREFLIGHT (READ-ONLY). Run on BOTH projects, sandbox first.
 -- ============================================================================
 -- Writes nothing. Paste each result back before M1 / M2 are run.
+-- ✅ Run on both projects 2026-09-17; M1 + M2 are applied. Kept as the re-check to run on any
+--    new environment (and after a sandbox restore) before repeating M1 → code → M2.
 --
 -- Why this exists: `alter table employees drop column pin` FAILS if any view,
 -- rule or policy depends on the column, and silently BREAKS (at call time, not

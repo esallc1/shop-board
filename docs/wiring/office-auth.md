@@ -1,5 +1,12 @@
 # How office login could adopt Supabase Auth (investigation + lockout-safe plan)
 
+> ⚠ **2026-09-17 — Security Phase 2 is LIVE: there is no `employees.pin` column any more.** PIN
+> hashes live in `employee_secrets` (no API access) and are checked only by the SECURITY DEFINER
+> function `login_with_pin`; the GM editor's PIN field is gone. Every "reads `pin`" claim below is
+> HISTORY. See [[employee-roster]] §1c/§1d and [[my-numbers]] §1/§8 for the current wiring — and
+> §8 there for what Phase 2 deliberately did NOT fix (the My Numbers session is still a phone in
+> localStorage → Phase 4; the roster is still anon-readable → Phase 5).
+>
 > ⚠ **2026-09-17 — the URL login is GONE.** The `?u=phone&p=pin` passthrough's readers in `my-numbers.html` and
 > `shared/office-identity.js` (`resolvePhone`, plus `expectedRole`) and its only writer, the hidden
 > phone/PIN form in `crisdata.html` (`render()`/`doLogin()`), were deleted. Every `?u/p` mention
@@ -764,8 +771,8 @@ the login username. Everything else (name/role/active/photos) is non-sensitive b
   .eq(auth_user_id)`; `shared/office-identity.js:71/88` `select('id,name,photo_url,role')` by
   `auth_user_id` (auth branch) or `phone` (phone branch).
 - **Staff-mgmt read (manager, reads pin):** `gm-board.html:4156` `select('*')` — the Employee
-  Management list; `openEditEmployee` prefilled the PIN field from it. **Phase 2 (2026-09-17, branch):
-  the PIN field is removed and M2 drops `pin`** — see [[employee-roster]] §1c/§1d.
+  Management list; `openEditEmployee` prefilled the PIN field from it. **Phase 2 (2026-09-17, LIVE):
+  the PIN field is gone and `pin` is dropped** — see [[employee-roster]] §1c/§1d.
 - **Non-pin board/roster reads (anon or auth):** `my-numbers.html:768/828`, `owner-board.html:332`,
   `gm-board.html:2132/2413/2877/3615/3927`, `advisor-board.html:2519/2893/2920/4474`,
   `bookkeeping-board.html:2930`, `crisdata-techboard.html:385`, `shared/board-settings.js:1026`,
@@ -940,6 +947,7 @@ pin column; all board reads/greeting/roster still populate.
   identity-first, §8 enforcement), [[change-requests]] (§5 — a feature that deferred to this).
 
 ## Session change log
+- 2026-09-17 — Security Phase 2 went LIVE on both projects: top banner rewritten (the `pin` column is gone; the PIN-reading claims below are history), §1c staff-mgmt read note updated. Not otherwise re-verified.
 - 2026-09-17 — Security Phase 2 (branch): PIN value scrubbed from §1c table; staff-mgmt read note points at employee-roster §1c/§1d. Not otherwise re-verified.
 - 2026-09-17 — Deleted the `?u=&p=` URL login (readers in `my-numbers.html` + `shared/office-identity.js`, writer in `crisdata.html`) and `expectedRole`. Added a top banner; §8.3 item 2 rewritten; other `?u/p` mentions left as history. Not otherwise re-verified.
 - 2026-08-20 — Added §1b: `CHAT_IDENTITY` is a lexical `let`, never `window.CHAT_IDENTITY`. Four

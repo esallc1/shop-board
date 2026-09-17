@@ -1,6 +1,9 @@
 -- ============================================================================
 -- SECURITY PHASE 2 — M2 ROLLBACK (restores the SHAPE, not the values)
 -- ============================================================================
+-- Not used: M2 ran cleanly on both projects 2026-09-17 and the live PIN login was retested
+-- after each drop. Kept because the only way back is through this file.
+--
 -- ⚠ The old PIN values are GONE. This brings back an EMPTY, nullable
 --   employees.pin and the old `select *` view, so pre-Phase-2 code stops
 --   erroring on the missing column — but that old code still cannot log anyone

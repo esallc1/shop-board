@@ -1,6 +1,10 @@
 -- ============================================================================
 -- SECURITY PHASE 2 — M2 (DESTRUCTIVE). Drop employees.pin; view gets an explicit column list.
 -- ============================================================================
+-- ✅ APPLIED 2026-09-17 — sandbox (efhmefpaijjncwgbvwki) then prod (hygemiszxwmyrkmhbjub), both verified, code at 1f55c3e live on main + staging first.
+--    Verified on both: employees.pin gone; employees_visible = the 13 columns below,
+--    security_invoker=true, grants identical to the preflight capture (prod: 16 rows).
+--    Anon on prod: employees?select=pin → 400 42703 (was 200), employee_secrets → 401 42501.
 -- Hand-run in the Supabase SQL editor. Sandbox FIRST, retest, then prod.
 --
 -- PRECONDITIONS (the guard below enforces the ones it can):

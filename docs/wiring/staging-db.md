@@ -294,10 +294,15 @@ The fallback cannot rescue it, because `employees` has **two rows per person** f
 people (reported from the sandbox data 2026-08-21; the code behaviour below is verified, the
 row contents are not independently confirmed here):
 
-| Phone | Rows sharing it | PINs |
+| Phone | Rows sharing it | PINs (as of 2026-08-21) |
 |---|---|---|
 | `9416260382` | Josh (`advisor`) + Jay Tech (`tech`) | **the same** |
 | `2396001971` | Cristian (`owner`) + Cristian Tech (`tech`) | different |
+
+**The PIN part of this is history.** Security Phase 2 dropped `employees.pin` from both projects
+on 2026-09-17; a PIN is now a hash in `employee_secrets`, checked only by `login_with_pin`
+([[employee-roster]] §1c). The duplicate-*phone* problem the rest of this section describes is
+what the §5 unique index fixed, and it is unaffected.
 
 Both branches of `resolvePhone` end at the same statement in `shared/office-identity.js`:
 
@@ -606,6 +611,7 @@ it will be followed.
 - **Employee ↔ auth mapping:** see [[office-auth]].
 
 ## Session change log
+- 2026-09-17 — §7.2: PIN value removed and the PIN half marked history — Security Phase 2 dropped `employees.pin` on BOTH projects (M1 + M2 hand-run and verified; [[employee-roster]] §1c). The duplicate-phone analysis stands. Nothing else re-verified.
 - 2026-09-17 — §7.2: PIN value removed (this doc is served publicly). Nothing else re-verified.
 - 2026-09-17 — §7: noted that the `?u/p` passthrough and `expectedRole` it describes were deleted. Rest not re-verified.
 - 2026-08-23 — **§8.5 added: deploy backwards-compatible code BEFORE the migration.** Taken from

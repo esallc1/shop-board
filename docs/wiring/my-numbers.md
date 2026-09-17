@@ -1,10 +1,15 @@
 # How My Numbers (the tech's phone tool) is wired
 
 > Doc: `/docs/wiring/my-numbers.md`
-> ⚠ **2026-09-17 — Security Phase 2 on branch `security/phase2-pins` (UNMERGED; migrations M1/M2 NOT applied anywhere).** The PIN is no longer checked in the browser:
-> `findEmployee` calls `shared/pin-login.js` → the SECURITY DEFINER RPC `login_with_pin` (§1, §8).
-> **This code needs M1 applied first** — on a database without `login_with_pin`, every PIN login
-> fails. §1 / §5-reads / §8 / gaps re-verified vs `141a4e7` + that branch; rest not re-verified.
+> ✅ **2026-09-17 — Security Phase 2 is LIVE on prod + sandbox.** M1 + M2 hand-run on both
+> projects; code at `1f55c3e` on `main` = `staging`. The PIN is no longer checked in the
+> browser: `findEmployee` calls `shared/pin-login.js` → the SECURITY DEFINER RPC `login_with_pin`
+> (§1, §8), and `employees.pin` **no longer exists** on either project. Proven as anon with the
+> shipped key on prod: `employees?select=pin` → 400 `42703` (was 200), `employee_secrets` →
+> 401 `42501`, `rpc/login_with_pin` with an unknown phone → 200 `[]`. Cris signed in live as
+> Cristian Tech on `board.leetransmissionshop.com` and **rotated that PIN** afterwards (the old
+> one had been readable by anyone for months). §1 / §5-reads / §8 / gaps verified vs `1f55c3e`;
+> rest not re-verified.
 > Previously: 2026-08-22 — §2's trilingual note now carries the **standing Creole cleanup**,
 > and the RO-photo grids moved to **per-RO buckets** ([[ro-photos]] §3/§3a). Verified vs
 > `085e239` + the slice-3 working tree (UNMERGED).
@@ -47,8 +52,9 @@ single self-contained HTML file that talks straight to Supabase with the anon ke
      `name, phone, role` on success and **zero rows for every failure** — unknown phone, wrong
      PIN, inactive, ambiguous phone, or **locked** (5 misses → 15 min) are deliberately
      indistinguishable, so the error line says "…After 5 tries, wait 15 minutes." Only rows
-     with a hash **and** `active` can log in: `Cristian Tech` on prod, `ZZ Test Tech` on the
-     sandbox (M1 backfill; each is inactive on the other project). The old client-side ambiguity alert (`reportAmbiguousTech`) no longer fires
+     with a hash **and** `active` can log in: `Cristian Tech` on prod (PIN rotated 2026-09-17),
+     `ZZ Test Tech` on the sandbox — each is inactive on the other project, so exactly one PIN
+     login exists per database. The old client-side ambiguity alert (`reportAmbiguousTech`) no longer fires
      on this path — the function resolves an ambiguous phone to nobody, silently; the partial
      unique index on active phones ([[employee-roster]] §5) is what prevents it.
   2. **Session restore** — after a successful login the tech's **phone** (never the PIN) is
@@ -229,6 +235,17 @@ There are **two independent handoffs**, and both **surface only in the advisor's
   finished diagnosis on a screen no one is looking at just waits.
 
 ## 8. Identity & permissions — security posture
+**What Phase 2 fixed, and the two holes it deliberately left** (2026-09-17):
+- ✅ Fixed: the PIN. It is a bcrypt hash in `employee_secrets`, checked only by `login_with_pin`;
+  no API role can read the table and the plaintext column is gone.
+- ⚠ **Left: the session.** The PIN guards the **login screen only.** A session is still just the
+  phone in `localStorage['myNumbersTechId']`, re-read on every load, so anyone who sets that key
+  to a tech's phone is that tech with no PIN. **Phase 4** (real tech sessions) is the fix; it is
+  deferred, not forgotten.
+- ⚠ **Left: the roster is public.** `employees` and `employees_visible` (name, phone, role, …)
+  are still readable by anyone holding the publishable key, which ships in every page — that is
+  what makes the hole above reachable. **Phase 5** (the RLS cutover) is the fix.
+
 - **Viewer identity:** the logged-in `employees` row (`{ id: phone, name, phone, role }`). Session
   is the **phone** in localStorage; the PIN is never stored.
 - **Role is loaded but NOT enforced.** `role` rides along on the tech object but nothing in this
@@ -314,7 +331,7 @@ same reason.
   `recordings-audio.md` (the audio/attachments pattern), `floor-tags.md` (floor lanes).
 
 ## Session change log
-- 2026-09-17 — **Security Phase 2 (branch `security/phase2-pins` (UNMERGED; migrations M1/M2 NOT applied anywhere)):** PIN login moved to the `login_with_pin` RPC via `shared/pin-login.js`; no read of `employees.pin` remains; lockout copy added in EN/ES/HT. §1, reads, §8, gaps rewritten.
+- 2026-09-17 — **Security Phase 2 COMPLETE — live on prod + sandbox** (M1 + M2 hand-run on both; code `1f55c3e` on `main` = `staging`). PIN login moved to the `login_with_pin` RPC via `shared/pin-login.js`; `employees.pin` dropped; lockout copy added in EN/ES/HT; Cristian Tech's PIN rotated. §1, reads, §8 (incl. the Phase 4 / Phase 5 residual risks), gaps rewritten.
 - 2026-09-17 — Deleted the `?u=&p=` pass-through login from `boot()`; auth paths 4 → 3 (§1). Locked for the office boards by `shared/office-identity.test.js`. Rest not re-verified.
 - 2026-09-17 — v1 `shop-board.html` deleted; removed it from the raw-status writers list. Rest not re-verified.
 - 2026-08-27 — **Video capture, and one gap logged.** Every photo grid gained a second add tile,

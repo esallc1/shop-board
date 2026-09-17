@@ -1,8 +1,13 @@
 -- ============================================================================
 -- SECURITY PHASE 2 — M1 (ADDITIVE). PIN hashes move to a table nothing on the API can read.
 -- ============================================================================
+-- ✅ APPLIED 2026-09-17 — sandbox (efhmefpaijjncwgbvwki) then prod (hygemiszxwmyrkmhbjub), both verified.
+--    Verified on both: employee_secrets unreadable by anon + authenticated, 0 policies,
+--    login_with_pin SECURITY DEFINER + anon-executable, unknown phone → 0 rows,
+--    employees.pin nullable. Prod holds ONE hash (Cristian Tech, PIN rotated after M2).
 -- Hand-run in the Supabase SQL editor. Sandbox (efhmefpaijjncwgbvwki) FIRST.
 -- Run 20260917_pin_off_public_PREFLIGHT_READONLY.sql before this.
+-- Re-runnable: `if not exists` + `on conflict do nothing` never overwrite a rotated hash.
 --
 -- What it does
 --   1. employee_secrets(employee_id, pin_hash, failed_attempts, locked_until):
