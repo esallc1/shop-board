@@ -6,12 +6,28 @@
 // bookkeeping-board.html must treat every field as a pre-fill
 // suggestion, never a source of truth — Daiana reviews and can
 // overwrite anything before confirming.
+//
+// SIGNED-IN EMPLOYEES ONLY (Security Phase 3, 2026-09-17). Every call costs real
+// Anthropic credits, so the caller check runs FIRST — before the image fetch and
+// before the model call. Until this landed the endpoint took an anonymous POST
+// from anywhere and billed the shop for it. A KiKi session is not enough: see
+// api/_lib/require-user.js for why the auth user must map to an ACTIVE employees
+// row. One flat 401, no hint about which part failed.
+
+import { requireUser } from './_lib/require-user.js';
 
 const SUPPORTED_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // GATE — a signed-in, active employee, or nothing. Ahead of input validation
+  // on purpose: an unauthenticated caller learns nothing about the payload shape.
+  const employee = await requireUser(req);
+  if (!employee) {
+    return res.status(401).json({ error: 'unauthorized' });
   }
 
   const { imageUrl } = req.body || {};

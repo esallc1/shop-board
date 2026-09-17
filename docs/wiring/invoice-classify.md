@@ -1,7 +1,11 @@
 # How invoice capture & the Process-Invoice modal are wired
 
 > Doc: `/docs/wiring/invoice-classify.md`
-> Last updated: 2026-09-11 — verified vs commit `1fc57fa` (the commit this doc ships with)
+> **2026-09-17 — `/api/extract-invoice` is now EMPLOYEES-ONLY** (Security Phase 3): the board
+> sends its signed-in session's access token and the endpoint maps it to an active `employees`
+> row before spending anything (§2a). Before this it answered an anonymous POST from anywhere
+> and billed the shop. Verified vs `origin/main` + this branch; nothing else re-checked.
+> Previously: 2026-09-11 — verified vs commit `1fc57fa` (the commit this doc ships with)
 > Status: ✅ Verified this session against `bookkeeping-board.html` (queue, modal, rotate,
 > zoom, confirm/move), `advisor-board.html` (Capture Invoice), `api/extract-invoice.js`, and
 > `migrations/20260713_invoice_queue.sql` + siblings. The **preview-viewer** sections (§4, §5)
@@ -40,7 +44,22 @@ of a successful confirm. It is the single place per-invoice view state is torn d
 
 **Auto-detect** (`runAutoDetect`) POSTs a signed image URL to `/api/extract-invoice`, which
 calls Anthropic `claude-haiku-4-5-20251001` (`max_tokens: 300`) and returns vendor / date /
-amount / po_number / description / part_number. Each field it fills gets a ✨ badge, and that
+amount / po_number / description / part_number.
+
+### 2a. Auto-detect is employees-only (Security Phase 3, 2026-09-17)
+`runAutoDetect` reads `db.auth.getSession()` and sends `Authorization: Bearer <access_token>`.
+The endpoint calls `requireUser` (`api/_lib/require-user.js`) **first** — before the image fetch
+and before Anthropic — and answers a flat `401 {error:'unauthorized'}` unless the token is a live
+Supabase session **whose `auth.uid()` maps to an `employees` row with `active = true`**. A valid
+session is not enough on its own: the KiKi app shares this project's `auth.users`.
+
+Why the gate is first: every call costs real Anthropic credits. Until this landed, a plain
+`POST {imageUrl}` from anywhere on the internet was answered and billed to the shop.
+
+**A 401 is not a broken modal.** Auto-detect has always been best-effort: on any failure the
+fields simply stay empty and Daiana types them, exactly as before the feature existed. The only
+new symptom is a `[AutoDetect] request rejected — HTTP 401` console line. Confirm, rotate, zoom
+and the move-on-confirm flow do not touch this endpoint and are unchanged. Each field it fills gets a ✨ badge, and that
 badge is cleared the moment she edits the field — it is a hint, not a guarantee. Both the
 extractor callback and the rotate handler re-check `detailInvoice.id` before writing to the
 DOM, so a slow response can't clobber a modal that has moved on to another invoice.
@@ -138,14 +157,15 @@ stale scale would otherwise survive into the next receipt).
 - **Extractor:** `api/extract-invoice.js` (Anthropic `claude-haiku-4-5-20251001`). Since
   2026-09-17 it is the **only** endpoint in this project that calls Anthropic — the Ask-Kiki chat
   bot and its `api/chat.js` were deleted ([[page-map]] §6a), so `ANTHROPIC_API_KEY` exists for
-  this one function. ⚠ It still accepts an **unauthenticated** POST; Security Phase 3 covers that
-  next.
+  this one function. Since the same day it is **employees-only** (§2a) via
+  `api/_lib/require-user.js` — the reusable caller check the other office endpoints will adopt.
 - **Storage:** private bucket `invoice-images`; signed URLs, TTL 3600s.
 - **Schema:** `migrations/20260713_invoice_queue.sql`, `20260714_invoice_queue_date.sql`,
   `20260714_invoice_queue_delete.sql`, `20260714_invoice_queue_line_item.sql`,
   `20260715_core_charges.sql`, `20260715_core_charges_returned_by.sql`.
 
 ## Session change log
+- 2026-09-17 — **§2a added: `/api/extract-invoice` requires a signed-in active employee.** The board now sends its session token; the endpoint 401s before the image fetch and before Anthropic. New `api/_lib/require-user.js` (+ tests). Nothing else in the modal changed.
 - 2026-09-11 — Doc created. Added **in-place zoom** to the Process-Invoice preview (zoom in /
   out / Fit beside rotate, drag-pan, wheel + trackpad + pinch, reset on close), strictly
   view-only via CSS transform, and made rotate compose with an active zoom by re-centring on

@@ -136,8 +136,9 @@ per-board IIFE and the `kiki_bubble_pos_*` localStorage key in all three boards;
 `api/extract-invoice.js`), and the separate `kiki/` Next.js app, which has its own
 `/api/chat` route and its own deployment.
 
-**`api/extract-invoice.js` is now the only Anthropic caller in this project** — and it is still
-callable with no auth. That is the next Phase 3 item, not this one.
+**`api/extract-invoice.js` is now the only Anthropic caller in this project**, and since the same
+day it is **employees-only** — it requires a live Supabase session that maps to an active
+`employees` row (`api/_lib/require-user.js`; [[invoice-classify]] §2a).
 
 ## 7. `office-login.html`
 Reached only from the front door's "Reset password" link. No `OfficeIdentity` guard (correctly —
@@ -171,10 +172,11 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Whether `crisdata-techboard.html` and `crisdata-floor.html` should carry their own auth guard,
   given they are unguarded standalone URLs — the techboard inherits protection only when reached
   through the advisor board's iframe, not when opened directly.
-- **`api/extract-invoice.js` takes no auth** (§6a): an unauthenticated `POST` reaches Anthropic
-  on the shop's key. Next Phase 3 item. The other board endpoints (`announcement`,
-  `change-request`, `desk-appointment`, `recording-links`, `recording-assign`) are in the same
-  state; the cron pair fails closed on `CRON_SECRET`.
+- ~~`api/extract-invoice.js` takes no auth~~ — **fixed 2026-09-17** ([[invoice-classify]] §2a).
+  **Still open:** `announcement`, `change-request`, `desk-appointment`, `recording-links` and
+  `recording-assign` take no caller auth at all — each one writes or signs with the service-role
+  key. `api/_lib/require-user.js` is the piece they need; the cron pair already fails closed on
+  `CRON_SECRET`, and `send-push` has an origin gate plus a secret that ships in page source.
 
 ## Where it lives in the code
 - Front door + role routing: `crisdata.html` (`ROLE_DEST` at `:175`, `boardFor()`, `bootDoor()`).
@@ -186,6 +188,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Tab shell: `.sidebar-item[data-view]` + `<div class="view" id="view-…">` in each board.
 
 ## Session change log
+- 2026-09-17 — Gaps + §6a updated: `/api/extract-invoice` now requires a signed-in active employee (`api/_lib/require-user.js`); the other five board endpoints are still unauthenticated.
 - 2026-09-17 — **§6a added: the Ask-Kiki chat bot is DELETED** (`api/chat.js` + the widget on advisor/gm/bookkeeping + the shared `#ai-*` CSS). It was an unauthenticated Anthropic proxy nobody used. Gaps: recorded that `api/extract-invoice.js` and the other board endpoints still take no auth.
 - 2026-09-17 — §2: noted that the My Numbers PIN screen now verifies through `login_with_pin` (Security Phase 2, live on both projects) and that it is the only PIN door left. Nothing else re-verified.
 - 2026-09-17 — §2: the dead phone/PIN form + `?u=&p=` writer deleted from `crisdata.html`; `ROLE_DEST` still at `:175`.
