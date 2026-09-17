@@ -84,7 +84,7 @@ Every file under `/docs/wiring/` follows this shape:
 | Floor tags & lanes | `floor-tags.md` | `advisor-board.html` |
 | Call window & Desk | `call-window-desk.md` | `advisor-board.html` (`callerCard` + `desk` IIFEs) |
 | Call auto-attach (Phase 2) | `call-auto-attach.md` | `shared/call-auto-attach.js`, `api/ctm-webhook.js` (`autoAttachCall`), `advisor-board.html` (`autoFileRoForCall`), `migrations/20260818_call_auto_attach.sql`, `migrations/20260818_customers_phone_l10.sql` |
-| Announcement banner | `announcements.md` | `shared/announcement-banner.js`, `api/announcement.js`, advisor + owner boards |
+| Announcement banner | `announcements.md` (§5 = the employees-only gate) | `shared/announcement-banner.js`, `api/announcement.js` (+ `api/_lib/require-user.js`, `shared/auth-fetch.js`), advisor + owner boards |
 | To-Do list | `todo-list.md` | To-Do JS duplicated in all 4 office boards; `shared/board-shell.css` |
 | RO check-in / tech assign | `ro-checkin-tech.md` | `advisor-board.html` (`checkInArrived`, `assignTechCore`), `crisdata-techboard.html`, `shared/status-mirror.js` |
 | Tech Board (dispatcher) | `tech-board.md` (§2a = columns key off assignment) | `crisdata-techboard.html`, `my-numbers.html`, gm-board Shop Floor · Tech Status · Teardown, `shared/assignee-picker.js` |

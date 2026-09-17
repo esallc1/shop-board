@@ -772,7 +772,7 @@ window.ReportChange = (function () {
           app_version: version,
           user_agent: navigator.userAgent || null,
         };
-        const resp = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const resp = await cdAuthFetch(db, endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         if (!resp.ok) { let m = 'HTTP ' + resp.status; try { const j = await resp.json(); if (j && j.error) m = j.error; } catch (_) {} throw new Error(m); }
 
         setStatus('Sent ✓ Thanks — the owner will see it.', 'ok');
@@ -1057,7 +1057,7 @@ window.ReportChange = (function () {
 
     async function triage(payload) {
       try {
-        const resp = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'triage', ...payload }) });
+        const resp = await cdAuthFetch(db, endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'triage', ...payload }) });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return true;
       } catch (e) { console.error('[ReportChange] triage failed', e); return false; }

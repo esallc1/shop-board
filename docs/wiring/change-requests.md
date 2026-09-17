@@ -47,6 +47,16 @@ anon writes.**
   (`20260716_ro_foundation.sql:452-465`), so `reports/<uuid>/…` needs no new policy.
 
 ## 2. The endpoint — `api/change-request.js` (service-role)
+
+**SIGNED-IN EMPLOYEES ONLY since 2026-09-17 (Security Phase 3).** The first thing the handler
+does — before the body is parsed — is `requireUser(req)` (`api/_lib/require-user.js`): the
+caller's `Authorization: Bearer <access_token>` must be a live Supabase session **whose
+`auth.uid()` maps to an `employees` row with `active = true`**, else a flat
+`401 {error:'unauthorized'}`. A valid session alone is not enough — the KiKi app shares this
+project's `auth.users`. The board sends the token via `cdAuthFetch` (`shared/auth-fetch.js`),
+which also logs any rejection instead of swallowing it. Before this, the method check was the
+only guard: anyone on the internet could call it and it would run with the service-role key.
+
 Mirrors `api/announcement.js`: a pure, exported, **test-locked** `parseChangeRequestBody`
 (11 cases in `api/change-request.test.js`) + a service-role PostgREST write. Two actions:
 - **`create`** (submit): validates `type`, coerces `priority` (unknown → `normal`), trims
@@ -234,6 +244,7 @@ mean. Two ways in, one annotator, flattened on submit — all in `shared/report-
   Related: [[todo-list]], [[settings]], [[file-cabinet]].
 
 ## Session change log
+- 2026-09-17 — §2: the endpoint now requires a signed-in active employee (`api/_lib/require-user.js`); both `create` (submit) and `triage` (owner) send the session token through `cdAuthFetch`. Validation and everything else unchanged.
 - 2026-07-31 — Created during the "Requests & Feedback intake" investigation (proposal only).
 - 2026-07-31 — **Built Phase 1** (submit + triage): the `change_requests` table
   (anon-SELECT; service-role writes; content CHECK; realtime), `api/change-request.js`

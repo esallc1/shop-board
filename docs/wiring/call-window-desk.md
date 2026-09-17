@@ -195,6 +195,16 @@ created directly. One modal (`#deskEdit`, `openDeskEdit(mode, opts)`) does both,
 ## 8. The manual-add endpoint — `api/desk-appointment.js`
 Because anon can't INSERT into `calls` (§1), a manual add runs server-side with the
 service-role key (same posture as `api/recording-assign.js`).
+
+**SIGNED-IN EMPLOYEES ONLY since 2026-09-17 (Security Phase 3).** The first thing the handler
+does — before the body is parsed — is `requireUser(req)` (`api/_lib/require-user.js`): the
+caller's `Authorization: Bearer <access_token>` must be a live Supabase session **whose
+`auth.uid()` maps to an `employees` row with `active = true`**, else a flat
+`401 {error:'unauthorized'}`. A valid session alone is not enough — the KiKi app shares this
+project's `auth.users`. The board sends the token via `cdAuthFetch` (`shared/auth-fetch.js`),
+which also logs any rejection instead of swallowing it. Before this, the method check was the
+only guard: anyone on the internet could call it and it would run with the service-role key.
+
 - `POST { next_step, due_at, due_all_day, caller_bare, caller_formatted, cnam,
   customer_id, note, noted_by_name }` → inserts one `calls` row, returns `{ appointment }`.
 - `next_step` is limited to `quoted_callback | dropping_off` (the only schedulable steps);
@@ -240,6 +250,7 @@ service-role key (same posture as `api/recording-assign.js`).
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- 2026-09-17 — §8: manual add now requires a signed-in active employee (`api/_lib/require-user.js`); the advisor board sends its session token through `cdAuthFetch`. The anon-UPDATE edit path is unchanged.
 - 2026-08-18 — **Confirm before learning a phone number** (§2c). Attaching no longer performs a
   silent second write to `customers`: when a number would be learned the row shows an inline
   question, defaulted to NO when other calls from that number aren't this customer's. The attach

@@ -25,6 +25,8 @@
      ids-only stance above is what keeps it safe to expose.
    ============================================================ */
 
+import { requireUser } from './_lib/require-user.js';
+
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hygemiszxwmyrkmhbjub.supabase.co'; // staging deployments set SUPABASE_URL (Preview env) to the staging project; prod unset -> this fallback
 const BUCKET = 'call-recordings';
 
@@ -105,6 +107,12 @@ async function signPlaybackUrl(storagePath, headers) {
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // GATE — signed-in active employee only (Security Phase 3). Runs before the
+  // body is even parsed: this endpoint writes with the service-role key, so an
+  // unauthenticated caller must learn nothing, not even the payload shape.
+  const employee = await requireUser(req);
+  if (!employee) return res.status(401).json({ error: 'unauthorized' });
 
   const callIds = sanitizeCallIds(req.body && req.body.call_ids);
   if (!callIds.length) return res.status(200).json({ results: [] });

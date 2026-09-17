@@ -172,11 +172,18 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Whether `crisdata-techboard.html` and `crisdata-floor.html` should carry their own auth guard,
   given they are unguarded standalone URLs — the techboard inherits protection only when reached
   through the advisor board's iframe, not when opened directly.
-- ~~`api/extract-invoice.js` takes no auth~~ — **fixed 2026-09-17** ([[invoice-classify]] §2a).
-  **Still open:** `announcement`, `change-request`, `desk-appointment`, `recording-links` and
-  `recording-assign` take no caller auth at all — each one writes or signs with the service-role
-  key. `api/_lib/require-user.js` is the piece they need; the cron pair already fails closed on
-  `CRON_SECRET`, and `send-push` has an origin gate plus a secret that ships in page source.
+- ~~The board endpoints take no caller auth~~ — **all six are gated as of 2026-09-17**
+  (`extract-invoice`, `announcement`, `change-request`, `desk-appointment`, `recording-links`,
+  `recording-assign`) via `api/_lib/require-user.js`, with `shared/auth-fetch.js` sending the
+  session token from the boards. The cron pair fails closed on `CRON_SECRET`.
+  **Still open: `api/send-push.js`** — it has an origin allow-list plus a shared secret that
+  ships in page source, and it still uses the **anon** key for its `chat_members` /
+  `push_subscriptions` reads and deletes. It must move to the service-role key (and this same
+  caller check) before the Tier-A RLS cutover, or pushes will silently stop.
+- **A board opened without a session loses these buttons**, by design: Report-a-change, Post
+  announcement, Desk manual-add and recording playback now answer 401 there. Only the
+  bookkeeping board currently *has* a gate, so until the auth-gate item lands the symptom on the
+  other three is a console line, not a redirect.
 
 ## Where it lives in the code
 - Front door + role routing: `crisdata.html` (`ROLE_DEST` at `:175`, `boardFor()`, `bootDoor()`).
@@ -188,6 +195,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Tab shell: `.sidebar-item[data-view]` + `<div class="view" id="view-…">` in each board.
 
 ## Session change log
+- 2026-09-17 — Gaps updated: all six board endpoints now require a signed-in active employee; `send-push` is the one left (anon key + a secret that ships in page source).
 - 2026-09-17 — Gaps + §6a updated: `/api/extract-invoice` now requires a signed-in active employee (`api/_lib/require-user.js`); the other five board endpoints are still unauthenticated.
 - 2026-09-17 — **§6a added: the Ask-Kiki chat bot is DELETED** (`api/chat.js` + the widget on advisor/gm/bookkeeping + the shared `#ai-*` CSS). It was an unauthenticated Anthropic proxy nobody used. Gaps: recorded that `api/extract-invoice.js` and the other board endpoints still take no auth.
 - 2026-09-17 — §2: noted that the My Numbers PIN screen now verifies through `login_with_pin` (Security Phase 2, live on both projects) and that it is the only PIN door left. Nothing else re-verified.

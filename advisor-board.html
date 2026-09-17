@@ -1161,6 +1161,8 @@
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="shared/supabase-config.js"></script>
+<!-- cdAuthFetch: calls the service-role office endpoints as the signed-in user (api/_lib/require-user.js). -->
+<script src="shared/auth-fetch.js"></script>
 <script src="shared/office-identity.js"></script>
 <script src="shared/board-settings.js"></script>
 <script src="shared/format.js"></script>
@@ -5563,7 +5565,7 @@
       const ids = (callIds || []).map(v => Number(v)).filter(v => Number.isInteger(v) && v > 0);
       if (!RP || !ids.length) return {};
       try {
-        const r = await fetch('/api/recording-links', {
+        const r = await cdAuthFetch(db, '/api/recording-links', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ call_ids: ids }),
         });
@@ -10341,7 +10343,7 @@
     // re-bucket so the recording moves out of "needs filing" into its vehicle.
     async function assignRecVehicle(callId, vehicleId) {
       try {
-        const r = await fetch('/api/recording-assign', {
+        const r = await cdAuthFetch(db, '/api/recording-assign', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ call_id: Number(callId), vehicle_id: vehicleId || null }),
         });
@@ -10361,7 +10363,7 @@
       const idx = {};
       for (let i = 0; i < ids.length; i += 50) {
         try {
-          const r = await fetch('/api/recording-links', {
+          const r = await cdAuthFetch(db, '/api/recording-links', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ call_ids: ids.slice(i, i + 50) }),
           });
@@ -11106,7 +11108,7 @@
           const fmt = (bare.length === 10 && window.formatPhone) ? window.formatPhone(bare) : (bare.length === 10 ? bare : null);
           const body = { next_step: type, due_at, due_all_day, caller_bare: bare.length === 10 ? bare : null, caller_formatted: fmt, cnam: name || null, customer_id: customer_id || null, noted_by_name: (typeof CHAT_IDENTITY !== 'undefined' && CHAT_IDENTITY.name) || null };
           let resp;
-          try { resp = await fetch('/api/desk-appointment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
+          try { resp = await cdAuthFetch(db, '/api/desk-appointment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
           catch (e) { err.textContent = 'Could not add (network): ' + (e.message || e); return; }
           if (!resp.ok) { let m = 'HTTP ' + resp.status; try { const j = await resp.json(); if (j && j.error) m = j.error; } catch (_) {} err.textContent = 'Could not add: ' + m; return; }
           closeDeskEdit(); deskLoad();
@@ -11364,7 +11366,7 @@
       const ids = (callIds || []).map(v => Number(v)).filter(v => Number.isInteger(v) && v > 0);
       if (!RP || !ids.length) return {};
       try {
-        const r = await fetch('/api/recording-links', {
+        const r = await cdAuthFetch(db, '/api/recording-links', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ call_ids: ids }),
         });

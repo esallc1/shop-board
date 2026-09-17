@@ -67,6 +67,16 @@ it, the current active announcement (with its audience — "seen by …") and a 
 
 ## 5. The endpoint — `api/announcement.js`
 Service-role (mirrors `api/desk-appointment.js`), because anon can't write `announcements`.
+
+**SIGNED-IN EMPLOYEES ONLY since 2026-09-17 (Security Phase 3).** The first thing the handler
+does — before the body is parsed — is `requireUser(req)` (`api/_lib/require-user.js`): the
+caller's `Authorization: Bearer <access_token>` must be a live Supabase session **whose
+`auth.uid()` maps to an `employees` row with `active = true`**, else a flat
+`401 {error:'unauthorized'}`. A valid session alone is not enough — the KiKi app shares this
+project's `auth.users`. The board sends the token via `cdAuthFetch` (`shared/auth-fetch.js`),
+which also logs any rejection instead of swallowing it. Before this, the method check was the
+only guard: anyone on the internet could call it and it would run with the service-role key.
+
 - `create`: validate (message required + ≤500 chars, style whitelist, `expires_at` optional
   valid ISO, **`audience` filtered to known roles — absent → all three, present-but-empty →
   rejected** so an announcement nobody can see can't be created), retire actives, insert,
@@ -114,6 +124,7 @@ dismiss** (so the owner can still Remove it).
   (post/remove panel with the audience picker), init with `manageMount` + `getName`.
 
 ## Session change log
+- 2026-09-17 — §5: the endpoint now requires a signed-in active employee (`api/_lib/require-user.js`); both post and remove send the session token through `cdAuthFetch`. Nothing else about the banner changed.
 - 2026-09-17 — Dropped the deleted v1 `tech-board.html` / `shop-board.html` from the "NOT on" list. Rest not re-verified.
 - 2026-07-30 — Built v1: `announcements` table (anon SELECT; service-role writes), the
   `api/announcement.js` create/remove endpoint, and `shared/announcement-banner.js` (banner +

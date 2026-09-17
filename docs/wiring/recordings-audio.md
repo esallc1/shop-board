@@ -14,6 +14,14 @@ All audio is served through server endpoints with short-lived signed URLs; the
 - `remote_url`, `storage_path`, `last_error` **never leave the server**. `vehicle_id`
   is an internal shop id and *is* returned (not in the secret class).
 - Signed URLs: service-role, ids only, ready-only, expire in **5 minutes**.
+- **Both board endpoints now require a signed-in active employee** (2026-09-17, Security
+  Phase 3): `requireUser` runs first in `api/recording-links.js` and `api/recording-assign.js`,
+  so a caller without a live Supabase session mapped to an `active` `employees` row gets
+  `401 {error:'unauthorized'}` and no URL is ever signed. Until then `recording-links` answered
+  an unauthenticated POST — **an empty `call_ids` POST returned `200 {results:[]}`**, and a POST
+  with guessed ids would have signed playback URLs for real customer calls. The advisor board
+  sends the token through `cdAuthFetch` (`shared/auth-fetch.js`). A valid session is not enough
+  on its own: the KiKi app shares this project's `auth.users`, hence the `employees` mapping.
 
 - **The fetch cron and the backfill fail CLOSED.** `api/fetch-recordings.js` (`cronAuthorized`)
   and `api/backfill-recordings.js` (`authorized`) require `Authorization: Bearer <CRON_SECRET>`.
@@ -51,6 +59,7 @@ Notes:
   `20260729_recordings_links.sql` (`vehicle_id`, `ro_id` columns)
 
 ## Session change log
+- 2026-09-17 — §1: `api/recording-links.js` + `api/recording-assign.js` now require a signed-in active employee (`api/_lib/require-user.js`); the advisor board's three links call sites and the assign call go through `cdAuthFetch`. Signing rules, precedence and the crons are unchanged.
 - 2026-09-17 — Cron auth made fail-closed in `api/fetch-recordings.js` + `api/backfill-recordings.js`
   (missing `CRON_SECRET` → 401, was: run unauthenticated); §1 bullet added. Rest of doc not
   re-verified this session.

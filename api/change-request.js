@@ -28,6 +28,8 @@
    as announcements. It tightens for free once the auth token lands.
    ============================================================ */
 
+import { requireUser } from './_lib/require-user.js';
+
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hygemiszxwmyrkmhbjub.supabase.co'; // staging deployments set SUPABASE_URL (Preview env) to the staging project; prod unset -> this fallback
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // A screenshot path we accept is always one WE minted client-side:
@@ -106,6 +108,12 @@ export function parseChangeRequestBody(body) {
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  // GATE — signed-in active employee only (Security Phase 3). Runs before the
+  // body is even parsed: this endpoint writes with the service-role key, so an
+  // unauthenticated caller must learn nothing, not even the payload shape.
+  const employee = await requireUser(req);
+  if (!employee) return res.status(401).json({ error: 'unauthorized' });
 
   const parsed = parseChangeRequestBody(req.body);
   if (!parsed.ok) return res.status(400).json({ error: parsed.error });
