@@ -60,9 +60,37 @@ test('EVERY customer write invalidates the cached list', () => {
     'will be unfindable in the search until a full page reload');
 });
 
-test('the invalidator exists, is published for the other IIFEs, and clears both flags', () => {
-  assert.match(SRC, /function invalidateCustAllList\(\)\s*\{[^}]*custAllList = null;[^}]*custAllLoaded = false;[^}]*\}/);
+test('the invalidator MARKS STALE and never drops a list that loaded', () => {
+  const fn = SRC.slice(SRC.indexOf('function invalidateCustAllList()'));
+  const body = fn.slice(0, fn.indexOf('\n    }') + 6);
+  assert.match(body, /custAllStale = true;/);
+  // The only nulling allowed is the "we never had one" else-branch.
+  assert.match(body, /\} else \{[\s\S]*custAllList = null;[\s\S]*custAllLoaded = false;[\s\S]*\}/);
   assert.match(SRC, /window\.cdInvalidateCustList = invalidateCustAllList;/);
+});
+
+test('a stale list keeps being served while a fresh one is fetched', () => {
+  const fn = SRC.slice(SRC.indexOf('async function ensureCustAllList()'));
+  const body = fn.slice(0, fn.indexOf('\n    }') + 6);
+  // serve-then-revalidate, in that order
+  assert.ok(body.indexOf('if (custAllStale) refreshCustAllList();') < body.indexOf('return custAllList;'));
+  assert.match(SRC, /function refreshCustAllList\(\)/);
+  assert.match(SRC, /if \(custRefreshInFlight\) return custRefreshInFlight;/);   // deduped
+  assert.match(SRC, /if \(seq === custRenderSeq\) rerenderCustListIfOpen\(\);/); // no stale clobber
+});
+
+test('AN EMPTY CACHE IS NEVER RENDERED AS "no matches" (the b0ef5fc regression)', () => {
+  const search = SRC.slice(SRC.indexOf('function renderCustSearch(q)'));
+  const body = search.slice(0, search.indexOf('\n    }') + 6);
+  // not-loaded → loading + fetch + bail, BEFORE any filtering
+  assert.match(body, /if \(!custAllLoaded \|\| !custAllList\) \{/);
+  assert.match(body, /Loading customers…/);
+  assert.ok(body.indexOf('!custAllLoaded') < body.indexOf('list.filter('),
+    'the not-loaded guard must come before the filter');
+  const browse = SRC.slice(SRC.indexOf('function renderCustBrowse()'));
+  const bbody = browse.slice(0, browse.indexOf('\n    }') + 6);
+  assert.match(bbody, /!custAllLoaded[\s\S]*Loading customers…/);
+  assert.match(bbody, /if \(!ferr && !custAllLoaded\) ensureCustAllList\(\)\.then\(rerenderCustListIfOpen\);/);
 });
 
 test('a realtime subscription on customers exists, in the board’s own idiom', () => {
@@ -78,15 +106,23 @@ test('coming back to the tab marks the list stale (backstop for a dead socket)',
   assert.match(refetch, /invalidateCustAllList\(\)/);
 });
 
-test('the cache itself is NOT removed — the list is not refetched per keystroke', () => {
-  // ensureCustAllList must still short-circuit on a good cached load, and the
-  // search must still read the cached array rather than hitting the network.
-  assert.match(SRC, /if \(custAllLoaded && custAllList\) return custAllList;/);
+test('the cache itself is NOT removed — a fresh cached list is served with no fetch', () => {
+  const fn = SRC.slice(SRC.indexOf('async function ensureCustAllList()'));
+  const body = fn.slice(0, fn.indexOf('\n    }') + 6);
+  assert.match(body, /if \(custAllLoaded && custAllList\) \{/);
   assert.match(SRC, /const list = custAllList \|\| \[\];/);
+  // The ONLY fetch trigger inside the render path is a STALE or MISSING list —
+  // never an unconditional one (that would be a fetch per keystroke).
   const search = SRC.slice(SRC.indexOf('function renderCustSearch(q)'));
-  const body = search.slice(0, 2000);
-  assert.ok(!/await |\.then\(|cdFetchAllCustomers/.test(body),
-    'renderCustSearch must stay synchronous over the cached list');
+  const sbody = search.slice(0, search.indexOf('\n    }') + 6);
+  const slines = sbody.split('\n');
+  slines.forEach((line, i) => {
+    if (!/refreshCustAllList\(\)|ensureCustAllList\(\)/.test(line)) return;
+    // The trigger must be guarded — on the line itself or by the block it sits in.
+    const scope = slines.slice(Math.max(0, i - 3), i + 1).join(' ');
+    assert.match(scope, /custAllStale|custAllLoaded|custAllList/,
+      'unguarded fetch in the render path: ' + line.trim());
+  });
 });
 
 test('the error-retry path still resets the cache (unchanged behavior)', () => {

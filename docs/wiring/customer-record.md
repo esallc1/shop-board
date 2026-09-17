@@ -1,10 +1,13 @@
 # How the customer record is wired
 
 > Doc: `/docs/wiring/customer-record.md`
-> **2026-09-17 — §4e added: the cached customer list is now invalidated on every write, by
-> realtime, and on focus.** Before this, a customer created or renamed in the same session was
-> invisible to the Customers search until the page was closed and reopened. Verified vs
-> `9fea3b1` + this branch; §4e/§7 re-checked, rest not re-verified.
+> **2026-09-17 — §4e added: the cached customer list is refreshed on write, by realtime and on
+> focus — as STALE-WHILE-REVALIDATE.** A customer created or renamed in the session used to stay
+> invisible to the search until a full reload. The first attempt at this fix nulled the cache and
+> shipped a worse bug (§4e "the second lie"), caught on staging. Verified vs `9fea3b1` + this
+> branch, and by driving the real page in a browser against the sandbox (4 search/clear/search
+> cycles clean; the same script reproduces "No matches." on the reverted build). §4e/§7
+> re-checked, rest not re-verified.
 > Previously: 2026-09-04 — §4d added: the profile card's two actions ("Open now" and the new
 > "+ New RO"), why "+ New RO" opens the wizard BY ID rather than by phone, and why the archived
 > gate is now load-bearing rather than belt-and-braces. Verified vs commit `035f1bd` + this
@@ -291,13 +294,35 @@ earlier** was not in the list the search reads (`renderCustSearch` filters the c
 who exists — and the natural next move is to create a second file for them, which is exactly the
 duplicate-customer problem [[customer-dedupe]] exists to clean up. Hit on prod 2026-09-17.
 
-The cache stays (re-reading ~2700 rows per keystroke is not a fix). Three nets clear it:
+The cache stays (re-reading ~2700 rows per keystroke is not a fix). Three nets mark it stale:
 
 | Net | Covers | Where |
 |---|---|---|
 | `invalidateCustAllList()`, published as **`window.cdInvalidateCustList`** | every customer write **in this page** | called at all four write sites: the wizard's create (`createCustomer`) and "Edit details" (`saveCustomerDetails`), and the Desk attach phone-learn / un-learn (`setSecondaryIfNull`, the un-attach clear) |
-| Realtime channel **`advisor-board-customers-live`** on `customers` | **another tab, another person** | same idiom as `-cdros-live` / `-desk-live`; re-reads immediately only when `#custListPanel` is on screen, else leaves the cache empty for the next `ensureCustAllList()` |
-| `VIEW_REFRESH.customer.refetch` marks it stale | returning to the tab with a dead socket | the backstop — marks stale, does not fetch |
+| Realtime channel **`advisor-board-customers-live`** on `customers` | **another tab, another person** | same idiom as `-cdros-live` / `-desk-live`. ⚠ **Dead on staging:** the sandbox's `supabase_realtime` publication has **zero tables** (verified 2026-09-17), so nothing on `test.*` exercises realtime — the other two nets are what make cross-tab work there |
+| `VIEW_REFRESH.customer.refetch` marks it stale | returning to the tab, incl. a dead socket | the backstop — marks stale, never fetches on its own |
+
+### 4e-ii. The second lie: an emptied cache rendered as "no matches"
+The first version of this fix set `custAllList = null` on every write **and on every focus**, and
+both renderers read `custAllList || []` **synchronously**. So after any focus event the next
+keystroke filtered an empty array and the panel said **"No matches."** — or **"No customers."**
+with the box cleared — and stayed that way, because only `showCustomerList()` ever re-fetched and
+the panel was already open. Same lie as §4c, reached from the opposite direction. It shipped to
+staging as `b0ef5fc` and Cris caught it in minutes; it never reached prod.
+
+The rule that replaced it: **nothing nulls a list that once loaded.**
+- `invalidateCustAllList()` sets `custAllStale`; it clears the array only when there was never
+  one to serve.
+- `ensureCustAllList()` returns the stale rows **immediately** and kicks `refreshCustAllList()`
+  behind them.
+- `refreshCustAllList()` dedupes on `custRefreshInFlight`, re-renders through
+  `rerenderCustListIfOpen()` only when its `custRenderSeq` is still current (a slow fetch can
+  never clobber a newer render), and on failure **keeps the old list** — stale beats empty.
+- Both renderers now distinguish **three** states, not two: load failed (retry button), **not
+  loaded yet ("Loading customers…" + a fetch)**, and genuinely no customers.
+
+**The lesson for the next cache here:** the static guard passed the whole time. This class of bug
+only shows up by driving the page — search, clear, search again, with a focus event in between.
 
 Why the invalidator is on `window`: the writers live in **other IIFEs** (the intake wizard, the
 Desk caller card), the same scope split that §4c's first fix got wrong. `customers` is in the
@@ -460,7 +485,7 @@ then branches on whether the search box has text:
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
-- 2026-09-17 — **§4e: the customer-list cache is invalidated on write, by realtime on `customers`, and on tab focus.** A customer created or renamed in the session used to stay unfindable in the search until a full reload — the "No matches" that breeds duplicate files. Cache behaviour otherwise unchanged (still one load per page, still no fetch per keystroke). New guard test: `shared/cust-cache-guard.test.js`.
+- 2026-09-17 — **§4e + §4e-ii: the customer-list cache is now stale-while-revalidate.** Marked stale by every customer write, by realtime on `customers`, and on tab focus; the old rows keep serving until fresh ones land, and both renderers now say "Loading customers…" instead of "No matches." for a cache that hasn't loaded. The nulling version (`b0ef5fc`, staging only) produced exactly that lie and was replaced before prod. Also recorded: the **sandbox has no realtime at all** (empty publication), so `test.*` cannot exercise that net. Guard test: `shared/cust-cache-guard.test.js` (9 cases), plus an in-browser search/clear/search proof.
 - 2026-09-04 — **Added "+ New RO" to the profile card** (§4d). Starts a new RO for the customer
   on screen by calling the wizard's existing `cdOpenCustomerByPhone`, so the phone is never
   retyped — no new matching logic. **Not rendered on an archived record**, because `lookupPhone`

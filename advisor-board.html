@@ -8219,59 +8219,111 @@
        An absent fetcher is not evidence of an empty shop. Neither is an error.
        Only a completed, error-free fetch is. */
     let custAllLoaded = false;
+    let custAllStale = false;          // loaded, but something changed since
+    let custRefreshInFlight = null;    // dedupe concurrent background refreshes
+    let custRenderSeq = 0;             // a slow fetch must never clobber a newer render
     async function ensureCustAllList() {
-      if (custAllLoaded && custAllList) return custAllList;
+      if (custAllLoaded && custAllList) {
+        // Stale-while-revalidate: hand back what we have NOW so nothing renders
+        // empty, and let the fresh copy land underneath (it re-renders itself).
+        if (custAllStale) refreshCustAllList();
+        return custAllList;
+      }
       if (!window.cdFetchAllCustomers) return [];   // not wired up yet — retry next time
       const rows = await window.cdFetchAllCustomers();
       if (custFetchError()) return rows;            // do NOT cache a failed load
       custAllList = rows;
       custAllLoaded = true;
+      custAllStale = false;
       return custAllList;
     }
 
-    /* THE CACHE MUST LEARN ABOUT NEW AND RENAMED PEOPLE.
-       It used to be filled once per page load and invalidated ONLY by the
-       error-retry button, so a customer created in the intake wizard minutes
-       earlier — or by Manny in another tab — stayed invisible to this search
-       until the page was fully closed and reopened. The search then said
-       "No customers." / "No matches" about somebody who exists, which is exactly
-       how a duplicate customer file gets made. Caught on prod 2026-09-17.
+    /* THE CACHE MUST LEARN ABOUT NEW AND RENAMED PEOPLE — WITHOUT EVER
+       RENDERING AN EMPTY CACHE AS "no matches".
 
-       Two nets, because they fail in different ways:
-         • invalidateCustAllList() — called by every customer write in this page
-           (published as window.cdInvalidateCustList below). Synchronous, local,
-           cannot miss.
-         • realtime on `customers` — covers the OTHER tab and the other person.
-       Neither refetches on its own: the list is re-read the next time somebody
-       opens or types in it, so this costs nothing per keystroke. */
-    function invalidateCustAllList() {
-      custAllList = null;
-      custAllLoaded = false;
+       §4c/§4e history in two sentences: the list was fetched once per page and
+       only the error-retry button ever cleared it, so a customer created or
+       renamed in the session stayed unfindable until a full reload ("No matches"
+       about somebody who exists — how duplicate files get made). The first fix
+       for that NULLED the cache on every write and on every focus, and both
+       renderers read `custAllList || []` SYNCHRONOUSLY: an emptied cache with no
+       refetch in flight rendered as "No matches." / "No customers." — the same
+       lie, from the opposite direction. Caught on staging 2026-09-17 before it
+       ever reached prod.
+
+       So: NOTHING nulls a list that once loaded. Invalidation only marks it
+       STALE; the old list keeps serving while a fresh one is fetched in the
+       background, and the view re-renders when it lands (stale-while-revalidate).
+       An empty array now means one of exactly two things, and the renderers say
+       which: nothing has loaded YET (loading), or the shop really has none.
+
+       Nets, weakest to strongest:
+         • invalidateCustAllList() — every customer write in this page.
+         • realtime on `customers` — another tab, another person. NOTE: the
+           staging sandbox's supabase_realtime publication is EMPTY (verified
+           2026-09-17), so on test.* this net is dead and the other two carry it.
+         • stale-on-focus (VIEW_REFRESH.customer) — the backstop that works with
+           no realtime at all, which is what makes cross-tab work on staging. */
+    function custListPanelOpen() {
+      const panel = $('custListPanel');
+      return !!panel && panel.style.display !== 'none';
     }
-    // The writers live in other IIFEs (the intake wizard; the Desk attach
-    // phone-learning), so the invalidator is published on window — the same
-    // shape as window.cdFetchAllCustomers, which this cache already consumes.
+    function rerenderCustListIfOpen() {
+      if (!custListPanelOpen()) return;
+      const box = $('custSearchInput');
+      renderCustSearch(box ? box.value : '');
+    }
+
+    // Mark stale. NEVER drops the rows we already have — the only case that
+    // clears the array is "we never had one".
+    function invalidateCustAllList() {
+      if (custAllLoaded && custAllList) {
+        custAllStale = true;
+        // On screen right now → refresh immediately so he sees the new person.
+        // Off screen → leave it to the next ensure/render, so a focus event
+        // can't turn into a 2700-row fetch nobody asked for.
+        if (custListPanelOpen()) refreshCustAllList();
+      } else {
+        custAllList = null;
+        custAllLoaded = false;
+      }
+    }
     window.cdInvalidateCustList = invalidateCustAllList;
 
-    // Live refresh when customers change elsewhere. Matches this board's other
-    // channels (advisor-board-cdros-live / -desk-live / -todos-live). `customers`
-    // IS in the supabase_realtime publication (20260716_ro_foundation.sql, the
-    // REALTIME block), so this actually fires — and if the socket ever drops, the
-    // invalidate calls and the focus backstop still keep the list honest.
+    // Background re-read. Serves nobody directly: it replaces the cache and
+    // re-renders. A failed refresh keeps the OLD list (stale beats empty).
+    function refreshCustAllList() {
+      if (custRefreshInFlight) return custRefreshInFlight;
+      if (!window.cdFetchAllCustomers) return Promise.resolve(custAllList || []);
+      const seq = ++custRenderSeq;
+      custRefreshInFlight = (async () => {
+        try {
+          const rows = await window.cdFetchAllCustomers();
+          if (custFetchError()) return custAllList || [];   // keep serving the old list
+          custAllList = rows;
+          custAllLoaded = true;
+          custAllStale = false;
+          if (seq === custRenderSeq) rerenderCustListIfOpen();
+          return custAllList;
+        } catch (e) {
+          console.warn('[cust] background refresh failed — keeping the cached list', e);
+          return custAllList || [];
+        } finally {
+          custRefreshInFlight = null;
+        }
+      })();
+      return custRefreshInFlight;
+    }
+
+    // Live refresh when customers change elsewhere — the board's own channel
+    // idiom (advisor-board-cdros-live / -desk-live / -todos-live). `customers` is
+    // registered with supabase_realtime by 20260716_ro_foundation.sql ON PROD;
+    // the sandbox's publication is empty, so expect silence on test.*.
     let custChannel = null;
     function subscribeCustomersRealtime() {
       if (custChannel) db.removeChannel(custChannel);
       custChannel = db.channel('advisor-board-customers-live')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, () => {
-          invalidateCustAllList();
-          // Re-read only when the list is actually on screen; otherwise the next
-          // ensureCustAllList() picks it up.
-          const panel = $('custListPanel');
-          if (panel && panel.style.display !== 'none') {
-            const box = $('custSearchInput');
-            ensureCustAllList().then(() => renderCustSearch(box ? box.value : ''));
-          }
-        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'customers' }, invalidateCustAllList)
         .subscribe();
     }
     subscribeCustomersRealtime();
@@ -8445,13 +8497,19 @@
       const list = (custAllList || []).slice().sort(custAlphaCmp);
       el.classList.add('cust-browse');
       if (!list.length) {
-        /* Empty because the shop has none, or empty because the load FAILED?
-           Those are different sentences and the person must be able to tell. */
+        /* THREE different sentences, and the person must be able to tell them
+           apart: the load FAILED, it hasn't happened YET, or the shop really has
+           nobody. Saying "No customers." for either of the first two is the bug
+           §4c and §4e were both about. */
         const ferr = custFetchError();
         el.innerHTML = ferr
           ? `<div class="cust-search-empty cust-search-failed">Couldn't load customers — ${esc(ferr)}. ` +
             `<button type="button" class="cust-photo-act" id="custRetryBtn">Try again</button></div>`
-          : `<div class="cust-search-empty">No customers.</div>`;
+          : !custAllLoaded
+            ? `<div class="cust-search-empty">Loading customers…</div>`
+            : `<div class="cust-search-empty">No customers.</div>`;
+        // Nothing loaded yet → make it load, then paint the real answer.
+        if (!ferr && !custAllLoaded) ensureCustAllList().then(rerenderCustListIfOpen);
         const rb = document.getElementById('custRetryBtn');
         if (rb) rb.addEventListener('click', () => {
           custAllList = null; custAllLoaded = false; window.cdCustFetchError = null;
@@ -8485,6 +8543,18 @@
       const query = (q || '').trim().toLowerCase();
       const list = custAllList || [];
       const el = $('custSearchList');
+      /* A STALE LIST IS STILL SERVED (see the cache block above) — but a list
+         that never loaded must never be filtered, or every search reads "No
+         matches." on a shop with 2700 customers. Revalidate a stale one behind
+         the render; wait for a missing one. */
+      if (custAllStale) refreshCustAllList();
+      if (!custAllLoaded || !custAllList) {
+        if (!custFetchError()) {
+          if (query) { el.classList.remove('cust-browse'); renderCustAzBar(null); el.innerHTML = `<div class="cust-search-empty">Loading customers…</div>`; }
+          ensureCustAllList().then(rerenderCustListIfOpen);
+          if (query) return;
+        }
+      }
       if (!query) { renderCustBrowse(); return; }   // browse mode: sorted A–Z with the jump bar
       // Search mode: existing behavior, unchanged — flat filtered list, no groups.
       el.classList.remove('cust-browse');
