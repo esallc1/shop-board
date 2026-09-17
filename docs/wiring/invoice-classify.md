@@ -135,7 +135,11 @@ stale scale would otherwise survive into the next receipt).
   `invZoomAt`, `invZoomContentBox`, `invZoomReset`, `wireInvoiceZoomGestures`).
 - **Preview CSS:** `bookkeeping-board.html` — `.invoice-detail-img-wrap`,
   `.invoice-zoom-controls`, `.invoice-rotate-controls`, `.is-zoomed`, `.is-panning`.
-- **Extractor:** `api/extract-invoice.js` (Anthropic `claude-haiku-4-5-20251001`).
+- **Extractor:** `api/extract-invoice.js` (Anthropic `claude-haiku-4-5-20251001`). Since
+  2026-09-17 it is the **only** endpoint in this project that calls Anthropic — the Ask-Kiki chat
+  bot and its `api/chat.js` were deleted ([[page-map]] §6a), so `ANTHROPIC_API_KEY` exists for
+  this one function. ⚠ It still accepts an **unauthenticated** POST; Security Phase 3 covers that
+  next.
 - **Storage:** private bucket `invoice-images`; signed URLs, TTL 3600s.
 - **Schema:** `migrations/20260713_invoice_queue.sql`, `20260714_invoice_queue_date.sql`,
   `20260714_invoice_queue_delete.sql`, `20260714_invoice_queue_line_item.sql`,

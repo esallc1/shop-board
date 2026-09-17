@@ -121,6 +121,24 @@ that was ported from — they name a file that no longer exists, which is expect
 Naming trap that survives the deletion: the live v2 dispatcher is **`crisdata-techboard.html`**
 (§4), unrelated to the deleted `tech-board.html` despite the near-identical name.
 
+## 6a. The "Ask Kiki" chat bot — DELETED 2026-09-17 (Security Phase 3)
+A floating avatar button (bottom-right) opened a chat panel on **three** boards — advisor, gm and
+bookkeeping — and POSTed the question plus a fresh board-data snapshot to `/api/chat`, which
+proxied it to Anthropic with `ANTHROPIC_API_KEY`. **Deleted outright: nobody used it, and it
+was an unauthenticated way for anyone on the internet to spend the shop's API credits.** The
+endpoint had no auth of any kind — no session check, no origin check, no shared secret; a plain
+`POST {question}` from anywhere was answered and billed.
+
+Removed in one commit: `api/chat.js`; the widget markup (`#ai-bubble` / `#ai-panel` …), the
+per-board IIFE and the `kiki_bubble_pos_*` localStorage key in all three boards; and the shared
+`#ai-*` block in `shared/board-shell.css`. `/api/chat` now 404s. Left in place on purpose:
+`kiki-avatar.png` (now referenced by nothing here), `ANTHROPIC_API_KEY` (still used by
+`api/extract-invoice.js`), and the separate `kiki/` Next.js app, which has its own
+`/api/chat` route and its own deployment.
+
+**`api/extract-invoice.js` is now the only Anthropic caller in this project** — and it is still
+callable with no auth. That is the next Phase 3 item, not this one.
+
 ## 7. `office-login.html`
 Reached only from the front door's "Reset password" link. No `OfficeIdentity` guard (correctly —
 it is part of getting a session, not something a session protects).
@@ -153,6 +171,10 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Whether `crisdata-techboard.html` and `crisdata-floor.html` should carry their own auth guard,
   given they are unguarded standalone URLs — the techboard inherits protection only when reached
   through the advisor board's iframe, not when opened directly.
+- **`api/extract-invoice.js` takes no auth** (§6a): an unauthenticated `POST` reaches Anthropic
+  on the shop's key. Next Phase 3 item. The other board endpoints (`announcement`,
+  `change-request`, `desk-appointment`, `recording-links`, `recording-assign`) are in the same
+  state; the cron pair fails closed on `CRON_SECRET`.
 
 ## Where it lives in the code
 - Front door + role routing: `crisdata.html` (`ROLE_DEST` at `:175`, `boardFor()`, `bootDoor()`).
@@ -164,6 +186,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Tab shell: `.sidebar-item[data-view]` + `<div class="view" id="view-…">` in each board.
 
 ## Session change log
+- 2026-09-17 — **§6a added: the Ask-Kiki chat bot is DELETED** (`api/chat.js` + the widget on advisor/gm/bookkeeping + the shared `#ai-*` CSS). It was an unauthenticated Anthropic proxy nobody used. Gaps: recorded that `api/extract-invoice.js` and the other board endpoints still take no auth.
 - 2026-09-17 — §2: noted that the My Numbers PIN screen now verifies through `login_with_pin` (Security Phase 2, live on both projects) and that it is the only PIN door left. Nothing else re-verified.
 - 2026-09-17 — §2: the dead phone/PIN form + `?u=&p=` writer deleted from `crisdata.html`; `ROLE_DEST` still at `:175`.
 - 2026-09-17 — **Deleted the three v1 doors** (`shop-board.html`, `teardown.html`,
