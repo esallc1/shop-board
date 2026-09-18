@@ -4,7 +4,9 @@
 > Last updated: 2026-09-18 — **§2a added: every number in the pop-up is now strict text**
 > (`type="text" inputmode="decimal"` + `shared/line-qty.js`), replacing `type="number"`,
 > which changed values on a mouse-wheel scroll / arrow key. Verified vs commit `663a982` (branch
-> `feat/line-qty-text-inputs`, rebased onto `main` `cb4e2d8`; on staging, **not yet on prod**).
+> `feat/line-qty-text-inputs`, rebased onto `main` `cb4e2d8`); **shipped to prod at `baecd25`**
+> (2026-09-18 — www/board/apex `/api/version` = `baecd25`, `advisor-board.html` +
+> `shared/line-qty.js` byte-identical to git).
 > §1, §2, §2a, Known gaps and Where-it-lives re-checked against the code (all line numbers
 > re-pointed), and §2a driven in the REAL pop-up on `test.*` signed in as ZZ Test Advisor — see
 > the change log.
@@ -221,6 +223,7 @@ Manager board ([[flat-rate-hours]] §10).
   Pricing defaults).
 
 ## Session change log
+- 2026-09-18 — Header: §2a **shipped to prod at `baecd25`** (was "not yet on prod").
 - 2026-09-18 — **§2a: strict number fields.** All seven pop-up numbers (Hours/Qty, Rate, Cost,
   Sell, Qty, Price, Amount) went from `type="number"` to `type="text" inputmode="decimal"` with
   select-all on focus, a strict parser (`shared/line-qty.js`, 10 tests), Save blocked with an

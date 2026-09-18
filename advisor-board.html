@@ -1236,6 +1236,13 @@
   import * as WarrantyMirror from './shared/warranty-mirror.js';
   window.WarrantyMirror = WarrantyMirror;
 </script>
+<!-- Stale-reply guard for the RO detail's floor controls (ESM). Assigns
+     window.FloorRefreshGate; used by refreshFloorControls.
+     See docs/wiring/comeback-warranty.md §6. -->
+<script type="module">
+  import * as FloorRefreshGate from './shared/floor-refresh-gate.js';
+  window.FloorRefreshGate = FloorRefreshGate;
+</script>
 <!-- Work-status floor-mirror decision (ESM). Assigns window.StatusMirror; used
      only by the event-driven RO work-status dropdown. -->
 <script type="module">
@@ -5939,30 +5946,72 @@
         });
       }
 
-      // Warranty / Comeback toggle — reads/writes the car's FLOOR row (mirror of
-      // the shop-floor board's toggle). Only meaningful once the car is on the
-      // floor; before check-in there's no row, so the toggle is disabled with a
-      // reason rather than silently no-oping or creating a floor row.
-      await populateWarrantyToggle();
-      // Work-status dropdown — mirror of the shop-floor Status dropdown. Same
-      // floor-row-by-po rules; disabled on pickup (no status column) or off-floor.
-      await populateStatusFloor();
+      // Warranty / Comeback toggle + work-Status dropdown — both read/write the
+      // car's FLOOR row (mirrors of the shop-floor board's controls). Only
+      // meaningful once the car is on the floor; before check-in there's no row,
+      // so they're disabled with a reason rather than no-oping or creating a row.
+      // Re-read later by refreshFloorControls (see there for when).
+      await refreshFloorControls();
       // Book Hours (PAY field) — manual ALLDATA-hours capture control.
       await populateBookHours();
     }
 
+    // ── Floor-backed controls: when they're (re-)read ────────────────────
+    // The Warranty toggle and the Status dropdown need the car's floor row,
+    // which can APPEAR while an RO is open. They used to be read once, on open,
+    // so a car checked in from this very screen kept "Check the car in first…"
+    // until the RO was closed and reopened. Now refreshFloorControls runs:
+    //   • on open (loading state), • after this RO's Check in / Arrived,
+    //   • after a successful tech assign (it can auto-check-in / set waiting-tech),
+    //   • on tab return (VIEW_REFRESH.cdros), quietly — no loading flash.
+    // Replies can overlap, so each paints only if it is still the newest read
+    // for the RO still open, and no floor WRITE started meanwhile (the
+    // warranty/status change handlers call floorGate().invalidate()).
+    // NOT live: another person moving the car doesn't refresh an open RO until
+    // one of the above — see docs/wiring/comeback-warranty.md §6.
+    let floorGateObj = null;
+    let floorGateFallbackSeq = 0;
+    function floorGate() {
+      if (floorGateObj) return floorGateObj;
+      const FG = window.FloorRefreshGate;
+      if (FG && FG.createFloorRefreshGate) {
+        floorGateObj = FG.createFloorRefreshGate(() => currentRo && currentRo.id);
+        return floorGateObj;
+      }
+      // Module not loaded yet — same rule inline (not cached, so the tested
+      // module takes over once it loads). Token shared across both.
+      return {
+        begin(roId) { const t = ++floorGateFallbackSeq; return () => t === floorGateFallbackSeq && !!currentRo && String(currentRo.id) === String(roId); },
+        invalidate() { floorGateFallbackSeq++; },
+      };
+    }
+    async function refreshFloorControls(opts) {
+      if (!currentRo) return;
+      const quiet = !!(opts && opts.quiet);
+      const isCurrent = floorGate().begin(currentRo.id);
+      await Promise.all([populateWarrantyToggle(isCurrent, quiet), populateStatusFloor(isCurrent, quiet)]);
+    }
+
     // Resolved floor row for the open RO's work-status dropdown (null = off floor).
     let currentStatusFloor = null;
-    async function populateStatusFloor() {
+    // isCurrent: from floorGate().begin — paint only while it says true.
+    // quiet: keep what's on screen until the answer lands (tab return), and keep
+    // it on a failed read rather than disabling a working control over a blip.
+    async function populateStatusFloor(isCurrent, quiet) {
       const sel = $('cdRoStatusFloor'), hint = $('cdRoStatusHint');
       if (!sel) return;
-      currentStatusFloor = null;
-      sel.disabled = true;
-      sel.innerHTML = '';
-      if (hint) hint.textContent = 'Checking floor…';
-      let floor = null;
+      if (!quiet) {
+        currentStatusFloor = null;
+        sel.disabled = true;
+        sel.innerHTML = '';
+        if (hint) hint.textContent = 'Checking floor…';
+      }
+      let floor = null, failed = false;
       try { floor = await findStatusFloorRow(currentRo.po || currentRo.ro_number); }
-      catch (e) { console.warn('[CdRO] status floor lookup failed', e); }
+      catch (e) { failed = true; console.warn('[CdRO] status floor lookup failed', e); }
+      if (!isCurrent()) return;         // superseded: newer read, a write, or another RO
+      if (failed && quiet) return;
+      sel.innerHTML = '';
       currentStatusFloor = floor;
       const SM = window.StatusMirror;
       const CANON = (SM && SM.STATUS_OPTIONS) || [];
@@ -6062,17 +6111,22 @@
 
     // Resolved floor row for the open RO's warranty toggle (null = not on floor).
     let currentFloorRow = null;
-    async function populateWarrantyToggle() {
+    // isCurrent / quiet: as populateStatusFloor.
+    async function populateWarrantyToggle(isCurrent, quiet) {
       const box = $('cdRoWarranty'), hint = $('cdRoWarrantyHint');
       if (!box) return;
-      currentFloorRow = null;
-      box.checked = false; box.disabled = true;
-      if (hint) hint.textContent = 'Checking floor…';
-      let floor = null;
+      if (!quiet) {
+        currentFloorRow = null;
+        box.checked = false; box.disabled = true;
+        if (hint) hint.textContent = 'Checking floor…';
+      }
+      let floor = null, failed = false;
       try { floor = await findFloorRow(currentRo.po || currentRo.ro_number); }
-      catch (e) { console.warn('[CdRO] warranty floor lookup failed', e); }
-      // Guard against a race: the detail may have moved on to another RO while
-      // this awaited. Only paint if we're still the current RO's toggle.
+      catch (e) { failed = true; console.warn('[CdRO] warranty floor lookup failed', e); }
+      // Real race guard: the detail may have moved to another RO, a newer read
+      // may have started, or a warranty/status write may be in flight.
+      if (!isCurrent()) return;
+      if (failed && quiet) return;
       currentFloorRow = floor;
       if (floor) {
         box.disabled = false;
@@ -6365,6 +6419,8 @@
       paintArrivedBtn($('cdRoArrivedBtn'), currentRo, () => {
         const m = allRos.find(r => String(r.id) === String(currentRo.id));
         if (m) m.arrived_at = currentRo.arrived_at;
+        // The car now has a floor row — bring Warranty + Status alive in place.
+        refreshFloorControls();
       });
       paintDeclineControl();
     }
@@ -7429,7 +7485,11 @@
         alert('Could not assign tech: ' + ((res.error && res.error.message) || 'unknown error'));
         currentRo.technician = prevTech;      // revert cache
         sel.value = prevTech || '';           // revert dropdown
+        return;
       }
+      // Assigning can auto-check-in (new parking row) or move the car to
+      // waiting-tech — re-read Warranty + Status so they reflect it now.
+      refreshFloorControls();
     }
     // Service Writer edit — stores the employee ID on repair_orders. Separate
     // from the technician path: it does NOT touch the floor / assigned_tech.
@@ -7451,6 +7511,7 @@
       if (!currentRo) return;
       const box = $('cdRoWarranty');
       const on = box.checked;
+      floorGate().invalidate();   // this write's result wins over any read in flight
       box.disabled = true;   // freeze during the write
       const res = await setWarrantyCore(currentRo.po || currentRo.ro_number, on);
       box.disabled = false;
@@ -7477,6 +7538,7 @@
       const value = sel.value;
       const prev = currentStatusFloor && currentStatusFloor.status;
       if (value === prev) return;
+      floorGate().invalidate();   // this write's result wins over any read in flight
       sel.disabled = true;   // freeze during the write
       const res = await setStatusFloorCore(currentRo.po || currentRo.ro_number, value);
       sel.disabled = false;
@@ -8361,7 +8423,12 @@
          the open RO's thumbnails from expiring into blanks after an hour on a
          counter iPad that never navigates. resignCdRoPhotos holds off while a
          capture is in flight — see its comment. */
-      refetch: () => { loadRecentList(); resignCdRoPhotos(); resignRoFindings(); },
+      refetch: () => {
+        loadRecentList(); resignCdRoPhotos(); resignRoFindings();
+        // An open RO's Warranty + Status may be stale (car checked in / moved
+        // elsewhere) — re-read quietly. See refreshFloorControls.
+        if (currentRo && $('cdRoDetailPanel').style.display !== 'none') refreshFloorControls({ quiet: true });
+      },
       getChannel: () => cdRosChannel,
       resubscribe: subscribeRealtime,
     };

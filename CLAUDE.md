@@ -83,7 +83,7 @@ Every file under `/docs/wiring/` follows this shape:
 
 | Subsystem | Doc | Main code |
 |---|---|---|
-| Comeback / warranty | `comeback-warranty.md` | `advisor-board.html`, `shared/comeback-chain.js` |
+| Comeback / warranty (incl. the RO detail's Warranty toggle + Status dropdown refresh) | `comeback-warranty.md` (§6 = when the toggle re-reads the floor row; the live floor channel is parked) | `advisor-board.html` (`refreshFloorControls`, `populateWarrantyToggle`/`populateStatusFloor`), `shared/comeback-chain.js`, `shared/warranty-mirror.js`, `shared/floor-refresh-gate.js` (+`.test.js`) |
 | Recordings / audio | `recordings-audio.md` | `api/recording-links.js`, `shared/recording-player.js`, `api/recording-assign.js` |
 | Customer record (incl. Edit + duplicate-phone warning) | `customer-record.md` (§4c/§4e = the list cache's two honesty rules; §4f = Edit) | `#view-customer` + `#custEditModal` in `advisor-board.html`, `shared/customer-edit.js` (+`.test.js`), `shared/cust-cache-guard.test.js` |
 | NEW badge (the expiring "NEW" pill for fresh features) | `new-badge.md` (§1 = how to add one) | `shared/new-badge.js` (+`.css`, +`.test.js`), loaded by `advisor-board.html` |

@@ -1,7 +1,11 @@
 # How RO check-in, active-RO status & tech assignment are wired
 
 > Doc: `/docs/wiring/ro-checkin-tech.md`
-> Last updated: 2026-07-30 — verified vs commit `596006c`
+> Last updated: 2026-09-18 — §3/§4 gained "what the RO detail re-reads afterwards" (Warranty +
+> Status now refresh after check-in / tech assign, see [[comeback-warranty]] §6); line numbers in
+> §3, §4 and Where-it-lives re-pointed. Branch `fix/floor-controls-refresh`, unmerged. Rest not
+> re-verified this session.
+> Previously: 2026-07-30 — verified vs commit `596006c`
 > Status: ✅ verified vs commit `596006c` — code re-checked against `advisor-board.html` +
 > `crisdata-techboard.html`, and the floor-table columns introspected against the live DB.
 > §4 assign-tech bug **FIXED**; §5 arrival-date **DONE**; §6 Work Description **DONE**.
@@ -37,20 +41,25 @@ selecting `id,status`, then queries `shopboard_pickup` **id-only** and returns
 `{ isPickup:true, status:null }`.
 
 ## 3. Check-in (`checkInArrived`) — a physical event
-- `checkInArrived(ro)` (`advisor-board.html:3646`): **PHYSICAL only — never touches the RO
+- `checkInArrived(ro)` (`advisor-board.html:4986`): **PHYSICAL only — never touches the RO
   stage.** Idempotent. If no `shopboard_parking` row exists for the `po`, it inserts one
   (`status:'empty'` = "- Unassigned -", `po`/`customer`/`vehicle` pre-filled), then stamps
   `repair_orders.arrived_at = now`. Insert-first, then stamp, so a failed drop stays
   re-clickable.
 - The **"Check in / Arrived" button** (`paintArrivedBtn`): green + active when `arrived_at`
   is null; after check-in it settles to a disabled **"Checked in ✓ · &lt;time&gt;"**.
+- **After a successful check-in from the RO detail**, its `onDone` callback mirrors
+  `arrived_at` onto the cached list row **and calls `refreshFloorControls()`**, so the
+  Warranty / Comeback toggle and the work-Status dropdown come alive in place (they need the
+  floor row that check-in just created). Before 2026-09-18 they stayed disabled until the RO was
+  reopened — see [[comeback-warranty]] §6.
 - **Arrival date defaults to today, with an optional back-date** — `checkInArrived(ro, opts)`
   takes `opts.arrivalDate` from the picker; today → the true now-stamp, a past date → that day
   (see §5). The default one-tap path is unchanged.
 
 ## 4. Tech assignment (`assignTechCore`) — and the bug
-`assignTechCore(opts)` (`advisor-board.html:4469`; **mirrored verbatim in
-`crisdata-techboard.html:276`**) is the single source of truth for assigning/clearing a car's
+`assignTechCore(opts)` (`advisor-board.html:6184`; **mirrored verbatim in
+`crisdata-techboard.html:308`**) is the single source of truth for assigning/clearing a car's
 tech. It:
 1. updates `repair_orders.technician` (degrades quietly if that column is missing);
 2. **finds the car's floor row** via the pickup-aware `findStatusFloorRow` / `StatusMirror`
@@ -59,6 +68,11 @@ tech. It:
    `status:'waiting-tech'` — but only when it isn't the pickup zone);
 4. if **not** on the floor and a tech is being assigned → **auto-check-in**: inserts a
    `shopboard_parking` row (`status:'waiting-tech'`, `arrival_date: today`).
+
+On the RO detail, `onTechAssignChange` calls **`refreshFloorControls()`** after a successful
+assign (not on failure), because steps 3–4 can create the floor row or move it to
+`waiting-tech` — the Warranty toggle and Status dropdown re-read it in place
+([[comeback-warranty]] §6). The Tech Board's copy has no such controls.
 
 **🐞 BUG (Kevin, RO #6018 → "Cory") — ✅ FIXED (Option A):** step 2 *used to* select `status`
 from **all three** tables, including `shopboard_pickup`, which has **no `status` column**. When
@@ -143,17 +157,21 @@ body and take it to the bench"), stored in **`repair_orders.work_description`** 
   its hydrate/`updateRoField('work_description', …)` wiring; `crisdata-techboard.html` —
   `loadWorkDescriptionInto` (in `openJob`) + the `.m-field-work` modal style. Schema:
   `migrations/20260730_ro_work_description.sql`.
-- Check-in: `advisor-board.html` — `checkInArrived` (~3646), `paintArrivedBtn` (~3681).
-- Tech assign: `advisor-board.html` — `assignTechCore` (~4469), `isPreWorkStatus` (~4454);
+- Check-in: `advisor-board.html` — `checkInArrived` (~4986), `paintArrivedBtn` (~5036); the RO
+  detail's `onDone` (~6423) → `refreshFloorControls` (~5988).
+- Tech assign: `advisor-board.html` — `assignTechCore` (~6184), `isPreWorkStatus` (~6169),
+  RO-detail handler `onTechAssignChange` (~7469);
   **mirrored in** `crisdata-techboard.html` — `assignTechCore` (now with a local
   `findStatusFloorRow` wrapper + the `StatusMirror` ESM include).
 - Pickup-aware floor resolver (the fix's linchpin): `shared/status-mirror.js`
-  `findStatusFloorRow` (+ the `advisor-board.html:4554` wrapper), tested in
+  `findStatusFloorRow` (+ the `advisor-board.html:6270` wrapper), tested in
   `shared/status-mirror.test.js` (incl. the RO #6018 regression).
 - Floor schema (partial / stale vs live): `setup_shopboard.sql`. Live columns verified by
   introspection, not a migration.
 
 ## Session change log
+- 2026-09-18 — RO detail now re-reads Warranty + Status after its own check-in and after a
+  successful tech assign (`refreshFloorControls`, [[comeback-warranty]] §6). Line refs re-pointed.
 - 2026-07-30 — Created during the RO #6018 "assign tech" investigation. Root-caused the
   `shopboard_pickup` has-no-`status` select bug in `assignTechCore` (both boards), confirmed
   the arrival date is hard-coded to today, and clarified that "Active RO" and "checked in" are
