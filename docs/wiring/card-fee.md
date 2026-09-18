@@ -5,8 +5,8 @@
 > `ed4d424`, UNMERGED). Every claim checked against `shared/ro-totals.js` (+ test), the 9 call
 > sites listed in §3, and `migrations/20260918_ro_card_fee_on_{SANDBOX,PROD}.sql`.
 > Status: ✅ sandbox STEP 1 + STEP 2 applied (2026-09-18) and verified in a real browser on
-> `test.*` signed in as ZZ Test Advisor against `68ae803` — see the change log. Bookkeeping board
-> not yet driven (needs a bookkeeping/owner login). Prod: migration NOT run, code NOT on main.
+> `test.*` against `68ae803` — advisor board as ZZ Test Advisor AND bookkeeping board as ZZ Test
+> Bookkeeping (see the change log). Prod: migration NOT run, code NOT on main.
 
 ## 0. In one line
 The card fee is an **ON/OFF switch per RO** (`repair_orders.card_fee_on`, default OFF). When
@@ -108,6 +108,11 @@ calculator (static guard), that the "+ Card fee" button is gone, and that the 3%
     ($699.21) but the total adds the unrounded $699.205, so the visible rows can sum 1¢ away from
     the Total (sandbox #6026: rows $11914.46, Total $11914.45; before the switch it was $11917.44
     vs $11917.43), and a paid-in-full RO can show Balance "$-0.00". Needs a rounding decision.
+    Because the boards also FORMAT differently (advisor/invoice `toFixed(2)`, bookkeeping lists
+    `toLocaleString`), the same unrounded total (11914.455) shows **$11914.45** on the advisor
+    board, the printed invoice and the bookkeeping RO-detail pane but **$11,914.46** in
+    bookkeeping's Financial Pulse lists — and Financial Pulse books income at the RO total, so a
+    customer who pays the printed $11,914.45 is counted as $11,914.46 of income.
   - **A board card's "Bal" goes stale after a payment is recorded** until the list reloads:
     `recordPayment` / `deletePayment` never update `allRos[].ro_payments`, and nothing listens on
     `ro_payments`. The total half of the card is live (it includes the fee).
@@ -140,6 +145,16 @@ calculator (static guard), that the "+ Card fee" button is gone, and that the 3%
 - `migrations/20260918_ro_card_fee_on_SANDBOX.sql`, `migrations/20260918_ro_card_fee_on_PROD.sql`.
 
 ## Session change log
+- 2026-09-18 (later still) — **Bookkeeping board verified as ZZ Test Bookkeeping (`authenticated`,
+  `68ae803` code).** Financial Pulse Follow-up list AND open-RO list show the converted ROs at the
+  live-fee totals (#5227 $4,287.50, #5501 $3,069.14, #6023 $8,018.93, #6025 $8,251.48, #6026
+  $11,914.46 — the 1¢ formatter gap above); the $71,889.93 pipeline equals an independent
+  RoTotals recompute of a fresh read. RO detail #5227 / #6026: fee row by name ($164.90 / $458.25),
+  totals $4287.50 / $11914.45 (= advisor), pre-tax subtotal $4,035.89 / $11,215.25 = lines + fee
+  (revenue, as the stored line was). Real Print on #5227: fee row + $4287.50. Paid-in-full: no
+  switched-on RO had payments, so a TEMPORARY $11,914.45 card payment on #6026 → Income (this week)
+  "$11,914.46 · 1 paid RO · ✓ matches card"; payment deleted (0 left, income back to $0.00).
+  0 × 401/403/42501.
 - 2026-09-18 (later) — **Sandbox migrated + browser-verified as ZZ Test Advisor (`authenticated`,
   `68ae803`).** STEP 1 then STEP 2 run by Cris on the sandbox (5 ROs converted, 5 lines backed up).
   Converted ROs show the live fee row: #5227 $4287.50, #5501 $3069.14, #6023 $8018.93, #6025
