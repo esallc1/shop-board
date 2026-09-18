@@ -1,12 +1,13 @@
 # How the card processing fee is wired (live switch + the one RO total)
 
 > Doc: `/docs/wiring/card-fee.md`
-> Last updated: 2026-09-18 — written from the code on branch `feat/card-fee-live` (base
-> `ed4d424`, UNMERGED). Every claim checked against `shared/ro-totals.js` (+ test), the 9 call
-> sites listed in §3, and `migrations/20260918_ro_card_fee_on_{SANDBOX,PROD}.sql`.
+> Last updated: 2026-09-18 — verified vs commit `41e1883` (LIVE on prod — www/board/apex). Every
+> claim checked against `shared/ro-totals.js` (+ test), the 9 call sites listed in §3, and
+> `migrations/20260918_ro_card_fee_on_{SANDBOX,PROD}.sql`.
 > Status: ✅ sandbox STEP 1 + STEP 2 applied (2026-09-18) and verified in a real browser on
 > `test.*` against `68ae803` — advisor board as ZZ Test Advisor AND bookkeeping board as ZZ Test
-> Bookkeeping (see the change log). Prod: migration NOT run, code NOT on main.
+> Bookkeeping (see the change log). **Prod: code live (`41e1883`, 2026-09-18) and STEP 1 + STEP 2
+> run by Cris on 2026-09-18** — exactly the 14 approved ROs switched on, results in the change log.
 
 ## 0. In one line
 The card fee is an **ON/OFF switch per RO** (`repair_orders.card_fee_on`, default OFF). When
@@ -96,7 +97,7 @@ calculator (static guard), that the "+ Card fee" button is gone, and that the 3%
   (commented) re-inserts the exact rows and switches off.
 - **What it does NOT touch:** closed ROs (they keep their stored line forever — history as
   charged), `invoice`-status ROs (#6074 on prod, by decision), and any RO not listed.
-- **Prod list (Cris-approved 2026-09-18):** 5501, 6023, 6025, 6054, 6072, 6073, 6077, 6079, 6080,
+- **Prod list (Cris-approved and RUN 2026-09-18):** 5501, 6023, 6025, 6054, 6072, 6073, 6077, 6079, 6080,
   6083, 6084, 6086, 6087, 6093 — incl. the 5 declined estimates. Totals move on two: **5501
   +$2.94** (its old line was taxable and lower than 4% of today's lines) and **6054 +$0.68**
   (lines changed after the fee was added). #6084 has a $150 cash deposit — the fee is unchanged by
@@ -145,6 +146,15 @@ calculator (static guard), that the "+ Card fee" button is gone, and that the 3%
 - `migrations/20260918_ro_card_fee_on_SANDBOX.sql`, `migrations/20260918_ro_card_fee_on_PROD.sql`.
 
 ## Session change log
+- 2026-09-18 (prod) — **Shipped.** Order: PROD STEP 1 (Cris; verify: boolean / NO / false,
+  switched_on 0, 112 ROs) → `main` fast-forwarded `ed4d424..41e1883` (www/board/apex on `41e1883`;
+  `shared/ro-totals.js`, `advisor-board.html`, `shared/ro-invoice.js`, `bookkeeping-board.html`,
+  `shared/board-settings.js` byte-identical) → PROD STEP 2 (Cris; all 14: card_fee_on true, stored
+  0, backed_up 1, switched_on_total 14; backup table RLS on, 0 policies). Read-only post-check via
+  the API + `shared/ro-totals.js` (no RO opened in a browser, so no book_hours re-saves): 20/20
+  totals as expected — 5501 $3069.14 (+$2.94), 6054 $3340.50 (+$0.68), the other 12 unchanged,
+  #6084 fee unchanged by its $150 deposit; #6074 and closed ROs 5227/6011/6045/6050/6069 keep their
+  stored lines, totals unchanged; `card_fee_on = true` on exactly the 14.
 - 2026-09-18 (later still) — **Bookkeeping board verified as ZZ Test Bookkeeping (`authenticated`,
   `68ae803` code).** Financial Pulse Follow-up list AND open-RO list show the converted ROs at the
   live-fee totals (#5227 $4,287.50, #5501 $3,069.14, #6023 $8,018.93, #6025 $8,251.48, #6026

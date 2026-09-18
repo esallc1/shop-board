@@ -112,17 +112,49 @@ select (select count(*) from backed)   as lines_backed_up,
        (select count(*) from removed)  as lines_removed,
        (select string_agg(ro_number::text, ', ' order by ro_number) from switched) as ros;
 
--- STEP 2 verification — one row per listed RO. Expect: card_fee_on = true and
--- stored_card_fee_lines = 0 for every converted RO; backed_up_lines = 1 each.
---   select r.ro_number, r.status, r.card_fee_on,
---          (select count(*) from public.ro_line_items li
---            where li.repair_order_id = r.id and li.line_type = 'fee'
---              and li.description ilike 'card processing fee%') as stored_card_fee_lines,
---          (select count(*) from public.ro_card_fee_line_backup_20260918 b where b.ro_id = r.id) as backed_up_lines
---     from public.repair_orders r
---    where r.ro_number in (5501, 6023, 6025, 6054, 6072, 6073, 6077, 6079, 6080, 6083, 6084, 6086, 6087, 6093)
---    order by r.ro_number;
-
+-- STEP 2 verification — one row per listed RO: switch, stored card-fee lines left,
+-- backed-up lines, and the RO total BEFORE (current lines + the backed-up line) vs AFTER
+-- (current lines + tax + live fee when on). Same math as shared/ro-totals.js; totals are
+-- round(…, 2) half-up (none of the 14 sits on an exact half cent, so it matches the app).
+--   with s as (select tax_rate, card_fee_pct from public.shop_settings limit 1),
+--   r as (
+--     select r.id, r.ro_number, r.status::text as status, r.card_fee_on, coalesce(c.tax_exempt, false) as exempt
+--       from public.repair_orders r join public.customers c on c.id = r.customer_id
+--      where r.ro_number in (5501, 6023, 6025, 6054, 6072, 6073, 6077, 6079, 6080, 6083, 6084, 6086, 6087, 6093)
+--   ),
+--   cur as (
+--     select li.repair_order_id as ro_id,
+--            sum(li.quantity * li.unit_price)                                         as sub,
+--            sum(case when li.taxable then li.quantity * li.unit_price else 0 end)    as txb,
+--            count(*) filter (where li.line_type = 'fee' and li.description ilike 'card processing fee%') as stored
+--       from public.ro_line_items li join r on r.id = li.repair_order_id
+--      group by li.repair_order_id
+--   ),
+--   bak as (
+--     select b.ro_id,
+--            sum((b.line->>'quantity')::numeric * (b.line->>'unit_price')::numeric)   as sub,
+--            sum(case when (b.line->>'taxable')::boolean
+--                     then (b.line->>'quantity')::numeric * (b.line->>'unit_price')::numeric else 0 end) as txb,
+--            count(*) as n
+--       from public.ro_card_fee_line_backup_20260918 b join r on r.id = b.ro_id
+--      group by b.ro_id
+--   ),
+--   t as (
+--     select r.*, coalesce(cur.stored, 0) as stored_card_fee_lines, coalesce(bak.n, 0) as backed_up_lines,
+--            (coalesce(cur.sub, 0) + coalesce(bak.sub, 0))
+--              + case when r.exempt then 0 else (coalesce(cur.txb, 0) + coalesce(bak.txb, 0)) * s.tax_rate end as before_raw,
+--            coalesce(cur.sub, 0) + case when r.exempt then 0 else coalesce(cur.txb, 0) * s.tax_rate end        as prefee_raw,
+--            s.card_fee_pct
+--       from r cross join s left join cur on cur.ro_id = r.id left join bak on bak.ro_id = r.id
+--   )
+--   select (select env from public.app_env) as env,
+--          ro_number, status, card_fee_on, stored_card_fee_lines, backed_up_lines,
+--          round(before_raw, 2) as total_before,
+--          round(prefee_raw + case when card_fee_on and stored_card_fee_lines = 0
+--                                  then round(card_fee_pct * prefee_raw, 2) else 0 end, 2) as total_after,
+--          (select count(*) from public.repair_orders where card_fee_on) as switched_on_total
+--     from t
+--    order by ro_number;
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- UNDO for STEP 2 (not run) — restores the exact lines and switches OFF.
