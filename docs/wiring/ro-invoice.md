@@ -152,10 +152,10 @@ is shown in the **totals box** (`workAndTotals`), in this order:
   `CARD PROCESSING FEE` ones) + 1 no-fee RO. `ro-invoice.test.js` +6 tests (17 total).
   **Staging, signed in as ZZ Test Advisor (`223b82c`):** the advisor Print button on RO #6011
   printed `Card processing fee (4.00%) $6.66`, total $189.20, PAID; on RO #5227
-  `CARD PROCESSING FEE $150.97`, total $4283.39 — both unchanged totals, no "Fees" row. ⚠ The
-  **bookkeeping** Print was NOT browser-verified: its board admits only `bookkeeping`/`owner`,
-  and it bounced the advisor account. It calls the same `buildPrintDoc` (served file checked
-  byte-identical to `223b82c`), so it should match; still needs one click by a bookkeeping/owner login.
+  `CARD PROCESSING FEE $150.97`, total $4283.39 — both unchanged totals, no "Fees" row.
+  **Bookkeeping verified signed in as ZZ Test Bookkeeping on `223b82c`:** RO-detail left pane AND
+  the real Print button on #6011 (`Card processing fee (4.00%) $6.66`, $189.20, PAID) and #5227
+  (`CARD PROCESSING FEE $150.97`, $4283.39) — same totals as the old-vs-new table, no "Fees" row.
 - 2026-09-11 — Added the bookkeeping **"🖨 Print / Save PDF"** button (`printRoDetail`) so Daiana
   can save the customer invoice as a PDF for QuickBooks instead of screenshotting the panel. No
   new document code: it reuses `buildPrintDoc` with the LEFT pane's own opts. Deleted the unread
