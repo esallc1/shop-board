@@ -2,8 +2,9 @@
 
 > Doc: `/docs/wiring/customer-record.md`
 > **2026-09-18 — Edit moved from the top strip into the profile card's name row (§4, §4f).**
-> Branch `fix/cust-edit-in-person-card` off `main` `2960da9`. §0, §4, §4f and Where-it-lives
-> re-checked against the code this session; staging browser pass recorded in the change log.
+> Verified vs commit `6c22499` (branch `fix/cust-edit-in-person-card` off `main` `2960da9`, on
+> staging, NOT yet on prod). §0, §4, §4f and Where-it-lives re-checked against the code, and driven
+> signed in as ZZ Test Advisor on `test.*` at desk and phone width — see the change log.
 > Previously: **2026-09-18 — §4f added: the record's top-strip Edit button + duplicate-phone warning.**
 > Verified vs commit `399e93c` (branch `feat/customer-edit-transmission`, UNMERGED — on staging
 > only). §0, §4 (top strip), §4e's write-site table, §4f, Known gaps and Where-it-lives re-checked
@@ -590,6 +591,15 @@ then branches on whether the search box has text:
 - 2026-09-18 — **Edit moved into the profile card**, top-right on the name row, NEW corner tag
   kept (same `2026-09-26`); the top strip is Back only. Click now delegated because the card
   re-renders. Nothing else changed. Branch `fix/cust-edit-in-person-card`.
+  **Verified on `test.*` at `6c22499`** (served `advisor-board.html` byte-identical to git),
+  signed in as ZZ Test Advisor (`authenticated`, sandbox `efhmefpaijjncwgbvwki`), on
+  "Abraham, Roodjerry": exactly one `#custEditBtn`, inside `#custProfile`; strip reads only
+  "← Back". Desk (1440 and 1100, card 320px) and phone (375): name one line, Edit top-aligned with
+  it, 10px gap, 21px in from the card's right edge, NEW pill on and clear of the name, name/Edit/card
+  rects identical with the pill on or off, no sideways scroll. A 46-character name injected into the
+  DOM at 375 wrapped to 3 lines with Edit unmoved. Real clicks on Edit opened the form at 665px and
+  375px; City saved and was read back from the DB, then cleared back to `NULL`. Edit and pill both
+  came back after each save's re-render (delegation + `MutationObserver`).
 - 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-09-18 (later) — **§4f re-verified SIGNED IN** as ZZ Test Advisor (advisor role,
   `authenticated` JWT, sandbox) on `test.*`: every Supabase/`/api` request carried the user's

@@ -103,7 +103,9 @@ When a date passes, the markup can stay (it's inert) or be deleted in the next t
 ## Session change log
 - 2026-09-18 — Customer Edit badge moved with its button from the top strip into the profile
   card's name row (JS-rendered now, so it relies on the `MutationObserver` re-apply). Branch
-  `fix/cust-edit-in-person-card`.
+  `fix/cust-edit-in-person-card`. Verified on `test.*` at `6c22499` as ZZ Test Advisor: pill on
+  after first render and after each Edit-save re-render, at 1440/1100/375; layout identical pill on
+  vs off.
 - 2026-09-18 — **Created.** Shared NEW pill; first two uses (customer Edit, RO Transmission
   label), both until `2026-09-26`. Branch `feat/customer-edit-transmission`, unmerged.
 - 2026-09-18 (later) — **Made it out-of-flow + added corner-tag mode**, after measuring on
