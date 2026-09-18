@@ -4,7 +4,9 @@
 > Last updated: 2026-09-18 — written from the code on branch `feat/card-fee-live` (base
 > `ed4d424`, UNMERGED). Every claim checked against `shared/ro-totals.js` (+ test), the 9 call
 > sites listed in §3, and `migrations/20260918_ro_card_fee_on_{SANDBOX,PROD}.sql`.
-> Status: code built + tests green; migration + browser verification recorded in the change log.
+> Status: ✅ sandbox STEP 1 + STEP 2 applied (2026-09-18) and verified in a real browser on
+> `test.*` signed in as ZZ Test Advisor against `68ae803` — see the change log. Bookkeeping board
+> not yet driven (needs a bookkeeping/owner login). Prod: migration NOT run, code NOT on main.
 
 ## 0. In one line
 The card fee is an **ON/OFF switch per RO** (`repair_orders.card_fee_on`, default OFF). When
@@ -101,6 +103,17 @@ calculator (static guard), that the "+ Card fee" button is gone, and that the 3%
   it. **Sandbox list:** 5227, 5501, 6023, 6025, 6026 (the sandbox is an older copy).
 
 ## Known gaps & open questions (as of 2026-09-18)
+- **Pre-existing, surfaced by this slice's browser pass — not caused by it:**
+  - **Tax isn't rounded to cents before it's added up.** The totals box shows tax rounded
+    ($699.21) but the total adds the unrounded $699.205, so the visible rows can sum 1¢ away from
+    the Total (sandbox #6026: rows $11914.46, Total $11914.45; before the switch it was $11917.44
+    vs $11917.43), and a paid-in-full RO can show Balance "$-0.00". Needs a rounding decision.
+  - **A board card's "Bal" goes stale after a payment is recorded** until the list reloads:
+    `recordPayment` / `deletePayment` never update `allRos[].ro_payments`, and nothing listens on
+    `ro_payments`. The total half of the card is live (it includes the fee).
+  - **Opening an RO can WRITE.** `updateBookHoursAuto` (Book Hours feature) saves
+    `repair_orders.book_hours` (+ mirrors `flag_hours` to a floor row) whenever the stored value
+    differs from the lines' auto-total. So "just looking" at an RO is not read-only.
 - **Payment method isn't linked to the switch.** Recording a card payment does not turn the fee
   on (and a cash payment doesn't turn it off) — the advisor flips it. By design for this slice.
 - **A closed RO can still be toggled** (like its lines can still be edited). Its
@@ -127,6 +140,16 @@ calculator (static guard), that the "+ Card fee" button is gone, and that the 3%
 - `migrations/20260918_ro_card_fee_on_SANDBOX.sql`, `migrations/20260918_ro_card_fee_on_PROD.sql`.
 
 ## Session change log
+- 2026-09-18 (later) — **Sandbox migrated + browser-verified as ZZ Test Advisor (`authenticated`,
+  `68ae803`).** STEP 1 then STEP 2 run by Cris on the sandbox (5 ROs converted, 5 lines backed up).
+  Converted ROs show the live fee row: #5227 $4287.50, #5501 $3069.14, #6023 $8018.93, #6025
+  $8251.48 (last two unchanged), #6026 $11914.45 (1¢ under the $11914.46 predicted — the
+  pre-existing unrounded-tax effect above). On #5413: switch ON → fee $0.89; add a $140 labor line →
+  $6.86; edit it to $200 → $9.41; $50 cash deposit → fee unchanged, balance $194.76; delete
+  deposit, delete line → $0.89; switch OFF → row gone. Same total ($244.76) on RO detail, payments
+  box, board card (after reload — stale-balance gap above), print (fee row after Taxes) and customer
+  record. #6011 (stored line): switch hidden with the note, $189.20, and still $189.20 with
+  `card_fee_on` forced true (then restored). 0 × 401/403/42501. Test data restored.
 - 2026-09-18 — **Created.** Card fee moved from a one-time stored line ("+ Card fee" /
   `addCardFee`) to a live per-RO switch; all 9 RO-total sites routed through the new
   `shared/ro-totals.js`; 3% code fallback removed. With every switch off, the new invoice builder
