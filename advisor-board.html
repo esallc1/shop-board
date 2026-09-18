@@ -364,13 +364,6 @@
   .cd-ro-edit .cd-hf-full { grid-column: 1 / -1; }
   .cd-ro-edit textarea { min-height: 46px; }
   .cd-lines-table td, .cd-lines-table th { vertical-align: middle; }
-  .cd-lines-table input, .cd-lines-table select {
-    width: 100%; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 6px; padding: 6px 8px; font-size: 0.82rem; color: var(--text);
-    outline: none; font-family: inherit;
-  }
-  .cd-lines-table input:focus, .cd-lines-table select:focus { border-color: var(--accent); }
-  .cd-lines-table input[type="number"] { text-align: right; }
   .cd-line-total { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .cd-lines-table td { padding-top: 9px; padding-bottom: 9px; }
   /* read-only line rows + row action buttons (edit / delete) */
@@ -390,6 +383,12 @@
   .cd-lf-2col { display: flex; gap: 12px; }
   .cd-lf-2col > .intake-field { flex: 1; }
   .cd-lf-margin { font-size: 0.8rem; color: var(--text); margin: -4px 0 14px; }
+  /* Pop-up number fields are type="text" inputmode="decimal" (no spinner, no
+     wheel/arrow changes — ro-line-items.md §2a). A value the parser rejects
+     turns the border red; Save refuses it. The math line checks labor Sell. */
+  #cdLineFields input.cd-lf-bad { border-color: var(--red); }
+  .cd-lf-math { font-size: 0.8rem; color: var(--muted); margin: -6px 0 14px; font-variant-numeric: tabular-nums; }
+  .cd-lf-math:empty { display: none; }
   .cd-totals {
     margin-top: 16px; margin-left: auto; max-width: 300px;
     border-top: 1px solid var(--border); padding-top: 12px;
@@ -1282,6 +1281,13 @@
 <script type="module">
   import * as CustomerEdit from './shared/customer-edit.js';
   window.CustomerEdit = CustomerEdit;
+</script>
+<!-- Strict number parsing for the Add/Edit-Line pop-up (ESM). Assigns
+     window.LineQty; saveLineModal refuses to save without it.
+     See docs/wiring/ro-line-items.md §2a. -->
+<script type="module">
+  import * as LineQty from './shared/line-qty.js';
+  window.LineQty = LineQty;
 </script>
 <!-- "NEW" pill (ESM). Every <span class="cd-new" data-new-until="YYYY-MM-DD">
      shows until that date (shop time) and hides itself after. Hidden by
@@ -6643,7 +6649,6 @@
     let lineModalSeed = null;     // the line being edited (for prefill), or null
     let lineModalDraft = {};      // description/taxable preserved across type switches
     const nv = (x) => (x === '' || x == null) ? '' : esc(String(x));
-    const numOrNull = (v) => { if (v === '' || v == null) return null; const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
 
     // Grouped <optgroup> options for the package unit picker (named groups
     // alpha-first, ungrouped last; stored-but-deleted unit stays selectable).
@@ -6692,6 +6697,12 @@
     }
 
     const lfField = (labelHtml, inputHtml) => '<div class="intake-field"><label>' + labelHtml + '</label>' + inputHtml + '</div>';
+    // Every number in this pop-up (qty/hours AND money). NOT type="number": that
+    // changes its own value on a mouse-wheel scroll or an arrow key, silently
+    // (Hours 14 → 13.5 while scrolling to Save; qty 1 → 1.01 — RO 6022). Text +
+    // inputmode="decimal" keeps the phone's decimal keypad; shared/line-qty.js
+    // parses it strictly at Save. See docs/wiring/ro-line-items.md §2a.
+    const lfNum = (id, val) => `<input type="text" inputmode="decimal" autocomplete="off" data-lf-num id="${id}" value="${nv(val)}">`;
     const TECHPAY_HINT = ' <span style="color:var(--muted);text-transform:none;letter-spacing:0;font-weight:600">· tech pay</span>';
 
     // Per-line line_tech_id defaults to null = "inherit the RO's assigned tech"
@@ -6733,12 +6744,13 @@
         const rate = seedMatches ? (seed.unit_price != null ? seed.unit_price : '') : (defaultUnitFor('labor') != null ? defaultUnitFor('labor') : '');
         const qty = seedMatches ? (seed.quantity != null ? seed.quantity : 1) : 1;
         const qtyField = lfField((bookOn ? 'Hours' : 'Qty'),
-          `<input type="number" id="cdLf_qty" value="${nv(qty)}" min="0" step="${bookOn ? '0.5' : '0.01'}">`);
-        const rateField = lfField('Rate ($/hr)', `<input type="number" id="cdLf_rate" value="${nv(rate)}" min="0" step="0.01">`);
+          lfNum('cdLf_qty', qty));
+        const rateField = lfField('Rate ($/hr)', lfNum('cdLf_rate', rate));
         const techField = bookOn ? lineTechPickerHtml(seedMatches ? (seed.line_tech_id || '') : '') : '';
         html = descField
           + '<div class="cd-lf-2col">' + qtyField + rateField + '</div>'
           + lfField('Sell (auto)', '<input type="text" id="cdLf_sell" readonly>')
+          + '<div class="cd-lf-math" id="cdLf_math"></div>'
           + techField
           + taxField;
       } else if (type === 'parts') {
@@ -6749,10 +6761,10 @@
         html = lfField('Part #', `<input type="text" id="cdLf_partno" value="${nv(partno)}" placeholder="Part #">`)
           + descField
           + '<div class="cd-lf-2col">'
-            + lfField('Cost ($)' + TECHPAY_HINT.replace('tech pay', 'internal'), `<input type="number" id="cdLf_cost" value="${nv(cost)}" min="0" step="0.01">`)
-            + lfField('Sell ($)', `<input type="number" id="cdLf_sell" value="${nv(sell)}" min="0" step="0.01">`)
+            + lfField('Cost ($)' + TECHPAY_HINT.replace('tech pay', 'internal'), lfNum('cdLf_cost', cost))
+            + lfField('Sell ($)', lfNum('cdLf_sell', sell))
           + '</div>'
-          + lfField('Qty', `<input type="number" id="cdLf_qty" value="${nv(qty)}" min="0" step="0.01">`)
+          + lfField('Qty', lfNum('cdLf_qty', qty))
           + '<div class="cd-lf-margin" id="cdLf_margin"></div>'
           + taxField;
       } else if (type === 'package') {
@@ -6773,28 +6785,67 @@
           : DEFAULT_PKG_DESC;
         html = lfField('Unit', `<select id="cdLf_unit">${packageUnitOptions(selUnit)}</select>`)
           + lfField('Description', `<input type="text" id="cdLf_desc" value="${nv(pkgDesc)}" placeholder="Description">`)
-          + lfField('Price ($)', `<input type="number" id="cdLf_price" value="${nv(price)}" min="0" step="0.01">`)
+          + lfField('Price ($)', lfNum('cdLf_price', price))
           + taxField;
       } else {
         // fee / shop_supply / hazmat — flat amount, qty fixed at 1
         const amount = seedMatches ? (seed.unit_price != null ? seed.unit_price : '') : (defaultUnitFor(type) != null ? defaultUnitFor(type) : '');
         html = descField
-          + lfField('Amount ($)', `<input type="number" id="cdLf_amount" value="${nv(amount)}" min="0" step="0.01">`)
+          + lfField('Amount ($)', lfNum('cdLf_amount', amount))
           + taxField;
       }
       box.innerHTML = html;
       wireLineFields(type);
     }
 
+    // Pop-up number fields: select-all on focus (so typing REPLACES the prefilled
+    // "1" — clicking in and typing 14 used to give 114), and a red border while
+    // the text is something the parser will refuse at Save.
+    function wireLineNumbers() {
+      document.querySelectorAll('#cdLineFields [data-lf-num]').forEach(el => {
+        let justFocused = false;
+        el.addEventListener('focus', () => { el.select(); justFocused = true; });
+        // A mouse click's mouseup would collapse the selection to a caret.
+        el.addEventListener('mouseup', (e) => { if (justFocused) { e.preventDefault(); justFocused = false; } });
+        el.addEventListener('blur', () => { justFocused = false; });
+        el.addEventListener('input', () => {
+          const LQ = window.LineQty;
+          el.classList.toggle('cd-lf-bad', !!LQ && !LQ.parseDecimal(el.value).ok);
+        });
+      });
+    }
+    // Strict read of one pop-up number (shared/line-qty.js). Qty/hours must be
+    // > 0; money blank → blankValue (0, or null for parts Cost), as before.
+    function lfRead(id, label, kind, blankValue) {
+      const el = $(id);
+      const r = kind === 'qty' ? window.LineQty.parseQty(el.value) : window.LineQty.parseMoney(el.value, blankValue);
+      el.classList.toggle('cd-lf-bad', !r.ok);
+      return r.ok ? { ok: true, value: r.value } : { ok: false, el, msg: label + ': ' + r.error };
+    }
+    // What an un-parseable field contributes to a LIVE readout: nothing.
+    const lfLive = (id, kind) => {
+      const LQ = window.LineQty, v = $(id).value;
+      if (!LQ) return num(v);
+      const r = kind === 'qty' ? LQ.parseQty(v) : LQ.parseMoney(v, 0);
+      return r.ok ? r.value : null;
+    };
+
     function wireLineFields(type) {
+      wireLineNumbers();
       if (type === 'labor') {
-        const calc = () => { $('cdLf_sell').value = money(num($('cdLf_qty').value) * num($('cdLf_rate').value)); };
+        const unit = bookHoursFeatureOn() ? 'h' : '';
+        const calc = () => {
+          const q = lfLive('cdLf_qty', 'qty'), r = lfLive('cdLf_rate', 'money');
+          $('cdLf_sell').value = (q == null || r == null) ? '—' : money(q * r);
+          $('cdLf_math').textContent = window.LineQty ? (window.LineQty.laborMathLine($('cdLf_qty').value, $('cdLf_rate').value, unit) || '') : '';
+        };
         $('cdLf_qty').addEventListener('input', calc);
         $('cdLf_rate').addEventListener('input', calc);
         calc();
       } else if (type === 'parts') {
         const calc = () => {
-          const cost = num($('cdLf_cost').value), sell = num($('cdLf_sell').value);
+          const cost = lfLive('cdLf_cost', 'money'), sell = lfLive('cdLf_sell', 'money');
+          if (cost == null || sell == null) { $('cdLf_margin').innerHTML = 'Margin <b>—</b> <span style="color:var(--muted)">· internal, never printed</span>'; return; }
           const m = sell - cost, pct = sell > 0 ? (m / sell * 100) : null;
           $('cdLf_margin').innerHTML = `Margin <b>${money(m)}</b> (${pct == null ? '—' : pct.toFixed(1) + '%'}) <span style="color:var(--muted)">· internal, never printed</span>`;
         };
@@ -6806,7 +6857,7 @@
         // at save time (no advisor field), see saveLineModal.
         $('cdLf_unit').addEventListener('change', () => {
           const u = packageUnits().find(x => x.id === $('cdLf_unit').value);
-          if (u) $('cdLf_price').value = Number(u.set_price) || 0;
+          if (u) { $('cdLf_price').value = Number(u.set_price) || 0; $('cdLf_price').classList.remove('cd-lf-bad'); }
         });
       }
     }
@@ -6841,10 +6892,25 @@
       const taxable = !!(document.getElementById('cdLf_tax') && document.getElementById('cdLf_tax').checked);
       let payload = { line_type: type, taxable, unit_cost: null, package_unit_id: null, rr_hours: null, part_number: null, line_tech_id: null };
 
+      // Strict numbers first (ro-line-items.md §2a). Any field the parser
+      // refuses blocks Save: its border goes red and the first error shows here.
+      if (!window.LineQty) { errEl.textContent = "The number checker didn't load — reload the page, then save."; return; }
+      const qtyLabel = (type === 'labor' && bookHoursFeatureOn()) ? 'Hours' : 'Qty';
+      const reads = {
+        labor:   [['cdLf_qty', qtyLabel, 'qty'], ['cdLf_rate', 'Rate', 'money', 0]],
+        parts:   [['cdLf_cost', 'Cost', 'money', null], ['cdLf_sell', 'Sell', 'money', 0], ['cdLf_qty', 'Qty', 'qty']],
+        package: [['cdLf_price', 'Price', 'money', 0]],
+      }[type] || [['cdLf_amount', 'Amount', 'money', 0]];
+      const nums = {}, bad = [];
+      reads.forEach(([id, label, kind, blank]) => { const r = lfRead(id, label, kind, blank); if (r.ok) nums[id] = r.value; else bad.push(r); });
+      if (bad.length) { errEl.textContent = bad[0].msg; bad[0].el.focus(); return; }
+      if (type === 'labor' && window.LineQty.needsHoursConfirm(nums.cdLf_qty)
+          && !confirm('Is ' + window.LineQty.formatQty(nums.cdLf_qty) + ' hours right?')) { $('cdLf_qty').focus(); return; }
+
       if (type === 'labor') {
         payload.description = ($('cdLf_desc').value || '').trim() || null;
-        payload.quantity = num($('cdLf_qty').value);
-        payload.unit_price = num($('cdLf_rate').value);
+        payload.quantity = nums.cdLf_qty;
+        payload.unit_price = nums.cdLf_rate;
         // Per-line tech credit: "" = inherit the RO tech (null); an id = override.
         // Only when the picker is shown (Book Hours ON); else preserve the seed's.
         payload.line_tech_id = document.getElementById('cdLf_tech')
@@ -6853,9 +6919,9 @@
       } else if (type === 'parts') {
         payload.part_number = ($('cdLf_partno').value || '').trim() || null;
         payload.description = ($('cdLf_desc').value || '').trim() || null;
-        payload.quantity = num($('cdLf_qty').value);
-        payload.unit_price = num($('cdLf_sell').value);
-        payload.unit_cost = numOrNull($('cdLf_cost').value);
+        payload.quantity = nums.cdLf_qty;
+        payload.unit_price = nums.cdLf_sell;
+        payload.unit_cost = nums.cdLf_cost;
       } else if (type === 'package') {
         const uid = $('cdLf_unit').value || null;
         if (!uid) { errEl.textContent = 'Pick a unit.'; return; }
@@ -6867,7 +6933,7 @@
         const typedDesc = $('cdLf_desc') ? ($('cdLf_desc').value || '').trim() : '';
         payload.description = typedDesc || (u ? u.unit_code : ((lineModalSeed && lineModalSeed.description) || null));
         payload.quantity = 1;
-        payload.unit_price = num($('cdLf_price').value);
+        payload.unit_price = nums.cdLf_price;
         // R&R hrs is not shown/edited by the advisor — carried silently. On the
         // SAME unit keep the line's current value (a manager may have adjusted it
         // in Rebuild Units & Prices / on the manager side); on a new/changed unit
@@ -6880,7 +6946,7 @@
       } else {
         payload.description = ($('cdLf_desc').value || '').trim() || null;
         payload.quantity = 1;
-        payload.unit_price = num($('cdLf_amount').value);
+        payload.unit_price = nums.cdLf_amount;
       }
 
       const btn = $('cdLineSaveBtn'); btn.disabled = true;
