@@ -1,7 +1,10 @@
 # How the RO / invoice document builder is wired
 
 > Doc: `/docs/wiring/ro-invoice.md`
-> Last updated: 2026-09-11 — verified vs commit `0fcc863` (the commit this doc ships with)
+> **2026-09-18 — §2a added: fee lines print BY NAME in the totals box** (branch
+> `feat/invoice-fee-by-name`, UNMERGED — staging only). §2a, Known gaps and the change log
+> re-checked against `shared/ro-invoice.js` this session; the rest carried from 2026-09-11.
+> Previously: 2026-09-11 — verified vs commit `0fcc863` (the commit this doc ships with)
 > Status: ✅ BUILT + verified. `printRo` was extracted into a shared PURE builder
 > `shared/ro-invoice.js` (+ `ro-invoice.test.js`, 11 tests). **THREE** consumers now render the
 > identical document: the advisor board prints it, the bookkeeping RO-detail LEFT pane embeds it,
@@ -47,6 +50,35 @@ PAID state instead of a blank signature line.
 - **Selection:** `isReceipt ? receiptBody : (isPaid ? paidBody : invoiceBody)`. The `invoiceBody`
   path (estimate / ro / unpaid) is **unchanged** from the pre-extraction printout.
 
+## 2a. The totals box — what is itemised, what is lumped
+The work tables list only **labor** and **parts** (package lines fold into Parts). Everything else
+is shown in the **totals box** (`workAndTotals`), in this order:
+
+| Row | Source | How it's labelled |
+|---|---|---|
+| Labor / Parts | `catSum('labor')` / `catSum('parts') + catSum('package')` | fixed labels |
+| Hazmat \* / Shop Supplies \* | `catSum('hazmat')` / `catSum('shop_supply')` | fixed labels, **lumped on purpose** (flat shop charges — the footnote says so) |
+| **one row per `fee` line** | `feeRows` — that line's `quantity × unit_price` | **its stored `description`, exactly as written** (HTML-escaped); blank → `Fee` |
+| Taxes (rate% / exempt) | `taxableBase × rate` | fixed label |
+| Invoice Total | labor + parts + hazmat + supplies + `feesTotal` + tax | fixed label |
+
+- **Why by name:** the card fee (`addCardFee`, [[ro-line-items]]) is stored as an ordinary
+  `line_type='fee'` row whose `description` reads e.g. `Card processing fee (4.00%)`. Until
+  2026-09-18 the builder summed every fee line into one unnamed **"Fees"** row, so the customer
+  saw a charge with no explanation. Nothing marks a line as *the card fee* specifically — so the
+  rule is simply "every fee line prints by its own description", which also names any hand-added
+  Fee line and the older ALLDATA-era `CARD PROCESSING FEE` lines (their uppercase wording is kept).
+- **Display only.** `feesTotal` still feeds `invoiceTotal` exactly as before; a fee line marked
+  `taxable` is still taxed through `taxableBase`; nothing is written. Proven on the sandbox
+  2026-09-18 by rendering the 10 fee ROs + 1 no-fee RO with the old (`8700ed6`) and new builders:
+  identical Invoice Total, Taxes, Balance and PAID state on all 11, and a line-diff showing the
+  fee row's label as the **only** change (the no-fee RO byte-identical).
+- **One behaviour difference:** the old single row was shown only when the fee **sum** was
+  `> 0`. Each fee line now always gets its row — so a `$0.00` or negative fee line (none exist
+  today) would now be visible instead of silently counted.
+- Same document everywhere: the advisor print, the bookkeeping RO-detail pane and the bookkeeping
+  print all get this from the one builder (§4).
+
 ## 3. The PAID state (customer-facing correctness fix)
 - **`isPaid = status ∈ {invoice, closed} AND invoiceTotal > 0 AND Σ payments ≥ invoiceTotal − 0.005`.**
   An estimate is **never** paid (status gate); a partial payment stays unpaid (keeps the auth block).
@@ -83,7 +115,11 @@ PAID state instead of a blank signature line.
   - The button is **hidden for an ALLDATA-only job** (no `repair_orders` row → nothing to print)
     and is cleared while a new RO loads, so the previous RO can't be printed mid-fetch.
 
-## Known gaps & open questions (as of 2026-09-11)
+## Known gaps & open questions (as of 2026-09-18)
+- **5 of the sandbox's 10 fee lines are marked `taxable`** (the 4 old `CARD PROCESSING FEE` lines
+  and RO #6011), so sales tax is charged on those fees. `addCardFee` itself always inserts
+  `taxable:false`. Left as-is by decision (display-only change); flagged for a data decision.
+- The fee row shows only the amount, not qty × price. Every fee line today is qty 1.
 - **Embed width** — the invoice is designed for a 7.5in page; in the bookkeeping split it renders
   in a ~1.5fr column (modal widened to 1140px) with `overflow-x:auto`. Fine on desktop; tight on
   a phone (the modal isn't a mobile target for the bookkeeper).
@@ -99,8 +135,8 @@ PAID state instead of a blank signature line.
   renders identically in HTML text — no visual change, slightly more correct.
 
 ## Where it lives in the code
-- **Builder:** `shared/ro-invoice.js` (`buildInvoiceHtml`, `buildPrintDoc`, `INVOICE_CSS`) +
-  `shared/ro-invoice.test.js`.
+- **Builder:** `shared/ro-invoice.js` (`buildInvoiceHtml` — totals box incl. `feeRows`,
+  `buildPrintDoc`, `INVOICE_CSS`) + `shared/ro-invoice.test.js`.
 - **Advisor wrapper:** `advisor-board.html` `printRo` + the `import * as RoInvoice` module tag.
 - **Bookkeeping embed + print:** `bookkeeping-board.html` `openRoDetail` (full RO + payments
   fetch) / `renderRoDetail` (LEFT pane embed + pre-tax profit; arms the print button) /
@@ -110,6 +146,10 @@ PAID state instead of a blank signature line.
   [[packages]] (package lines print under Parts), [[settings]] (shop profile + `payment_methods`).
 
 ## Session change log
+- 2026-09-18 — **Fee lines print by name** (§2a): the single "Fees" totals row became one row per
+  fee line labelled with its stored description (blank → "Fee"). Display only — totals, tax and
+  PAID state proven identical to the cent on 10 real fee ROs (incl. #6011 and the old
+  `CARD PROCESSING FEE` ones) + 1 no-fee RO. `ro-invoice.test.js` +6 tests (17 total).
 - 2026-09-11 — Added the bookkeeping **"🖨 Print / Save PDF"** button (`printRoDetail`) so Daiana
   can save the customer invoice as a PDF for QuickBooks instead of screenshotting the panel. No
   new document code: it reuses `buildPrintDoc` with the LEFT pane's own opts. Deleted the unread

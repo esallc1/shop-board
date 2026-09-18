@@ -156,6 +156,16 @@ export function buildInvoiceHtml(opts) {
         <td class="tr">${M(num(l.quantity) * num(l.unit_price))}</td></tr>`).join('')
     : '<tr><td colspan="5" class="muted">—</td></tr>';
   const totalRow = (label, val, note) => `<tr><td>${label}${note ? ' <sup>*</sup>' : ''}</td><td class="tr">${M(val)}</td></tr>`;
+  // Fee lines print ONE ROW EACH, by their stored description — e.g. "Card
+  // processing fee (4.00%)" — where a single unnamed "Fees" row used to be.
+  // DISPLAY ONLY: each row's amount is the same qty × unit_price that feesTotal
+  // sums, feesTotal still feeds invoiceTotal unchanged, and taxable fee lines
+  // are still taxed via taxableBase above. Wording is printed exactly as stored
+  // (escaped), never renamed; a blank description falls back to "Fee".
+  const feeRows = lines.filter(l => l.line_type === 'fee').map(l => {
+    const d = l.description == null ? '' : String(l.description);
+    return totalRow(d.trim() ? P(d) : 'Fee', num(l.quantity) * num(l.unit_price));
+  }).join('');
 
   const dateStr = fmtDate(new Date());
   const logo = cfg.logo_url ? `<img class="logo" src="${P(cfg.logo_url)}" alt="">` : '';
@@ -178,7 +188,7 @@ export function buildInvoiceHtml(opts) {
       ${totalRow('Parts', partsTotal)}
       ${totalRow('Hazmat', hazmatTotal, true)}
       ${totalRow('Shop Supplies', suppliesTotal, true)}
-      ${feesTotal > 0 ? totalRow('Fees', feesTotal) : ''}
+      ${feeRows}
       ${totalRow(exempt ? 'Taxes (exempt)' : 'Taxes (' + (rate * 100).toFixed(2) + '%)', taxTotal)}
       <tr><td>Invoice Total</td><td class="tr">${M(invoiceTotal)}</td></tr>
     </table>

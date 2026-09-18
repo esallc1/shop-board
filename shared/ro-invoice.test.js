@@ -119,3 +119,61 @@ test('INVOICE_CSS is fully scoped under .roinv (safe to inject into a board)', (
     assert.ok(sel.startsWith('.roinv'), `unscoped selector leaked: "${sel}"`);
   }
 });
+
+// ── fee lines print BY NAME (display only) ───────────────────
+// Base LINES total 1840.40 (subtotal 1720 taxable, tax 120.40). A non-taxable
+// card fee of 73.62 (4% of 1840.40) must add exactly 73.62 to the total.
+const CARD_FEE = { line_type: 'fee', description: 'Card processing fee (4.00%)', quantity: 1, unit_price: 73.62, taxable: false };
+const totalOf = (html) => (html.match(/Invoice Total<\/td><td class="tr">\$([\d.]+)/) || [])[1];
+
+test('a card fee prints as its own totals row with its stored description — not "Fees"', () => {
+  const html = buildInvoiceHtml({ ro: roBase('invoice'), lines: [...LINES, CARD_FEE], settings: SETTINGS, payments: [] });
+  assert.match(html, /<tr><td>Card processing fee \(4\.00%\)<\/td><td class="tr">\$73\.62<\/td><\/tr>/);
+  assert.doesNotMatch(html, />Fees</);
+  // it sits in the totals box, between Shop Supplies and Taxes, where "Fees" was
+  assert.ok(html.indexOf('Shop Supplies') < html.indexOf('Card processing fee') &&
+            html.indexOf('Card processing fee') < html.indexOf('Taxes ('));
+});
+
+test('totals are unchanged by the fee display: fee added once, tax untouched', () => {
+  const without = buildInvoiceHtml({ ro: roBase('invoice'), lines: LINES, settings: SETTINGS, payments: [] });
+  const withFee = buildInvoiceHtml({ ro: roBase('invoice'), lines: [...LINES, CARD_FEE], settings: SETTINGS, payments: [] });
+  assert.equal(totalOf(without), '1840.40');
+  assert.equal(totalOf(withFee), '1914.02');                     // 1840.40 + 73.62, to the cent
+  assert.match(withFee, /Taxes \(7\.00%\)<\/td><td class="tr">\$120\.40/);   // non-taxable fee adds no tax
+  assert.match(withFee, /Original estimate total: <b>\$1914\.02/);
+});
+
+test('an RO with no fee line shows no fee row and no "Fees"', () => {
+  const html = buildInvoiceHtml({ ro: roBase('estimate'), lines: LINES, settings: SETTINGS, payments: [] });
+  assert.doesNotMatch(html, /Fees|[Pp]rocessing fee|<tr><td>Fee<\/td>/);
+});
+
+test('old stored wording is printed exactly as written, and a TAXABLE fee is still taxed', () => {
+  const oldFee = { line_type: 'fee', description: 'CARD PROCESSING FEE', quantity: 1, unit_price: 100, taxable: true };
+  const html = buildInvoiceHtml({ ro: roBase('closed'), lines: [...LINES, oldFee], settings: SETTINGS, payments: [] });
+  assert.match(html, /<tr><td>CARD PROCESSING FEE<\/td><td class="tr">\$100\.00<\/td><\/tr>/);
+  assert.match(html, /Taxes \(7\.00%\)<\/td><td class="tr">\$127\.40/);   // (1720 + 100) × 7%
+  assert.equal(totalOf(html), '1947.40');                                 // 1820 + 127.40
+});
+
+test('several fee lines → one row each; blank description → "Fee"; description is escaped', () => {
+  const fees = [
+    { line_type: 'fee', description: 'Card processing fee (4.00%)', quantity: 1, unit_price: 10, taxable: false },
+    { line_type: 'fee', description: '   ', quantity: 1, unit_price: 5, taxable: false },
+    { line_type: 'fee', description: 'Tow <b>& storage</b>', quantity: 2, unit_price: 7.5, taxable: false },
+  ];
+  const html = buildInvoiceHtml({ ro: roBase('ro'), lines: [...LINES, ...fees], settings: SETTINGS, payments: [] });
+  assert.match(html, /<tr><td>Card processing fee \(4\.00%\)<\/td><td class="tr">\$10\.00/);
+  assert.match(html, /<tr><td>Fee<\/td><td class="tr">\$5\.00/);
+  assert.match(html, /<tr><td>Tow &lt;b&gt;&amp; storage&lt;\/b&gt;<\/td><td class="tr">\$15\.00/);
+  assert.equal(totalOf(html), '1870.40');                        // 1840.40 + 10 + 5 + 15
+});
+
+test('a paid invoice with a card fee is still PAID against the same total', () => {
+  const html = buildInvoiceHtml({ ro: roBase('closed'), lines: [...LINES, CARD_FEE], settings: SETTINGS,
+    payments: [{ amount: 1914.02, method: 'card', paid_at: '2026-09-01T12:00:00Z' }] });
+  assert.match(html, /PAID/);
+  assert.match(html, /Balance Due<\/td><td class="tr">\$0\.00/);
+  assert.match(html, /<tr><td>Card processing fee \(4\.00%\)<\/td>/);
+});
