@@ -1,10 +1,12 @@
 # How the "NEW" badge is wired
 
 > Doc: `/docs/wiring/new-badge.md`
-> Last updated: 2026-09-18 — written from the code on branch `feat/customer-edit-transmission`
-> (UNMERGED — staging only). Every claim checked against `shared/new-badge.js`,
-> `shared/new-badge.css`, `shared/new-badge.test.js` and `advisor-board.html` this session.
-> Status: see the change log for the in-browser pass.
+> Last updated: 2026-09-18 — verified vs commit `bca65d3` (branch
+> `feat/customer-edit-transmission`, UNMERGED — on staging only). Every claim checked against
+> `shared/new-badge.js`, `shared/new-badge.css`, `shared/new-badge.test.js` and
+> `advisor-board.html`, and driven in a real browser on `test.*` signed in as ZZ Test Advisor.
+> Status: ✅ verified (see change log). Reduced-motion confirmed as a loaded CSS rule only — the
+> browser pane can't emulate the OS setting.
 
 ## 0. In one line
 A small bright-green **NEW** pill you drop next to a freshly shipped control. It shows until a
@@ -101,3 +103,14 @@ When a date passes, the markup can stay (it's inert) or be deleted in the next t
 ## Session change log
 - 2026-09-18 — **Created.** Shared NEW pill; first two uses (customer Edit, RO Transmission
   label), both until `2026-09-26`. Branch `feat/customer-edit-transmission`, unmerged.
+- 2026-09-18 (later) — **Made it out-of-flow + added corner-tag mode**, after measuring on
+  staging showed the inline version wrapping in the 136px Transmission label and pushing the
+  input down 12px (§4). **Verified on `test.*`, signed in as ZZ Test Advisor:** both badges on,
+  `rgb(22,163,74)` / white / 800 / 999px / `pointer-events:none`; glow ran 3 × 1.8s then no
+  animations and no shadow; Edit button, strip, Back, Transmission label/input/box and Engine
+  rects **identical to 0.1px** badge-on vs badge-off; a real click on the pill where it overlaps
+  Edit opened the Edit form, and Edit + Transmission both still saved (`authenticated` PATCH).
+  **Expiry**, by faking `Date.now` and firing the module's own `visibilitychange` re-check (real
+  `data-new-until` untouched): Fri 9pm ET (already Sat in UTC) → on; Fri 11:59:59pm ET → on;
+  Sat 00:00 ET → both off; a week later → off. Injected pills: `soon`, no attribute, `2026-02-30`
+  → hidden; valid date → shown (`MutationObserver` path).
