@@ -461,6 +461,7 @@ window.ProfitByRO = (function () {
       totalsMissing = true; loading = false; render();
       return;
     }
+    totalsMissing = false;
     try {
       const CE = window.CommissionEngine;
       if (!CE || !CE.fetchInputs) throw new Error('CommissionEngine not loaded');
