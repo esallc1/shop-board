@@ -3,9 +3,10 @@
 > Doc: `/docs/wiring/comeback-warranty.md`
 > Last updated: 2026-09-18 — **§6 added: when the RO detail's Warranty toggle (and Status
 > dropdown) re-read the floor row** — fixes "dead until the RO is closed and reopened".
-> Branch `fix/floor-controls-refresh` off `main` `baecd25`, **unmerged**. §6, Known gaps and
-> Where-it-lives re-checked against the code this session (all line numbers re-pointed);
-> §1–§5 not re-verified. Staging browser pass recorded in the change log.
+> Verified vs commit `c8cd80a` (branch `fix/floor-controls-refresh` off `main` `baecd25`, on
+> staging, **not yet on prod**). §6, Known gaps and Where-it-lives re-checked against the code
+> (all line numbers re-pointed) and §6 driven on `test.*` signed in as ZZ Test Advisor — see the
+> change log. §1–§5 not re-verified.
 > Previously: 2026-07-30 — ✅ verified vs commit `bea25cf` — every claim re-checked against `shared/comeback-chain.js`, `advisor-board.html`, `shared/warranty-mirror.js`, and the migrations.
 
 ## 0. In one line
@@ -126,6 +127,17 @@ open RO until one of the four moments above (e.g. switching tabs and back). See 
   quietly on tab return) with a real stale-reply guard (`shared/floor-refresh-gate.js`, 6 tests).
   Live floor channel parked (Known gaps). Line refs in §3 / Known gaps / Where-it-lives
   re-pointed. Branch `fix/floor-controls-refresh`.
+  **Verified on `test.*` at `c8cd80a`** (served `advisor-board.html` + `shared/floor-refresh-gate.js`
+  byte-identical to git), signed in as ZZ Test Advisor (`authenticated`, sandbox), on two
+  off-floor, tech-less sandbox estimates: **RO 6034** — opened: Warranty + Status disabled with
+  "Check the car in first…"; REAL click Check in / Arrived → "Checked in ✓", a `shopboard_parking`
+  row appeared, and both came alive **without reopening** (Status "- Unassigned -"). Warranty REAL
+  clicks: ON → `warranty true` + `comeback_flagged_at` stamped; OFF → `warranty false`, stamp kept.
+  Tab-return refresh: no intermediate states (no flash), both stayed live. **RO 6025** — tech set
+  to "Capote" via the Technician select's `change` event → auto-check-in row (`waiting-tech`,
+  `assigned_tech` Capote) and both came alive without reopening (Status "Waiting for Tech").
+  Both ROs then restored by hand to their recorded before-state (floor rows deleted,
+  `arrived_at` / `technician` back to null — every recorded field matched; `updated_at` moved).
 - 2026-09-17 — v1 `shop-board.html` deleted; repointed the floor COMEBACK-tag render to
   `gm-board.html` Shop Floor (verified). Rest not re-verified.
 - 2026-07-29 — Shipped badge, chain card & blocked close (`3f17c6f`). Added `comeback_resolution` column.
