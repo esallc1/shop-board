@@ -3,8 +3,9 @@
 > Doc: `/docs/wiring/card-fee.md`
 > Last updated: 2026-09-18 (evening) — **§3a added: no total may render before the calculator has
 > loaded** (fixes the RO Board's "Something failed in the background: … 'computeRoTotals'" on
-> page load). Verified vs commit `63e4752` (branch `fix/ro-totals-load-order` off `main` `b7ba7dd`,
-> on staging, **not yet on prod**); §3a, Known gaps and Where-it-lives re-checked against the code,
+> page load). Verified vs commit `63e4752`; **shipped to prod at `368d5e5`** (2026-09-18 19:26 ET —
+> www/board/apex `/api/version` = `368d5e5`, the 5 changed files byte-identical to git; read-only
+> prod checks in the change log). §3a, Known gaps and Where-it-lives re-checked against the code,
 > and driven on `test.*` as ZZ Test Advisor + ZZ Test Bookkeeping — see the change log.
 > Previously: 2026-09-18 — verified vs commit `41e1883` (LIVE on prod — www/board/apex). Every
 > claim checked against `shared/ro-totals.js` (+ test), the 9 call sites listed in §3, and
@@ -203,6 +204,14 @@ include order, every await, the throws and the missing fallback.
 - `migrations/20260918_ro_card_fee_on_SANDBOX.sql`, `migrations/20260918_ro_card_fee_on_PROD.sql`.
 
 ## Session change log
+- 2026-09-18 (prod) — **§3a shipped: prod = `368d5e5`** (`main` fast-forwarded `b7ba7dd..368d5e5`,
+  live 31s after the push, domains followed on their own). Read-only prod checks (pane not signed
+  in — anonymous, no RO opened, nothing written): advisor RO Board **6/6 reloads** with no banner,
+  25 cards (14/8/3); the three pickup cards' "Bal $0.00" (#6092, #6074 — $4,121.55 paid in full,
+  #6065) = independent `totalsForRo`. Owner-board Profit by RO: last week 7 ROs **$15,051** =
+  independent Σ `preTaxRevenue` $15,051.19 (#6061, 6067, 6057, 6050, 6082, 6070, 6071); this
+  quarter 81 ROs $139,802. **No closed prod RO has `card_fee_on`** (0 rows), so no Profit-by-RO
+  row carries a fee yet; the 16 fee-on ROs are all open (4 Active, 12 Estimate).
 - 2026-09-18 (evening) — **§3a: page-load race fixed.** New classic `shared/ro-totals-ready.js`
   (`cdRoTotalsReady`), included before the main script on advisor / bookkeeping / owner; every
   start-up path awaits it; `roTotalsOf` / bookkeeping `roTotal` / `roSale` throw instead of

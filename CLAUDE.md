@@ -12,6 +12,10 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
+**Prod code = `368d5e5`** (2026-09-18, 19:26 ET — RO-totals load-order fix; www/board/apex
+`/api/version` verified). Any later commit on `main` up to the one that wrote this line is
+docs-only. Update this line on every code ship.
+
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.
 2. **After a push, wait for the build before checking `/api/version`.** Checking immediately
