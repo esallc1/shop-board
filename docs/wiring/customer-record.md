@@ -109,7 +109,9 @@ resolve.
 
 ## 4. The record layout — two columns (`#custRecordPanel`)
 Above the grid sits the **top strip** (`.cust-rec-strip`): `← Back` (`#custBackBtn`, §3) on the
-left, **`Edit`** (`#custEditBtn`, §4f) on the right. It is the only Edit control on the page.
+left, **`Edit`** (`#custEditBtn`, §4f) on the right — wrapped with a **NEW** pill in
+`.cust-rec-strip-end` (shown until `2026-09-26`, see [[new-badge]]). It is the only Edit control
+on the page.
 
 `.cust-rec-layout` is a `320px 1fr` grid (single column ≤860px).
 
@@ -572,6 +574,13 @@ then branches on whether the search box has text:
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
+- 2026-09-18 (later) — **§4f re-verified SIGNED IN** as ZZ Test Advisor (advisor role,
+  `authenticated` JWT, sandbox) on `test.*`: every Supabase/`/api` request carried the user's
+  bearer token (logged per request); email + second phone + address saved and survived a reload;
+  blank primary phone → `NULL`; duplicate phone → warning, link opened the right record, nothing
+  written until Save anyway, rows stayed separate (no merge-log rows); no 401/403/42501 (only
+  storage `NoSuchKey` 400s for files missing from the sandbox). Also added the NEW pill beside
+  Edit ([[new-badge]]).
 - 2026-09-18 — **§4f: Edit button + duplicate-phone warning.** One Edit in the record's top
   strip opens a modal for name, business, both phones, email and address (only name required).
   A new/changed phone that another **live** customer carries (last-10, either field, self and

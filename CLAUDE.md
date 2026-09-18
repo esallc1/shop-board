@@ -80,6 +80,7 @@ Every file under `/docs/wiring/` follows this shape:
 | Comeback / warranty | `comeback-warranty.md` | `advisor-board.html`, `shared/comeback-chain.js` |
 | Recordings / audio | `recordings-audio.md` | `api/recording-links.js`, `shared/recording-player.js`, `api/recording-assign.js` |
 | Customer record (incl. Edit + duplicate-phone warning) | `customer-record.md` (§4c/§4e = the list cache's two honesty rules; §4f = Edit) | `#view-customer` + `#custEditModal` in `advisor-board.html`, `shared/customer-edit.js` (+`.test.js`), `shared/cust-cache-guard.test.js` |
+| NEW badge (the expiring "NEW" pill for fresh features) | `new-badge.md` (§1 = how to add one) | `shared/new-badge.js` (+`.css`, +`.test.js`), loaded by `advisor-board.html` |
 | RO vehicle box (Vehicle & reference details · Transmission) | `ro-vehicle-details.md` | `advisor-board.html` (`updateVehicleField`, `decodeRoVin`, `#cdRoTrans`), `vehicles.transmission_code`, `shared/vin-decode.js` |
 | Intake wizard | `intake-wizard.md` | `advisor-board.html` |
 | Floor tags & lanes | `floor-tags.md` | `advisor-board.html` |

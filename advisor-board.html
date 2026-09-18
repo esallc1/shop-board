@@ -16,6 +16,7 @@
 <script src="/shared/pwa-register.js"></script>
 <script src="/shared/version-check.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
+<link rel="stylesheet" href="shared/new-badge.css">
 <style>
   /* ── CONTENT — .content padding is intentionally NOT in the shared
      shell (gm-board.html uses a different value from advisor/
@@ -793,6 +794,8 @@
   .cust-rec-top { display:flex; align-items:baseline; gap:8px; }
   /* record top strip: Back left, Edit right */
   .cust-rec-strip { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:12px; }
+  .cust-rec-strip-end { display:inline-flex; align-items:center; gap:0; }   /* NEW pill + Edit, kept together on the right */
+  .cust-rec-strip-end .cd-new.is-on { margin:0 8px 0 0; }
   /* Edit form's duplicate-phone warning */
   .cust-edit-dupe { border:1px solid var(--amber); background:#fffaf0; border-radius:8px; padding:10px 12px; margin:4px 0 10px; font-size:0.8rem; color:#92400e; }
   .cust-edit-dupe b { color:var(--text); }
@@ -1268,6 +1271,14 @@
   import * as CustomerEdit from './shared/customer-edit.js';
   window.CustomerEdit = CustomerEdit;
 </script>
+<!-- "NEW" pill (ESM). Every <span class="cd-new" data-new-until="YYYY-MM-DD">
+     shows until that date (shop time) and hides itself after. Hidden by
+     default in shared/new-badge.css. See docs/wiring/new-badge.md. -->
+<script type="module">
+  import * as NewBadge from './shared/new-badge.js';
+  window.NewBadge = NewBadge;
+  NewBadge.startNewBadges(document);
+</script>
 <!-- Call-recording play-button render-state logic (ESM). Assigns
      window.RecordingPlayer; used by the call-log slide-out. Pure/DOM-free —
      the server (api/recording-links.js) is the ONLY thing that reads recordings. -->
@@ -1639,7 +1650,10 @@
            focus and would wipe a half-typed inline form). -->
       <div class="cust-rec-strip">
         <button class="btn btn-ghost" id="custBackBtn" style="font-size:0.78rem;padding:6px 12px">← Back</button>
-        <button class="btn btn-ghost" id="custEditBtn" style="font-size:0.78rem;padding:6px 12px">Edit</button>
+        <span class="cust-rec-strip-end">
+          <span class="cd-new" data-new-until="2026-09-26">NEW</span>
+          <button class="btn btn-ghost" id="custEditBtn" style="font-size:0.78rem;padding:6px 12px">Edit</button>
+        </span>
       </div>
 
       <div class="cust-rec-layout">
@@ -2126,7 +2140,7 @@
               <input type="text" id="cdRoEngine" placeholder="e.g. 2.0L 4-cyl" autocomplete="off">
             </div>
             <div class="intake-field">
-              <label>Transmission</label>
+              <label>Transmission<span class="cd-new" data-new-until="2026-09-26">NEW</span></label>
               <input type="text" id="cdRoTrans" placeholder="e.g. 62TE" autocomplete="off">
             </div>
           </div>

@@ -31,7 +31,7 @@ odometer in/out (saved on the **RO**) and plate, plate state, VIN, year, make, m
 | Plate / Plate State / VIN | `#cdRoPlate` / `#cdRoPlateState` / `#cdRoVin` | `vehicles.plate` / `plate_state` / `vin` | text, trimmed |
 | Year | `#cdRoYear` | `vehicles.year` | int column — `parseInt`, else `NULL` |
 | Make / Model / Engine | `#cdRoMake` / `#cdRoModel` / `#cdRoEngine` | `vehicles.make` / `model` / `engine` | text |
-| **Transmission** | **`#cdRoTrans`** | **`vehicles.transmission_code`** | **plain text** (e.g. `62TE`), saved exactly like Engine |
+| **Transmission** | **`#cdRoTrans`** | **`vehicles.transmission_code`** | **plain text** (e.g. `62TE`), saved exactly like Engine. Its label carries a **NEW** pill until `2026-09-26` ([[new-badge]]) |
 
 **Transmission lives in ONE place: `vehicles.transmission_code`** (text, since
 `20260716_ro_foundation.sql`). No new column was added. The same column is written by the intake
@@ -84,6 +84,10 @@ the transmission from the VIN is a **separate, later slice**; when it adds `tran
   `bookkeeping-board.html` (`RO_COLS`), the wizard's create (`#cdVehTransCode`).
 
 ## Session change log
+- 2026-09-18 (later) — **Re-verified SIGNED IN** as ZZ Test Advisor (`authenticated`, sandbox):
+  typed `62TE` on RO #6021 → vehicle PATCH as `authenticated` (204) → still there after a full
+  reload (field + DB); no 401/403/42501. Test value cleared afterwards. Added the NEW pill to the
+  Transmission label.
 - 2026-09-18 — **Doc created; Transmission field added** next to Engine (`#cdRoTrans` →
   `vehicles.transmission_code` via `updateVehicleField`, joins the decode conflict maps but inert
   there). Labels unified to "Transmission" in the wizard, the print and My Numbers. Branch

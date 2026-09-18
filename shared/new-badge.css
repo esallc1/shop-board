@@ -1,0 +1,44 @@
+/* ============================================================
+   new-badge.css — the "NEW" pill. Pair with shared/new-badge.js.
+   See docs/wiring/new-badge.md.
+
+   HIDDEN BY DEFAULT. Only new-badge.js turns a badge on (.is-on), and only
+   while its data-new-until date is still ahead in shop time. No script, bad
+   date, or past date → nothing renders.
+
+   LAYOUT-NEUTRAL + NOT CLICKABLE:
+   • inline-block with line-height 1 and NEGATIVE vertical margins, so its
+     margin box is shorter than the text line it sits in — it can never make
+     a label or row taller.
+   • pointer-events:none — a tap on the badge falls through to whatever is
+     underneath; it never steals a click from the button next to it.
+   Colors: its own bright green. Deliberately NOT red/orange (problem /
+   comeback) and NOT the blue link/accent color.
+   ============================================================ */
+.cd-new { display: none; }
+.cd-new.is-on {
+  display: inline-block;
+  vertical-align: middle;
+  margin: -4px 0 -4px 6px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  animation: cd-new-glow 1.8s ease-in-out 3;   /* three slow pulses, then still */
+}
+@keyframes cd-new-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+  50%      { box-shadow: 0 0 0 5px rgba(22, 163, 74, 0.35), 0 0 10px 2px rgba(22, 163, 74, 0.45); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cd-new.is-on { animation: none; }
+}
