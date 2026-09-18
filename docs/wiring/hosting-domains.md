@@ -1,10 +1,10 @@
 # How hosting & domains are wired
 
 > Doc: `/docs/wiring/hosting-domains.md`
-> Last updated: 2026-09-18 — **§3.6 consequences 3 + 4 added** (a SHA already built on another
-> branch can skip the prod build; a prod build can go Ready without taking the custom domains).
-> Observed live this session vs commits `b77f679` / `f7cf54d`; consequence 4 fixed for `f7cf54d` by a
-> dashboard Promote — whether later pushes auto-promote again is ⚠ not yet proven.
+> Last updated: 2026-09-18 — **§3.6 consequences 3 + 4 rewritten to what was observed**: a push
+> lagged ~30 min during a Vercel build incident (not skipped); a Ready prod build the domains didn't
+> follow, fixed by a dashboard Promote. Observed live vs `b77f679` / `f7cf54d` / `8b3a14f`.
+> ⚠ Needs review: whether `live: false` blocks auto-assignment is OPEN until one clean push.
 > Previously 2026-09-10 — **§2a added: the push origin gate**, replacing the two stale
 > references to the deleted `ALLOWED_ORIGINS` constant. Verified vs commit `d356329` + this change.
 > Previously 2026-08-19 — **corrected §3.5 and §5 for the sandbox split** (writes on staging are
@@ -171,33 +171,35 @@ own machine.**
    not swapped in yet, which reads exactly like "the deploy didn't happen". That misreading is what
    made this session believe prod was being held while it was in fact deploying. Give it ~30–60s,
    or watch `vercel ls shop-board --prod` for a `● Ready` row newer than the push.
-3. **Pushing to `main` a SHA that `staging` or another branch has already built can make Vercel
-   skip the production build.** Observed 2026-09-18: `b77f679` was pushed to the feature branch and
-   `staging` together (16:05 ET, one preview build — `staging`), then `main` was fast-forwarded to it
-   (16:08). **No production deployment was created.** The only new build (16:09) carried
-   `githubCommitRef: fix/cust-edit-in-person-card`, although that branch had been pushed at 16:05.
-   The cause inside Vercel is not proven. What worked: an **empty commit on top** (`f7cf54d`,
-   `chore: trigger prod deploy for …`) pushed to **`main` alone** → a production build 15s later.
-   So: when shipping, push `main` **by itself**, and move `staging` only **after** prod has built.
-   Confirm with `vercel ls shop-board --prod` (a new `Production` row for the new SHA), not just
-   `/api/version`.
-4. **A production build can be `● Ready` and still not serve the domains** (2026-09-18).
-   `f7cf54d` built as `target: production` from `main` (16:17:40 ET, Ready). Its own deployment URL
-   returns `f7cf54d`, and the project's `targets.production` is that build. But `www`, apex, `board.*`
-   **and** `shop-board-git-main-…vercel.app` kept serving `2960da9` (uncached: `x-vercel-cache: MISS`)
-   more than 5 minutes later. The project API reads `autoAssignCustomDomains: true` but
-   **`live: false`**. `/v4/aliases/<domain>` showed all three custom domains still on the 07:30 ET
-   `2960da9` build (`dpl_AbmxXYYX…`), and `f7cf54d` had **no** aliases.
-   **The fix was a dashboard Promote:** Deployments → ⋯ on the `f7cf54d` row → **Promote**. The
-   domains moved about 3 minutes after the click (www → `dpl_C4ik3MxyGs…` at 16:32 ET, while an
-   unrelated preview build sat `QUEUED`), and `www`/apex/`board.*` then returned `f7cf54d`.
-   **Why:** most likely an earlier **Instant Rollback** — after one, Vercel stops auto-assigning
-   production domains to new builds until a deployment is promoted. Unverified: the project API
-   shows no `lastRollbackTarget`. **The promote did NOT flip the flag** — `live` still read `false`
-   right after it. So future pushes to `main` may again build without going live; if so, Promote
-   in the dashboard (never `vercel --prod`, never `vercel promote`/`alias` from this machine
-   without Cris's say-so). Either way, a Ready production row does **not** prove a ship:
-   `/api/version` on `www` must return the new SHA.
+3. **A push to `main` can lag ~30 minutes during a Vercel build incident — it is lagged, not
+   skipped.** 2026-09-18, during Vercel's *"Elevated Errors Triggering Deployments"* incident
+   (vercel-status.com, posted 16:32 ET, Builds: partial outage): `main` was fast-forwarded to
+   `b77f679` at 16:08 ET and its production deployment was only **created at 16:36 ET** — 28 min
+   later. The feature-branch push of 16:05 likewise only became a deployment at 16:09. In the gap
+   it looked exactly like "Vercel skipped the prod build"; it hadn't. An empty "retry" commit
+   (`f7cf54d`, pushed 16:17) built first, so the late `b77f679` build then arrived **out of order**,
+   after a newer one. **Before concluding a push was dropped, check vercel-status.com and
+   `vercel ls shop-board`; don't stack retry pushes into a stuck queue.** At 16:53 ET the
+   `b77f679` production build was still `INITIALIZING`, a preview sat `QUEUED` since 16:28, and
+   `8b3a14f` (pushed 16:33) had no deployment at all.
+4. **A production build can be `● Ready` and the domains not follow it — fixed by a dashboard
+   Promote.** 2026-09-18: `f7cf54d` built as `target: production` from `main` (16:17:40 ET, Ready;
+   its own deployment URL returned `f7cf54d`). But `/v4/aliases/<domain>` kept `www`, apex and
+   `board.*` on the 07:30 ET `2960da9` build (`dpl_AbmxXYYX…`), `f7cf54d` had **no** aliases, and
+   all three served `2960da9` uncached (`x-vercel-cache: MISS`) for 15 minutes. **Fix:** Cris used
+   the dashboard — Deployments → ⋯ on the `f7cf54d` row → **Promote**. The domains moved ~3 min
+   after the click (16:32:04 ET) and all three then returned `f7cf54d`. **Never** fix this with
+   `vercel --prod`, and not with `vercel promote`/`vercel alias` from this machine without Cris's
+   say-so.
+   **⚠ OPEN — why the domains didn't follow.** The project API reads
+   `autoAssignCustomDomains: true` but **`live: false`**, both before and after the promote. Two
+   explanations, neither proven: (a) `live: false` is left over from a past Instant Rollback and
+   blocks auto-assignment until something is promoted — but `lastRollbackTarget` is null; (b) it
+   was a side-effect of the build incident in point 3. **Settle it with one clean push outside an
+   incident:** if a Ready production build takes the domains on its own, (b); if not, Promote in the
+   dashboard and treat (a) as confirmed. `8b3a14f` could not serve as that test — the incident
+   held it back. Either way, a Ready production row does **not** prove a ship: `/api/version` on
+   `www` must return the new SHA.
 
 ### Why the old `vercel --prod` habit was wrong — do not bring it back
 The previous rule said the GitHub→Vercel webhook "intermittently stops firing" and told you to fall
@@ -364,6 +366,10 @@ bucket layout should now come from `migrations/20260819_storage_buckets.sql`, no
 - Client-side idle logout: `shared/office-identity.js` (`armIdleLogout`) — see [[office-auth]] §8.8.
 
 ## Session change log
+- 2026-09-18 (later) — §3.6 points 3 + 4 **rewritten**: the "skip" was a ~30-min lag during
+  Vercel's deploy incident (`b77f679`'s prod deployment created 16:36 for a 16:08 push), not a
+  skip; the "push `main` alone" advice built on that theory is withdrawn. Point 4's cause
+  (`live: false` vs the incident) is OPEN until one clean push.
 - 2026-09-18 — §3.6 consequences 3 + 4: a `main` push of a SHA already built elsewhere produced no
   prod build (`b77f679`); an empty commit pushed to `main` alone did build (`f7cf54d`) but the
   custom domains stayed on `2960da9`, project `live: false`. Fixed for `f7cf54d` by a dashboard
