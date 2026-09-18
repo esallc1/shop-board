@@ -4975,6 +4975,10 @@
       // land before its deferred module has run). Failed → say so, no cards.
       if (!(await rtReady())) {
         console.error('[CdRO] RO totals calculator did not load');
+        // Clear ALL columns + counts — a card left from an earlier render would
+        // keep showing a balance the page can no longer vouch for.
+        ['cdColRo', 'cdColInvoice'].forEach(id => { $(id).innerHTML = ''; });
+        ['cdCountEstimate', 'cdCountRo', 'cdCountInvoice'].forEach(id => { $(id).textContent = '—'; });
         $('cdColEstimate').innerHTML = `<div class="cd-kanban-empty" style="color:var(--red)">${esc(RT_MISSING())}</div>`;
         return;
       }
