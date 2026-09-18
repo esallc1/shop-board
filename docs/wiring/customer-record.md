@@ -1,7 +1,10 @@
 # How the customer record is wired
 
 > Doc: `/docs/wiring/customer-record.md`
-> **2026-09-18 — §4f added: the record's top-strip Edit button + duplicate-phone warning.**
+> **2026-09-18 — Edit moved from the top strip into the profile card's name row (§4, §4f).**
+> Branch `fix/cust-edit-in-person-card` off `main` `2960da9`. §0, §4, §4f and Where-it-lives
+> re-checked against the code this session; staging browser pass recorded in the change log.
+> Previously: **2026-09-18 — §4f added: the record's top-strip Edit button + duplicate-phone warning.**
 > Verified vs commit `399e93c` (branch `feat/customer-edit-transmission`, UNMERGED — on staging
 > only). §0, §4 (top strip), §4e's write-site table, §4f, Known gaps and Where-it-lives re-checked
 > against the code this session, and §4f driven in a real browser on `test.*` (sandbox DB) — see
@@ -35,7 +38,7 @@
 A full customer view (`#view-customer`) reached from the **Customers LIST**. Opening a
 customer shows a **two-column record**: a **sticky profile on the left** and the customer's
 **vehicles as a collapsible accordion on the right** — each vehicle's ROs with a calls &
-notes timeline beneath. Three parts of it write: the **Edit** button in the top strip, which
+notes timeline beneath. Three parts of it write: the **Edit** button on the profile card's name row, which
 edits the customer's own contact fields (§4f); the **"needs filing"** section — filing a call
 **recording to a vehicle** (§6) and filing a **call to an RO** (§6b); and, for office roles
 only, the **RO photo buckets** under each RO (§4b). Everything else is read-only display.
@@ -110,9 +113,9 @@ on a short `setTimeout` to catch the record growing after first paint as photo s
 resolve.
 
 ## 4. The record layout — two columns (`#custRecordPanel`)
-Above the grid sits the **top strip** (`.cust-rec-strip`): `← Back` (`#custBackBtn`, §3) on the
-left, **`Edit`** (`#custEditBtn`, §4f) on the right, wrapped in `.cd-new-anchor` with a **NEW**
-corner tag (shown until `2026-09-26`, see [[new-badge]]). It is the only Edit control on the page.
+Above the grid sits the **top strip** (`.cust-rec-strip`), which now holds only `← Back`
+(`#custBackBtn`, §3). **`Edit`** (`#custEditBtn`, §4f) lives in the profile card — see the Name
+bullet below. It is the only Edit control on the page.
 
 `.cust-rec-layout` is a `320px 1fr` grid (single column ≤860px).
 
@@ -122,6 +125,14 @@ exist**:
 - **Name.** A **person** shows phonebook **"Last, First"** (`custListLabel`, the same
   surname split as the LIST); a **business** shows `business_name`, with a `Contact: <name>`
   subline when a person name is also on file. A **Person / Business** badge sits above it.
+  The name shares a row (`.cust-name-row`, flex) with **`Edit`** (`#custEditBtn`, §4f) at the
+  card's top-right, wrapped in `.cd-new-anchor` with a **NEW** corner tag (shown until
+  `2026-09-26`, see [[new-badge]]). The name is `flex:1; min-width:0; overflow-wrap:anywhere`
+  and Edit is `flex:0 0 auto`, so a long name wraps inside its own box instead of pushing Edit
+  off the card, and Edit never squeezes. The button is part of `renderCustProfile`'s HTML, so it
+  is rebuilt on every render — its click is **delegated** (`[data-cust-edit]` branch in
+  `wireCustRecordDelegation`), never bound directly. It renders only once a customer has loaded
+  (not on the Loading / error card).
 - **Contact rows:** `phone_primary`, `phone_secondary` (+ `learned` tag when
   `isSecondaryLearned`), `email`, and an address block assembled from `address_line1/2` +
   `city, state postal_code` (`custAddrLines` — partial addresses render cleanly, e.g. state
@@ -347,8 +358,8 @@ which fails if any future `customers` write skips the invalidation.
 (`NEXT_STEP_LABEL`), the advisor **note**, a ▶ recording when one exists, and an **unconfirmed**
 tag for phone-matched calls. A confirmed entry has an accent left border; unconfirmed is amber.
 
-### 4f. Editing the customer — the top-strip Edit button (`openCustEdit` / `saveCustEdit`)
-One **Edit** button in the record's top strip opens **`#custEditModal`**. **Any office role** can
+### 4f. Editing the customer — the profile card's Edit button (`openCustEdit` / `saveCustEdit`)
+One **Edit** button, top-right of the profile card on the name row (§4), opens **`#custEditModal`**. **Any office role** can
 use it — the code has no role check for it (see *who can write* below).
 
 **Why a modal and not an inline form:** `VIEW_REFRESH.customer.refetch` re-runs
@@ -554,7 +565,8 @@ then branches on whether the search box has text:
   `.cust-veh-filter*` CSS in `advisor-board.html`; state `custVehQuery`; applied in
   `renderCustVehicles`, reset in `loadCustomerRecord`, listeners in
   `wireCustRecordDelegation`. Rules in `shared/customer-record.js`.
-- **Edit (§4f):** `#custEditBtn` in `.cust-rec-strip`; `#custEditModal` (+ `#custEditDupe`,
+- **Edit (§4f):** `#custEditBtn` in `.cust-name-row`, emitted by `renderCustProfile`, click via
+  the `[data-cust-edit]` branch of `wireCustRecordDelegation`; `#custEditModal` (+ `#custEditDupe`,
   `.cust-edit-dupe` CSS) in `advisor-board.html`; JS in the customer section of the RO IIFE:
   `CUST_EDIT_INPUTS`, `openCustEdit`, `closeCustEdit`, `showCustEditDupe`/`hideCustEditDupe`,
   `saveCustEdit`. Pure logic `shared/customer-edit.js` (`EDIT_FIELDS`, `buildCustomerPatch`,
@@ -575,6 +587,9 @@ then branches on whether the search box has text:
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
+- 2026-09-18 — **Edit moved into the profile card**, top-right on the name row, NEW corner tag
+  kept (same `2026-09-26`); the top strip is Back only. Click now delegated because the card
+  re-renders. Nothing else changed. Branch `fix/cust-edit-in-person-card`.
 - 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-09-18 (later) — **§4f re-verified SIGNED IN** as ZZ Test Advisor (advisor role,
   `authenticated` JWT, sandbox) on `test.*`: every Supabase/`/api` request carried the user's

@@ -756,6 +756,11 @@
   .cust-az-letter.disabled { color:var(--muted); opacity:0.4; cursor:default; pointer-events:none; background:var(--surface); box-shadow:none; }
   /* top strip */
   .cust-name { font-size:1.15rem; font-weight:800; color:var(--text); }
+  /* profile name row: name left, Edit top-right. The name takes the room and
+     wraps; Edit never shrinks, so neither can push the other off the card. */
+  .cust-name-row { display:flex; align-items:flex-start; gap:10px; }
+  .cust-name-row .cust-name { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+  .cust-name-row .cd-new-anchor { flex:0 0 auto; }
   .cust-biz { font-size:0.9rem; color:var(--muted); margin-top:1px; }
   .cust-phones { display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:8px; font-size:0.85rem; color:var(--text); }
   .cust-phones .lbl { color:var(--muted); font-weight:700; margin-right:5px; }
@@ -795,7 +800,7 @@
   .cust-rec-row { border:1px solid var(--border); border-radius:8px; padding:8px 11px; background:#fff; }
   .cust-rec-row.unconfirmed { border-left:3px solid var(--amber); }
   .cust-rec-top { display:flex; align-items:baseline; gap:8px; }
-  /* record top strip: Back left, Edit right */
+  /* record top strip: Back only (Edit is on the profile card's name row) */
   .cust-rec-strip { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:12px; }
   /* Edit form's duplicate-phone warning */
   .cust-edit-dupe { border:1px solid var(--amber); background:#fffaf0; border-radius:8px; padding:10px 12px; margin:4px 0 10px; font-size:0.8rem; color:#92400e; }
@@ -1651,16 +1656,10 @@
          vehicle's ROs with a calls & notes timeline beneath, plus an "unfiled"
          calls section that carries the existing recording→vehicle assign control. -->
     <div id="custRecordPanel" style="display:none">
-      <!-- Top strip: Back on the left, the ONE Edit button on the right. Edit
-           opens #custEditModal (a top-level overlay — NOT inside this panel,
-           because VIEW_REFRESH.customer re-renders the record on every tab
-           focus and would wipe a half-typed inline form). -->
+      <!-- Top strip: Back only. The ONE Edit button lives in the profile card,
+           on the name row (renderCustProfile). -->
       <div class="cust-rec-strip">
         <button class="btn btn-ghost" id="custBackBtn" style="font-size:0.78rem;padding:6px 12px">← Back</button>
-        <span class="cd-new-anchor">
-          <button class="btn btn-ghost" id="custEditBtn" style="font-size:0.78rem;padding:6px 12px">Edit</button>
-          <span class="cd-new" data-new-until="2026-09-26">NEW</span>
-        </span>
       </div>
 
       <div class="cust-rec-layout">
@@ -10313,7 +10312,13 @@
       $('custProfile').innerHTML =
         mergedBanner +
         `<span class="cust-badge">${isBiz ? 'Business' : 'Person'}</span>` +
-        `<div class="cust-name">${esc(title)}</div>` +
+        // Edit (§4f) sits on the name row. It is re-rendered with the card, so
+        // its click is wired by delegation in wireCustRecordDelegation, not here.
+        `<div class="cust-name-row"><div class="cust-name">${esc(title)}</div>` +
+          `<span class="cd-new-anchor">` +
+            `<button type="button" class="btn btn-ghost" id="custEditBtn" data-cust-edit="1" style="font-size:0.78rem;padding:6px 12px">Edit</button>` +
+            `<span class="cd-new" data-new-until="2026-09-26">NEW</span>` +
+          `</span></div>` +
         (isBiz && c.name && c.name.trim() ? `<div class="cust-biz">Contact: ${esc(c.name.trim())}</div>` : '') +
         (contact.length ? `<div class="cust-contact">${contact.join('')}</div>` : '') +
         (open ? `<button type="button" class="cust-openro" data-open-ro="${esc(open.id)}">Open now — RO #${esc(open.ro_number)} · ${esc(STATUS_LABEL[open.status] || open.status)}</button>` : '') +
@@ -10791,7 +10796,6 @@
         btn.disabled = false; btn.textContent = 'Save';
       }
     }
-    $('custEditBtn').addEventListener('click', openCustEdit);
     $('custEditSaveBtn').addEventListener('click', () => saveCustEdit(false));
     $('custEditCancelBtn').addEventListener('click', closeCustEdit);
     $('custEditCloseBtn').addEventListener('click', closeCustEdit);
@@ -10858,6 +10862,7 @@
         if (goCust) { showCustomerRecord(goCust.dataset.openCust); return; }
         const newRo = e.target.closest('[data-new-ro]');
         if (newRo) { startNewRoForCustomer(); return; }
+        if (e.target.closest('[data-cust-edit]')) { openCustEdit(); return; }
       });
 
       // "+ New RO" on the profile card. This is a CALLER, not new matching

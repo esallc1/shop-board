@@ -81,7 +81,7 @@ patterns above.
 ## 5. Current uses
 | Where | Markup | until |
 |---|---|---|
-| Customer record top strip, corner tag on **Edit** ([[customer-record]] §4f) | `.cd-new-anchor` > `#custEditBtn` + `.cd-new` | `2026-09-26` |
+| Customer record profile card, name row — corner tag on **Edit** ([[customer-record]] §4, §4f). Rendered by `renderCustProfile`, so it is switched on by the `MutationObserver` path on every re-render | `.cd-new-anchor` > `#custEditBtn` + `.cd-new` | `2026-09-26` |
 | RO "Vehicle & reference details" → **Transmission** label ([[ro-vehicle-details]]) | inside the `<label>` | `2026-09-26` |
 
 When a date passes, the markup can stay (it's inert) or be deleted in the next tidy-up.
@@ -101,6 +101,9 @@ When a date passes, the markup can stay (it's inert) or be deleted in the next t
 - `advisor-board.html` — the `<link>` + module loader and the two uses.
 
 ## Session change log
+- 2026-09-18 — Customer Edit badge moved with its button from the top strip into the profile
+  card's name row (JS-rendered now, so it relies on the `MutationObserver` re-apply). Branch
+  `fix/cust-edit-in-person-card`.
 - 2026-09-18 — **Created.** Shared NEW pill; first two uses (customer Edit, RO Transmission
   label), both until `2026-09-26`. Branch `feat/customer-edit-transmission`, unmerged.
 - 2026-09-18 (later) — **Made it out-of-flow + added corner-tag mode**, after measuring on
