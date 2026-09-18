@@ -2,9 +2,10 @@
 
 > Doc: `/docs/wiring/customer-record.md`
 > **2026-09-18 — §4f added: the record's top-strip Edit button + duplicate-phone warning.**
-> Branch `feat/customer-edit-transmission` (UNMERGED — staging only). §0, §4 (top strip), §4e's
-> write-site table, §4f, Known gaps and Where-it-lives re-checked against the code this session;
-> rest not re-verified. Status: see the change log for what was driven in a browser.
+> Verified vs commit `399e93c` (branch `feat/customer-edit-transmission`, UNMERGED — on staging
+> only). §0, §4 (top strip), §4e's write-site table, §4f, Known gaps and Where-it-lives re-checked
+> against the code this session, and §4f driven in a real browser on `test.*` (sandbox DB) — see
+> the change log. Rest not re-verified.
 > Previously: **2026-09-17 — §4e added: the cached customer list is refreshed on write, by realtime and on
 > focus — as STALE-WHILE-REVALIDATE.** A customer created or renamed in the session used to stay
 > invisible to the search until a full reload. The first attempt at this fix nulled the cache and
@@ -495,6 +496,11 @@ then branches on whether the search box has text:
   ⚠ Multi-word surnames (e.g. "De La Cruz") key off the **last token** only.
 
 ## Known gaps & open questions (as of 2026-09-18)
+- ⚠ **Back from a record opened off an RO lands on the Customers LIST, not the RO** (§3 says it
+  returns to the RO). Pre-existing, not from §4f: `window.openCustomerById` sets
+  `custBackTarget = origin` and then clicks the Customers sidebar item, whose `wireCustomerTab`
+  listener (since `4ef6544a`, 2026-07-29) resets it to `{ kind: 'list' }`. Reproduced on staging
+  2026-09-18 via the RO header's customer link with no edit involved. §3's claim is ⚠ Needs review.
 - **Edit is offered on an archived (merged-away) record too.** Harmless — archived rows are
   excluded from every search/match, so a changed phone there matches nobody — but not gated.
 - **Another tab's open RO won't pick up an edit** until it reopens the RO: the in-page patch in
@@ -572,7 +578,14 @@ then branches on whether the search box has text:
   archived excluded) is named with a link to their record and a **Save anyway** — never merged.
   Save invalidates the §4e cache and the Desk's phone index, patches an open RO's header, and
   refetches the kanban. New `shared/customer-edit.js` + 14 tests. Branch
-  `feat/customer-edit-transmission`, unmerged.
+  `feat/customer-edit-transmission` (`66fed18` + `399e93c`), unmerged. **Driven in a browser on
+  `test.*` (sandbox), board open without a sign-in (anon):** email + second phone + full address
+  saved and survived a full reload (DB row checked); primary phone blanked → saved as `NULL`;
+  primary set to Dummy Test's number → warning named "Test, Dummy", **nothing written** until
+  Save anyway (DB checked), the link opened Dummy Test's record, Save anyway wrote it and both rows
+  stayed separate and un-archived; the in-session customer search found both on that number with
+  no reload; renaming ALEXANDRA from her RO repainted RO #6034's header and kanban card without a
+  reopen. Test rows restored afterwards. Found the pre-existing Back bug above.
 - 2026-09-17 — **§4e + §4e-ii: the customer-list cache is now stale-while-revalidate.** Marked stale by every customer write, by realtime on `customers`, and on tab focus; the old rows keep serving until fresh ones land, and both renderers now say "Loading customers…" instead of "No matches." for a cache that hasn't loaded. The nulling version (`b0ef5fc`, staging only) produced exactly that lie and was replaced before prod. Also recorded: the **sandbox has no realtime at all** (empty publication), so `test.*` cannot exercise that net. Guard test: `shared/cust-cache-guard.test.js` (9 cases), plus an in-browser search/clear/search proof.
 - 2026-09-04 — **Added "+ New RO" to the profile card** (§4d). Starts a new RO for the customer
   on screen by calling the wizard's existing `cdOpenCustomerByPhone`, so the phone is never

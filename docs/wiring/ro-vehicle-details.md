@@ -1,10 +1,12 @@
 # How the RO's "Vehicle & reference details" box is wired
 
 > Doc: `/docs/wiring/ro-vehicle-details.md`
-> Last updated: 2026-09-18 — written from the code on branch `feat/customer-edit-transmission`
-> (base `17a3a39`), which added the **Transmission** field. Every claim below was checked
-> against `advisor-board.html` / `shared/vin-decode.js` / `shared/ro-invoice.js` this session.
-> Status: new doc; browser verification recorded in the change log.
+> Last updated: 2026-09-18 — verified vs commit `399e93c` (branch
+> `feat/customer-edit-transmission`, UNMERGED — on staging only), which added the **Transmission**
+> field. Every claim below was checked against `advisor-board.html` / `shared/vin-decode.js` /
+> `shared/ro-invoice.js` this session.
+> Status: ✅ Transmission driven in a real browser on `test.*` (see change log); the rest of the
+> box is described from code, not re-driven.
 
 ## 0. In one line
 A collapsed `<details>` box on the RO detail page (`advisor-board.html`, under
@@ -85,4 +87,7 @@ the transmission from the VIN is a **separate, later slice**; when it adds `tran
 - 2026-09-18 — **Doc created; Transmission field added** next to Engine (`#cdRoTrans` →
   `vehicles.transmission_code` via `updateVehicleField`, joins the decode conflict maps but inert
   there). Labels unified to "Transmission" in the wizard, the print and My Numbers. Branch
-  `feat/customer-edit-transmission`, unmerged.
+  `feat/customer-edit-transmission`, unmerged. **Verified on `test.*` (sandbox):** typed `62TE`
+  on RO #6034 (vehicle had none) → `vehicles.transmission_code = '62TE'` in the DB → still there
+  after a full reload → the printed estimate's Vehicle block reads **Transmission 62TE** (the
+  document `printRo` writes, captured in-page because the browser pane blocks the pop-up).
