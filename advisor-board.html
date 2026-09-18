@@ -791,6 +791,15 @@
   .cust-rec-row { border:1px solid var(--border); border-radius:8px; padding:8px 11px; background:#fff; }
   .cust-rec-row.unconfirmed { border-left:3px solid var(--amber); }
   .cust-rec-top { display:flex; align-items:baseline; gap:8px; }
+  /* record top strip: Back left, Edit right */
+  .cust-rec-strip { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:12px; }
+  /* Edit form's duplicate-phone warning */
+  .cust-edit-dupe { border:1px solid var(--amber); background:#fffaf0; border-radius:8px; padding:10px 12px; margin:4px 0 10px; font-size:0.8rem; color:#92400e; }
+  .cust-edit-dupe b { color:var(--text); }
+  .cust-edit-dupe ul { margin:6px 0 6px 18px; padding:0; }
+  .cust-edit-dupe li { margin:3px 0; }
+  .cust-edit-dupe a { color:var(--accent); font-weight:700; }
+  @media (max-width:860px) { #custEditModal input { font-size:16px; } }
   .cust-rec-when { font-size:0.76rem; font-weight:700; color:var(--text); }
   .cust-rec-veh { font-size:0.74rem; color:var(--muted); }
   .cust-rec-unconf { font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:#92400e; background:#fffaf0; border:1px solid var(--amber); border-radius:999px; padding:1px 7px; }
@@ -1252,6 +1261,13 @@
   import * as CustomerArchive from './shared/customer-archive.js';
   window.CustomerArchive = CustomerArchive;
 </script>
+<!-- Customer record Edit form (ESM). Assigns window.CustomerEdit: the patch it
+     writes + the duplicate-phone check (reuses PhoneLookup + CustomerArchive).
+     See docs/wiring/customer-record.md §4f. -->
+<script type="module">
+  import * as CustomerEdit from './shared/customer-edit.js';
+  window.CustomerEdit = CustomerEdit;
+</script>
 <!-- Call-recording play-button render-state logic (ESM). Assigns
      window.RecordingPlayer; used by the call-log slide-out. Pure/DOM-free —
      the server (api/recording-links.js) is the ONLY thing that reads recordings. -->
@@ -1617,7 +1633,14 @@
          vehicle's ROs with a calls & notes timeline beneath, plus an "unfiled"
          calls section that carries the existing recording→vehicle assign control. -->
     <div id="custRecordPanel" style="display:none">
-      <button class="btn btn-ghost" id="custBackBtn" style="font-size:0.78rem;padding:6px 12px;margin-bottom:12px">← Back</button>
+      <!-- Top strip: Back on the left, the ONE Edit button on the right. Edit
+           opens #custEditModal (a top-level overlay — NOT inside this panel,
+           because VIEW_REFRESH.customer re-renders the record on every tab
+           focus and would wipe a half-typed inline form). -->
+      <div class="cust-rec-strip">
+        <button class="btn btn-ghost" id="custBackBtn" style="font-size:0.78rem;padding:6px 12px">← Back</button>
+        <button class="btn btn-ghost" id="custEditBtn" style="font-size:0.78rem;padding:6px 12px">Edit</button>
+      </div>
 
       <div class="cust-rec-layout">
         <!-- LEFT — sticky customer profile -->
@@ -2102,6 +2125,10 @@
               <label>Engine</label>
               <input type="text" id="cdRoEngine" placeholder="e.g. 2.0L 4-cyl" autocomplete="off">
             </div>
+            <div class="intake-field">
+              <label>Transmission</label>
+              <input type="text" id="cdRoTrans" placeholder="e.g. 62TE" autocomplete="off">
+            </div>
           </div>
         </details>
       </div>
@@ -2434,6 +2461,64 @@
      Add / Edit Line — the RO line-item entry pop-up (replaces inline
      row editing). Pick a type; the fields adapt. See renderLineFields
      / saveLineModal. Cost/margin (parts) is INTERNAL, never printed. -->
+<!-- Customer record → Edit. Any office role. Writes ONLY the columns in
+     CustomerEdit.EDIT_FIELDS. A new/changed phone that another live customer
+     already carries shows #custEditDupe (names them, links to their record,
+     "Save anyway") — it never merges. See docs/wiring/customer-record.md §4f. -->
+<div class="modal-overlay" id="custEditModal" style="display:none">
+  <div class="modal-box">
+    <button class="modal-close" id="custEditCloseBtn">&times;</button>
+    <h3>Edit customer</h3>
+    <div class="intake-field">
+      <label>Name *</label>
+      <input type="text" id="custEditName" autocomplete="off">
+    </div>
+    <div class="intake-field">
+      <label>Business name</label>
+      <input type="text" id="custEditBusiness" autocomplete="off">
+    </div>
+    <div class="cd-row">
+      <div class="intake-field">
+        <label>Primary phone</label>
+        <input type="tel" id="custEditPhone1" autocomplete="off">
+      </div>
+      <div class="intake-field">
+        <label>Second phone</label>
+        <input type="tel" id="custEditPhone2" autocomplete="off">
+      </div>
+    </div>
+    <div class="intake-field">
+      <label>Email</label>
+      <input type="email" id="custEditEmail" autocomplete="off">
+    </div>
+    <div class="intake-field">
+      <label>Address</label>
+      <input type="text" id="custEditAddr1" placeholder="Street" autocomplete="off">
+    </div>
+    <div class="intake-field">
+      <input type="text" id="custEditAddr2" placeholder="Apt / suite (optional)" autocomplete="off">
+    </div>
+    <div class="cd-row">
+      <div class="intake-field" style="flex:2">
+        <label>City</label>
+        <input type="text" id="custEditCity" autocomplete="off">
+      </div>
+      <div class="intake-field" style="flex:1">
+        <label>State</label>
+        <input type="text" id="custEditState" autocomplete="off">
+      </div>
+      <div class="intake-field" style="flex:1.3">
+        <label>ZIP</label>
+        <input type="text" id="custEditZip" autocomplete="off">
+      </div>
+    </div>
+    <div class="cust-edit-dupe" id="custEditDupe" style="display:none"></div>
+    <div class="intake-form-error" id="custEditError"></div>
+    <button class="modal-btn" id="custEditSaveBtn">Save</button>
+    <button class="modal-btn sec" id="custEditCancelBtn">Cancel</button>
+  </div>
+</div>
+
 <div class="modal-overlay" id="cdLineModal" style="display:none">
   <div class="modal-box">
     <button class="modal-close" id="cdLineCloseBtn">&times;</button>
@@ -2598,8 +2683,8 @@
       </div>
       <div class="cd-row">
         <div class="intake-field">
-          <label>Transmission Code</label>
-          <input type="text" id="cdVehTransCode" placeholder="hand-confirmed" autocomplete="off">
+          <label>Transmission</label>
+          <input type="text" id="cdVehTransCode" placeholder="e.g. 62TE" autocomplete="off">
         </div>
         <div class="intake-field">
           <label>Drive Type</label>
@@ -5756,12 +5841,13 @@
       $('cdRoVin').value = v.vin || '';
       $('cdRoPlate').value = v.plate || '';
       $('cdRoPlateState').value = v.plate_state || '';
-      // year/make/model/engine live on the shared vehicle row, editable here
-      // (the only place they can be corrected after the wizard).
+      // year/make/model/engine/transmission live on the shared vehicle row,
+      // editable here (the only place they can be corrected after the wizard).
       $('cdRoYear').value = v.year != null ? v.year : '';
       $('cdRoMake').value = v.make || '';
       $('cdRoModel').value = v.model || '';
       $('cdRoEngine').value = v.engine || '';
+      $('cdRoTrans').value = v.transmission_code || '';
       const dmsg = $('cdRoDecodeMsg'); if (dmsg) { dmsg.textContent = ''; dmsg.className = 'cd-decode-msg'; }
       // tech dropdown from active techs, plus whatever's already stored
       const sel = $('cdRoTech');
@@ -7331,6 +7417,8 @@
     $('cdRoMake').addEventListener('change', () => updateVehicleField('make', $('cdRoMake').value.trim() || null));
     $('cdRoModel').addEventListener('change', () => updateVehicleField('model', $('cdRoModel').value.trim() || null));
     $('cdRoEngine').addEventListener('change', () => updateVehicleField('engine', $('cdRoEngine').value.trim() || null));
+    // Transmission — plain text, saved exactly like Engine (vehicles.transmission_code).
+    $('cdRoTrans').addEventListener('change', () => updateVehicleField('transmission_code', $('cdRoTrans').value.trim() || null));
 
     // Decode VIN on the RO detail — the SAME shared decode as the wizard. Fills
     // EMPTY year/make/model/engine directly; for a field that already holds a
@@ -7353,9 +7441,13 @@
       }
       // The fill-vs-conflict decision lives in the shared module (tested). year
       // is an int column, so persist a coerced number; make/model/engine as text.
-      const EL = { year: 'cdRoYear', make: 'cdRoMake', model: 'cdRoModel', engine: 'cdRoEngine' };
-      const LABEL = { year: 'Year', make: 'Make', model: 'Model', engine: 'Engine' };
-      const current = { year: $('cdRoYear').value, make: $('cdRoMake').value, model: $('cdRoModel').value, engine: $('cdRoEngine').value };
+      // transmission_code is wired into the maps but is INERT today: VinDecode's
+      // APPLY_FIELDS is year/make/model/engine, so a decode never proposes a
+      // transmission and can never fill or overwrite the hand-typed one. When
+      // the VIN→transmission slice adds it there, this conflict prompt covers it.
+      const EL = { year: 'cdRoYear', make: 'cdRoMake', model: 'cdRoModel', engine: 'cdRoEngine', transmission_code: 'cdRoTrans' };
+      const LABEL = { year: 'Year', make: 'Make', model: 'Model', engine: 'Engine', transmission_code: 'Transmission' };
+      const current = { year: $('cdRoYear').value, make: $('cdRoMake').value, model: $('cdRoModel').value, engine: $('cdRoEngine').value, transmission_code: $('cdRoTrans').value };
       const coerce = (field, v) => field === 'year' ? (Number.isFinite(parseInt(v, 10)) ? parseInt(v, 10) : null) : (v || null);
       const apply = (field, v) => { $(EL[field]).value = v; updateVehicleField(field, coerce(field, v)); };
       const { fills, conflicts } = VD.planDecodeApply(current, res.fields);
@@ -10536,6 +10628,118 @@
       if ($('custSearchInput')) { $('custSearchInput').value = phone || ''; renderCustSearch(phone || ''); }
     };
 
+    // ── Edit (top strip) — docs/wiring/customer-record.md §4f ──
+    // The form lives in #custEditModal, a top-level overlay: VIEW_REFRESH.customer
+    // re-renders this record on every tab focus, which would wipe an inline form.
+    // Writes ONLY CustomerEdit.EDIT_FIELDS. Any office role (no role gate).
+    const CUST_EDIT_INPUTS = {
+      name: 'custEditName', business_name: 'custEditBusiness',
+      phone_primary: 'custEditPhone1', phone_secondary: 'custEditPhone2',
+      email: 'custEditEmail',
+      address_line1: 'custEditAddr1', address_line2: 'custEditAddr2',
+      city: 'custEditCity', state: 'custEditState', postal_code: 'custEditZip',
+    };
+    let custEditFor = null;   // the customer row the open form was filled from
+    function openCustEdit() {
+      if (!custCustomer || !window.CustomerEdit) return;
+      custEditFor = custCustomer;
+      for (const [f, id] of Object.entries(CUST_EDIT_INPUTS)) $(id).value = custCustomer[f] || '';
+      hideCustEditDupe();
+      $('custEditError').textContent = '';
+      $('custEditModal').style.display = 'flex';
+      setTimeout(() => $('custEditName').focus(), 30);
+    }
+    function closeCustEdit() { $('custEditModal').style.display = 'none'; custEditFor = null; }
+    function hideCustEditDupe() { const d = $('custEditDupe'); d.style.display = 'none'; d.innerHTML = ''; }
+    // The warning: names every OTHER live customer on the new number(s), links
+    // to each record, and offers "Save anyway" (families share phones). Never
+    // merges. `hits` null = the check itself failed — say so, still allow save.
+    function showCustEditDupe(hits) {
+      const d = $('custEditDupe');
+      d.innerHTML = hits
+        ? `<b>This phone is already on file for ${hits.length === 1 ? 'another customer' : hits.length + ' other customers'}:</b>` +
+          `<ul>${hits.map(h =>
+            `<li><a href="#" data-edit-open-cust="${esc(h.customer.id)}">${esc(custListLabel(h.customer))}</a>` +
+            ` · ${esc(h.keys.map(custFmtPhone).join(', '))}</li>`).join('')}</ul>` +
+          `Families often share a phone — saving won't merge anyone. Opening their record discards this edit.`
+        : `<b>Couldn't check whether this phone belongs to another customer.</b><br>You can still save.`;
+      d.insertAdjacentHTML('beforeend',
+        `<button type="button" class="modal-btn" id="custEditAnywayBtn" style="margin-top:8px">Save anyway</button>`);
+      d.style.display = 'block';
+    }
+    async function saveCustEdit(force) {
+      const CE = window.CustomerEdit, CAR = window.CustomerArchive;
+      const cust = custEditFor;
+      if (!CE || !cust) return;
+      const errEl = $('custEditError');
+      errEl.textContent = '';
+      const raw = {};
+      for (const [f, id] of Object.entries(CUST_EDIT_INPUTS)) raw[f] = $(id).value;
+      const { patch, error: formErr } = CE.buildCustomerPatch(raw);
+      if (formErr) { errEl.textContent = formErr; return; }
+      const btn = $('custEditSaveBtn');
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        // Duplicate-phone check — only NEW/CHANGED numbers (CE.newPhoneKeys).
+        // Server narrows; CE.findPhoneConflicts decides (self + archived out).
+        const keys = CE.newPhoneKeys(cust, patch);
+        if (keys.length && !force) {
+          const orFilter = CE.conflictOrFilter(keys);
+          const SEL = 'id, name, business_name, phone_primary, phone_secondary';
+          let resp = await db.from('customers').select(SEL + ', ' + CAR.MERGE_COLS)
+            .or(orFilter).is(CAR.ARCHIVED_COL, null).limit(50);
+          if (resp.error && isMissingColumn(resp.error)) {
+            resp = await db.from('customers').select(SEL).or(orFilter).limit(50);
+          }
+          if (resp.error) {
+            console.error('[cust] duplicate-phone check failed', resp.error);
+            showCustEditDupe(null); return;
+          }
+          const hits = CE.findPhoneConflicts(resp.data, { selfId: cust.id, keys });
+          if (hits.length) { showCustEditDupe(hits); return; }
+        }
+        // .select() so a write RLS silently drops (0 rows) is an error, not a lie.
+        const { data, error } = await db.from('customers').update(patch)
+          .eq('id', cust.id).select('id');
+        if (error) throw error;
+        if (!data || !data.length) throw new Error('the database saved nothing — are you signed in?');
+        if (window.cdInvalidateCustList) window.cdInvalidateCustList();    // renamed / re-phoned → search must learn it
+        if (window.cdDeskInvalidateCust) window.cdDeskInvalidateCust();    // the Desk's phone index too
+        // An open RO for this customer shows name + phone in its header (and
+        // prints from currentRo.customers) — patch it so it's right without a reopen.
+        if (currentRo && String(currentRo.customer_id) === String(cust.id)) {
+          currentRo.customers = Object.assign(currentRo.customers || {}, {
+            name: patch.name, phone_primary: patch.phone_primary,
+            phone_secondary: patch.phone_secondary, email: patch.email,
+          });
+          renderHeader();
+        }
+        loadRecentList();   // kanban cards carry customers(name, phone_primary)
+        closeCustEdit();
+        if (custCustomer && String(custCustomer.id) === String(cust.id)) {
+          Object.assign(custCustomer, patch);
+          renderCustProfile();                 // instant…
+          loadCustomerRecord(cust.id);         // …then the re-read (phone-matched calls follow the new numbers)
+        }
+      } catch (err) {
+        console.error('[cust] edit save failed', err);
+        errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Save';
+      }
+    }
+    $('custEditBtn').addEventListener('click', openCustEdit);
+    $('custEditSaveBtn').addEventListener('click', () => saveCustEdit(false));
+    $('custEditCancelBtn').addEventListener('click', closeCustEdit);
+    $('custEditCloseBtn').addEventListener('click', closeCustEdit);
+    // Changing either phone voids a warning given about the old value.
+    ['custEditPhone1', 'custEditPhone2'].forEach(id => $(id).addEventListener('input', hideCustEditDupe));
+    $('custEditDupe').addEventListener('click', (e) => {
+      if (e.target.closest('#custEditAnywayBtn')) { saveCustEdit(true); return; }
+      const go = e.target.closest('[data-edit-open-cust]');
+      if (go) { e.preventDefault(); closeCustEdit(); showCustomerRecord(go.dataset.editOpenCust); }
+    });
+
     // ── wiring ──
     $('custBackBtn').addEventListener('click', custBack);
     $('custSearchInput').addEventListener('input', () => renderCustSearch($('custSearchInput').value));
@@ -11730,6 +11934,10 @@
     // ── attach customer picker (search ALL customers, past the 1000-row cap) ──
     let attachTarget = null;    // the call being attached
     let attachAllCust = null;   // cached full customer list (paginated fetch)
+    // The customer record's Edit form changes names/phones from OUTSIDE this
+    // IIFE — it calls this so the next Desk render rebuilds both indexes
+    // instead of matching calls against the old numbers.
+    window.cdDeskInvalidateCust = () => { custIdx = null; attachAllCust = null; };
     async function openAttach(call) {
       attachTarget = call;
       const panel = $('deskAttach');

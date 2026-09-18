@@ -40,6 +40,7 @@ window.FileCabinet = (function () {
     { id: 'autoattach', file: 'call-auto-attach.md', icon: '🤖', title: 'Call auto-attach (Phase 2)' },
     { id: 'announce', file: 'announcements.md',     icon: '📣', title: 'Announcement banner' },
     { id: 'checkin',  file: 'ro-checkin-tech.md',   icon: '🔧', title: 'RO check-in / tech assign' },
+    { id: 'rovehicle', file: 'ro-vehicle-details.md', icon: '🚗', title: 'RO vehicle box (Vehicle & reference details)' },
     { id: 'techboard', file: 'tech-board.md',       icon: '🔧', title: 'Tech Board (dispatcher)' },
     { id: 'mynumbers', file: 'my-numbers.md',       icon: '📱', title: 'My Numbers (tech phone tool)' },
     { id: 'findings', file: 'tech-findings.md',    icon: '🩺', title: 'Tech findings (diagnosis handoff)' },

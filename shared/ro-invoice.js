@@ -274,7 +274,7 @@ export function buildInvoiceHtml(opts) {
       <h2>Vehicle</h2>
       <div class="kv"><b>Vehicle</b> ${P([v.year, v.make, v.model].filter(Boolean).join(' '))}</div>
       <div class="kv"><b>Engine</b> ${P(v.engine)}</div>
-      <div class="kv"><b>Trans code</b> ${P(v.transmission_code)}</div>
+      <div class="kv"><b>Transmission</b> ${P(v.transmission_code)}</div>
       <div class="kv"><b>VIN</b> ${P(v.vin)}</div>
       <div class="kv"><b>Plate</b> ${P(v.plate)}${v.plate_state ? ' ' + P(v.plate_state) : ''}</div>
       <div class="kv"><b>Miles</b> in ${P(ro.odometer_in != null ? ro.odometer_in : '—')} / out ${P(ro.miles_out != null ? ro.miles_out : '—')}</div>

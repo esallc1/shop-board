@@ -1,7 +1,11 @@
 # How the customer record is wired
 
 > Doc: `/docs/wiring/customer-record.md`
-> **2026-09-17 — §4e added: the cached customer list is refreshed on write, by realtime and on
+> **2026-09-18 — §4f added: the record's top-strip Edit button + duplicate-phone warning.**
+> Branch `feat/customer-edit-transmission` (UNMERGED — staging only). §0, §4 (top strip), §4e's
+> write-site table, §4f, Known gaps and Where-it-lives re-checked against the code this session;
+> rest not re-verified. Status: see the change log for what was driven in a browser.
+> Previously: **2026-09-17 — §4e added: the cached customer list is refreshed on write, by realtime and on
 > focus — as STALE-WHILE-REVALIDATE.** A customer created or renamed in the session used to stay
 > invisible to the search until a full reload. The first attempt at this fix nulled the cache and
 > shipped a worse bug (§4e "the second lie"), caught on staging. Verified vs `9fea3b1` + this
@@ -30,8 +34,9 @@
 A full customer view (`#view-customer`) reached from the **Customers LIST**. Opening a
 customer shows a **two-column record**: a **sticky profile on the left** and the customer's
 **vehicles as a collapsible accordion on the right** — each vehicle's ROs with a calls &
-notes timeline beneath. Two parts of it write: the **"needs filing"** section — filing a call
-**recording to a vehicle** (§6) and filing a **call to an RO** (§6b) — and, for office roles
+notes timeline beneath. Three parts of it write: the **Edit** button in the top strip, which
+edits the customer's own contact fields (§4f); the **"needs filing"** section — filing a call
+**recording to a vehicle** (§6) and filing a **call to an RO** (§6b); and, for office roles
 only, the **RO photo buckets** under each RO (§4b). Everything else is read-only display.
 
 ## 1. Counts, "customer since" & lifetime $
@@ -102,6 +107,9 @@ on a short `setTimeout` to catch the record growing after first paint as photo s
 resolve.
 
 ## 4. The record layout — two columns (`#custRecordPanel`)
+Above the grid sits the **top strip** (`.cust-rec-strip`): `← Back` (`#custBackBtn`, §3) on the
+left, **`Edit`** (`#custEditBtn`, §4f) on the right. It is the only Edit control on the page.
+
 `.cust-rec-layout` is a `320px 1fr` grid (single column ≤860px).
 
 **LEFT — sticky profile (`#custProfile`, `renderCustProfile`).** Stays put while the right
@@ -298,7 +306,7 @@ The cache stays (re-reading ~2700 rows per keystroke is not a fix). Three nets m
 
 | Net | Covers | Where |
 |---|---|---|
-| `invalidateCustAllList()`, published as **`window.cdInvalidateCustList`** | every customer write **in this page** | called at all four write sites: the wizard's create (`createCustomer`) and "Edit details" (`saveCustomerDetails`), and the Desk attach phone-learn / un-learn (`setSecondaryIfNull`, the un-attach clear) |
+| `invalidateCustAllList()`, published as **`window.cdInvalidateCustList`** | every customer write **in this page** | called at all five write sites: the wizard's create (`createCustomer`) and "Edit details" (`saveCustomerDetails`), the record's Edit form (`saveCustEdit`, §4f), and the Desk attach phone-learn / un-learn (`setSecondaryIfNull`, the un-attach clear) |
 | Realtime channel **`advisor-board-customers-live`** on `customers` | **another tab, another person** | same idiom as `-cdros-live` / `-desk-live`. ⚠ **Dead on staging:** the sandbox's `supabase_realtime` publication has **zero tables** (verified 2026-09-17), so nothing on `test.*` exercises realtime — the other two nets are what make cross-tab work there |
 | `VIEW_REFRESH.customer.refetch` marks it stale | returning to the tab, incl. a dead socket | the backstop — marks stale, never fetches on its own |
 
@@ -334,6 +342,63 @@ which fails if any future `customers` write skips the invalidation.
 / formatted phone), a **disposition** chip from `calls.next_step`
 (`NEXT_STEP_LABEL`), the advisor **note**, a ▶ recording when one exists, and an **unconfirmed**
 tag for phone-matched calls. A confirmed entry has an accent left border; unconfirmed is amber.
+
+### 4f. Editing the customer — the top-strip Edit button (`openCustEdit` / `saveCustEdit`)
+One **Edit** button in the record's top strip opens **`#custEditModal`**. **Any office role** can
+use it — the code has no role check for it (see *who can write* below).
+
+**Why a modal and not an inline form:** `VIEW_REFRESH.customer.refetch` re-runs
+`loadCustomerRecord` on every tab focus / app switch (§3b, [[ro-photos]] §5a0), which rewrites
+`#custProfile`. A form inside the profile would be wiped mid-typing. `#custEditModal` is a
+top-level overlay (next to `#cdLineModal`), outside every `.view`, so nothing re-renders it.
+`custEditFor` pins the row the form was filled from, so a refetch that replaces `custCustomer`
+underneath cannot change *which* customer the save targets.
+
+**What it writes — `CustomerEdit.EDIT_FIELDS`, nothing else:** `name`, `business_name`,
+`phone_primary`, `phone_secondary`, `email`, `address_line1`, `address_line2`, `city`, `state`,
+`postal_code`. Deliberately **not**: `tax_exempt`, `delivery_preference`, `country`, and the
+generated `phone_*_l10` columns (Postgres maintains those — `20260818_customers_phone_l10.sql`).
+`buildCustomerPatch` trims every field and turns a blank into **NULL** (so a cleared field reads
+"not on file" and §4's skip-blank-rows rule hides it). **Only `name` is required** (the column is
+NOT NULL). A blank primary phone is allowed on purpose — the 18 phoneless ALLDATA imports must
+be editable.
+
+**The duplicate-phone warning.** Before writing, `saveCustEdit`:
+1. `CustomerEdit.newPhoneKeys(before, patch)` — the last-10 keys of any phone in the form that
+   this customer did **not** already carry in either field. An unchanged number, or a
+   primary↔secondary swap, is not checked (it would nag on every save of a family that already
+   shares a phone). Anything under 10 digits is never a key.
+2. If there are keys: one server read, narrowed by `conflictOrFilter(keys)` (the same
+   end-anchored ilike pattern as the wizard's `lookupPhone`, both phone columns, every key),
+   `.is('archived_at', null)`, `.limit(50)`, with the usual missing-column fallback.
+3. `CustomerEdit.findPhoneConflicts(rows, { selfId, keys })` is **the authority**: re-checks exact
+   last-10 on every row, drops **self** (by id) and **archived** rows (`filterActive`), de-dupes.
+4. Any hit → `#custEditDupe` names each other customer (`custListLabel`) with the matching
+   number, a link to their record, and **Save anyway**. Nothing is written until Save anyway.
+   The link closes the modal and opens that record (the edit is discarded — the warning says so).
+   Typing in either phone box hides a stale warning. **It never merges and never blocks.**
+5. If the check query itself errors, the warning says it *couldn't check* and still offers Save
+   anyway — it does not silently skip the check.
+
+**After the write** (`update(patch).eq('id').select('id')` — zero rows back is reported as a
+failure, not success, so an RLS-dropped write can't look saved):
+- `window.cdInvalidateCustList()` — the §4e cache learns the new name/phones.
+- `window.cdDeskInvalidateCust()` — drops the Desk's private phone index (`custIdx`) and
+  attach-picker snapshot (`attachAllCust`) so calls re-match against the new numbers.
+- **Open RO:** if `currentRo.customer_id` is this customer, `currentRo.customers` is patched
+  (name, phones, email) and `renderHeader()` repaints — the RO header and a print from that RO
+  show the new values without a reopen. `loadRecentList()` refetches the kanban (its cards embed
+  `customers(name, phone_primary)` and `allRos` carries no `customer_id` to patch in place).
+- The record: `custCustomer` is patched and `renderCustProfile()` repaints at once, then
+  `loadCustomerRecord(id)` re-reads (same-customer refresh keeps position — §3b) so phone-matched
+  calls (§2) follow the new numbers.
+
+**Who can write:** the board writes `customers` directly with the signed-in session. RLS today is
+`for all to anon` (`20260716_ro_foundation.sql`) **plus** `auth write customers` `for all to
+authenticated` (`20260801_office_auth_widen_step1_5.sql`) — both `using (true)`. When security
+Phase 3 narrows Tier-A tables to `authenticated using (is_staff())`, this write keeps working for
+signed-in office staff with no code change (and the `.select('id')` check will surface it loudly
+if a session is missing).
 
 ## 5. Calls granularity — bucketing to the finest link the schema supports
 `computeCallGroups()` puts every union call into exactly one bucket:
@@ -429,7 +494,16 @@ then branches on whether the search box has text:
   delegated listener. Additive, reads-only.
   ⚠ Multi-word surnames (e.g. "De La Cruz") key off the **last token** only.
 
-## Known gaps & open questions (as of 2026-08-18)
+## Known gaps & open questions (as of 2026-09-18)
+- **Edit is offered on an archived (merged-away) record too.** Harmless — archived rows are
+  excluded from every search/match, so a changed phone there matches nobody — but not gated.
+- **Another tab's open RO won't pick up an edit** until it reopens the RO: the in-page patch in
+  §4f covers only this tab, and realtime is dead on the sandbox (§4e table).
+- **`customer_phones` is not consulted** by the duplicate check — it is still inert (no readers,
+  see [[customer-dedupe]]); `phone_primary`/`phone_secondary` are the authority.
+- **Two phone-edit paths still differ:** the intake wizard's "Edit details"
+  (`saveCustomerDetails`) edits name + primary phone only, requires the phone, and runs **no**
+  duplicate-phone check. The record's Edit (§4f) is the full one.
 - **1,203 of 3,235 plated vehicle rows have a literal trailing `" 00"` in `plate`** —
   `"X1267 00"`, `"X837 00"`. It is **stored data, not display**: every one of the 1,203 has
   `vehicles.source = 'alldata'` and an `alldata_code`, all created on the import date
@@ -471,6 +545,13 @@ then branches on whether the search box has text:
   `.cust-veh-filter*` CSS in `advisor-board.html`; state `custVehQuery`; applied in
   `renderCustVehicles`, reset in `loadCustomerRecord`, listeners in
   `wireCustRecordDelegation`. Rules in `shared/customer-record.js`.
+- **Edit (§4f):** `#custEditBtn` in `.cust-rec-strip`; `#custEditModal` (+ `#custEditDupe`,
+  `.cust-edit-dupe` CSS) in `advisor-board.html`; JS in the customer section of the RO IIFE:
+  `CUST_EDIT_INPUTS`, `openCustEdit`, `closeCustEdit`, `showCustEditDupe`/`hideCustEditDupe`,
+  `saveCustEdit`. Pure logic `shared/customer-edit.js` (`EDIT_FIELDS`, `buildCustomerPatch`,
+  `newPhoneKeys`, `conflictOrFilter`, `findPhoneConflicts` — built on `shared/phone-lookup.js`
+  + `shared/customer-archive.js`), tested by `shared/customer-edit.test.js` (14 cases). Desk hook
+  `window.cdDeskInvalidateCust` (desk IIFE).
 - **Profile actions (§4d):** `.cust-openro` / `.cust-newro` CSS in `advisor-board.html`;
   `renderCustProfile`'s `canNewRo` gate (`window.CustomerArchive.isArchived`);
   `startNewRoForCustomer` + the `[data-new-ro]` branch in `wireCustRecordDelegation`;
@@ -485,6 +566,13 @@ then branches on whether the search box has text:
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
+- 2026-09-18 — **§4f: Edit button + duplicate-phone warning.** One Edit in the record's top
+  strip opens a modal for name, business, both phones, email and address (only name required).
+  A new/changed phone that another **live** customer carries (last-10, either field, self and
+  archived excluded) is named with a link to their record and a **Save anyway** — never merged.
+  Save invalidates the §4e cache and the Desk's phone index, patches an open RO's header, and
+  refetches the kanban. New `shared/customer-edit.js` + 14 tests. Branch
+  `feat/customer-edit-transmission`, unmerged.
 - 2026-09-17 — **§4e + §4e-ii: the customer-list cache is now stale-while-revalidate.** Marked stale by every customer write, by realtime on `customers`, and on tab focus; the old rows keep serving until fresh ones land, and both renderers now say "Loading customers…" instead of "No matches." for a cache that hasn't loaded. The nulling version (`b0ef5fc`, staging only) produced exactly that lie and was replaced before prod. Also recorded: the **sandbox has no realtime at all** (empty publication), so `test.*` cannot exercise that net. Guard test: `shared/cust-cache-guard.test.js` (9 cases), plus an in-browser search/clear/search proof.
 - 2026-09-04 — **Added "+ New RO" to the profile card** (§4d). Starts a new RO for the customer
   on screen by calling the wizard's existing `cdOpenCustomerByPhone`, so the phone is never
