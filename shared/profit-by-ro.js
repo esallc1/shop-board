@@ -257,7 +257,9 @@ window.ProfitByRO = (function () {
     const body = wrap.querySelector('.pro-body');
     const sub = wrap.querySelector('.pro-sub');
 
-    if (totalsMissing) {
+    // Also when rows are cached from an earlier load (re-open) but the
+    // calculator isn't there: say so rather than let roSale throw mid-render.
+    if (totalsMissing || (inputs && !window.RoTotals)) {
       body.innerHTML = `<div class="pro-empty" style="color:#b91c1c">${esc(window.cdRoTotalsMissingText || "RO totals couldn't load. Reload the page.")}</div>`;
       return;
     }
