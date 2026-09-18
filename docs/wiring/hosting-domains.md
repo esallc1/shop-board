@@ -1,7 +1,10 @@
 # How hosting & domains are wired
 
 > Doc: `/docs/wiring/hosting-domains.md`
-> Last updated: 2026-09-10 — **§2a added: the push origin gate**, replacing the two stale
+> Last updated: 2026-09-18 — **§3.6 consequences 3 + 4 added** (a SHA already built on another
+> branch can skip the prod build; a prod build can go Ready without taking the custom domains).
+> Observed live this session vs commits `b77f679` / `f7cf54d`; ⚠ consequence 4 is OPEN, not fixed.
+> Previously 2026-09-10 — **§2a added: the push origin gate**, replacing the two stale
 > references to the deleted `ALLOWED_ORIGINS` constant. Verified vs commit `d356329` + this change.
 > Previously 2026-08-19 — **corrected §3.5 and §5 for the sandbox split** (writes on staging are
 > safe), added **§3.6: deploys happen by PUSH, never by CLI**, and added **§5.5: the six storage
@@ -167,6 +170,23 @@ own machine.**
    not swapped in yet, which reads exactly like "the deploy didn't happen". That misreading is what
    made this session believe prod was being held while it was in fact deploying. Give it ~30–60s,
    or watch `vercel ls shop-board --prod` for a `● Ready` row newer than the push.
+3. **Pushing to `main` a SHA that `staging` or another branch has already built can make Vercel
+   skip the production build.** Observed 2026-09-18: `b77f679` was pushed to the feature branch and
+   `staging` together (16:05 ET, one preview build — `staging`), then `main` was fast-forwarded to it
+   (16:08). **No production deployment was created.** The only new build (16:09) carried
+   `githubCommitRef: fix/cust-edit-in-person-card`, although that branch had been pushed at 16:05.
+   The cause inside Vercel is not proven. What worked: an **empty commit on top** (`f7cf54d`,
+   `chore: trigger prod deploy for …`) pushed to **`main` alone** → a production build 15s later.
+   So: when shipping, push `main` **by itself**, and move `staging` only **after** prod has built.
+   Confirm with `vercel ls shop-board --prod` (a new `Production` row for the new SHA), not just
+   `/api/version`.
+4. **⚠ OPEN (2026-09-18): a production build can be `● Ready` and still not serve the domains.**
+   `f7cf54d` built as `target: production` from `main` (16:17:40 ET, Ready). Its own deployment URL
+   returns `f7cf54d`, and the project's `targets.production` is that build. But `www`, apex, `board.*`
+   **and** `shop-board-git-main-…vercel.app` kept serving `2960da9` (uncached: `x-vercel-cache: MISS`)
+   more than 5 minutes later. The project API reads `autoAssignCustomDomains: true` but
+   **`live: false`**. Not diagnosed further and not fixed. Until it is, a Ready production row
+   does **not** prove a ship: `/api/version` on `www` must return the new SHA.
 
 ### Why the old `vercel --prod` habit was wrong — do not bring it back
 The previous rule said the GitHub→Vercel webhook "intermittently stops firing" and told you to fall
@@ -333,6 +353,9 @@ bucket layout should now come from `migrations/20260819_storage_buckets.sql`, no
 - Client-side idle logout: `shared/office-identity.js` (`armIdleLogout`) — see [[office-auth]] §8.8.
 
 ## Session change log
+- 2026-09-18 — §3.6 consequences 3 + 4: a `main` push of a SHA already built elsewhere produced no
+  prod build (`b77f679`); an empty commit pushed to `main` alone did build (`f7cf54d`) but the
+  custom domains stayed on `2960da9`, project `live: false`. Recorded as observed; 4 is open.
 - 2026-09-17 — §3.6: recorded that git-integration deploys honour `.vercelignore` (proved by
   status-code difference), and that it now hides the tracked `docs/wiring/office-auth.md`.
   `vercel.json` lost its `/teardown` + `/tech-board` rewrites ([[page-map]] §6). Rest of doc not

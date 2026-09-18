@@ -18,6 +18,11 @@ Both are automatic and both are live (verified 2026-08-19).
    returns the **previous** SHA and reads exactly like "the deploy didn't happen". Give it
    ~30–60s, or watch `vercel ls shop-board --prod` for a `● Ready` row newer than the push.
 3. **If a push doesn't deploy, fix the integration — don't route around it with the CLI.**
+4. **Push `main` by itself; move `staging` only after prod has built.** Pushing to `main` a SHA that
+   `staging` or another branch already built made Vercel skip the production build (2026-09-18,
+   `b77f679`). An empty commit pushed to `main` alone did build. And a `● Ready` production row
+   is not proof: on 2026-09-18 it built but the domains stayed on the old SHA (project
+   `live: false`) — only `/api/version` on `www` proves a ship. See [[hosting-domains]] §3.6.
 
 **Why the CLI is banned** (both diagnosed 2026-08-19 — see [[hosting-domains]] §3.6):
 - `vercel --prod` uploads the **working directory**, not the git tree. Untracked files not named
