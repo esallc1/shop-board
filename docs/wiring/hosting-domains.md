@@ -3,7 +3,8 @@
 > Doc: `/docs/wiring/hosting-domains.md`
 > Last updated: 2026-09-18 — **§3.6 consequences 3 + 4 added** (a SHA already built on another
 > branch can skip the prod build; a prod build can go Ready without taking the custom domains).
-> Observed live this session vs commits `b77f679` / `f7cf54d`; ⚠ consequence 4 is OPEN, not fixed.
+> Observed live this session vs commits `b77f679` / `f7cf54d`; consequence 4 fixed for `f7cf54d` by a
+> dashboard Promote — whether later pushes auto-promote again is ⚠ not yet proven.
 > Previously 2026-09-10 — **§2a added: the push origin gate**, replacing the two stale
 > references to the deleted `ALLOWED_ORIGINS` constant. Verified vs commit `d356329` + this change.
 > Previously 2026-08-19 — **corrected §3.5 and §5 for the sandbox split** (writes on staging are
@@ -180,13 +181,23 @@ own machine.**
    So: when shipping, push `main` **by itself**, and move `staging` only **after** prod has built.
    Confirm with `vercel ls shop-board --prod` (a new `Production` row for the new SHA), not just
    `/api/version`.
-4. **⚠ OPEN (2026-09-18): a production build can be `● Ready` and still not serve the domains.**
+4. **A production build can be `● Ready` and still not serve the domains** (2026-09-18).
    `f7cf54d` built as `target: production` from `main` (16:17:40 ET, Ready). Its own deployment URL
    returns `f7cf54d`, and the project's `targets.production` is that build. But `www`, apex, `board.*`
    **and** `shop-board-git-main-…vercel.app` kept serving `2960da9` (uncached: `x-vercel-cache: MISS`)
    more than 5 minutes later. The project API reads `autoAssignCustomDomains: true` but
-   **`live: false`**. Not diagnosed further and not fixed. Until it is, a Ready production row
-   does **not** prove a ship: `/api/version` on `www` must return the new SHA.
+   **`live: false`**. `/v4/aliases/<domain>` showed all three custom domains still on the 07:30 ET
+   `2960da9` build (`dpl_AbmxXYYX…`), and `f7cf54d` had **no** aliases.
+   **The fix was a dashboard Promote:** Deployments → ⋯ on the `f7cf54d` row → **Promote**. The
+   domains moved about 3 minutes after the click (www → `dpl_C4ik3MxyGs…` at 16:32 ET, while an
+   unrelated preview build sat `QUEUED`), and `www`/apex/`board.*` then returned `f7cf54d`.
+   **Why:** most likely an earlier **Instant Rollback** — after one, Vercel stops auto-assigning
+   production domains to new builds until a deployment is promoted. Unverified: the project API
+   shows no `lastRollbackTarget`. **The promote did NOT flip the flag** — `live` still read `false`
+   right after it. So future pushes to `main` may again build without going live; if so, Promote
+   in the dashboard (never `vercel --prod`, never `vercel promote`/`alias` from this machine
+   without Cris's say-so). Either way, a Ready production row does **not** prove a ship:
+   `/api/version` on `www` must return the new SHA.
 
 ### Why the old `vercel --prod` habit was wrong — do not bring it back
 The previous rule said the GitHub→Vercel webhook "intermittently stops firing" and told you to fall
@@ -355,7 +366,8 @@ bucket layout should now come from `migrations/20260819_storage_buckets.sql`, no
 ## Session change log
 - 2026-09-18 — §3.6 consequences 3 + 4: a `main` push of a SHA already built elsewhere produced no
   prod build (`b77f679`); an empty commit pushed to `main` alone did build (`f7cf54d`) but the
-  custom domains stayed on `2960da9`, project `live: false`. Recorded as observed; 4 is open.
+  custom domains stayed on `2960da9`, project `live: false`. Fixed for `f7cf54d` by a dashboard
+  Promote (domains moved ~3 min later); `live` still `false` afterwards.
 - 2026-09-17 — §3.6: recorded that git-integration deploys honour `.vercelignore` (proved by
   status-code difference), and that it now hides the tracked `docs/wiring/office-auth.md`.
   `vercel.json` lost its `/teardown` + `/tech-board` rewrites ([[page-map]] §6). Rest of doc not

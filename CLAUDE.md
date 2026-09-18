@@ -22,7 +22,9 @@ Both are automatic and both are live (verified 2026-08-19).
    `staging` or another branch already built made Vercel skip the production build (2026-09-18,
    `b77f679`). An empty commit pushed to `main` alone did build. And a `● Ready` production row
    is not proof: on 2026-09-18 it built but the domains stayed on the old SHA (project
-   `live: false`) — only `/api/version` on `www` proves a ship. See [[hosting-domains]] §3.6.
+   `live: false`, likely left by a past rollback) until Cris clicked **Promote** in the dashboard.
+   The promote did not flip `live`, so a push may again need a dashboard Promote. Only
+   `/api/version` on `www` proves a ship. See [[hosting-domains]] §3.6.
 
 **Why the CLI is banned** (both diagnosed 2026-08-19 — see [[hosting-domains]] §3.6):
 - `vercel --prod` uploads the **working directory**, not the git tree. Untracked files not named
