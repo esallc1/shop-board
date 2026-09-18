@@ -21,9 +21,9 @@ Both are automatic and both are live (verified 2026-08-19).
 4. **A `● Ready` production row is not a ship — only `/api/version` on `www` is.** On 2026-09-18,
    during a Vercel build incident, a `main` push lagged ~30 min (lagged, **not** skipped — check
    vercel-status.com before retrying; don't stack retry pushes), and a Ready production build was
-   not followed by the domains until Cris clicked **Promote** in the dashboard. Whether the
-   project's `live: false` blocks auto-assignment is **OPEN** until one clean push is observed.
-   See [[hosting-domains]] §3.6.
+   not followed by the domains until Cris clicked **Promote** in the dashboard. That stall was
+   the incident: once it cleared, the next production build took the domains on its own (the
+   project's `live: false` flag does **not** block that). See [[hosting-domains]] §3.6.
 
 **Why the CLI is banned** (both diagnosed 2026-08-19 — see [[hosting-domains]] §3.6):
 - `vercel --prod` uploads the **working directory**, not the git tree. Untracked files not named

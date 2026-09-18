@@ -4,7 +4,8 @@
 > Last updated: 2026-09-18 — **§3.6 consequences 3 + 4 rewritten to what was observed**: a push
 > lagged ~30 min during a Vercel build incident (not skipped); a Ready prod build the domains didn't
 > follow, fixed by a dashboard Promote. Observed live vs `b77f679` / `f7cf54d` / `8b3a14f`.
-> ⚠ Needs review: whether `live: false` blocks auto-assignment is OPEN until one clean push.
+> Point 4's open question **answered** 18:17 ET: `8b3a14f` took the domains on its own with
+> `live: false` still set — the stuck state was the incident. Status: 🟢 current.
 > Previously 2026-09-10 — **§2a added: the push origin gate**, replacing the two stale
 > references to the deleted `ALLOWED_ORIGINS` constant. Verified vs commit `d356329` + this change.
 > Previously 2026-08-19 — **corrected §3.5 and §5 for the sandbox split** (writes on staging are
@@ -181,7 +182,8 @@ own machine.**
    after a newer one. **Before concluding a push was dropped, check vercel-status.com and
    `vercel ls shop-board`; don't stack retry pushes into a stuck queue.** At 16:53 ET the
    `b77f679` production build was still `INITIALIZING`, a preview sat `QUEUED` since 16:28, and
-   `8b3a14f` (pushed 16:33) had no deployment at all.
+   `8b3a14f` (pushed 16:33) had no deployment at all; its production deployment was created at
+   **17:19 ET — 46 min after the push** — once the backlog cleared.
 4. **A production build can be `● Ready` and the domains not follow it — fixed by a dashboard
    Promote.** 2026-09-18: `f7cf54d` built as `target: production` from `main` (16:17:40 ET, Ready;
    its own deployment URL returned `f7cf54d`). But `/v4/aliases/<domain>` kept `www`, apex and
@@ -191,15 +193,15 @@ own machine.**
    after the click (16:32:04 ET) and all three then returned `f7cf54d`. **Never** fix this with
    `vercel --prod`, and not with `vercel promote`/`vercel alias` from this machine without Cris's
    say-so.
-   **⚠ OPEN — why the domains didn't follow.** The project API reads
-   `autoAssignCustomDomains: true` but **`live: false`**, both before and after the promote. Two
-   explanations, neither proven: (a) `live: false` is left over from a past Instant Rollback and
-   blocks auto-assignment until something is promoted — but `lastRollbackTarget` is null; (b) it
-   was a side-effect of the build incident in point 3. **Settle it with one clean push outside an
-   incident:** if a Ready production build takes the domains on its own, (b); if not, Promote in the
-   dashboard and treat (a) as confirmed. `8b3a14f` could not serve as that test — the incident
-   held it back. Either way, a Ready production row does **not** prove a ship: `/api/version` on
-   `www` must return the new SHA.
+   **Why the domains didn't follow — ANSWERED: the Vercel incident, not a rollback leftover.**
+   The project API reads `autoAssignCustomDomains: true` and **`live: false`** — and `live` was
+   *still* `false` when `8b3a14f`'s production build (created 17:19 ET) took `www`, apex and
+   `board.*` **on its own, with no Promote**: `/v4/aliases/<domain>` → `dpl_HLJcnHMRa4…`, moved
+   17:35:45 ET; all three returned `8b3a14f` uncached at 18:17 ET. So **`live: false` does not
+   block auto-assignment**, and the earlier stall was the incident (point 3). The 16:32 manual
+   Promote only worked around it. If a Ready production build again doesn't take the domains:
+   check vercel-status.com first, then Promote in the dashboard. Either way, a Ready production
+   row does **not** prove a ship: `/api/version` on `www` must return the new SHA.
 
 ### Why the old `vercel --prod` habit was wrong — do not bring it back
 The previous rule said the GitHub→Vercel webhook "intermittently stops firing" and told you to fall
@@ -370,6 +372,9 @@ bucket layout should now come from `migrations/20260819_storage_buckets.sql`, no
   Vercel's deploy incident (`b77f679`'s prod deployment created 16:36 for a 16:08 push), not a
   skip; the "push `main` alone" advice built on that theory is withdrawn. Point 4's cause
   (`live: false` vs the incident) is OPEN until one clean push.
+- 2026-09-18 (evening) — Point 4 **answered**: `8b3a14f` (prod build 17:19 ET) took all three
+  domains at 17:35:45 ET with no Promote while `live` still read `false` → the stall was the
+  incident; `live: false` does not block auto-assignment.
 - 2026-09-18 — §3.6 consequences 3 + 4: a `main` push of a SHA already built elsewhere produced no
   prod build (`b77f679`); an empty commit pushed to `main` alone did build (`f7cf54d`) but the
   custom domains stayed on `2960da9`, project `live: false`. Fixed for `f7cf54d` by a dashboard
