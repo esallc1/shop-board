@@ -3,10 +3,11 @@
 > Doc: `/docs/wiring/ro-line-items.md`
 > Last updated: 2026-09-18 — **§2a added: every number in the pop-up is now strict text**
 > (`type="text" inputmode="decimal"` + `shared/line-qty.js`), replacing `type="number"`,
-> which changed values on a mouse-wheel scroll / arrow key. Branch `feat/line-qty-text-inputs`
-> off `main` `8b3a14f`, **unmerged**. §1, §2, §2a, Known gaps and Where-it-lives re-checked
-> against the code this session (all line numbers re-pointed); ⚠ not yet browser-verified in the
-> real pop-up — the parser is unit-tested and select-all was checked with a real click only.
+> which changed values on a mouse-wheel scroll / arrow key. Verified vs commit `663a982` (branch
+> `feat/line-qty-text-inputs`, rebased onto `main` `cb4e2d8`; on staging, **not yet on prod**).
+> §1, §2, §2a, Known gaps and Where-it-lives re-checked against the code (all line numbers
+> re-pointed), and §2a driven in the REAL pop-up on `test.*` signed in as ZZ Test Advisor — see
+> the change log.
 > Previously: 2026-08-10 — verified vs commit `17d4b02` (+ the Package
 > Description field change, verified in-browser on a real RO that session)
 > Status: ✅ BUILT + verified live 2026-08-10. The line editor is a pop-up
@@ -227,6 +228,19 @@ Manager board ([[flat-rate-hours]] §10).
   line. Removed the dead `.cd-lines-table input` CSS. Line-number refs re-pointed; stale
   "migrations not applied" gap corrected. No storage / totals / print change. Branch
   `feat/line-qty-text-inputs`, unmerged; real-pop-up browser pass pending.
+- 2026-09-18 (evening) — **§2a verified in the real pop-up** on `test.*` at `663a982` (served
+  `advisor-board.html` + `shared/line-qty.js` byte-identical to git), signed in as ZZ Test Advisor
+  (`authenticated`, sandbox), 1024px desk + 375px phone, on sandbox RO 6035 (no lines before, none
+  after). Real clicks/typing: click into prefilled "1" + type 14 → `14` (was 114); 5 wheel ticks
+  over the focused Hours → still `14` (was 13.5); ↓↓↑ → still `14`; "14,5" → 14.5 h, math line
+  "14.5 h × $140 = $2,030.00"; "14,5,0" → red border, Sell `—`, Save blocked with "Hours: numbers
+  only, like 14 or 14.5", 0 rows written; 114 → confirm text exactly "Is 114 hours right?"
+  (confirm stubbed to Cancel for the pane) → nothing saved, focus back on Hours; saved 14.25 h →
+  DB `quantity 14.25`, row "14.25 · $140.00 · $1995.00"; pencil → Rate wheel-up ×3 stayed 140,
+  typed 139.5 → DB `unit_price 139.5`, math "14.25 h × $139.50 = $1,987.88"; all 7 number fields
+  across all 6 types are `text`/`decimal`, zero `type=number` left in the pop-up; phone: Hours +
+  Rate 146px each, math line fits, no sideways scroll. Test line deleted via its × (confirm
+  stubbed to OK). Only console errors: the known sandbox avatar 400s.
 - 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-08-10 — **Package lines got a customer-facing Description field** (Add/Edit-Line
   pop-up, right after Unit before Price), pre-filled with the default
