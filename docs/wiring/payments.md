@@ -34,8 +34,10 @@ RO total minus the sum of its rows, and it's "paid in full" when that reaches $0
 
 ## 3. Balance & status
 - **Balance = RO total − Σ payments.** `paidSum()` sums `ro_payments.amount`; the RO total is
-  `roTotalNum()` (the same `Σ(qty×unit_price)+tax` the builder/print use). `renderPaymentsSummary()`
-  paints Total / Paid / Balance and a badge.
+  `roTotalNum()` — **`shared/ro-totals.js`**, the same calculator the print, board cards and
+  bookkeeping use: `Σ(qty×unit_price) + tax` **+ the live card fee when the RO's switch is on**
+  ([[card-fee]]). Payments are never an input to the fee: a deposit only lowers the balance.
+  `renderPaymentsSummary()` paints Total / Paid / Balance and a badge.
 - **`paymentStatusFor(total, paid)`** → `'unpaid'` (paid ≤ 0) · `'paid'` (paid ≥ total − 0.005)
   · `'partial'` (in between). Written to `completed_jobs` on close. **"Paid in full" ≠ picked
   up** — closing an RO is still a separate manual step.
@@ -69,6 +71,7 @@ RO total minus the sum of its rows, and it's "paid in full" when that reaches $0
 - **Related docs:** [[ro-invoice]], [[financial-pulse]], [[settings]] (`payment_methods`).
 
 ## Session change log
+- 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-08-09 — Created. Documented the `ro_payments` per-payment ledger (record-only, anon
   RLS), the **split/deposit = multiple rows** model (no separate combined-entry form), the
   balance/status math, and its readers (advisor Payments card + PAID invoice, bookkeeping

@@ -675,6 +675,12 @@
   import * as RoInvoice from './shared/ro-invoice.js';
   window.RoInvoice = RoInvoice;
 </script>
+<!-- THE RO total calculator + live card fee (ESM → window.RoTotals) — Financial
+     Pulse, the RO detail and Profit by RO total ROs through it. -->
+<script type="module">
+  import * as RoTotals from './shared/ro-totals.js';
+  window.RoTotals = RoTotals;
+</script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
 <script src="shared/push.js"></script>
@@ -1170,7 +1176,12 @@
     // for symmetry with the owner board.)
     onOpenBuildSheet: () => activateView('buildsheet'),
     // Reveal/hide feature-gated surfaces when the switch loads/changes.
-    onShopSettingsChanged: () => { if (typeof refreshCommissionNav === 'function') refreshCommissionNav(); },
+    onShopSettingsChanged: () => {
+      if (typeof refreshCommissionNav === 'function') refreshCommissionNav();
+      // RO totals use the tax + card-fee rates — re-total Financial Pulse from the
+      // data it already holds once they (re)load (no refetch, no re-wiring).
+      if (typeof FinancialPulse !== 'undefined' && FinancialPulse.refreshRates) FinancialPulse.refreshRates();
+    },
   });
 
   // ── Commission & Payout card (all advisors) — Advisor Commission feature ──
@@ -3312,10 +3323,24 @@
   let overviewCores = [];
   let returnedOpen = false;
 
+  // ── RO reads for Financial Pulse. Totals are computed client-side by
+  // shared/ro-totals.js (lines + tax + live card fee), so each read carries
+  // card_fee_on and the lines' type/description (a stored legacy card-fee line
+  // blocks the live fee — never both). card_fee_on is dropped if the column
+  // doesn't exist on this database yet (card-fee migration STEP 1 not run).
+  let bkCardFeeCol = true;
+  const isMissingCol = (e) => !!(e && (e.code === '42703' || e.code === 'PGRST204' || /column .* does not exist/i.test(e.message || '')));
+  const RO_TOTAL_LINES = 'ro_line_items(quantity,unit_price,taxable,line_type,description)';
+  const openRoQuery = () => db.from('repair_orders')
+    .select(`po,status,created_at,${bkCardFeeCol ? 'card_fee_on,' : ''}customers(name,tax_exempt),${RO_TOTAL_LINES}`)
+    .neq('status', 'closed').order('created_at', { ascending: true });
+  const payRoQuery = () => db.from('ro_payments')
+    .select(`repair_order_id,amount,method,paid_at,po,repair_orders(po,status,${bkCardFeeCol ? 'card_fee_on,' : ''}customers(name,tax_exempt),${RO_TOTAL_LINES})`);
+
   async function loadOverview() {
     let unprocessedCount = 0, cores = [], processed = [], openROs = [], jobCats = [], payments = [];
     try {
-      const [countRes, coresRes, spendRes, openRes, catRes, payRes] = await Promise.all([
+      let [countRes, coresRes, spendRes, openRes, catRes, payRes] = await Promise.all([
         db.from('invoice_queue').select('id', { count: 'exact', head: true }).eq('status', 'unprocessed'),
         db.from('core_charges').select('*').order('charged_date', { ascending: true }),
         // Processed invoices — EXPENSES only now (parts_vendor / shop_expense).
@@ -3323,16 +3348,13 @@
         db.from('invoice_queue').select('invoice_type,amount,invoice_date,po').eq('status', 'processed'),
         // Financial Pulse — open-RO pipeline snapshot (as of now, ignores the range).
         // Totals are computed client-side from ro_line_items to match the RO builder.
-        db.from('repair_orders')
-          .select('po,status,created_at,customers(name,tax_exempt),ro_line_items(quantity,unit_price,taxable)')
-          .neq('status', 'closed').order('created_at', { ascending: true }),
+        openRoQuery(),
         // Category map for the income-breakdown donut (RO.po → job_category).
         db.from('completed_jobs').select('po,job_category'),
         // Financial Pulse INCOME — the Payments ledger. Each payment carries its
         // RO (via the repair_order_id FK) so we can compute the true invoice
         // total (ro_line_items + tax) and the customer, and gate on paid-in-full.
-        db.from('ro_payments')
-          .select('repair_order_id,amount,method,paid_at,po,repair_orders(po,status,customers(name,tax_exempt),ro_line_items(quantity,unit_price,taxable))'),
+        payRoQuery(),
       ]);
       if (countRes.error) throw countRes.error;
       if (coresRes.error) throw coresRes.error;
@@ -3342,6 +3364,12 @@
       processed = spendRes.data || [];
       // Pipeline / donut / income reads are best-effort — a failure here must NOT
       // break the rest of the Overview (cards, Core Bank, alert).
+      // card_fee_on is optional until STEP 1 of the card-fee migration has run on
+      // this database: on a missing-column error drop it and re-read once.
+      if ((openRes.error && isMissingCol(openRes.error)) || (payRes.error && isMissingCol(payRes.error))) {
+        bkCardFeeCol = false;
+        [openRes, payRes] = await Promise.all([openRoQuery(), payRoQuery()]);
+      }
       if (openRes.error) console.warn('[Financial Pulse] open-RO load failed', openRes.error);
       else openROs = openRes.data || [];
       if (catRes.error) console.warn('[Financial Pulse] job-category load failed', catRes.error);
@@ -3671,16 +3699,13 @@
       return { parts, exp, total: parts + exp };
     }
 
+    // THE RO total (lines + tax + live card fee) — shared/ro-totals.js, the same
+    // calculator the advisor board and the printed invoice use, so "paid in full"
+    // here compares payments against the SAME number the customer was charged.
+    // 0.065 is this board's existing tax fallback (unchanged by the card-fee slice).
     function roTotal(ro) {
-      const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : null;
-      const rate = cfg && Number.isFinite(Number(cfg.tax_rate)) ? Number(cfg.tax_rate) : 0.065;
-      let sub = 0, txbl = 0;
-      (ro.ro_line_items || []).forEach(l => {
-        const amt = (Number(l.quantity) || 0) * (Number(l.unit_price) || 0);
-        sub += amt; if (l.taxable) txbl += amt;
-      });
-      const exempt = ro.customers && ro.customers.tax_exempt;
-      return sub + (exempt ? 0 : txbl * rate);
+      const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
+      return window.RoTotals.totalsForRo(ro, cfg, 0.065).total;
     }
 
     // income buckets for the trend chart — granularity from the span
@@ -3984,7 +4009,7 @@
       if (overlay) overlay.style.display = 'flex';
       let ro = null, receipts = [], poLines = [], payments = [];
       // Full RO fields so the LEFT pane can render the real invoice document.
-      const RO_COLS = 'po,ro_number,status,created_at,closed_at,complaint,advisory_notes,technician,odometer_in,miles_out,customers(name,phone_primary,email,tax_exempt),vehicles(year,make,model,engine,transmission_code,vin,plate,plate_state),service_writer:employees!service_writer_id(name),ro_line_items(line_type,description,part_number,quantity,unit_price,taxable)';
+      const RO_COLS = 'po,ro_number,status,created_at,closed_at,card_fee_on,complaint,advisory_notes,technician,odometer_in,miles_out,customers(name,phone_primary,email,tax_exempt),vehicles(year,make,model,engine,transmission_code,vin,plate,plate_state),service_writer:employees!service_writer_id(name),ro_line_items(line_type,description,part_number,quantity,unit_price,taxable)';
       const RO_COLS_NOWRITER = RO_COLS.replace(',service_writer:employees!service_writer_id(name)', '');
       try {
         const [roRes, iqRes, plRes, payRes] = await Promise.all([
@@ -3997,6 +4022,10 @@
         // The service_writer embed may not resolve on every schema — retry without it.
         if (roRes.error && /service_writer|relationship|employees/i.test(roRes.error.message || '')) {
           roData = await db.from('repair_orders').select(RO_COLS_NOWRITER).eq('po', po).limit(1).maybeSingle();
+        }
+        // card_fee_on is optional until the card-fee migration's STEP 1 has run.
+        if (roData.error && isMissingCol(roData.error)) {
+          roData = await db.from('repair_orders').select(RO_COLS_NOWRITER.replace(',card_fee_on', '')).eq('po', po).limit(1).maybeSingle();
         }
         if (roData.error) throw roData.error;
         ro = roData.data;
@@ -4044,6 +4073,11 @@
         return;
       }
       const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
+      // Never print a total that silently drops a switched-on card fee.
+      if (window.RoTotals && window.RoTotals.totalsForRo(roDetailPrintCtx.ro, cfg, 0.065).cardFeeUnavailable) {
+        alert('The card fee rate could not be loaded, so this RO\'s total is incomplete. Reload the page, then print.');
+        return;
+      }
       const methodLabel = (window.BoardSettings && BoardSettings.paymentMethodLabel) ? BoardSettings.paymentMethodLabel : undefined;
       const doc = window.RoInvoice.buildPrintDoc({
         ro: roDetailPrintCtx.ro,
@@ -4082,7 +4116,9 @@
       // D: profit over parts is computed on the PRE-TAX SUBTOTAL (labor + parts +
       // hazmat + supplies + fees) — sales tax isn't shop margin — not the
       // tax-included ticket total.
-      const subtotal = ((ro && ro.ro_line_items) || []).reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
+      // Pre-tax sale incl. the LIVE card fee (switch ON) — counted as revenue the
+      // same way a stored fee line always was (shared/ro-totals.js preTaxRevenue).
+      const subtotal = ro ? window.RoTotals.totalsForRo(ro, (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {}, 0.065).preTaxRevenue : 0;
       const profit = subtotal - partsCost;
       const pct = subtotal > 0 ? (profit / subtotal * 100) : 0;
 
@@ -4235,8 +4271,15 @@
       wire();
       render();
     }
+    // Rates changed (tax / card fee loaded late) → recompute totals from the
+    // data already in hand. No fetch, and NOT wire() (listeners stay single).
+    function refreshRates() {
+      if (!data) return;
+      paidIncome = buildPaidIncome();
+      render();
+    }
 
-    return { update };
+    return { update, refreshRates };
   })();
 
   // ══════════════════════════════════════════════════════════════

@@ -114,11 +114,15 @@ never reads `unit_cost`. The read-only row also shows only the sell price, not c
 So cost/margin never reaches the customer estimate / RO / invoice.
 
 ## 5. What did NOT change
-- **Totals/tax:** `recalcTotals()` / `roTotalNum()` unchanged — `Σ(qty×unit_price)`
-  + tax on taxable lines (customer-exempt aware).
+- **Totals/tax:** `recalcTotals()` / `roTotalNum()` — `Σ(qty×unit_price)` + tax on taxable
+  lines (customer-exempt aware), **+ the live card fee** when switched on. Since 2026-09-18 both
+  go through `shared/ro-totals.js` ([[card-fee]]).
 - **Print package fold-in:** package lines still print under Parts and fold into the
   Parts subtotal (see [[packages]] §4).
-- **`+ Card fee`** button still adds a non-taxable fee line directly (`addCardFee`).
+- **The card fee is no longer a line.** The `+ Card fee` button / `addCardFee` (which inserted
+  a one-time non-taxable fee line) was replaced 2026-09-18 by the per-RO **Card fee switch** in
+  this card's header — a live totals row, not a stored line. See [[card-fee]]. A plain **Fee**
+  line (towing, etc.) is still added through the Add-Line pop-up as before.
 
 **Now CHANGED (Hours Engine Part 1):** the RO-level Book Hours field is a read-only
 **auto-total** from the lines (above / [[flat-rate-hours]] §8), the leaving-Estimate
@@ -154,6 +158,7 @@ Manager board ([[flat-rate-hours]] §10).
   Pricing defaults).
 
 ## Session change log
+- 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-08-10 — **Package lines got a customer-facing Description field** (Add/Edit-Line
   pop-up, right after Unit before Price), pre-filled with the default
   "R&R TRANSMISSION W/OVERHAUL", editable per line. **Reuses the `description` column**

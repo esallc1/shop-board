@@ -151,9 +151,19 @@ window.ProfitByRO = (function () {
     return opts;
   }
 
-  // RO sale = Σ(qty × unit_price) over its lines, pre-tax (all line types).
-  function roSale(lines) {
-    return (lines || []).reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
+  // RO sale = Σ(qty × unit_price) over its lines, pre-tax (all line types), PLUS
+  // the live card fee when the RO's switch is on — counted as revenue exactly
+  // the way a stored fee line always was. Comes from shared/ro-totals.js
+  // (preTaxRevenue) so it matches every other surface. `ro` carries
+  // card_fee_on + customers(tax_exempt) (CommissionEngine.fetchInputs).
+  function roSale(lines, ro) {
+    const RT = window.RoTotals;
+    if (!RT) {
+      console.warn('[ProfitByRO] RoTotals not loaded — sale excludes any live card fee');
+      return (lines || []).reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
+    }
+    const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
+    return RT.totalsForRo({ ...(ro || {}), ro_line_items: lines || [] }, cfg, 0.07).preTaxRevenue;
   }
 
   // ── state ──
@@ -191,7 +201,7 @@ window.ProfitByRO = (function () {
       const day = PR.nyDate(ro.closed_at);              // 'YYYY-MM-DD' in shop tz; null if unstamped
       if (!day || day < range.fromStr || day > range.toStr) return;
       const lines = linesByRo[ro.id] || [];
-      const sale = roSale(lines);
+      const sale = roSale(lines, ro);
       const profit = CE.roGrossProfit(lines, opts);
       // Cost basis for the honesty flag: green only if a package (rebuild) line on
       // this RO uses a CONFIRMED unit cost; otherwise the profit rode an estimate.

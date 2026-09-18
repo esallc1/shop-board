@@ -28,8 +28,10 @@ gate and no server-side enforcement**, so "hidden" today means "removed from the
   `20260716_shop_settings.sql`): a **single fixed-id row** (`00000000-0000-0000-0000-000000000001`).
   Columns actually present:
   - `tax_rate` (fraction, default 0.07), `default_labor_rate` ($/hr, nullable),
-    `default_diag_fee` ($, nullable), `card_fee_pct` (fraction, default 0.03 — the shop's live
-    value is **4%**, set in-app), `shop_supplies_default` ($ flat), `hazmat_default` ($ flat),
+    `default_diag_fee` ($, nullable), `card_fee_pct` (fraction; the shop's live value is **4%**,
+    set in-app — **the ONLY card-fee rate**: since 2026-09-18 there is no code fallback, an
+    unreadable value shows "rate unavailable", see [[card-fee]] §2), `shop_supplies_default`
+    ($ flat), `hazmat_default` ($ flat),
     `show_tech_on_ro` (bool).
   - **Feature switches** (`20260807_feature_book_hours_flag.sql`, `20260807_packages.sql`,
     `20260808_advisor_commission.sql`, `20260808_bk_ro_detail_flag.sql`): `feature_book_hours`,
@@ -268,14 +270,16 @@ mechanism, in preference order:
   rebuild **book hours** (tech pay, [[flat-rate-hours]] §8). One unit can feed both, but they are
   two columns/tables with different consumers.
 - **`card_fee_pct` is a % on the RO, not a second price** — the rebuild list stores ONE base
-  (cash) price; the card fee is applied at billing. Don't duplicate prices per payment type.
+  (cash) price; the card fee is applied at billing by the per-RO **card fee switch**
+  ([[card-fee]]), computed live. Don't duplicate prices per payment type.
 - **Bookkeeping board** also mounts BoardSettings (its own extra category) — the role-gate change
   must not regress it.
 
 ## Known gaps & open questions (as of 2026-07-30)
 - No server-verifiable identity today (§3, §6) — the blocker for real owner-only settings.
 - `card_fee_pct` schema default is 3% but the shop runs 4% (set in-app) — live value ≠ migration
-  seed; verify against the live row before any report/quote uses it.
+  seed. The app no longer hides this behind a code default (the old 0.03 fallback in
+  `board-settings.js` was removed 2026-09-18); the live row is the only source.
 - Exact `rebuild_units` shape (pricing_group semantics, unit↔book-hours mapping) needs Cris's
   price list to finalize.
 
@@ -305,6 +309,7 @@ mechanism, in preference order:
   [[my-numbers]] (no viewer role today), [[announcements]] (a live service-role write path).
 
 ## Session change log
+- 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-09-17 — §3 first two bullets rewritten: `crisdata.html` is the email door, the `?u=&p=` pass-through is deleted, boards resolve via `OfficeIdentity.resolve()`. Rest not re-verified.
 - 2026-08-09 — **Cost & Profit Step 2b: no settings change.** The shared parts library
   (`parts_library`) + `unit_parts.library_part_id` are cost-side (Build Sheet) tables;

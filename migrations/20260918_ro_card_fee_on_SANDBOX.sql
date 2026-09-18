@@ -1,0 +1,129 @@
+-- ============================================================================
+-- Card fee as a LIVE switch — SANDBOX run (efhmefpaijjncwgbvwki / test.*).
+-- Prod has its own file: 20260918_ro_card_fee_on_PROD.sql (different RO list,
+-- inverted guard). docs/wiring/card-fee.md is the wiring.
+--
+-- Run BY HAND in the Supabase SQL editor, in this ORDER:
+--   STEP 1  (schema)       → then deploy the app that reads card_fee_on
+--   STEP 2  (convert data) → only AFTER that app is live on this database's site.
+-- Running STEP 2 before the new app is live would drop the fee from those ROs
+-- (the old app ignores the switch and the stored line would be gone).
+--
+-- SELF-GUARDING (staging-db.md §8.2/§8.3): every block refuses to run when
+-- app_env is empty or says PROD. Nothing here can touch prod.
+-- ============================================================================
+
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- STEP 1 — schema: repair_orders.card_fee_on (default OFF). Safe to re-run.
+-- Existing table RLS (anon + authenticated full access) covers the new column.
+-- Adding a NOT NULL column with a constant default is metadata-only (no rewrite).
+-- ════════════════════════════════════════════════════════════════════════════
+do $$
+declare v text;
+begin
+  select env into v from public.app_env limit 1;
+  if v is null then
+    raise exception 'app_env HAS NO ROW — STOP. Every guard would silently match nothing. Stamp this database first (staging-db.md §8).';
+  end if;
+  if v like 'PROD%' then
+    raise exception 'WRONG PROJECT: % — this is the SANDBOX file, refusing', v;
+  end if;
+
+  alter table public.repair_orders
+    add column if not exists card_fee_on boolean not null default false;
+  comment on column public.repair_orders.card_fee_on is
+    'Card processing fee switch. true = totals add shop_settings.card_fee_pct x (all lines + sales tax), computed live by shared/ro-totals.js; never stored as a line. Default off.';
+
+  raise notice 'STEP 1 done on %', v;
+end $$;
+
+notify pgrst, 'reload schema';
+
+-- STEP 1 verification (expect: 1 row boolean / NO / false; switched_on = 0; the sandbox stamp)
+--   select env from public.app_env;
+--   select column_name, data_type, is_nullable, column_default
+--     from information_schema.columns
+--    where table_schema = 'public' and table_name = 'repair_orders' and column_name = 'card_fee_on';
+--   select count(*) filter (where card_fee_on) as switched_on, count(*) as all_ros from public.repair_orders;
+
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- STEP 2 — convert OPEN ROs that carry an old stored card-fee line:
+--   switch card_fee_on ON and delete the stored line, after backing it up.
+--   • Explicit RO list (from the step-0 read of this sandbox, 2026-09-18).
+--   • Status is RE-CHECKED at run time: only rows still 'estimate' or 'ro'.
+--     A listed RO that has since been invoiced/closed is skipped, untouched.
+--   • Only line_type='fee' lines whose description starts "card processing fee"
+--     (both the button's "(4.00%)" wording and the old uppercase one).
+--   • One statement → atomic. The result row reports what it did.
+-- ════════════════════════════════════════════════════════════════════════════
+do $$
+declare v text;
+begin
+  select env into v from public.app_env limit 1;
+  if v is null then raise exception 'app_env HAS NO ROW — STOP (staging-db.md §8).'; end if;
+  if v like 'PROD%' then raise exception 'WRONG PROJECT: % — SANDBOX file, refusing', v; end if;
+
+  -- Backup table: the removed lines, whole-row, for an exact restore. RLS on with
+  -- NO policies → invisible to the app/API; readable only here in the SQL editor.
+  create table if not exists public.ro_card_fee_line_backup_20260918 (
+    backup_id    bigserial primary key,
+    backed_up_at timestamptz not null default now(),
+    ro_id        uuid    not null,
+    ro_number    integer not null,
+    ro_status    text    not null,
+    line_id      uuid    not null,
+    line         jsonb   not null
+  );
+  alter table public.ro_card_fee_line_backup_20260918 enable row level security;
+end $$;
+
+with targets as (
+  select li.id as line_id, r.id as ro_id, r.ro_number, r.status::text as ro_status, to_jsonb(li) as line
+    from public.ro_line_items li
+    join public.repair_orders r on r.id = li.repair_order_id
+   where r.ro_number in (5227, 5501, 6023, 6025, 6026)
+     and r.status in ('estimate', 'ro')                          -- re-checked NOW
+     and li.line_type = 'fee'
+     and li.description ilike 'card processing fee%'
+     and (select env from public.app_env) not like 'PROD%'       -- wrong project ⇒ 0 rows
+), backed as (
+  insert into public.ro_card_fee_line_backup_20260918 (ro_id, ro_number, ro_status, line_id, line)
+  select ro_id, ro_number, ro_status, line_id, line from targets
+  returning line_id
+), switched as (
+  update public.repair_orders set card_fee_on = true
+   where id in (select ro_id from targets)
+  returning ro_number
+), removed as (
+  delete from public.ro_line_items where id in (select line_id from targets)
+  returning id
+)
+select (select count(*) from backed)   as lines_backed_up,
+       (select count(*) from switched) as ros_switched_on,
+       (select count(*) from removed)  as lines_removed,
+       (select string_agg(ro_number::text, ', ' order by ro_number) from switched) as ros;
+
+-- STEP 2 verification — one row per listed RO. Expect: card_fee_on = true and
+-- stored_card_fee_lines = 0 for every converted RO; backed_up_lines = 1 each.
+--   select r.ro_number, r.status, r.card_fee_on,
+--          (select count(*) from public.ro_line_items li
+--            where li.repair_order_id = r.id and li.line_type = 'fee'
+--              and li.description ilike 'card processing fee%') as stored_card_fee_lines,
+--          (select count(*) from public.ro_card_fee_line_backup_20260918 b where b.ro_id = r.id) as backed_up_lines
+--     from public.repair_orders r
+--    where r.ro_number in (5227, 5501, 6023, 6025, 6026)
+--    order by r.ro_number;
+
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- UNDO for STEP 2 (not run) — restores the exact lines and switches OFF.
+--   insert into public.ro_line_items
+--   select (jsonb_populate_record(null::public.ro_line_items, b.line)).*
+--     from public.ro_card_fee_line_backup_20260918 b
+--    where b.ro_number in (5227, 5501, 6023, 6025, 6026)
+--      and not exists (select 1 from public.ro_line_items x where x.id = b.line_id);
+--   update public.repair_orders set card_fee_on = false
+--    where ro_number in (5227, 5501, 6023, 6025, 6026);
+-- ════════════════════════════════════════════════════════════════════════════

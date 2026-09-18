@@ -20,6 +20,8 @@
    No DOM, no db. Loaded in the browser as an ES module that assigns
    window.CustomerRecord, and imported directly by shared/customer-record.test.js.
    ============================================================ */
+import { computeRoTotals } from './ro-totals.js';
+
 
 export const ALL_VEHICLES = 'all';
 
@@ -125,29 +127,30 @@ export function sortNewestFirst(ros) {
 }
 
 // Invoice total for one RO from its line items (Σ qty·price + tax on taxable
-// lines unless the customer is exempt). Mirrors printRo / the close archive.
+// lines unless the customer is exempt, + the LIVE card fee when switched on).
+// Delegates to shared/ro-totals.js — the one RO calculator every surface uses.
+// opts: { rate, exempt, cardFeeOn, cardFeePct }.
 export function roInvoiceTotal(lines, opts) {
-  const rate = (opts && Number(opts.rate)) || 0;
-  const exempt = !!(opts && opts.exempt);
-  let sub = 0, taxable = 0;
-  for (const l of (lines || [])) {
-    const amt = (Number(l.quantity) || 0) * (Number(l.unit_price) || 0);
-    sub += amt;
-    if (l.taxable) taxable += amt;
-  }
-  return sub + (exempt ? 0 : taxable * rate);
+  const o = opts || {};
+  return computeRoTotals(lines, {
+    taxRate: Number(o.rate) || 0, exempt: !!o.exempt,
+    cardFeeOn: !!o.cardFeeOn, cardFeePct: o.cardFeePct,
+  }).total;
 }
 
 // Group line items by repair_order_id → totals map { roId: total }. Pure helper
 // so the board can batch-fetch lines with one .in() query and total them here.
+// opts.cardFeeOnByRo = { roId: true } marks which ROs have the card-fee switch ON.
 export function totalsByRo(lines, opts) {
+  const o = opts || {};
+  const onBy = o.cardFeeOnByRo || {};
   const byRo = {};
   for (const l of (lines || [])) {
     const k = String(l.repair_order_id);
     (byRo[k] = byRo[k] || []).push(l);
   }
   const out = {};
-  for (const k of Object.keys(byRo)) out[k] = roInvoiceTotal(byRo[k], opts);
+  for (const k of Object.keys(byRo)) out[k] = roInvoiceTotal(byRo[k], { ...o, cardFeeOn: !!onBy[k] });
   return out;
 }
 

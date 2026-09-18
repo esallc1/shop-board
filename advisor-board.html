@@ -399,6 +399,9 @@
     color: var(--text); padding: 4px 0; font-variant-numeric: tabular-nums;
   }
   .cd-totals-row span:first-child { color: var(--muted); }
+  .cd-cardfee-switch { margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; font-weight:700; color:var(--text); cursor:pointer; user-select:none; border:1px solid var(--border); border-radius:6px; padding:4px 10px; }
+  .cd-cardfee-switch input { width:16px; height:16px; margin:0; accent-color:var(--accent); cursor:pointer; }
+  .cd-cardfee-note { margin-left:auto; font-size:0.7rem; color:var(--muted); font-style:italic; }
   .cd-totals-grand {
     font-weight: 800; font-size: 1rem; border-top: 1px solid var(--border);
     margin-top: 4px; padding-top: 8px;
@@ -1202,6 +1205,12 @@
 <script type="module">
   import * as RoInvoice from './shared/ro-invoice.js';
   window.RoInvoice = RoInvoice;
+</script>
+<!-- THE RO total calculator + live card fee (ESM → window.RoTotals). Every RO
+     total on this board goes through it. See docs/wiring/card-fee.md. -->
+<script type="module">
+  import * as RoTotals from './shared/ro-totals.js';
+  window.RoTotals = RoTotals;
 </script>
 <!-- Desk call-log attach / un-attach / not-a-customer decision logic (ESM).
      Assigns window.CallAttach; used only by event-driven Desk handlers. -->
@@ -2202,7 +2211,12 @@
           <div class="card">
             <div class="card-title">
               <div class="dot" style="background:var(--green)"></div>Line Items
-              <button class="btn btn-ghost" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdAddCardFeeBtn">+ Card fee</button>
+              <!-- Card fee SWITCH (repair_orders.card_fee_on) — a live row in the
+                   totals below, not a stored line. docs/wiring/card-fee.md -->
+              <label class="cd-cardfee-switch" id="cdCardFeeSwitch" title="Customer is paying by card — adds the card processing fee to the total">
+                <input type="checkbox" id="cdCardFeeOn"><span id="cdCardFeeSwitchText">Card fee</span>
+              </label>
+              <span class="cd-cardfee-note" id="cdCardFeeNote" style="display:none"></span>
               <button class="btn btn-primary" style="margin-left:8px;font-size:0.75rem;padding:5px 12px" id="cdAddLineBtn">+ Add line</button>
             </div>
             <div class="cd-table-scroll">
@@ -2227,6 +2241,7 @@
             <div class="cd-totals" id="cdTotals">
               <div class="cd-totals-row"><span>Subtotal</span><span id="cdSubtotal">$0.00</span></div>
               <div class="cd-totals-row"><span id="cdTaxLabel">Tax</span><span id="cdTax">$0.00</span></div>
+              <div class="cd-totals-row" id="cdCardFeeRow" style="display:none"><span id="cdCardFeeLabel">Card processing fee</span><span id="cdCardFee">$0.00</span></div>
               <div class="cd-totals-row cd-totals-grand"><span>Total</span><span id="cdTotal">$0.00</span></div>
             </div>
           </div>
@@ -4757,6 +4772,17 @@
       const r = shopCfg().tax_rate;
       return (r != null && Number.isFinite(Number(r))) ? Number(r) : CD_TAX_FALLBACK;
     }
+    // THE RO total for this board — shared/ro-totals.js, so the RO detail,
+    // payments box, board cards, close archive, print and customer record can
+    // never disagree. `ro` supplies customers.tax_exempt + card_fee_on.
+    function roTotalsOf(lines, ro) {
+      return window.RoTotals.computeRoTotals(lines || [], {
+        taxRate: taxRate(),
+        exempt: !!(ro && ro.customers && ro.customers.tax_exempt),
+        cardFeeOn: !!(ro && ro.card_fee_on),
+        cardFeePct: shopCfg().card_fee_pct,
+      });
+    }
     // ── BOOK HOURS master switch (owner-controlled, shop_settings.feature_book_hours).
     // Default OFF and FAIL-SAFE: shopCfg() returns feature_book_hours=false when the
     // settings read fails / the column is missing (pre-migration), so OFF = exactly the
@@ -4871,6 +4897,9 @@
     // false until the book-hours migration is run. When false the "0 hrs" chip
     // never renders — roMissingBookHours refuses to guess from an absent column.
     let bookHoursColsAvailable = true;
+    // repair_orders.card_fee_on (migrations/20260918_ro_card_fee_on*.sql). false
+    // until STEP 1 has run on this database → the switch is hidden, no live fee.
+    let cardFeeColAvailable = true;
     let currentRo = null;     // the open RO (with embedded customer/vehicle)
     let currentLines = [];    // ro_line_items for the open RO
     let currentPayments = [];  // ro_payments for the open RO (Phase 5)
@@ -4883,7 +4912,7 @@
         'diagnosis_submitted_at, diagnosis_reviewed_at, ' +
         'customers(name, phone_primary, tax_exempt), ' +
         'vehicles(year, make, model, vin, plate), ' +
-        'ro_line_items(quantity, unit_price, taxable), ' +
+        'ro_line_items(quantity, unit_price, taxable, line_type, description), ' +
         'ro_payments(amount)';
       /* OPTIONAL COLUMN TIERS. A NAMED select 400s (42703) on a column whose
          migration hasn't run, and the board must never break over one
@@ -4894,6 +4923,7 @@
       const EXTRAS = [
         { cols: ', declined_at, declined_reason', apply: (v) => { declinedColsAvailable = v; } },
         { cols: ', book_hours, book_hours_na',    apply: (v) => { bookHoursColsAvailable = v; } },
+        { cols: ', card_fee_on',                  apply: (v) => { cardFeeColAvailable = v; } },
       ];
       const q = (sel) => db.from('repair_orders').select(sel).order('created_at', { ascending: false });
       let resp = await q(BASE_SEL + EXTRAS.map(x => x.cols).join(''));
@@ -4921,12 +4951,7 @@
     }
 
     function roTotal(ro) {
-      const lines = ro.ro_line_items || [];
-      const subtotal = lines.reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
-      const taxable = lines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
-      const exempt = ro.customers && ro.customers.tax_exempt;
-      const tax = exempt ? 0 : taxable * taxRate();
-      return subtotal + tax;
+      return roTotalsOf(ro.ro_line_items, ro).total;
     }
 
     function vehDesc(v) {
@@ -5036,7 +5061,7 @@
       };
     }
 
-    // RO balance = live total (subtotal+tax) minus payments recorded so far.
+    // RO balance = live total (subtotal + tax + live card fee) minus payments.
     function roBalance(ro) {
       const paid = (ro.ro_payments || []).reduce((s, p) => s + num(p.amount), 0);
       return roTotal(ro) - paid;
@@ -6412,28 +6437,64 @@
       updateBookHoursAuto();   // Book Hours auto-total follows the lines
     }
 
-    // RO total (subtotal + tax) as a number — the single source both the
-    // totals card and the payments balance read.
+    // RO total (subtotal + tax + live card fee) as a number — the single source
+    // both the totals card and the payments balance read (shared/ro-totals.js).
     function roTotalNum() {
-      const subtotal = currentLines.reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
-      const taxable = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
-      const exempt = currentRo && currentRo.customers && currentRo.customers.tax_exempt;
-      return subtotal + (exempt ? 0 : taxable * taxRate());
+      return roTotalsOf(currentLines, currentRo).total;
     }
 
     function recalcTotals() {
-      const subtotal = currentLines.reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
-      const taxable = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
-      const exempt = currentRo && currentRo.customers && currentRo.customers.tax_exempt;
+      const T = roTotalsOf(currentLines, currentRo);
       const rate = taxRate();
-      const tax = exempt ? 0 : taxable * rate;
-      $('cdSubtotal').textContent = money(subtotal);
-      $('cdTax').textContent = money(tax);
-      $('cdTotal').textContent = money(subtotal + tax);
-      $('cdTaxLabel').innerHTML = exempt
+      $('cdSubtotal').textContent = money(T.subtotal);
+      $('cdTax').textContent = money(T.tax);
+      $('cdTotal').textContent = money(T.total);
+      $('cdTaxLabel').innerHTML = T.exempt
         ? 'Tax <span class="cd-exempt-tag">exempt</span>'
         : `Tax (${(rate * 100).toFixed(2)}%)`;
+      // Live card-fee row — recalculates with every line change, like Tax.
+      const feeRow = $('cdCardFeeRow');
+      feeRow.style.display = (T.cardFeeApplied || T.cardFeeUnavailable) ? '' : 'none';
+      $('cdCardFeeLabel').textContent = T.cardFeeApplied ? T.cardFeeLabel : 'Card processing fee — rate unavailable';
+      $('cdCardFee').textContent = T.cardFeeApplied ? money(T.cardFee) : '—';
+      renderCardFeeControl(T);
       renderPaymentsSummary();   // balance depends on the RO total
+    }
+
+    // The card-fee SWITCH (replaces the old "+ Card fee" button, which stored a
+    // one-time line). Hidden with a note when this RO still carries a stored
+    // card-fee line (the two must never stack) or when the database has no
+    // card_fee_on column yet (STEP 1 not run).
+    function renderCardFeeControl(T) {
+      const wrap = $('cdCardFeeSwitch'), box = $('cdCardFeeOn'), note = $('cdCardFeeNote');
+      const colHere = !!(currentRo && 'card_fee_on' in currentRo);
+      let msg = '';
+      if (!colHere) msg = 'Card fee switch needs the database update';
+      else if (T.hasLegacyCardFee) msg = 'Card fee is a stored line on this RO';
+      wrap.style.display = msg ? 'none' : '';
+      note.style.display = msg ? '' : 'none';
+      note.textContent = msg;
+      box.checked = !!(currentRo && currentRo.card_fee_on) && !T.hasLegacyCardFee;
+      $('cdCardFeeSwitchText').textContent = T.cardFeeRate != null ? T.cardFeeLabel.replace('processing ', '') : 'Card fee';
+    }
+    async function setCardFeeOn(on) {
+      if (!currentRo || !('card_fee_on' in currentRo)) return;
+      const box = $('cdCardFeeOn');
+      if (on && window.RoTotals.hasLegacyCardFee(currentLines)) { box.checked = false; return; }
+      const prev = !!currentRo.card_fee_on;
+      box.disabled = true;
+      // .select() so an RLS-dropped write (0 rows) is an error, not a silent no-op.
+      const { data, error } = await db.from('repair_orders').update({ card_fee_on: on }).eq('id', currentRo.id).select('id, card_fee_on');
+      box.disabled = false;
+      if (error || !data || !data.length) {
+        console.error('[CdRO] card fee switch failed', error);
+        box.checked = prev;
+        alert('Could not change the card fee: ' + ((error && error.message) || 'the database saved nothing — are you signed in?'));
+        return;
+      }
+      currentRo.card_fee_on = !!data[0].card_fee_on;
+      refreshListCacheFor(currentRo.id);
+      recalcTotals();
     }
 
     // ══════════════════════════════════════════════════════════
@@ -6855,38 +6916,9 @@
       return null;
     }
 
-    // Card processing fee = card_fee_pct × the RO total (subtotal + tax,
-    // pre-fee). Inserted as an editable non-taxable fee line. Whether it
-    // ONLY applies on card payment is a Payments-phase (P5) concern, not
-    // here — this just stages the line.
-    async function addCardFee() {
-      if (!currentRo) return;
-      const rate = shopCfg().card_fee_pct;
-      const pct = (rate != null && Number.isFinite(Number(rate))) ? Number(rate) : 0;
-      const subtotal = currentLines.reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
-      const taxable = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
-      const exempt = currentRo.customers && currentRo.customers.tax_exempt;
-      const total = subtotal + (exempt ? 0 : taxable * taxRate());
-      const feeAmt = Math.round(pct * total * 100) / 100;
-
-      const btn = $('cdAddCardFeeBtn');
-      btn.disabled = true;
-      const row = {
-        repair_order_id: currentRo.id,
-        line_type: 'fee',
-        description: `Card processing fee (${(pct * 100).toFixed(2)}%)`,
-        quantity: 1,
-        unit_price: feeAmt,
-        taxable: false,
-        sort_order: currentLines.length,
-      };
-      const { data, error } = await db.from('ro_line_items').insert(row).select('*').single();
-      btn.disabled = false;
-      if (error) { console.error('[CdRO] add card fee failed', error); alert('Add card fee failed: ' + error.message); return; }
-      currentLines.push(data);
-      renderLines();
-      refreshListCacheFor(currentRo.id);
-    }
+    // (The "+ Card fee" button + addCardFee(), which inserted a one-time fee
+    // LINE, were replaced 2026-09-18 by the card_fee_on switch — a live row in
+    // recalcTotals via shared/ro-totals.js. See renderCardFeeControl/setCardFeeOn.)
 
     async function deleteLine(id) {
       const line = currentLines.find(l => l.id === id);
@@ -6902,9 +6934,12 @@
     // keep the cached list totals fresh without a full refetch
     function refreshListCacheFor(roId) {
       const ro = allRos.find(r => r.id === roId);
-      if (ro) ro.ro_line_items = currentLines.map(l => ({
+      if (!ro) return;
+      ro.ro_line_items = currentLines.map(l => ({
         quantity: l.quantity, unit_price: l.unit_price, taxable: l.taxable,
+        line_type: l.line_type, description: l.description,
       }));
+      if (currentRo && currentRo.id === roId && 'card_fee_on' in currentRo) ro.card_fee_on = !!currentRo.card_fee_on;
     }
 
     function backToList() {
@@ -7051,12 +7086,14 @@
       const laborSub = catSum('labor');
       // everything that isn't labor rolls up as "parts" on the archive's
       // coarse two-bucket billing columns (parts + fees + supplies + hazmat)
+      // The live card fee (switch ON) rides in this non-labor bucket too, exactly
+      // where a stored fee line always landed — so laborSub + partsSub + tax still
+      // equals THE RO total from shared/ro-totals.js.
+      const T = roTotalsOf(currentLines, ro);
       const partsSub = currentLines.filter(l => l.line_type !== 'labor')
-        .reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
-      const taxableBase = currentLines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
-      const exempt = !!c.tax_exempt;
-      const taxAmt = exempt ? 0 : taxableBase * taxRate();
-      const total = laborSub + partsSub + taxAmt;
+        .reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0) + T.cardFee;
+      const taxAmt = T.tax;
+      const total = T.total;
 
       // REAL payment figures from ro_payments (Phase 5). Re-fetch rather than
       // trust the in-memory cache so the archive is correct even if the close
@@ -7236,6 +7273,11 @@
       }
       const cfg = (window.BoardSettings && window.BoardSettings.getShopSettings)
         ? window.BoardSettings.getShopSettings() : {};
+      // Never print a total that silently drops a switched-on card fee.
+      if (!(receipt && receipt.amount != null) && roTotalsOf(currentLines, ro).cardFeeUnavailable) {
+        alert('The card fee rate could not be loaded, so this RO\'s total is incomplete. Reload the page, then print.');
+        return;
+      }
       const methodLabel = (window.BoardSettings && window.BoardSettings.paymentMethodLabel)
         ? window.BoardSettings.paymentMethodLabel : undefined;
       const doc = window.RoInvoice.buildPrintDoc({
@@ -7261,7 +7303,7 @@
     $('qrTakePrintBtn').addEventListener('click', () => submitQuickReceipt(true));
     $('qrSaveBtn').addEventListener('click', () => submitQuickReceipt(false));
     $('cdAddLineBtn').addEventListener('click', () => openLineModal(null));
-    $('cdAddCardFeeBtn').addEventListener('click', addCardFee);
+    $('cdCardFeeOn').addEventListener('change', (e) => setCardFeeOn(e.target.checked));
     // Add/Edit-Line pop-up wiring
     $('cdLineType').addEventListener('change', () => { captureLineCommon(); renderLineFields(); });
     $('cdLineSaveBtn').addEventListener('click', saveLineModal);
@@ -8230,6 +8272,9 @@
     window.cdRefreshShopSettings = () => {
       if (currentRo && $('cdRoDetailPanel').style.display !== 'none') recalcTotals();
       if ($('cdRoListPanel') && $('cdRoListPanel').style.display !== 'none') renderKanban();
+      // The customer record's per-RO totals + lifetime $ use the tax + card-fee
+      // rates too — re-read it (same-customer reload keeps position) if on screen.
+      if (custCustomer && $('custRecordPanel') && $('custRecordPanel').style.display !== 'none') loadCustomerRecord(custCustomer.id);
     };
 
     // live refresh of the list when ROs change elsewhere
@@ -8785,9 +8830,14 @@
       // vehicles (order stable; the accordion re-sorts by recent activity)
       const vehResp = await db.from('vehicles').select('id, year, make, model, vin, plate').eq('customer_id', id).order('created_at', { ascending: true });
       // repair_orders (declined_at may be absent pre-migration → fall back)
-      let roResp = await db.from('repair_orders').select('id, ro_number, po, status, declined_at, created_at, vehicle_id, complaint').eq('customer_id', id);
-      if (roResp.error && isMissingColumn(roResp.error)) {
-        roResp = await db.from('repair_orders').select('id, ro_number, po, status, created_at, vehicle_id, complaint').eq('customer_id', id);
+      // card_fee_on feeds the per-RO totals (live card fee). Optional pre-migration,
+      // like declined_at — each missing column peels off in turn.
+      let roCols = 'id, ro_number, po, status, declined_at, card_fee_on, created_at, vehicle_id, complaint';
+      let roResp = await db.from('repair_orders').select(roCols).eq('customer_id', id);
+      for (const opt of [', card_fee_on', ', declined_at']) {
+        if (!(roResp.error && isMissingColumn(roResp.error))) break;
+        roCols = roCols.replace(opt, '');
+        roResp = await db.from('repair_orders').select(roCols).eq('customer_id', id);
       }
       if (seq !== custLoadSeq) return;
       custVehicles = vehResp.data || [];
@@ -8798,9 +8848,10 @@
       custTotals = {};
       const roIds = custRos.map(r => r.id);
       if (roIds.length) {
-        const linesResp = await db.from('ro_line_items').select('repair_order_id, quantity, unit_price, taxable, line_type').in('repair_order_id', roIds);
+        const linesResp = await db.from('ro_line_items').select('repair_order_id, quantity, unit_price, taxable, line_type, description').in('repair_order_id', roIds);
         if (seq !== custLoadSeq) return;
-        if (!linesResp.error) custTotals = CR().totalsByRo(linesResp.data || [], { rate: taxRate(), exempt: !!cust.tax_exempt });
+        const cardFeeOnByRo = {}; custRos.forEach(r => { if (r.card_fee_on) cardFeeOnByRo[String(r.id)] = true; });
+        if (!linesResp.error) custTotals = CR().totalsByRo(linesResp.data || [], { rate: taxRate(), exempt: !!cust.tax_exempt, cardFeeOnByRo, cardFeePct: shopCfg().card_fee_pct });
       }
       // RO photos — one batched .in() over this customer's ROs, then ONE
       // createSignedUrls for the whole customer. Same read shape My Numbers

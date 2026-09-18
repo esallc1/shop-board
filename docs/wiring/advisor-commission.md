@@ -77,7 +77,10 @@ realistic instead of systematically wrong, and it self-corrects as real costs ar
   `totals` (the owner "Pay this week" line) + an `unassigned` bucket.
 - **Impure (browser only):** `fetchInputs(db)` — resilient PostgREST reads that **re-query
   without any not-yet-migrated optional column** (probe cached), so the engine still runs on
-  the un-migrated schema using defaults/fallbacks. Never throws.
+  the un-migrated schema using defaults/fallbacks. Never throws. Since 2026-09-18 it also reads
+  `card_fee_on` (optional) + `customers(tax_exempt)` on ROs and `taxable`/`description` on lines —
+  for Profit by RO's sale incl. the live card fee ([[card-fee]]); commission GP ignores them
+  (fees carry 0 GP).
 - **Tests:** `shared/commission-engine.test.js` (18 tests) lock the GP formula, the
   real-cost-overrides-assumed-margin rule, fees excluded, advisor-only payout, the weekly
   math, and the Sun–Sat/NY bucketing (dates pinned via an injected `nowIso`).
@@ -141,6 +144,7 @@ realistic instead of systematically wrong, and it self-corrects as real costs ar
   bookkeeping board this card also lives on).
 
 ## Session change log
+- 2026-09-18 — `fetchInputs` reads `card_fee_on` + tax-exempt + line taxable/description for Profit by RO's live card fee ([[card-fee]]); GP math unchanged. Branch `feat/card-fee-live`.
 - 2026-08-08 — Created (Hours Engine **Part 2**). Built the advisor GP + commission engine
   (`shared/commission-engine.js` + 18 tests) and the two shared cards
   (`shared/commission-cards.js`): advisor **My Commission** + owner/bookkeeper **Commission &

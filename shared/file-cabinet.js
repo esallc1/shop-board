@@ -41,6 +41,7 @@ window.FileCabinet = (function () {
     { id: 'announce', file: 'announcements.md',     icon: '📣', title: 'Announcement banner' },
     { id: 'checkin',  file: 'ro-checkin-tech.md',   icon: '🔧', title: 'RO check-in / tech assign' },
     { id: 'rovehicle', file: 'ro-vehicle-details.md', icon: '🚗', title: 'RO vehicle box (Vehicle & reference details)' },
+    { id: 'cardfee',   file: 'card-fee.md',          icon: '💳', title: 'Card fee (live switch) + the RO total calculator' },
     { id: 'newbadge',  file: 'new-badge.md',         icon: '🆕', title: 'NEW badge (expiring pill for fresh features)' },
     { id: 'techboard', file: 'tech-board.md',       icon: '🔧', title: 'Tech Board (dispatcher)' },
     { id: 'mynumbers', file: 'my-numbers.md',       icon: '📱', title: 'My Numbers (tech phone tool)' },

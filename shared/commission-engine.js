@@ -249,17 +249,25 @@ export function compute(input) {
 // optional column (probe cached across calls), so a board on the un-migrated
 // schema still renders using defaults/fallbacks. Returns the four arrays compute
 // expects. Never throws — returns empty arrays on hard failure.
-const _colAvail = { closed_at: true, unit_cost: true, package_unit_id: true, commission: true, pkgCost: true };
+const _colAvail = { closed_at: true, unit_cost: true, package_unit_id: true, commission: true, pkgCost: true, card_fee_on: true };
 
 export async function fetchInputs(db) {
   const out = { ros: [], lines: [], employees: [], packageUnits: [], _colAvail };
   // ROs (invoice/closed)
   try {
-    let cols = _colAvail.closed_at ? 'id, service_writer_id, status, closed_at, updated_at' : 'id, service_writer_id, status, updated_at';
-    let r = await db.from('repair_orders').select(cols).in('status', BILLED_STATUSES);
+    // card_fee_on + customers(tax_exempt): Profit by RO's sale includes the LIVE
+    // card fee (shared/ro-totals.js), whose base is lines + tax. Commission GP
+    // ignores both (fees contribute 0 GP). card_fee_on is optional pre-migration.
+    const roCols = () => 'id, service_writer_id, status, ' + (_colAvail.closed_at ? 'closed_at, ' : '') +
+      (_colAvail.card_fee_on ? 'card_fee_on, ' : '') + 'updated_at, customers(tax_exempt)';
+    let r = await db.from('repair_orders').select(roCols()).in('status', BILLED_STATUSES);
+    if (r.error && _colAvail.card_fee_on && /card_fee_on/i.test(r.error.message || '')) {
+      _colAvail.card_fee_on = false;
+      r = await db.from('repair_orders').select(roCols()).in('status', BILLED_STATUSES);
+    }
     if (r.error && _colAvail.closed_at && /closed_at/i.test(r.error.message || '')) {
       _colAvail.closed_at = false;
-      r = await db.from('repair_orders').select('id, service_writer_id, status, updated_at').in('status', BILLED_STATUSES);
+      r = await db.from('repair_orders').select(roCols()).in('status', BILLED_STATUSES);
     }
     if (r.error) throw r.error;
     out.ros = r.data || [];
@@ -269,7 +277,7 @@ export async function fetchInputs(db) {
   // Line items
   try {
     const extra = [_colAvail.unit_cost ? 'unit_cost' : null, _colAvail.package_unit_id ? 'package_unit_id' : null].filter(Boolean).join(', ');
-    let cols = 'repair_order_id, line_type, quantity, unit_price' + (extra ? ', ' + extra : '');
+    let cols = 'repair_order_id, line_type, description, quantity, unit_price, taxable' + (extra ? ', ' + extra : '');
     let r = await db.from('ro_line_items').select(cols).in('repair_order_id', ids);
     if (r.error && _colAvail.unit_cost && /unit_cost/i.test(r.error.message || '')) { _colAvail.unit_cost = false; return fetchInputs(db); }
     if (r.error && _colAvail.package_unit_id && /package_unit_id/i.test(r.error.message || '')) { _colAvail.package_unit_id = false; return fetchInputs(db); }

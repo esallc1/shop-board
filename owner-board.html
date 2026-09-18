@@ -30,6 +30,12 @@
   import * as CommissionEngine from './shared/commission-engine.js';
   window.CommissionEngine = CommissionEngine;
 </script>
+<!-- THE RO total calculator + live card fee (ESM → window.RoTotals) — Profit by
+     RO's sale includes the live fee through it. -->
+<script type="module">
+  import * as RoTotals from './shared/ro-totals.js';
+  window.RoTotals = RoTotals;
+</script>
 <script src="shared/commission-cards.js"></script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/roadmap.js"></script>

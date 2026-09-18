@@ -63,7 +63,11 @@ window.BoardSettings = (function () {
   const SHOP_SETTINGS_ID = '00000000-0000-0000-0000-000000000001';
   const SHOP_DEFAULTS = {
     tax_rate: 0.07, default_labor_rate: null, show_tech_on_ro: false,
-    card_fee_pct: 0.03, shop_supplies_default: 0, hazmat_default: 0,
+    // card_fee_pct: NO code default. shop_settings.card_fee_pct is the ONLY
+    // rate; unreadable → null → the RO shows "rate unavailable" rather than
+    // silently charging a guessed % (shared/ro-totals.js). Was 0.03 until
+    // 2026-09-18 while the shop actually charges 4%.
+    card_fee_pct: null, shop_supplies_default: 0, hazmat_default: 0,
     default_diag_fee: null,
     // Feature switches — default OFF so the app fails safe to pre-feature
     // behavior when the column/row is missing (pre-migration) or unreadable.
@@ -148,7 +152,7 @@ window.BoardSettings = (function () {
       tax_rate: n(shopSettingsRow.tax_rate, SHOP_DEFAULTS.tax_rate),
       default_labor_rate: shopSettingsRow.default_labor_rate != null ? Number(shopSettingsRow.default_labor_rate) : null,
       show_tech_on_ro: !!shopSettingsRow.show_tech_on_ro,
-      card_fee_pct: n(shopSettingsRow.card_fee_pct, SHOP_DEFAULTS.card_fee_pct),
+      card_fee_pct: n(shopSettingsRow.card_fee_pct, null),   // no fallback — see SHOP_DEFAULTS
       shop_supplies_default: n(shopSettingsRow.shop_supplies_default, SHOP_DEFAULTS.shop_supplies_default),
       hazmat_default: n(shopSettingsRow.hazmat_default, SHOP_DEFAULTS.hazmat_default),
       // Quick diag-fee receipt default. Nullable + present only post-migration;

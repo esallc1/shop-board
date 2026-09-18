@@ -40,11 +40,17 @@ ledger — **it never writes**, and it is **not** QuickBooks.
   verbatim, see `recordPayment` in `advisor-board.html`), booking the raw payment would count
   a customer's **change** as revenue. Capping at `ro_total` prevents that — e.g. RO #5494
   counts **$192.75**, not the **$200** tendered; RO #5511 counts **$5,879.85**, not **$5,880**.
-- **`ro_total` reproduces the RO builder's `recalcTotals` exactly** (`roTotal()` in this
-  file, shared with the pipeline card): `Σ(quantity × unit_price)` over all `ro_line_items`
-  **plus** `taxable_subtotal × tax_rate`, tax skipped when the RO's customer is `tax_exempt`.
-  `tax_rate` is the **live** value from `shop_settings` via `BoardSettings.getShopSettings()`
-  (never hardcoded; fallback `0.065` only if the settings row hasn't loaded).
+- **`ro_total` is THE RO total from `shared/ro-totals.js`** (`roTotal()` in this file →
+  `RoTotals.totalsForRo`, shared with the pipeline card) — the same calculator the RO builder's
+  `recalcTotals` and the printed invoice use: `Σ(quantity × unit_price)` over all
+  `ro_line_items` **plus** `taxable_subtotal × tax_rate` (skipped when the customer is
+  `tax_exempt`) **plus the live card fee** when the RO's `card_fee_on` switch is on
+  ([[card-fee]]). So a card job counts as paid in full exactly when the customer paid what they
+  were charged. Rates are the **live** `shop_settings` values via `BoardSettings.getShopSettings()`
+  (tax fallback `0.065` only if the row hasn't loaded; the card-fee rate has **no** fallback).
+  The reads carry `card_fee_on` + the lines' `line_type`/`description` (`openRoQuery` /
+  `payRoQuery`, dropping `card_fee_on` if the column doesn't exist yet); a late settings load
+  re-totals via `FinancialPulse.refreshRates()`.
 - **Bucket date = the `paid_at` of the CLOSING (latest) payment**, converted to the shop's
   local date in **America/New_York** (`nyDate()` → `en-CA` `YYYY-MM-DD`). That is the
   "paid-and-closed" date the whole income half buckets by.
@@ -60,12 +66,9 @@ ledger — **it never writes**, and it is **not** QuickBooks.
   `invoice`). This is CrisData-only by nature — ALLDATA has no RO records. Estimates are
   included (they're open work); the aging list shows each RO's stage so estimates are
   distinguishable.
-- **Per-RO total is computed client-side from `ro_line_items`**, matching the RO builder's
-  `recalcTotals` (`advisor-board.html`): `Σ(quantity × unit_price)` over all lines **plus**
-  `taxable_subtotal × tax_rate`, where `tax_rate` comes from `shop_settings` via
-  `BoardSettings.getShopSettings()` (fallback `0.065`) and tax is skipped when the RO's
-  customer is `tax_exempt`. Fetched with one nested PostgREST select
-  (`repair_orders(...customers(...),ro_line_items(...))`).
+- **Per-RO total is computed client-side** by the same `roTotal()` → `shared/ro-totals.js`
+  (lines + tax + live card fee — see §2 above and [[card-fee]]). Fetched with one nested
+  PostgREST select (`openRoQuery`: `repair_orders(...card_fee_on,customers(...),ro_line_items(...))`).
 - **This card deliberately ignores the date range** — a pipeline is always "as of today."
   It's labelled `as of now`.
 
@@ -324,6 +327,7 @@ surfaced). PO 6009 (open) → provisional. Unmatched PO → "no receipts" empty 
   GP-vs-cost view — labor+parts-markup per advisor).
 
 ## Session change log
+- 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-08-11 — **Extracted the date-range math to the shared `PeriodRange` module**
   (`shared/period-range.js`) so the new **Profit by RO** screen ([[profit-by-ro]]) reuses the
   exact same windows instead of a forked copy. FinancialPulse's `rangeFor`/`currentRange`/`ymd`/

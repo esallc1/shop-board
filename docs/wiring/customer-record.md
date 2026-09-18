@@ -46,7 +46,9 @@ only, the **RO photo buckets** under each RO (§4b). Everything else is read-onl
   (`CustomerRecord.customerCounts().sinceIso`).
 - **Lifetime $** = Σ of the invoice total of the customer's **CLOSED** ROs only
   (`custLifetimeClosed()` over `custTotals`, which is `CustomerRecord.totalsByRo` of the
-  batched `ro_line_items`). The tile is **omitted** when no closed RO has a total — never
+  batched `ro_line_items` — `shared/ro-totals.js` underneath, so each RO's total includes its
+  live card fee when `card_fee_on` is set; the RO read carries `card_fee_on`, passed as
+  `cardFeeOnByRo`. [[card-fee]]). The tile is **omitted** when no closed RO has a total — never
   shown as `$0` or as a lifetime figure that pretends to include ALLDATA years.
 - **Last activity** = best-available max of `customers.last_invoiced`, latest RO
   `created_at`, and the most recent call `started_at` (`custLastActivity()`).
@@ -573,6 +575,7 @@ then branches on whether the search box has text:
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
+- 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-09-18 (later) — **§4f re-verified SIGNED IN** as ZZ Test Advisor (advisor role,
   `authenticated` JWT, sandbox) on `test.*`: every Supabase/`/api` request carried the user's
   bearer token (logged per request); email + second phone + address saved and survived a reload;

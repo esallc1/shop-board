@@ -59,10 +59,16 @@ is shown in the **totals box** (`workAndTotals`), in this order:
 | Labor / Parts | `catSum('labor')` / `catSum('parts') + catSum('package')` | fixed labels |
 | Hazmat \* / Shop Supplies \* | `catSum('hazmat')` / `catSum('shop_supply')` | fixed labels, **lumped on purpose** (flat shop charges — the footnote says so) |
 | **one row per `fee` line** | `feeRows` — that line's `quantity × unit_price` | **its stored `description`, exactly as written** (HTML-escaped); blank → `Fee` |
-| Taxes (rate% / exempt) | `taxableBase × rate` | fixed label |
-| Invoice Total | labor + parts + hazmat + supplies + `feesTotal` + tax | fixed label |
+| Taxes (rate% / exempt) | `T.tax` | fixed label |
+| **Live card fee** (switch ON) | `T.cardFee` — `card_fee_pct × (lines + tax)` | `Card processing fee (4.00%)` (from the rate); "— rate unavailable" if the rate can't load. After Taxes because it's charged on the taxed total. [[card-fee]] |
+| Invoice Total | `T.total` from **`shared/ro-totals.js`** (`computeRoTotals`) — lines + tax + live fee | fixed label |
 
-- **Why by name:** the card fee (`addCardFee`, [[ro-line-items]]) is stored as an ordinary
+The totals math is **not** in this file any more: `T = computeRoTotals(lines, …)` is the same
+calculator every other surface uses. With the switch off the document is byte-identical to the
+pre-switch builder (checked on 54 real sandbox ROs, 2026-09-18).
+
+- **Why by name:** the card fee (then `addCardFee`, [[ro-line-items]]; a live switch since
+  2026-09-18, [[card-fee]]) was stored as an ordinary
   `line_type='fee'` row whose `description` reads e.g. `Card processing fee (4.00%)`. Until
   2026-09-18 the builder summed every fee line into one unnamed **"Fees"** row, so the customer
   saw a charge with no explanation. Nothing marks a line as *the card fee* specifically — so the
@@ -117,8 +123,8 @@ is shown in the **totals box** (`workAndTotals`), in this order:
 
 ## Known gaps & open questions (as of 2026-09-18)
 - **5 of the sandbox's 10 fee lines are marked `taxable`** (the 4 old `CARD PROCESSING FEE` lines
-  and RO #6011), so sales tax is charged on those fees. `addCardFee` itself always inserts
-  `taxable:false`. Left as-is by decision (display-only change); flagged for a data decision.
+  and RO #6011), so sales tax is charged on those fees. The old `addCardFee` always inserted
+  `taxable:false` (and the live switch that replaced it is never taxed — [[card-fee]]). Left as-is by decision (display-only change); flagged for a data decision.
 - The fee row shows only the amount, not qty × price. Every fee line today is qty 1.
 - **Embed width** — the invoice is designed for a 7.5in page; in the bookkeeping split it renders
   in a ~1.5fr column (modal widened to 1140px) with `overflow-x:auto`. Fine on desktop; tight on
@@ -146,6 +152,7 @@ is shown in the **totals box** (`workAndTotals`), in this order:
   [[packages]] (package lines print under Parts), [[settings]] (shop profile + `payment_methods`).
 
 ## Session change log
+- 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-09-18 — **Fee lines print by name** (§2a): the single "Fees" totals row became one row per
   fee line labelled with its stored description (blank → "Fee"). Display only — totals, tax and
   PAID state proven identical to the cent on 10 real fee ROs (incl. #6011 and the old

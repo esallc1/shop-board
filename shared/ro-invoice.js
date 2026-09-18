@@ -22,6 +22,8 @@
                   from the original printout).
    ============================================================ */
 
+import { computeRoTotals } from './ro-totals.js';
+
 // ── pure local helpers (no globals) ─────────────────────────────────────────
 function esc(s) {
   return (s == null ? '' : String(s))
@@ -131,12 +133,16 @@ export function buildInvoiceHtml(opts) {
   const catSum = (t) => lines.filter(l => l.line_type === t).reduce((s, l) => s + num(l.quantity) * num(l.unit_price), 0);
   const laborTotal = catSum('labor');
   const partsTotal = catSum('parts') + catSum('package');   // package folds into Parts
-  const hazmatTotal = catSum('hazmat'), suppliesTotal = catSum('shop_supply'), feesTotal = catSum('fee');
-  const taxableBase = lines.reduce((s, l) => s + (l.taxable ? num(l.quantity) * num(l.unit_price) : 0), 0);
+  const hazmatTotal = catSum('hazmat'), suppliesTotal = catSum('shop_supply');
   const exempt = !!c.tax_exempt;
   const rate = (cfg.tax_rate != null && Number.isFinite(Number(cfg.tax_rate))) ? Number(cfg.tax_rate) : TAX_FALLBACK;
-  const taxTotal = exempt ? 0 : taxableBase * rate;
-  const invoiceTotal = laborTotal + partsTotal + hazmatTotal + suppliesTotal + feesTotal + taxTotal;
+  // THE total comes from shared/ro-totals.js — the same calculator the RO
+  // detail, payments box, board cards, bookkeeping and customer record use, so
+  // the printed number can't drift from them. It includes the LIVE card fee
+  // (ro.card_fee_on × settings.card_fee_pct) when switched on.
+  const T = computeRoTotals(lines, { taxRate: rate, exempt, cardFeeOn: !!ro.card_fee_on, cardFeePct: cfg.card_fee_pct });
+  const taxTotal = T.tax;
+  const invoiceTotal = T.total;
 
   // PAID state — invoice/closed and fully paid off (Σ payments ≥ total)
   const paidSum = payments.reduce((s, p) => s + num(p.amount), 0);
@@ -158,14 +164,18 @@ export function buildInvoiceHtml(opts) {
   const totalRow = (label, val, note) => `<tr><td>${label}${note ? ' <sup>*</sup>' : ''}</td><td class="tr">${M(val)}</td></tr>`;
   // Fee lines print ONE ROW EACH, by their stored description — e.g. "Card
   // processing fee (4.00%)" — where a single unnamed "Fees" row used to be.
-  // DISPLAY ONLY: each row's amount is the same qty × unit_price that feesTotal
-  // sums, feesTotal still feeds invoiceTotal unchanged, and taxable fee lines
-  // are still taxed via taxableBase above. Wording is printed exactly as stored
+  // DISPLAY ONLY: each row's amount is that line's qty × unit_price, which is
+  // already inside T.subtotal (so inside invoiceTotal), and a taxable fee line
+  // is still taxed via T.taxableBase. Wording is printed exactly as stored
   // (escaped), never renamed; a blank description falls back to "Fee".
   const feeRows = lines.filter(l => l.line_type === 'fee').map(l => {
     const d = l.description == null ? '' : String(l.description);
     return totalRow(d.trim() ? P(d) : 'Fee', num(l.quantity) * num(l.unit_price));
   }).join('');
+  // The LIVE card fee (switch ON) — after Taxes because it is charged on the
+  // taxed total. Rate unreadable → say so rather than print a guessed amount.
+  const liveFeeRow = T.cardFeeApplied ? totalRow(P(T.cardFeeLabel), T.cardFee)
+    : (T.cardFeeUnavailable ? `<tr><td>Card processing fee — rate unavailable</td><td class="tr">—</td></tr>` : '');
 
   const dateStr = fmtDate(new Date());
   const logo = cfg.logo_url ? `<img class="logo" src="${P(cfg.logo_url)}" alt="">` : '';
@@ -189,7 +199,7 @@ export function buildInvoiceHtml(opts) {
       ${totalRow('Hazmat', hazmatTotal, true)}
       ${totalRow('Shop Supplies', suppliesTotal, true)}
       ${feeRows}
-      ${totalRow(exempt ? 'Taxes (exempt)' : 'Taxes (' + (rate * 100).toFixed(2) + '%)', taxTotal)}
+      ${totalRow(exempt ? 'Taxes (exempt)' : 'Taxes (' + (rate * 100).toFixed(2) + '%)', taxTotal)}${liveFeeRow}
       <tr><td>Invoice Total</td><td class="tr">${M(invoiceTotal)}</td></tr>
     </table>
     <div class="foot-note">* Shop supplies &amp; hazmat are flat shop charges, not per-part.</div>

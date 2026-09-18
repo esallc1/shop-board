@@ -59,7 +59,10 @@ gross profit in the app. Profit by RO does **not** compute cost its own way.
   - **fee / shop_supply / hazmat** → `0` (revenue counts toward the sale but contributes no
     modeled profit).
 - **Per RO:** `profit = CommissionEngine.roGrossProfit(lines, opts)`;
-  `sale = Σ(quantity × unit_price)` over all the RO's lines (pre-tax, every line type).
+  `sale = Σ(quantity × unit_price)` over all the RO's lines (pre-tax, every line type) **plus
+  the live card fee** when the RO's switch is on — counted as revenue exactly as a stored fee
+  line always was (`roSale` → `RoTotals.totalsForRo(...).preTaxRevenue`; `fetchInputs` now reads
+  `card_fee_on` + `customers(tax_exempt)` for it, since the fee's base includes tax). [[card-fee]]
 - **The `opts` object** is built once from `BoardSettings.getShopSettings()` (margins) + a
   `{package_unit_id → unit_cost}` map from `package_units`, exactly as `CommissionEngine.compute`
   builds it.
@@ -130,7 +133,8 @@ reload). The keyline legend (§4.5) shows in **Bars only**; the footnote shows i
   `activateView('profitro')`. `mount()` rebuilds the shell and **refetches** each open (fresh
   closed-RO numbers), matching the Build Sheet's mount model.
 - **Data fetch:** `CommissionEngine.fetchInputs(db)` — the canonical read (ROs with
-  `closed_at`, line items with `unit_cost`/`package_unit_id`, `package_units.unit_cost`). It
+  `closed_at`, `card_fee_on` and `customers(tax_exempt)`; line items with
+  `unit_cost`/`package_unit_id`/`taxable`/`description`; `package_units.unit_cost`). It
   degrades quietly on a missing column, so a pre-migration schema still renders with fallbacks.
 
 ## Known gaps & open questions (as of 2026-08-11)
@@ -182,6 +186,7 @@ reload). The keyline legend (§4.5) shows in **Bars only**; the footnote shows i
   that owns the profit math), [[packages]] (the unit list).
 
 ## Session change log
+- 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-08-11 — **Change 1 + Step C.** (1) **Bars now show every closed RO** — dropped the 12-bar
   cap + "+ N more small ROs" tail; `$0` ROs render at the bottom with an empty bar and
   `$0 · — · $sale` (margin "—" when sale or profit is 0, no divide-by-zero). (C) Added a
