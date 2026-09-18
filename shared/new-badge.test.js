@@ -82,6 +82,11 @@ test('CSS: hidden by default, not clickable, 3 pulses, reduced-motion stops it',
   const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'new-badge.css'), 'utf8');
   assert.match(css, /\.cd-new \{ display: none; \}/);
   assert.match(css, /pointer-events: none;/);
+  // Layout-neutral: out of flow, no offsets in the default (inline) mode.
+  const on = css.slice(css.indexOf('.cd-new.is-on {'), css.indexOf('}', css.indexOf('.cd-new.is-on {')));
+  assert.match(on, /position: absolute;/);
+  assert.doesNotMatch(on, /\b(top|left|right|bottom):/);
+  assert.match(css, /\.cd-new-anchor \{ position: relative;/);
   assert.match(css, /animation: cd-new-glow [^;]* 3;/);
   assert.match(css, /prefers-reduced-motion: reduce\)[\s\S]*animation: none;/);
 });

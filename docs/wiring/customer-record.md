@@ -109,9 +109,8 @@ resolve.
 
 ## 4. The record layout — two columns (`#custRecordPanel`)
 Above the grid sits the **top strip** (`.cust-rec-strip`): `← Back` (`#custBackBtn`, §3) on the
-left, **`Edit`** (`#custEditBtn`, §4f) on the right — wrapped with a **NEW** pill in
-`.cust-rec-strip-end` (shown until `2026-09-26`, see [[new-badge]]). It is the only Edit control
-on the page.
+left, **`Edit`** (`#custEditBtn`, §4f) on the right, wrapped in `.cd-new-anchor` with a **NEW**
+corner tag (shown until `2026-09-26`, see [[new-badge]]). It is the only Edit control on the page.
 
 `.cust-rec-layout` is a `320px 1fr` grid (single column ≤860px).
 

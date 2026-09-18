@@ -794,8 +794,6 @@
   .cust-rec-top { display:flex; align-items:baseline; gap:8px; }
   /* record top strip: Back left, Edit right */
   .cust-rec-strip { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:12px; }
-  .cust-rec-strip-end { display:inline-flex; align-items:center; gap:0; }   /* NEW pill + Edit, kept together on the right */
-  .cust-rec-strip-end .cd-new.is-on { margin:0 8px 0 0; }
   /* Edit form's duplicate-phone warning */
   .cust-edit-dupe { border:1px solid var(--amber); background:#fffaf0; border-radius:8px; padding:10px 12px; margin:4px 0 10px; font-size:0.8rem; color:#92400e; }
   .cust-edit-dupe b { color:var(--text); }
@@ -1650,9 +1648,9 @@
            focus and would wipe a half-typed inline form). -->
       <div class="cust-rec-strip">
         <button class="btn btn-ghost" id="custBackBtn" style="font-size:0.78rem;padding:6px 12px">← Back</button>
-        <span class="cust-rec-strip-end">
-          <span class="cd-new" data-new-until="2026-09-26">NEW</span>
+        <span class="cd-new-anchor">
           <button class="btn btn-ghost" id="custEditBtn" style="font-size:0.78rem;padding:6px 12px">Edit</button>
+          <span class="cd-new" data-new-until="2026-09-26">NEW</span>
         </span>
       </div>
 

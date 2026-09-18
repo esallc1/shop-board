@@ -29,11 +29,17 @@ remember to take it down.
    midnight ET on the 26th. A week is the usual run.
 3. That's it. Markup rendered later by JS works too (a `MutationObserver` picks it up).
 
-**Placement tips.** Inside a label: put it right after the label text
-(`<label>Transmission<span class="cd-new" …>NEW</span></label>`). Next to a button in a
-flex row: wrap the pill and the button together (see `.cust-rec-strip-end` in
-`advisor-board.html`) so the row's `justify-content` doesn't treat the pill as its own item and
-move things around.
+**Two placements — pick by what it labels:**
+- **Next to TEXT** (a label, a heading): put it right after the text —
+  `<label>Transmission<span class="cd-new" data-new-until="…">NEW</span></label>`.
+  It draws just after the words and takes no space.
+- **On a BUTTON**: wrap the button in `.cd-new-anchor` and put the pill **after** it —
+  `<span class="cd-new-anchor"><button …>Edit</button><span class="cd-new" data-new-until="…">NEW</span></span>`.
+  It becomes a small tag on the button's top-right corner; the button doesn't move.
+
+Don't drop a bare pill into a **flex** row as its own item: an out-of-flow child of a flex
+container is placed at the container's start, not beside its neighbour. Use one of the two
+patterns above.
 
 ## 2. The rule — `isNewBadgeVisible(until, now)`
 - Visible **only** when `data-new-until` is a real `YYYY-MM-DD` day (`parseUntil` rejects
@@ -56,16 +62,24 @@ move things around.
 - **Motion:** `cd-new-glow` — a soft green `box-shadow` glow, **1.8s × 3 iterations**, then
   still. It runs when the badge turns on (page load). `prefers-reduced-motion: reduce` →
   `animation: none`.
-- **Layout-neutral:** `inline-block`, `line-height:1`, and **negative vertical margins**
-  (`-4px`) so its margin box is shorter than the line it sits in — it cannot make a label or a
-  row taller. It takes only its own width beside the text.
+- **Layout-neutral — it takes up NO space:** `.cd-new.is-on` is `position:absolute` with **no
+  offsets**, so the browser draws it at its *static position* (exactly where it would have sat
+  inline, just after the text) while removing it from layout. It can't wrap, push an input down,
+  or widen anything, however narrow the column. In corner mode, `.cd-new-anchor` is
+  `position:relative` and the pill gets `top:-9px; right:-8px`.
+  > ⚠ **Why not inline?** The first version was `inline-block` with negative vertical margins.
+  > At phone width the Transmission label column is **136px**, "TRANSMISSION" + pill didn't fit,
+  > the pill wrapped to a second line and the input dropped **12px** — caught by measuring on
+  > staging, not by the tests. Negative margins stop a pill making one line taller; they don't
+  > stop it wrapping.
+- It **can overhang** the edge of a narrow column (visual only — it's `pointer-events:none`).
 - **Not clickable:** `pointer-events:none` + no text selection — a tap on the pill falls through
   to what's under it; it can't steal a click from the neighbouring button.
 
 ## 5. Current uses
 | Where | Markup | until |
 |---|---|---|
-| Customer record top strip, beside **Edit** ([[customer-record]] §4f) | `.cust-rec-strip-end` > `.cd-new` + `#custEditBtn` | `2026-09-26` |
+| Customer record top strip, corner tag on **Edit** ([[customer-record]] §4f) | `.cd-new-anchor` > `#custEditBtn` + `.cd-new` | `2026-09-26` |
 | RO "Vehicle & reference details" → **Transmission** label ([[ro-vehicle-details]]) | inside the `<label>` | `2026-09-26` |
 
 When a date passes, the markup can stay (it's inert) or be deleted in the next tidy-up.
@@ -82,7 +96,7 @@ When a date passes, the markup can stay (it's inert) or be deleted in the next t
 - `shared/new-badge.css` — hidden default, `.is-on` pill, `cd-new-glow`, reduced-motion.
 - `shared/new-badge.test.js` — 10 tests (day before / on / after, midnight ET edge, 9pm ET vs
   UTC, EST winter, garbage dates, `applyNewBadges`, CSS guarantees).
-- `advisor-board.html` — the `<link>` + module loader, `.cust-rec-strip-end` CSS, the two uses.
+- `advisor-board.html` — the `<link>` + module loader and the two uses.
 
 ## Session change log
 - 2026-09-18 — **Created.** Shared NEW pill; first two uses (customer Edit, RO Transmission

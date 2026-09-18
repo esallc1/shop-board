@@ -7,19 +7,26 @@
    date, or past date → nothing renders.
 
    LAYOUT-NEUTRAL + NOT CLICKABLE:
-   • inline-block with line-height 1 and NEGATIVE vertical margins, so its
-     margin box is shorter than the text line it sits in — it can never make
-     a label or row taller.
+   • position:absolute with NO offsets. An absolutely positioned box with
+     top/left "auto" is drawn at its STATIC position — exactly where it would
+     have sat inline, right after the label text — but takes up NO space. So
+     it can never wrap, push an input down, or widen anything, however narrow
+     the column. (Inline-with-negative-margins was tried first: at phone width
+     "TRANSMISSION" + pill did not fit a 136px label, the pill wrapped, and the
+     input dropped 12px. Measured on staging 2026-09-18.)
+   • On a BUTTON, wrap the button in .cd-new-anchor and put the pill after it:
+     it becomes a corner tag on the button's top-right, again taking no space.
    • pointer-events:none — a tap on the badge falls through to whatever is
      underneath; it never steals a click from the button next to it.
+   • It can overhang a narrow column's edge. That is visual only.
    Colors: its own bright green. Deliberately NOT red/orange (problem /
    comeback) and NOT the blue link/accent color.
    ============================================================ */
 .cd-new { display: none; }
 .cd-new.is-on {
+  position: absolute;          /* static position, zero footprint — see above */
   display: inline-block;
-  vertical-align: middle;
-  margin: -4px 0 -4px 6px;
+  margin: -2px 0 0 6px;
   padding: 3px 7px;
   border-radius: 999px;
   background: #16a34a;
@@ -35,6 +42,9 @@
   -webkit-user-select: none;
   animation: cd-new-glow 1.8s ease-in-out 3;   /* three slow pulses, then still */
 }
+/* Corner-tag mode: <span class="cd-new-anchor"><button>…</button><span class="cd-new" …>NEW</span></span> */
+.cd-new-anchor { position: relative; display: inline-block; }
+.cd-new-anchor > .cd-new.is-on { top: -9px; right: -8px; margin: 0; }
 @keyframes cd-new-glow {
   0%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
   50%      { box-shadow: 0 0 0 5px rgba(22, 163, 74, 0.35), 0 0 10px 2px rgba(22, 163, 74, 0.45); }
