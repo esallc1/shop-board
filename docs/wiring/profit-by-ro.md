@@ -63,6 +63,10 @@ gross profit in the app. Profit by RO does **not** compute cost its own way.
   the live card fee** when the RO's switch is on — counted as revenue exactly as a stored fee
   line always was (`roSale` → `RoTotals.totalsForRo(...).preTaxRevenue`; `fetchInputs` now reads
   `card_fee_on` + `customers(tax_exempt)` for it, since the fee's base includes tax). [[card-fee]]
+  `loadData` first **waits for the calculator** (`cdRoTotalsReady`, [[card-fee]] §3a); if it
+  failed to load the body shows the "RO totals couldn't load… Reload the page." message and no
+  numbers. There is **no fallback sale** any more (the old hand sum silently dropped the fee) —
+  `roSale` throws if reached without the calculator.
 - **The `opts` object** is built once from `BoardSettings.getShopSettings()` (margins) + a
   `{package_unit_id → unit_cost}` map from `package_units`, exactly as `CommissionEngine.compute`
   builds it.
@@ -186,6 +190,8 @@ reload). The keyline legend (§4.5) shows in **Bars only**; the footnote shows i
   that owns the profit math), [[packages]] (the unit list).
 
 ## Session change log
+- 2026-09-18 — `loadData` waits for THE RO calculator; `roSale`'s no-fee fallback deleted
+  ([[card-fee]] §3a). Rest of this doc not re-verified.
 - 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-08-11 — **Change 1 + Step C.** (1) **Bars now show every closed RO** — dropped the 12-bar
   cap + "+ N more small ROs" tail; `$0` ROs render at the bottom with an empty bar and

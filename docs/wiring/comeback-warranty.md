@@ -3,8 +3,9 @@
 > Doc: `/docs/wiring/comeback-warranty.md`
 > Last updated: 2026-09-18 — **§6 added: when the RO detail's Warranty toggle (and Status
 > dropdown) re-read the floor row** — fixes "dead until the RO is closed and reopened".
-> Verified vs commit `c8cd80a` (branch `fix/floor-controls-refresh` off `main` `baecd25`, on
-> staging, **not yet on prod**). §6, Known gaps and Where-it-lives re-checked against the code
+> Verified vs commit `c8cd80a` (branch `fix/floor-controls-refresh` off `main` `baecd25`);
+> **shipped to prod at `b7ba7dd`** (2026-09-18 — www/board/apex `/api/version` = `b7ba7dd`,
+> `advisor-board.html` + `shared/floor-refresh-gate.js` byte-identical to git). §6, Known gaps and Where-it-lives re-checked against the code
 > (all line numbers re-pointed) and §6 driven on `test.*` signed in as ZZ Test Advisor — see the
 > change log. §1–§5 not re-verified.
 > Previously: 2026-07-30 — ✅ verified vs commit `bea25cf` — every claim re-checked against `shared/comeback-chain.js`, `advisor-board.html`, `shared/warranty-mirror.js`, and the migrations.
@@ -122,6 +123,7 @@ open RO until one of the four moments above (e.g. switching tabs and back). See 
 - Migrations: `20260729_comeback_capture.sql` (`comeback_resolution`), `20260729_repair_orders_no_delete.sql` (anon loses DELETE)
 
 ## Session change log
+- 2026-09-18 — Header: §6 **shipped to prod at `b7ba7dd`** (was "not yet on prod").
 - 2026-09-18 — **§6: Warranty toggle + Status dropdown no longer go dead.** Added
   `refreshFloorControls` (re-read on open, after this RO's check-in, after a tech assign, and
   quietly on tab return) with a real stale-reply guard (`shared/floor-refresh-gate.js`, 6 tests).

@@ -156,12 +156,11 @@ window.ProfitByRO = (function () {
   // the way a stored fee line always was. Comes from shared/ro-totals.js
   // (preTaxRevenue) so it matches every other surface. `ro` carries
   // card_fee_on + customers(tax_exempt) (CommissionEngine.fetchInputs).
+  // loadData waits for the calculator first (card-fee.md §3a). There is NO
+  // fallback sum here any more: the old one quietly dropped the card fee.
   function roSale(lines, ro) {
     const RT = window.RoTotals;
-    if (!RT) {
-      console.warn('[ProfitByRO] RoTotals not loaded — sale excludes any live card fee');
-      return (lines || []).reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0);
-    }
+    if (!RT) throw new Error(window.cdRoTotalsMissingText || 'RO totals calculator not loaded — reload the page.');
     const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
     return RT.totalsForRo({ ...(ro || {}), ro_line_items: lines || [] }, cfg, 0.07).preTaxRevenue;
   }
@@ -173,6 +172,7 @@ window.ProfitByRO = (function () {
   let customFrom = '', customTo = '';
   let inputs = null;               // cached { ros, lines, packageUnits } from CommissionEngine.fetchInputs
   let loading = false;
+  let totalsMissing = false;       // THE RO calculator failed to load → message, no numbers
   let graphView = 'bars';          // Step C: 'bars' (default) | 'donut' | 'split'
 
   // Donut slice palette (mirrors the graphs mockup: c1..c4 + a neutral "Other").
@@ -257,6 +257,10 @@ window.ProfitByRO = (function () {
     const body = wrap.querySelector('.pro-body');
     const sub = wrap.querySelector('.pro-sub');
 
+    if (totalsMissing) {
+      body.innerHTML = `<div class="pro-empty" style="color:#b91c1c">${esc(window.cdRoTotalsMissingText || "RO totals couldn't load. Reload the page.")}</div>`;
+      return;
+    }
     if (loading || !inputs) {
       body.innerHTML = `<div class="pro-loading">Loading closed repair orders…</div>`;
       sub.innerHTML = `Per-job profit on repair orders closed in the period.`;
@@ -447,6 +451,14 @@ window.ProfitByRO = (function () {
   async function loadData() {
     loading = true;
     render();
+    // Sales come from THE calculator (a deferred module on the host board) —
+    // wait for it; this can be mounted during page load (card-fee.md §3a).
+    const RT = await (window.cdRoTotalsReady ? window.cdRoTotalsReady() : Promise.resolve(window.RoTotals || null));
+    if (!RT) {
+      console.error('[ProfitByRO] RO totals calculator did not load');
+      totalsMissing = true; loading = false; render();
+      return;
+    }
     try {
       const CE = window.CommissionEngine;
       if (!CE || !CE.fetchInputs) throw new Error('CommissionEngine not loaded');

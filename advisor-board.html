@@ -1182,6 +1182,9 @@
 <script src="shared/auth-fetch.js"></script>
 <script src="shared/office-identity.js"></script>
 <script src="shared/board-settings.js"></script>
+<!-- cdRoTotalsReady(): wait for THE RO calculator (a deferred module) before any
+     total renders. Classic, and BEFORE the main inline script. card-fee.md §3a. -->
+<script src="shared/ro-totals-ready.js"></script>
 <script src="shared/format.js"></script>
 <script src="shared/catch-moment.js"></script>
 <script src="shared/team-chat.js"></script>
@@ -4784,10 +4787,20 @@
       const r = shopCfg().tax_rate;
       return (r != null && Number.isFinite(Number(r))) ? Number(r) : CD_TAX_FALLBACK;
     }
+    // Resolves with THE calculator once its module has run, or null if it failed
+    // to load (shared/ro-totals-ready.js; tolerate that helper itself missing).
+    const rtReady = () => (window.cdRoTotalsReady ? window.cdRoTotalsReady() : Promise.resolve(window.RoTotals || null));
+    const RT_MISSING = () => window.cdRoTotalsMissingText || "RO totals couldn't load. Reload the page.";
     // THE RO total for this board — shared/ro-totals.js, so the RO detail,
     // payments box, board cards, close archive, print and customer record can
     // never disagree. `ro` supplies customers.tax_exempt + card_fee_on.
+    // Callers that can run during page load (loadRecentList, openRo) await
+    // rtReady() first — shared/ro-totals.js is a deferred module and may not
+    // have run yet (card-fee.md §3a). Reaching here without it is a bug or a
+    // failed load: throw a plain message, NEVER compute a total another way
+    // (it would silently drop the card fee).
     function roTotalsOf(lines, ro) {
+      if (!window.RoTotals) throw new Error(window.cdRoTotalsMissingText || 'RO totals calculator not loaded — reload the page.');
       return window.RoTotals.computeRoTotals(lines || [], {
         taxRate: taxRate(),
         exempt: !!(ro && ro.customers && ro.customers.tax_exempt),
@@ -4956,6 +4969,13 @@
       if (error) {
         console.error('[CdRO] kanban load failed', error);
         $('cdColEstimate').innerHTML = `<div class="cd-kanban-empty" style="color:var(--red)">Failed to load: ${esc(error.message)}</div>`;
+        return;
+      }
+      // Cards show totals + balances — wait for the calculator (this read can
+      // land before its deferred module has run). Failed → say so, no cards.
+      if (!(await rtReady())) {
+        console.error('[CdRO] RO totals calculator did not load');
+        $('cdColEstimate').innerHTML = `<div class="cd-kanban-empty" style="color:var(--red)">${esc(RT_MISSING())}</div>`;
         return;
       }
       allRos = data || [];
@@ -5559,6 +5579,9 @@
        nothing and therefore CLEARS the target, which is exactly today's
        behaviour. */
     async function openRo(roId, origin) {
+      // Totals box + payments need THE calculator; a ?ro= deep link calls this
+      // during page load, before the deferred module may have run.
+      if (!(await rtReady())) { alert(RT_MISSING()); return; }
       roBackTarget = (origin && origin.kind === 'customer' && origin.customerId != null) ? origin : null;
       const backBtn = $('cdRoBackBtn');
       if (backBtn) {

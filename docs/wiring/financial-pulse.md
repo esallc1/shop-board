@@ -50,7 +50,10 @@ ledger — **it never writes**, and it is **not** QuickBooks.
   (tax fallback `0.065` only if the row hasn't loaded; the card-fee rate has **no** fallback).
   The reads carry `card_fee_on` + the lines' `line_type`/`description` (`openRoQuery` /
   `payRoQuery`, dropping `card_fee_on` if the column doesn't exist yet); a late settings load
-  re-totals via `FinancialPulse.refreshRates()`.
+  re-totals via `FinancialPulse.refreshRates()`. **`update()` is async and waits for the
+  calculator** before building income (`cdRoTotalsReady`, [[card-fee]] §3a) — the Overview load can
+  finish before its module has run; if it failed to load, the Pulse card shows only the "RO totals
+  couldn't load… Reload the page." message. `refreshRates()` is a no-op until then.
 - **Bucket date = the `paid_at` of the CLOSING (latest) payment**, converted to the shop's
   local date in **America/New_York** (`nyDate()` → `en-CA` `YYYY-MM-DD`). That is the
   "paid-and-closed" date the whole income half buckets by.
@@ -327,6 +330,8 @@ surfaced). PO 6009 (open) → provisional. Unmatched PO → "no receipts" empty 
   GP-vs-cost view — labor+parts-markup per advisor).
 
 ## Session change log
+- 2026-09-18 — `update()` waits for THE RO calculator; failed load → message, no numbers
+  ([[card-fee]] §3a). Rest of this doc not re-verified.
 - 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-08-11 — **Extracted the date-range math to the shared `PeriodRange` module**
   (`shared/period-range.js`) so the new **Profit by RO** screen ([[profit-by-ro]]) reuses the

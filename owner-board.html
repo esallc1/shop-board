@@ -17,6 +17,9 @@
 <script src="shared/auth-fetch.js"></script>
 <script src="shared/office-identity.js"></script>
 <script src="shared/board-settings.js"></script>
+<!-- cdRoTotalsReady(): wait for THE RO calculator (a deferred module) before any
+     total renders. Classic, and BEFORE profit-by-ro.js. card-fee.md §3a. -->
+<script src="shared/ro-totals-ready.js"></script>
 <!-- Cost & Profit — Build Sheet workbench (Step 1 frame). Always on (no
      feature switch — ships via preview → prod). -->
 <script src="shared/build-sheet.js"></script>

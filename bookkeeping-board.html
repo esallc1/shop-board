@@ -654,6 +654,10 @@
 <script src="shared/auth-fetch.js"></script>
 <script src="shared/office-identity.js"></script>
 <script src="shared/board-settings.js"></script>
+<!-- cdRoTotalsReady(): wait for THE RO calculator (a deferred module) before any
+     total renders. Classic, and BEFORE profit-by-ro.js + the main inline script.
+     card-fee.md §3a. -->
+<script src="shared/ro-totals-ready.js"></script>
 <!-- Cost & Profit — Build Sheet workbench (Step 1 frame). Always on (no
      feature switch — ships via preview → prod). -->
 <script src="shared/build-sheet.js"></script>
@@ -3703,10 +3707,15 @@
     // calculator the advisor board and the printed invoice use, so "paid in full"
     // here compares payments against the SAME number the customer was charged.
     // 0.065 is this board's existing tax fallback (unchanged by the card-fee slice).
+    // update() waits for the calculator before anything reaches here (§3a);
+    // without it: a plain error, never a total computed another way.
     function roTotal(ro) {
+      if (!window.RoTotals) throw new Error(window.cdRoTotalsMissingText || 'RO totals calculator not loaded — reload the page.');
       const cfg = (window.BoardSettings && BoardSettings.getShopSettings) ? BoardSettings.getShopSettings() : {};
       return window.RoTotals.totalsForRo(ro, cfg, 0.065).total;
     }
+    const rtReady = () => (window.cdRoTotalsReady ? window.cdRoTotalsReady() : Promise.resolve(window.RoTotals || null));
+    const RT_MISSING = () => window.cdRoTotalsMissingText || "RO totals couldn't load. Reload the page.";
 
     // income buckets for the trend chart — granularity from the span
     function trendBuckets(r) {
@@ -4007,6 +4016,12 @@
       const printBtn0 = document.getElementById('finRoPrint');
       if (printBtn0) printBtn0.style.display = 'none';
       if (overlay) overlay.style.display = 'flex';
+      // Its profit + print totals need THE calculator (§3a) — never render without it.
+      if (!(await rtReady())) {
+        if (subEl) subEl.textContent = '';
+        if (body) body.innerHTML = '<div class="fin-rc-empty">' + esc(RT_MISSING()) + '</div>';
+        return;
+      }
       let ro = null, receipts = [], poLines = [], payments = [];
       // Full RO fields so the LEFT pane can render the real invoice document.
       const RO_COLS = 'po,ro_number,status,created_at,closed_at,card_fee_on,complaint,advisory_notes,technician,odometer_in,miles_out,customers(name,phone_primary,email,tax_exempt),vehicles(year,make,model,engine,transmission_code,vin,plate,plate_state),service_writer:employees!service_writer_id(name),ro_line_items(line_type,description,part_number,quantity,unit_price,taxable)';
@@ -4263,18 +4278,28 @@
       });
     }
 
-    function update(next) {
+    // Async: the Overview load that calls this can finish before THE calculator's
+    // deferred module has run (card-fee.md §3a) — wait for it. Failed to load →
+    // the Pulse says so and shows no numbers.
+    async function update(next) {
       data = { processed: next.processed || [], openROs: next.openROs || [], jobCats: next.jobCats || [], payments: next.payments || [] };
       catByPo = {};
       data.jobCats.forEach(j => { if (j.po && !(j.po in catByPo) && j.job_category) catByPo[j.po] = j.job_category; });
+      if (!(await rtReady())) {
+        console.error('[FinancialPulse] RO totals calculator did not load');
+        const el = document.getElementById('finPulse');
+        if (el) el.innerHTML = '<div class="card-title"><div class="dot" style="background:var(--green)"></div>Financial Pulse</div>' + emptyBox(RT_MISSING());
+        return;
+      }
       paidIncome = buildPaidIncome();   // rebuild the paid-in-full income records (needs catByPo)
       wire();
       render();
     }
     // Rates changed (tax / card fee loaded late) → recompute totals from the
     // data already in hand. No fetch, and NOT wire() (listeners stay single).
+    // Before the calculator is ready it's a no-op — update() paints once it is.
     function refreshRates() {
-      if (!data) return;
+      if (!data || !window.RoTotals) return;
       paidIncome = buildPaidIncome();
       render();
     }

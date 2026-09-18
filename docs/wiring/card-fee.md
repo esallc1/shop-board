@@ -1,7 +1,11 @@
 # How the card processing fee is wired (live switch + the one RO total)
 
 > Doc: `/docs/wiring/card-fee.md`
-> Last updated: 2026-09-18 — verified vs commit `41e1883` (LIVE on prod — www/board/apex). Every
+> Last updated: 2026-09-18 (evening) — **§3a added: no total may render before the calculator has
+> loaded** (fixes the RO Board's "Something failed in the background: … 'computeRoTotals'" on
+> page load). Branch `fix/ro-totals-load-order` off `main` `b7ba7dd`, **unmerged**; §3a, Known
+> gaps and Where-it-lives re-checked against the code this session; staging pass in the change log.
+> Previously: 2026-09-18 — verified vs commit `41e1883` (LIVE on prod — www/board/apex). Every
 > claim checked against `shared/ro-totals.js` (+ test), the 9 call sites listed in §3, and
 > `migrations/20260918_ro_card_fee_on_{SANDBOX,PROD}.sql`.
 > Status: ✅ sandbox STEP 1 + STEP 2 applied (2026-09-18) and verified in a real browser on
@@ -68,6 +72,47 @@ customer record peel-off loop, bookkeeping `bkCardFeeCol`, RO-detail retry, comm
 `shared/ro-totals.test.js` locks the rule **and** asserts the 9 sites route through the
 calculator (static guard), that the "+ Card fee" button is gone, and that the 3% fallback is gone.
 
+### 3a. Load order — no total renders before the calculator has loaded
+**The race (regression from `68ae803`, fixed 2026-09-18).** `shared/ro-totals.js` is an ES
+module, loaded by an inline `<script type="module">` that sets `window.RoTotals`. Module scripts
+are **deferred** — they run only after the whole page is parsed. Each board's main `<script>` is
+**classic** and runs **during** parsing, starting its data loads immediately. When a read came
+back before the module had run, the render touched `window.RoTotals` while it was still
+`undefined`. On the advisor board that was `loadRecentList → renderKanban → roTotal →
+roTotalsOf` at start-up: the red **"Something failed in the background: Cannot read properties
+of undefined (reading 'computeRoTotals')"** banner and a partly-rendered RO list (measured on
+staging at `b7ba7dd`: banner on 4 of 8 reloads, 17 cards instead of 18 when it hit).
+
+**Paths that could run before the module (all now gated):**
+| Board | Entry point | Reaches |
+|---|---|---|
+| advisor | `loadRecentList` at start-up (and realtime/focus re-runs) | board cards: `roTotal` / `roBalance` (#1) |
+| advisor | `openRo` — the `?ro=` deep link fires it during parsing | detail totals `recalcTotals` (#3), payments `roTotalNum` (#2) |
+| bookkeeping | `FinancialPulse.update` from the Overview load; `refreshRates` on settings load | `roTotal` (#6) |
+| bookkeeping | `openRoDetail` (click) | `renderRoDetail` `preTaxRevenue` (#7) |
+| owner + bookkeeping | `ProfitByRO` `loadData` | `roSale` (#9) |
+Not affected: `shared/ro-invoice.js` (#5) and `shared/customer-record.js` (#8) **import** the
+calculator, so whenever they exist it does; the close archive (#4), card-fee toggle and quick
+receipt only run inside an already-open RO.
+
+**The fix — `shared/ro-totals-ready.js`** (CLASSIC, 7 tests in `shared/ro-totals-ready.test.js`),
+loaded on all three boards **before** the main script (and before `profit-by-ro.js`):
+`cdRoTotalsReady()` resolves with `window.RoTotals` as soon as it exists, or with **null** if it
+never will — knowable because `DOMContentLoaded` fires only after every deferred/module script has
+run or failed. Each entry point above **awaits it before rendering**:
+- `loadRecentList` → no cards until ready; failed → the message in the Estimate column.
+- `openRo` → failed → an alert; the RO isn't opened.
+- `FinancialPulse.update` (now `async`) → failed → the Pulse card shows only the message;
+  `refreshRates` is a no-op until ready (`update` paints once it is).
+- `openRoDetail` → failed → the message in the pane.
+- `ProfitByRO.loadData` → failed → the message instead of the list.
+**Never a total computed another way:** `roTotalsOf`, bookkeeping `roTotal` and `roSale` now
+**throw** a plain message if reached without the calculator, and `roSale`'s old silent fallback
+(a hand sum that dropped the card fee) is **deleted**. The one message is
+`window.cdRoTotalsMissingText`: *"RO totals couldn't load, so no totals are shown (they'd be
+missing the card fee). Reload the page."* `shared/ro-totals.test.js` statically guards the
+include order, every await, the throws and the missing fallback.
+
 ## 4. The switch UI, and old stored fee lines
 - Line Items header: **`☐ Card fee (4.00%)`** (`#cdCardFeeOn`), replacing "+ Card fee". Toggling
   writes `card_fee_on` with `.select()` (a 0-row write is an error, not a silent no-op), reverts
@@ -104,6 +149,10 @@ calculator (static guard), that the "+ Card fee" button is gone, and that the 3%
   it. **Sandbox list:** 5227, 5501, 6023, 6025, 6026 (the sandbox is an older copy).
 
 ## Known gaps & open questions (as of 2026-09-18)
+- ~~Page-load race: a render could reach `window.RoTotals` before its module ran~~ — fixed, §3a.
+  **Not audited:** the boards' other `window.X` module globals (e.g. `window.CustomerRecord`,
+  `window.WarrantyMirror`) are set by the same kind of deferred module script, so any of them read
+  during start-up could race the same way. Only the RO-total paths were checked in this slice.
 - **Pre-existing, surfaced by this slice's browser pass — not caused by it:**
   - **Tax isn't rounded to cents before it's added up.** The totals box shows tax rounded
     ($699.21) but the total adds the unrounded $699.205, so the visible rows can sum 1¢ away from
@@ -130,7 +179,11 @@ calculator (static guard), that the "+ Card fee" button is gone, and that the 3%
   out of scope here.
 
 ## Where it lives in the code
-- `shared/ro-totals.js` (+ `shared/ro-totals.test.js`, 19 tests): `computeRoTotals`,
+- **Load order (§3a):** `shared/ro-totals-ready.js` (+ `.test.js`, 7 tests) — `cdRoTotalsReady`,
+  `cdRoTotalsMissingText`; awaited in advisor `loadRecentList` / `openRo` (helpers `rtReady`,
+  `RT_MISSING`), bookkeeping `FinancialPulse.update` / `openRoDetail` (same helpers),
+  `shared/profit-by-ro.js` `loadData`.
+- `shared/ro-totals.js` (+ `shared/ro-totals.test.js`, 20 tests): `computeRoTotals`,
   `totalsForRo`, `roBalance`, `normalizeRate`, `cardFeeLabel`, `isLegacyCardFeeLine`,
   `hasLegacyCardFee`. Loaded as `window.RoTotals` on the advisor, bookkeeping and owner boards;
   imported by `shared/ro-invoice.js` and `shared/customer-record.js`.
@@ -146,6 +199,11 @@ calculator (static guard), that the "+ Card fee" button is gone, and that the 3%
 - `migrations/20260918_ro_card_fee_on_SANDBOX.sql`, `migrations/20260918_ro_card_fee_on_PROD.sql`.
 
 ## Session change log
+- 2026-09-18 (evening) — **§3a: page-load race fixed.** New classic `shared/ro-totals-ready.js`
+  (`cdRoTotalsReady`), included before the main script on advisor / bookkeeping / owner; every
+  start-up path awaits it; `roTotalsOf` / bookkeeping `roTotal` / `roSale` throw instead of
+  guessing; `roSale`'s no-fee fallback deleted; failed load → one clear message. +7 ready tests,
+  +1 static guard. Branch `fix/ro-totals-load-order`.
 - 2026-09-18 (prod) — **Shipped.** Order: PROD STEP 1 (Cris; verify: boolean / NO / false,
   switched_on 0, 112 ROs) → `main` fast-forwarded `ed4d424..41e1883` (www/board/apex on `41e1883`;
   `shared/ro-totals.js`, `advisor-board.html`, `shared/ro-invoice.js`, `bookkeeping-board.html`,

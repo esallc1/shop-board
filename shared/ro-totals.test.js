@@ -212,6 +212,34 @@ test('bookkeeping + profit-by-ro total through RoTotals; card_fee_on is read', (
   }
 });
 
+// ── load order: no total may render before THE calculator's module has run ──
+// (card-fee.md §3a — the "…'computeRoTotals'" page-load banner, 2026-09-18)
+test('every board waits for THE calculator before rendering a total', () => {
+  const READY = '<script src="shared/ro-totals-ready.js"></script>';
+  for (const f of ['advisor-board.html', 'bookkeeping-board.html', 'owner-board.html']) {
+    const src = read(f);
+    const r = src.indexOf(READY);
+    assert.ok(r >= 0, f + ' does not load ro-totals-ready.js');
+    const main = src.indexOf('\n<script>\n');                 // the board's main classic script
+    assert.ok(main > r, f + ': ro-totals-ready.js must load BEFORE the main <script>');
+    const pbr = src.indexOf('<script src="shared/profit-by-ro.js"></script>');
+    if (pbr >= 0) assert.ok(pbr > r, f + ': ro-totals-ready.js must load BEFORE profit-by-ro.js');
+  }
+  const slice = (src, sig, len) => { const i = src.indexOf(sig); assert.ok(i >= 0, 'missing ' + sig); return src.slice(i, i + len); };
+  const adv = read('advisor-board.html');
+  const list = slice(adv, 'async function loadRecentList() {', 6000);
+  assert.ok(/await rtReady\(\)[\s\S]*renderKanban\(\)/.test(list), 'RO list renders before the calculator is ready');
+  assert.ok(/await rtReady\(\)/.test(slice(adv, 'async function openRo(roId, origin) {', 400)), 'openRo (?ro= deep link) does not wait');
+  assert.ok(/if \(!window\.RoTotals\) throw/.test(slice(adv, 'function roTotalsOf(lines, ro) {', 300)), 'roTotalsOf must refuse, not guess');
+  const bk = read('bookkeeping-board.html');
+  assert.ok(/await rtReady\(\)[\s\S]*buildPaidIncome\(\)/.test(slice(bk, 'async function update(next) {', 1200)), 'Financial Pulse renders before the calculator is ready');
+  assert.ok(/await rtReady\(\)/.test(slice(bk, 'async function openRoDetail(po, provisional) {', 1400)), 'bookkeeping RO detail does not wait');
+  const pbr = read('shared/profit-by-ro.js');
+  assert.ok(/cdRoTotalsReady/.test(slice(pbr, 'async function loadData() {', 600)), 'Profit by RO does not wait');
+  const sale = slice(pbr, 'function roSale(lines, ro) {', 500);
+  assert.ok(!/reduce\(/.test(sale), 'roSale fell back to a hand sum (it drops the card fee)');
+});
+
 test('the 3% card-fee code fallback is gone — shop_settings is the only rate', () => {
   const bs = read('shared/board-settings.js');
   assert.match(bs, /card_fee_pct: null,/);
