@@ -3,8 +3,9 @@
 > Doc: `/docs/wiring/card-fee.md`
 > Last updated: 2026-09-18 (evening) — **§3a added: no total may render before the calculator has
 > loaded** (fixes the RO Board's "Something failed in the background: … 'computeRoTotals'" on
-> page load). Branch `fix/ro-totals-load-order` off `main` `b7ba7dd`, **unmerged**; §3a, Known
-> gaps and Where-it-lives re-checked against the code this session; staging pass in the change log.
+> page load). Verified vs commit `63e4752` (branch `fix/ro-totals-load-order` off `main` `b7ba7dd`,
+> on staging, **not yet on prod**); §3a, Known gaps and Where-it-lives re-checked against the code,
+> and driven on `test.*` as ZZ Test Advisor + ZZ Test Bookkeeping — see the change log.
 > Previously: 2026-09-18 — verified vs commit `41e1883` (LIVE on prod — www/board/apex). Every
 > claim checked against `shared/ro-totals.js` (+ test), the 9 call sites listed in §3, and
 > `migrations/20260918_ro_card_fee_on_{SANDBOX,PROD}.sql`.
@@ -100,12 +101,15 @@ loaded on all three boards **before** the main script (and before `profit-by-ro.
 `cdRoTotalsReady()` resolves with `window.RoTotals` as soon as it exists, or with **null** if it
 never will — knowable because `DOMContentLoaded` fires only after every deferred/module script has
 run or failed. Each entry point above **awaits it before rendering**:
-- `loadRecentList` → no cards until ready; failed → the message in the Estimate column.
+- `loadRecentList` → no cards until ready; failed → the message in the Estimate column, the
+  other two columns emptied and all three counts "—" (no card may keep an old balance).
 - `openRo` → failed → an alert; the RO isn't opened.
 - `FinancialPulse.update` (now `async`) → failed → the Pulse card shows only the message;
   `refreshRates` is a no-op until ready (`update` paints once it is).
 - `openRoDetail` → failed → the message in the pane.
-- `ProfitByRO.loadData` → failed → the message instead of the list.
+- `ProfitByRO.loadData` → failed → the message instead of the list (`render` also shows it if
+  rows are cached from an earlier open but the calculator is missing; `totalsMissing` clears on
+  the next open once it's back).
 **Never a total computed another way:** `roTotalsOf`, bookkeeping `roTotal` and `roSale` now
 **throw** a plain message if reached without the calculator, and `roSale`'s old silent fallback
 (a hand sum that dropped the card fee) is **deleted**. The one message is
@@ -204,6 +208,21 @@ include order, every await, the throws and the missing fallback.
   start-up path awaits it; `roTotalsOf` / bookkeeping `roTotal` / `roSale` throw instead of
   guessing; `roSale`'s no-fee fallback deleted; failed load → one clear message. +7 ready tests,
   +1 static guard. Branch `fix/ro-totals-load-order`.
+  **Verified on `test.*`** (sandbox; served files byte-identical to git at each step). Before, on
+  `b7ba7dd`: the banner on **4 of 8** advisor reloads (17 cards instead of 18 when it hit).
+  After — advisor (ZZ Test Advisor): **18/18** reloads clean (18 cards, no banner) across
+  `9c05515` + `539fea3`; `?ro=` deep link to fee-on RO 6026 **5/5** clean with "Card processing
+  fee (4.00%) $458.25", Total $11,914.45 (= independent `totalsForRo`); card #5413 "Bal $22.35"
+  = independent calc. Bookkeeping (ZZ Test Bookkeeping): **8/8** reloads clean, Pulse open ROs
+  **$71,889.93** every time (= independent with-fee sum over the 21 open ROs; $70,522.96 without
+  the fee); RO-detail pane for 6026: fee $458.25, Invoice Total $11,914.45, profit over parts
+  $11,215.25 (= lines $10,757 + fee); Profit by RO this quarter 34 ROs / $50,443 (no closed
+  fee-on RO exists in the sandbox, so no fee to show there). Failure path simulated on the real
+  pages (window.RoTotals hidden after load, then the page's own refresh / tab re-open): RO Board
+  → all columns cleared, counts "—", no balance, the message; Profit by RO → the message; both
+  recovered once restored. Two gaps found that way and fixed (`539fea3`: clear every column;
+  `2dac099`/`63e4752`: Profit by RO message with cached rows + reset). The pane can't throttle
+  the network — repeated reloads vs the old build's failure rate stood in for it.
 - 2026-09-18 (prod) — **Shipped.** Order: PROD STEP 1 (Cris; verify: boolean / NO / false,
   switched_on 0, 112 ROs) → `main` fast-forwarded `ed4d424..41e1883` (www/board/apex on `41e1883`;
   `shared/ro-totals.js`, `advisor-board.html`, `shared/ro-invoice.js`, `bookkeeping-board.html`,

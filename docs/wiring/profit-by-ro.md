@@ -65,7 +65,8 @@ gross profit in the app. Profit by RO does **not** compute cost its own way.
   `card_fee_on` + `customers(tax_exempt)` for it, since the fee's base includes tax). [[card-fee]]
   `loadData` first **waits for the calculator** (`cdRoTotalsReady`, [[card-fee]] §3a); if it
   failed to load the body shows the "RO totals couldn't load… Reload the page." message and no
-  numbers. There is **no fallback sale** any more (the old hand sum silently dropped the fee) —
+  numbers (also when re-opened with rows cached from an earlier load; the flag clears on the next
+  open once the calculator is there). There is **no fallback sale** any more (the old hand sum silently dropped the fee) —
   `roSale` throws if reached without the calculator.
 - **The `opts` object** is built once from `BoardSettings.getShopSettings()` (margins) + a
   `{package_unit_id → unit_cost}` map from `package_units`, exactly as `CommissionEngine.compute`
