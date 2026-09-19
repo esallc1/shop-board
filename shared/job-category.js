@@ -10,6 +10,10 @@
    one other place it lands is the close archive: archiveToCompletedJobs copies
    the RO's final value into completed_jobs.job_category (archiveJobCategory).
 
+   Reports read completed_jobs.job_category through reportCategory(), which maps
+   the OLD archive names (LEGACY_CATEGORY_NAMES: Rebuild, Gen Auto) onto the new
+   two, so old and new rows land in the same Financial Pulse slice.
+
    Not required anywhere — blank never blocks a save, a stage change or a close.
    The RO detail just shows "Pick a category" in red until one is chosen.
 
@@ -20,6 +24,23 @@
 
 // The stored value IS the label Kevin sees. Order = dropdown order.
 export const JOB_CATEGORIES = Object.freeze(['Transmission rebuild', 'General repair']);
+
+// OLD → NEW names. completed_jobs rows archived before 2026-09-19 carry the old
+// floor-tag vocabulary (the v1 Shop Floor dropdown); reports read them through
+// this map so an old "Rebuild" and a new "Transmission rebuild" are ONE bucket.
+// Old rows are never rewritten (no backfill) — the mapping happens on read.
+// "Diag" has no new equivalent on purpose: it stays its own legacy bucket.
+export const LEGACY_CATEGORY_NAMES = Object.freeze({
+  'Rebuild':  'Transmission rebuild',
+  'Gen Auto': 'General repair',
+});
+
+// Report buckets (Financial Pulse income donut), in display order. A report
+// shows a bucket only when it has money in the range, so "Diag" appears only
+// while old Diag jobs fall inside the chosen dates.
+export const REPORT_DIAG = 'Diag';
+export const REPORT_OTHER = 'Other';
+export const REPORT_CATEGORY_ORDER = Object.freeze([...JOB_CATEGORIES, REPORT_DIAG, REPORT_OTHER]);
 
 // What the dropdown says while the RO has no category (value '' → saved as NULL).
 export const UNSET_LABEL = 'Pick a category';
@@ -63,4 +84,17 @@ export function jobCategoryForSave(selectValue) {
 // Blank → NULL.
 export function archiveJobCategory(ro) {
   return normalizeJobCategory(ro && ro.job_category);
+}
+
+// Any stored completed_jobs.job_category (old or new vocabulary) → its report
+// bucket: a new name as-is; Rebuild / Gen Auto → their new name; Diag → Diag;
+// blank, NULL or anything unknown → Other. Exact names (after trimming), like
+// normalizeJobCategory — both vocabularies were written from fixed dropdowns.
+export function reportCategory(value) {
+  if (value == null) return REPORT_OTHER;
+  const v = String(value).trim();
+  if (JOB_CATEGORIES.includes(v)) return v;
+  if (Object.prototype.hasOwnProperty.call(LEGACY_CATEGORY_NAMES, v)) return LEGACY_CATEGORY_NAMES[v];
+  if (v === REPORT_DIAG) return REPORT_DIAG;
+  return REPORT_OTHER;
 }

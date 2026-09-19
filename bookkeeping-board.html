@@ -679,6 +679,14 @@
   import * as RoInvoice from './shared/ro-invoice.js';
   window.RoInvoice = RoInvoice;
 </script>
+<!-- THE job-category list (ESM → window.JobCategory) — Financial Pulse buckets
+     completed_jobs.job_category through its old→new name map (reportCategory).
+     Deliberately BEFORE the RoTotals loader: modules run in document order, so
+     once window.RoTotals exists (what the Pulse waits for) this has run too. -->
+<script type="module">
+  import * as JobCategory from './shared/job-category.js';
+  window.JobCategory = JobCategory;
+</script>
 <!-- THE RO total calculator + live card fee (ESM → window.RoTotals) — Financial
      Pulse, the RO detail and Profit by RO total ROs through it. -->
 <script type="module">
@@ -3583,11 +3591,25 @@
   //    match the RO builder's recalcTotals. This is a snapshot of NOW — it
   //    deliberately ignores the date range (a pipeline is always "as of today").
   //  • Donut            = realized income split by job category, mapped
-  //    repair_invoice.po → completed_jobs.job_category (unmatched → "Other").
+  //    RO po → completed_jobs.job_category → JobCategory.reportCategory():
+  //    old Rebuild / Gen Auto join the new Transmission rebuild / General
+  //    repair slices; old Diag keeps its own; blank / unknown / unmatched → "Other".
   // ══════════════════════════════════════════════════════════════
   const FinancialPulse = (function () {
-    const CAT_ORDER  = ['Rebuild', 'Gen Auto', 'Diag', 'Other'];
-    const CAT_COLOR  = { 'Rebuild': '#5b5ef4', 'Gen Auto': '#10b981', 'Diag': '#f59e0b', 'Other': '#94a3b8' };
+    // Donut buckets come from shared/job-category.js (REPORT_CATEGORY_ORDER:
+    // Transmission rebuild, General repair, Diag, Other) and every stored
+    // job_category — old or new name — goes through its reportCategory(), so an
+    // old Rebuild and a new Transmission rebuild are ONE slice. Colours keep
+    // the old names' (Rebuild's → Transmission rebuild, Gen Auto's → General
+    // repair), resolved through the same shared old→new map. financial-pulse.md §3.
+    const jc = () => window.JobCategory || null;
+    const CAT_COLOR_BY_OLD = { 'Rebuild': '#5b5ef4', 'Gen Auto': '#10b981', 'Diag': '#f59e0b', 'Other': '#94a3b8' };
+    function catColor(bucket) {
+      if (CAT_COLOR_BY_OLD[bucket]) return CAT_COLOR_BY_OLD[bucket];
+      const map = (jc() && jc().LEGACY_CATEGORY_NAMES) || {};
+      const old = Object.keys(map).find(k => map[k] === bucket);
+      return (old && CAT_COLOR_BY_OLD[old]) || CAT_COLOR_BY_OLD.Other;
+    }
     const OLD_DAYS   = 14;   // open ROs at/over this age flagged in the aging list
 
     let data = { processed: [], openROs: [], jobCats: [], payments: [] };
@@ -3669,8 +3691,9 @@
         const sorted = pays.slice().sort((a, b) => new Date(a.paid_at) - new Date(b.paid_at));
         const closing = sorted[sorted.length - 1];    // the payment that closes it out
         const po = ro.po || closing.po || '—';
-        let cat = catByPo[po];
-        if (!CAT_ORDER.includes(cat)) cat = 'Other';
+        // Report bucket for this RO's archived category (old names mapped; blank /
+        // unknown / no archive row → Other). null only if the list failed to load.
+        const cat = jc() ? jc().reportCategory(catByPo[po]) : null;
         out.push({
           po,
           customer: (ro.customers && ro.customers.name) || '—',
@@ -3736,13 +3759,19 @@
       return { buckets: order, gran };
     }
 
+    // Only buckets with money in the range are returned, so the legacy "Diag"
+    // slice appears only when old Diag jobs fall inside the chosen dates.
+    // null → the job-category list didn't load (render says so; no guessed mix).
     function incomeByCategory(r) {
+      const JC = jc();
+      if (!JC) return null;
+      const order = JC.REPORT_CATEGORY_ORDER;
       const acc = {};
       incomeRows(r).forEach(x => {
-        const cat = CAT_ORDER.includes(x.category) ? x.category : 'Other';
+        const cat = order.includes(x.category) ? x.category : JC.REPORT_OTHER;
         acc[cat] = (acc[cat] || 0) + (Number(x.amount) || 0);
       });
-      return CAT_ORDER.filter(c => acc[c] > 0).map(c => ({ name: c, value: acc[c], color: CAT_COLOR[c] }));
+      return order.filter(c => acc[c] > 0).map(c => ({ name: c, value: acc[c], color: catColor(c) }));
     }
 
     // ── SVG builders (hand-rolled, matching the app's inline-SVG approach) ──
@@ -3857,13 +3886,18 @@
 
       // donut + legend
       const slices = incomeByCategory(r);
-      const legend = slices.length
-        ? `<div class="fin-legend">${slices.map(s => {
-            const pct = income > 0 ? (s.value / income * 100) : 0;
-            return `<div class="fin-legend-row"><span class="fin-legend-swatch" style="background:${s.color}"></span><span class="fin-legend-name">${esc(s.name)}</span><span class="fin-legend-val">${fmtMoney(s.value)} · ${pct.toFixed(0)}%</span></div>`;
-          }).join('')}</div>`
-        : '';
-      document.getElementById('finDonut').innerHTML = donutChart(slices, income) + legend;
+      if (!slices) {
+        console.error('[FinancialPulse] shared/job-category.js did not load — no category breakdown');
+        document.getElementById('finDonut').innerHTML = emptyBox('Job categories couldn’t load, so the breakdown isn’t shown. Reload the page.');
+      } else {
+        const legend = slices.length
+          ? `<div class="fin-legend">${slices.map(s => {
+              const pct = income > 0 ? (s.value / income * 100) : 0;
+              return `<div class="fin-legend-row"><span class="fin-legend-swatch" style="background:${s.color}"></span><span class="fin-legend-name">${esc(s.name)}</span><span class="fin-legend-val">${fmtMoney(s.value)} · ${pct.toFixed(0)}%</span></div>`;
+            }).join('')}</div>`
+          : '';
+        document.getElementById('finDonut').innerHTML = donutChart(slices, income) + legend;
+      }
 
       // open-RO aging list (oldest first — data.openROs already asc by created_at)
       renderAging();

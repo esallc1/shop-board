@@ -185,16 +185,13 @@ overwrites the archive row with the then-current category. The quick diag-fee re
 (`recordDiagReceipt`, `source_table='diag_receipt'`) does **not** carry a category.
 
 **Who reads it downstream.** Only `completed_jobs.job_category` → the Bookkeeping **Financial
-Pulse** income donut ([[financial-pulse]]). ⚠ That donut whitelists `Rebuild / Gen Auto / Diag /
-Other`, so the two new values currently land in **Other** — see Known gaps.
+Pulse** income donut ([[financial-pulse]] §5), through `reportCategory()` in the same shared file:
+old `Rebuild` → Transmission rebuild, old `Gen Auto` → General repair (`LEGACY_CATEGORY_NAMES`),
+old `Diag` keeps its own slice, blank/unknown → Other. Every other `job_category` reader (Manager
+board Technicians pills, Comebacks table, Tech Status pools, the Tech Board modal, My Numbers, the
+advisor Approval Queue) reads the **floor rows**, which never receive the RO's value.
 
 ## Known gaps & open questions (as of 2026-07-30; §7 items as of 2026-09-19)
-- **Financial Pulse can't show the new category names yet (§7).** Its `CAT_ORDER`
-  (`bookkeeping-board.html` `FinancialPulse`) is `['Rebuild','Gen Auto','Diag','Other']` and
-  anything else falls to **Other** — so every RO closed with `Transmission rebuild` / `General
-  repair` is counted in Other, next to old rows still showing Rebuild / Gen Auto / Diag. Proposed
-  fix (not built): map both vocabularies onto the new two in the Pulse, importing the list from
-  `shared/job-category.js`.
 - **A category changed AFTER close** updates the RO but not its `completed_jobs` row (closed ROs
   aren't locked; only a re-close re-copies). Rare; not handled.
 - The Tech Board modal makes **one extra `repair_orders` read by `po`** per open (for the work
@@ -211,8 +208,9 @@ Other`, so the two new values currently land in **Other** — see Known gaps.
 
 ## Where it lives in the code
 - Job category (§7): `shared/job-category.js` (`JOB_CATEGORIES`, `buildJobCategoryOptions`,
-  `jobCategoryForSave`, `archiveJobCategory`) + `shared/job-category.test.js` (12 tests: list,
-  migration CHECK = list, close copy, board static guards); `advisor-board.html` — the ESM loader
+  `jobCategoryForSave`, `archiveJobCategory`, and for reports `LEGACY_CATEGORY_NAMES` /
+  `REPORT_CATEGORY_ORDER` / `reportCategory`) + `shared/job-category.test.js` (19 tests: list,
+  migration CHECK = list, close copy, old→new report map, advisor + bookkeeping static guards); `advisor-board.html` — the ESM loader
   (~1264), `.cd-jc-unset` (~432), `#cdRoJobCategoryField` (~2330), `jcReady` / `renderJobCategory`
   / `setJobCategory` (~6627–6690), the call in `populateRoEditFields` (~5938), the `change`
   listener (~7563), the `job_category:` line in `archiveToCompletedJobs` (~7378). Schema:
@@ -237,7 +235,8 @@ Other`, so the two new values currently land in **Other** — see Known gaps.
 - 2026-09-19 — **§7 Job category** (Kevin, Aug 10): `repair_orders.job_category` (NULL or one of
   the two values in `shared/job-category.js`), a dropdown under Status on the RO detail (red while
   blank, blocks nothing), copied into `completed_jobs.job_category` at close from the RO row. RO
-  only — never mirrored to the floor. Financial Pulse naming gap logged.
+  only — never mirrored to the floor. Financial Pulse naming gap logged — and fixed later the
+  same day (old names mapped onto the new two in the Pulse, [[financial-pulse]] §5).
   **Verified on `test.*` at `a90963f`, ZZ Test Advisor, sandbox migration applied:** blank RO →
   red "Pick a category" under Status (`rgb(239,68,68)` border + ring), NEW badge on; pick saved and
   survived a `?ro=` reload; Transmission rebuild → General repair saved; "Pick a category" again →

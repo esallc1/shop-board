@@ -1,10 +1,12 @@
 # How the Financial Pulse is wired
 
 > Doc: `/docs/wiring/financial-pulse.md`
-> ⚠ **Needs review (flagged 2026-09-19):** the donut's category vocabulary is now stale — closed
-> ROs archive `Transmission rebuild` / `General repair` ([[ro-checkin-tech]] §7), which this
-> donut's whitelist sends to **Other**. See Known gaps. Code here NOT changed.
-> Last updated: 2026-08-11 — verified vs branch `profit-by-ro` (date math extracted to the
+> Last updated: 2026-09-19 — §5 donut now buckets through `shared/job-category.js`
+> (`reportCategory`: old Rebuild / Gen Auto join the new Transmission rebuild / General repair
+> slices; old Diag keeps its own, shown only when in range). The ⚠ Needs-review flag raised
+> earlier the same day is cleared. Branch `feat/ro-job-category`, unmerged. Only §5, the gaps and
+> Where-it-lives were re-verified this session.
+> Previously: 2026-08-11 — verified vs branch `profit-by-ro` (date math extracted to the
 > shared `PeriodRange` module; §4 updated. Realized-income logic unchanged.)
 > Status: ✅ Verified vs `bookkeeping-board.html`. Realized income reads the `ro_payments`
 > ledger (paid-in-full gate, capped at the true invoice total, bucketed by `paid_at`); every
@@ -125,9 +127,25 @@ ledger — **it never writes**, and it is **not** QuickBooks.
   verbatim over `invoice_queue` (`parts_vendor` and `shop_expense` buckets;
   `vendor_credit`/`credit` subtracts; `repair_invoice` is `record_only` and excluded), so the
   numbers reconcile with the four cards above. Only the **income** bar changed source.
-- **Income breakdown** (`#finDonut`) — realized income split by **job category**, using each
-  paid RO's `po → completed_jobs.job_category` (`Rebuild` / `Gen Auto` / `Diag`; any unmatched
-  or uncategorized PO → **Other**). Slices sum exactly to the Income scorecard.
+- **Income breakdown** (`#finDonut`) — realized income split by **job category**. Each paid
+  RO's `po → completed_jobs.job_category` (`catByPo`, built in `update()`: the first non-empty
+  value per `po`) goes through **`JobCategory.reportCategory()`** (`shared/job-category.js`, the one
+  list — [[ro-checkin-tech]] §7), which maps **both vocabularies** onto four buckets:
+  | Stored value | Slice | Colour |
+  |---|---|---|
+  | `Transmission rebuild`, old `Rebuild` | **Transmission rebuild** | `#5b5ef4` (was Rebuild's) |
+  | `General repair`, old `Gen Auto` | **General repair** | `#10b981` (was Gen Auto's) |
+  | old `Diag` | **Diag** (legacy — no new equivalent) | `#f59e0b` |
+  | blank / NULL / anything else / PO not archived | **Other** | `#94a3b8` |
+  The old→new map is `LEGACY_CATEGORY_NAMES`; old rows are never rewritten, the mapping happens on
+  read. Order = `REPORT_CATEGORY_ORDER`. **Only slices with money in the range are drawn**, so
+  the Diag slice appears only while an old Diag job's payment falls inside the chosen dates.
+  Colours are keyed by the OLD names in `CAT_COLOR_BY_OLD` and resolved for a new bucket through
+  the same shared map (`catColor`) — the board holds no copy of the new names (test-locked).
+  `shared/job-category.js` loads as a module **before** `ro-totals.js`, so once the Pulse's
+  `rtReady()` sees the calculator the list has run too; if it failed anyway the donut says
+  *"Job categories couldn't load…"* instead of drawing a guessed mix. Slices sum exactly to the
+  Income scorecard.
 - **Open-RO follow-up list** (`#finAging`) — every open RO, oldest first: RO #, customer,
   stage badge, computed amount, age in days (from `created_at`; ≥14d flagged red).
 
@@ -286,10 +304,11 @@ surfaced). PO 6009 (open) → provisional. Unmatched PO → "no receipts" empty 
 - **Bucketing assumes the board runs on Eastern time.** Income buckets by `paid_at` in
   America/New_York; the range presets use the viewer's local calendar day. In-shop these
   align; a viewer in another timezone could see an edge-of-week payment shift by a day.
-- **New RO categories land in "Other" (since 2026-09-19).** `CAT_ORDER` is
-  `['Rebuild','Gen Auto','Diag','Other']`; the RO's new `Transmission rebuild` / `General repair`
-  (archived to `completed_jobs.job_category` at close) aren't on it, so they fold into Other next
-  to old rows still showing Rebuild / Gen Auto / Diag. Needs a mapping decision.
+- **A PO with more than one archive row** (e.g. an old floor-pickup archive AND an RO-close
+  archive — 12 such POs on prod as of 2026-09-19) takes the **first non-empty** `job_category`
+  the unordered `completed_jobs` read returns. With the old→new map both rows usually land in the
+  same slice; if they disagree (floor `Gen Auto`, RO `Transmission rebuild`) the slice is
+  whichever row came back first. Not fixed (pre-existing; rare).
 - **Donut "Other" can be large** — paid ROs whose `po` isn't in `completed_jobs` land in
   Other. Honest, not a bug.
 - **Pipeline is CrisData-only** — open work still living purely in ALLDATA isn't counted,
@@ -317,7 +336,9 @@ surfaced). PO 6009 (open) → provisional. Unmatched PO → "no receipts" empty 
   (`quantity`, `unit_price`, `taxable`) + `customers.tax_exempt` —
   `migrations/20260716_ro_foundation.sql`, `20260717_ro_status_closed.sql`.
 - **Donut category map:** `completed_jobs` (`po`, `job_category`) —
-  `migrations/20260711_completed_jobs.sql`.
+  `migrations/20260711_completed_jobs.sql`; buckets + old→new names from `shared/job-category.js`
+  (`reportCategory`, `LEGACY_CATEGORY_NAMES`, `REPORT_CATEGORY_ORDER`; tests in
+  `shared/job-category.test.js`), loaded by the module `<script>` just above the `RoTotals` one.
 - **Per-RO drill-down (§9):** `bookkeeping-board.html` — the `#finOpenModal` / `#finRoDetail` /
   `#finPhoto` markup, the `.fin-ro-*` / `.fin-rc-*` / `.fin-rowlink` / `.fin-photo-*` CSS, and in
   the `FinancialPulse` IIFE: `bkRoDetailOn`, `openOpenList`/`renderOpenList`,
@@ -337,6 +358,10 @@ surfaced). PO 6009 (open) → provisional. Unmatched PO → "no receipts" empty 
   GP-vs-cost view — labor+parts-markup per advisor).
 
 ## Session change log
+- 2026-09-19 — **Donut buckets through the shared job-category map** (Cris-approved): old Rebuild /
+  Gen Auto join the new Transmission rebuild / General repair slices (old colours kept), old Diag
+  keeps its own slice only when in range, blank/unknown → Other. The `CAT_ORDER` whitelist is gone.
+  ⚠ Needs-review flag (raised earlier the same day) cleared.
 - 2026-09-19 — Flagged ⚠ Needs review: the RO job category (`feat/ro-job-category`) writes new
   names into `completed_jobs.job_category` that this donut's whitelist sends to Other. No code change.
 - 2026-09-18 — `update()` waits for THE RO calculator; failed load → message, no numbers

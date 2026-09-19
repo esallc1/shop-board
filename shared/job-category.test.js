@@ -6,6 +6,9 @@
    1. The list is exactly the two values Cris chose, in order, and blank = NULL.
    2. Both migration files' CHECK allows exactly that list (the DB and the app
       can't drift — the list lives in ONE file, the SQL is checked against it).
+   4. Reports: old archive names (Rebuild / Gen Auto) map onto the new two, Diag
+      keeps its own bucket, blank/unknown → Other — and the Financial Pulse
+      buckets through that map, not a whitelist of its own.
    3. The close copy: the RO's category reaches the completed_jobs payload, a
       blank one stays NULL — and the board's archive really uses it, reads the
       RO (not the floor), and nothing on the board writes job_category to the
@@ -19,11 +22,13 @@ import { dirname, join } from 'node:path';
 import {
   JOB_CATEGORIES, UNSET_LABEL, normalizeJobCategory, isJobCategoryUnset,
   buildJobCategoryOptions, jobCategoryForSave, archiveJobCategory,
+  LEGACY_CATEGORY_NAMES, REPORT_CATEGORY_ORDER, REPORT_DIAG, REPORT_OTHER, reportCategory,
 } from './job-category.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 const BOARD = readFileSync(join(root, 'advisor-board.html'), 'utf8');
+const BK = readFileSync(join(root, 'bookkeeping-board.html'), 'utf8');
 
 // ── 1. the list ─────────────────────────────────────────────
 test('JOB_CATEGORIES is exactly the two chosen values, in order, and frozen', () => {
@@ -149,4 +154,66 @@ test('board: job_category is never WRITTEN to a floor table by the advisor board
 test('board: the list is not copied inline — the two values appear only via shared/job-category.js', () => {
   assert.doesNotMatch(BOARD, /'Transmission rebuild'|"Transmission rebuild"|'General repair'|"General repair"/);
   assert.match(BOARD, /import \* as JobCategory from '\.\/shared\/job-category\.js';/);
+});
+
+// ── 4. reports: the old→new name map (Financial Pulse) ──────
+test('LEGACY_CATEGORY_NAMES: exactly Rebuild → Transmission rebuild, Gen Auto → General repair; frozen; targets are on the list', () => {
+  assert.deepEqual({ ...LEGACY_CATEGORY_NAMES }, { 'Rebuild': 'Transmission rebuild', 'Gen Auto': 'General repair' });
+  assert.ok(Object.isFrozen(LEGACY_CATEGORY_NAMES));
+  for (const v of Object.values(LEGACY_CATEGORY_NAMES)) assert.ok(JOB_CATEGORIES.includes(v), v);
+  assert.equal('Diag' in LEGACY_CATEGORY_NAMES, false, 'Diag has no new equivalent on purpose');
+});
+
+test('REPORT_CATEGORY_ORDER: the two new names, then Diag, then Other', () => {
+  assert.deepEqual([...REPORT_CATEGORY_ORDER], ['Transmission rebuild', 'General repair', 'Diag', 'Other']);
+  assert.equal(REPORT_DIAG, 'Diag');
+  assert.equal(REPORT_OTHER, 'Other');
+  assert.ok(Object.isFrozen(REPORT_CATEGORY_ORDER));
+});
+
+test('reportCategory: old names join the new ones; Diag stays Diag; new names as-is', () => {
+  assert.equal(reportCategory('Rebuild'), 'Transmission rebuild');
+  assert.equal(reportCategory('Gen Auto'), 'General repair');
+  assert.equal(reportCategory(' Rebuild '), 'Transmission rebuild');
+  assert.equal(reportCategory('Diag'), 'Diag');
+  assert.equal(reportCategory('Transmission rebuild'), 'Transmission rebuild');
+  assert.equal(reportCategory('General repair'), 'General repair');
+});
+
+test('reportCategory: NULL, blank and junk → Other (never a new bucket)', () => {
+  for (const v of [null, undefined, '', '   ', 'rebuild', 'GEN AUTO', 'Gen. Auto', 'diag', 'Other', 'R&R',
+                   'toString', '__proto__', 'constructor', 42]) {
+    assert.equal(reportCategory(v), 'Other', JSON.stringify(v));
+  }
+  for (const v of ['Rebuild', 'Gen Auto', 'Diag', 'Transmission rebuild', 'General repair', null, 'junk']) {
+    assert.ok(REPORT_CATEGORY_ORDER.includes(reportCategory(v)), 'always a known bucket: ' + v);
+  }
+});
+
+test('reportCategory: an old Rebuild job and a new Transmission rebuild job sum into ONE slice', () => {
+  const rows = [
+    { amount: 100, cat: 'Rebuild' }, { amount: 50, cat: 'Transmission rebuild' },
+    { amount: 30, cat: 'Gen Auto' }, { amount: 20, cat: 'General repair' },
+    { amount: 7, cat: 'Diag' }, { amount: 5, cat: null }, { amount: 1, cat: 'junk' },
+  ];
+  const acc = {};
+  rows.forEach((r) => { const b = reportCategory(r.cat); acc[b] = (acc[b] || 0) + r.amount; });
+  assert.deepEqual(acc, { 'Transmission rebuild': 150, 'General repair': 50, 'Diag': 7, 'Other': 6 });
+});
+
+test('bookkeeping board: the Pulse buckets through JobCategory.reportCategory, with no whitelist or name copy of its own', () => {
+  assert.doesNotMatch(BK, /CAT_ORDER/, 'the old hard-coded bucket list is gone');
+  assert.doesNotMatch(BK, /'Transmission rebuild'|"Transmission rebuild"|'General repair'|"General repair"/, 'no inline copy of the new names');
+  assert.match(BK, /jc\(\)\.reportCategory\(catByPo\[po\]\)/, 'buildPaidIncome maps each RO through the shared map');
+  assert.match(BK, /const order = JC\.REPORT_CATEGORY_ORDER;/, 'incomeByCategory uses the shared bucket order');
+  assert.match(BK, /order\.filter\(c => acc\[c\] > 0\)/, 'empty buckets (e.g. Diag) are not drawn');
+  // Colours carry over from the old names.
+  assert.match(BK, /CAT_COLOR_BY_OLD = \{ 'Rebuild': '#5b5ef4', 'Gen Auto': '#10b981', 'Diag': '#f59e0b', 'Other': '#94a3b8' \}/);
+});
+
+test('bookkeeping board: job-category.js loads BEFORE the RO calculator (the Pulse waits on RoTotals)', () => {
+  const jcAt = BK.indexOf("import * as JobCategory from './shared/job-category.js';");
+  const rtAt = BK.indexOf("import * as RoTotals from './shared/ro-totals.js';");
+  assert.ok(jcAt > 0 && rtAt > 0, 'both loaders present');
+  assert.ok(jcAt < rtAt, 'JobCategory module must come first in document order');
 });
