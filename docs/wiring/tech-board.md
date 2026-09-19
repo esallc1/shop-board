@@ -3,7 +3,8 @@
 > Doc: `/docs/wiring/tech-board.md`
 > Last updated: 2026-09-19 — **§8 added: why closed jobs used to linger here, and the fix**
 > (closing an RO now takes its car off the floor; one-time ghost cleanup). Branch
-> `fix/close-clears-floor`, unmerged. §2 re-checked vs `loadAll`; rest not re-verified this session.
+> `fix/close-clears-floor`, unmerged; **verified vs commit `993b51e`** on `test.*` (change log).
+> §2 re-checked vs `loadAll`; rest not re-verified this session.
 > Earlier: 2026-08-21 — §2a added (columns key off ASSIGNMENT, not role); verified vs
 > commit `d67d506`. Previously 2026-07-30 — verified vs commit `8ec2164`
 > Status: ✅ verified vs commit `8ec2164` — checked against `crisdata-techboard.html`,
@@ -181,7 +182,10 @@ close, so nothing removes their floor rows.
 ## Session change log
 - 2026-09-19 — §8 added: the "jobs that already left" ghosts — cause (only Off lot cleared the floor;
   Stage-dropdown closes didn't) and the write-side fix + one-time cleanup. No change to this board's
-  code. Branch `fix/close-clears-floor`, unmerged.
+  code. Branch `fix/close-clears-floor`, unmerged. Verified on `test.*` at `993b51e`: after the
+  sandbox cleanup + three test closes (Stage dropdown ×2 incl. a lift, Off lot ×1) this board showed
+  11 cars and none of the 6 removed; the Approval Queue and MG Tech Status matched
+  ([[ro-checkin-tech]] change log has the detail).
 - 2026-09-19 — §4: noted the RO now has its own, separate `repair_orders.job_category`
   ([[ro-checkin-tech]] §7), never mirrored to the floor row this board reads. No code change here.
   Shipped to prod at `de37577`.

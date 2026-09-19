@@ -2,8 +2,9 @@
 
 > Doc: `/docs/wiring/ro-checkin-tech.md`
 > Last updated: 2026-09-19 (later) — **§8 added: closing an RO takes its car off the floor** (one
-> close path; `shared/floor-clear.js`; the ghost-cleanup SQL pair). Branch `fix/close-clears-floor`,
-> unmerged. §7 unchanged except its Off-lot sentence (now describes the one close path).
+> close path; `shared/floor-clear.js`; the ghost-cleanup SQL pair), **verified vs commit `993b51e`**
+> on `test.*` (change log). Branch `fix/close-clears-floor`, unmerged; cleanup run on the sandbox
+> only. §7 unchanged except its Off-lot sentence (now describes the one close path).
 > Earlier 2026-09-19 — **§7 added: Job category on the RO**, shipped to prod at `de37577`.
 > Earlier: 2026-09-18 — §3/§4 gained "what the RO detail re-reads afterwards" (Warranty + Status
 > refresh after check-in / tech assign, see [[comeback-warranty]] §6).
@@ -304,6 +305,18 @@ and the guards.
   already left", Aug 6 / 13 / 26). One close path (`setStage('closed')`: checks → confirm → floor →
   status → archive); Off lot calls it; lifts cleared, never deleted; `shared/floor-clear.js`. Plus the
   one-time ghost cleanup SQL pair. Branch `fix/close-clears-floor`, unmerged.
+  **Verified on `test.*` at `993b51e`** (sandbox): SANDBOX cleanup run by Cris — floor 17 → 14,
+  3 found / backed up (#6017 pickup deleted, #6030 lot deleted, #6029 Lift 3 cleared), #6027 and
+  #6033 skipped (RO open in the sandbox copy), 9 not on the floor — exactly as predicted; the backup
+  table is invisible to the API. As ZZ Test Advisor: Stage → Closed on #6013 with **Cancel** → no
+  change (RO `ro`, floor row intact, no archive); #6021 (lot, waiting-tech, category Transmission
+  rebuild) closed → one confirm, floor row gone, gone from the Tech Board and Approval Queue,
+  `completed_jobs.job_category` = Transmission rebuild; #6028 (Lift 2) closed → bay 2 cleared to
+  exactly `EMPTY_LIFT`, all six lift rows still there; #6032 moved to Invoice then **Off lot** → only
+  Off lot's own confirm, closed + archived, floor row gone. Tech Board then 11 cars, Approval Queue
+  #5501 + #6013 only. 375px: RO detail, Tech Board + iframe 375 wide, no sideways scroll. As ZZ
+  Test GM: **Tech Status** shows the same 11 cars (none of the 6 removed, pools included); Shop Floor
+  shows bays 2 + 3 empty. Console: only the pre-existing sandbox avatar-sign 400s.
 - 2026-09-19 — **Shipped:** prod = `de37577` after Cris ran the PROD migration (`set_count = 0`).
   Served `advisor-board.html` / `shared/job-category.js` byte-identical to git; prod
   `repair_orders.job_category` readable (all NULL). No prod RO opened.
