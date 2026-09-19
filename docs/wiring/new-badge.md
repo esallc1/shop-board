@@ -103,7 +103,8 @@ When a date passes, the markup can stay (it's inert) or be deleted in the next t
 
 ## Session change log
 - 2026-09-19 — Third use: the RO detail's **Job category** label, until `2026-09-28` (planned ship
-  Mon 2026-09-21 + 7). Branch `feat/ro-job-category`, unmerged. Verified on `test.*` at `a90963f`:
+  Mon 2026-09-21 + 7). **Shipped to prod at `de37577`** (2026-09-19) — visible Mon 21 → Sun 27 ET,
+  hidden from 00:00 ET Mon 28 (checked with `isNewBadgeVisible`). Verified on `test.*` at `a90963f`:
   pill on (`rgb(22,163,74)`), and at 375px the select's position/height and the label height are
   identical pill on vs off.
 - 2026-09-18 — Customer Edit badge moved with its button from the top strip into the profile

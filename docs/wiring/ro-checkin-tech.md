@@ -3,8 +3,8 @@
 > Doc: `/docs/wiring/ro-checkin-tech.md`
 > Last updated: 2026-09-19 — **§7 added: Job category on the RO** (`repair_orders.job_category`,
 > `shared/job-category.js`), **verified vs commit `a90963f`** on `test.*` as ZZ Test Advisor (see
-> change log). Branch `feat/ro-job-category`, unmerged; migration applied to the **sandbox only** —
-> prod not yet. Rest not re-verified this session.
+> change log). **Shipped to prod at `de37577`** (2026-09-19); migration applied to sandbox AND prod
+> (Cris, by hand). Rest not re-verified this session.
 > Earlier: 2026-09-18 — §3/§4 gained "what the RO detail re-reads afterwards" (Warranty + Status
 > refresh after check-in / tech assign, see [[comeback-warranty]] §6).
 > Previously: 2026-07-30 — verified vs commit `596006c`
@@ -232,6 +232,9 @@ advisor Approval Queue) reads the **floor rows**, which never receive the RO's v
   introspection, not a migration.
 
 ## Session change log
+- 2026-09-19 — **Shipped:** prod = `de37577` after Cris ran the PROD migration (`set_count = 0`).
+  Served `advisor-board.html` / `shared/job-category.js` byte-identical to git; prod
+  `repair_orders.job_category` readable (all NULL). No prod RO opened.
 - 2026-09-19 — **§7 Job category** (Kevin, Aug 10): `repair_orders.job_category` (NULL or one of
   the two values in `shared/job-category.js`), a dropdown under Status on the RO detail (red while
   blank, blocks nothing), copied into `completed_jobs.job_category` at close from the RO row. RO

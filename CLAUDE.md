@@ -12,9 +12,11 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `b26ce94`** (2026-09-18, 20:20 ET — To-Do / Report-a-change priority look;
-www/board/apex `/api/version` verified, 6 changed files byte-identical). Any later commit on `main`
-up to the one that wrote this line is docs-only. Update this line on every code ship.
+**Prod code = `de37577`** (2026-09-19, ~05:20 ET — Job category on the RO + Financial Pulse old→new
+category mapping; prod migration `20260919_ro_job_category_PROD.sql` run by Cris first;
+www/board/apex `/api/version` verified, `advisor-board.html` + `bookkeeping-board.html` +
+`shared/job-category.js` byte-identical). Any later commit on `main` up to the one that wrote this
+line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.

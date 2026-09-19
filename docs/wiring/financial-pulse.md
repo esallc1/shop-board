@@ -5,7 +5,7 @@
 > (`reportCategory`: old Rebuild / Gen Auto join the new Transmission rebuild / General repair
 > slices; old Diag keeps its own, shown only when in range). The ⚠ Needs-review flag raised
 > earlier the same day is cleared. **Verified vs commit `7173ac6`** on `test.*` as ZZ Test
-> Bookkeeping (change log). Branch `feat/ro-job-category`, unmerged. Only §5, the gaps and
+> Bookkeeping (change log). **Shipped to prod at `de37577`** (2026-09-19). Only §5, the gaps and
 > Where-it-lives were re-verified this session.
 > Previously: 2026-08-11 — verified vs branch `profit-by-ro` (date math extracted to the
 > shared `PeriodRange` module; §4 updated. Realized-income logic unchanged.)
@@ -359,6 +359,8 @@ surfaced). PO 6009 (open) → provisional. Unmatched PO → "no receipts" empty 
   GP-vs-cost view — labor+parts-markup per advisor).
 
 ## Session change log
+- 2026-09-19 — Shipped: prod = `de37577`; served `bookkeeping-board.html` + `shared/job-category.js`
+  byte-identical to git.
 - 2026-09-19 — **Donut buckets through the shared job-category map** (Cris-approved): old Rebuild /
   Gen Auto join the new Transmission rebuild / General repair slices (old colours kept), old Diag
   keeps its own slice only when in range, blank/unknown → Other. The `CAT_ORDER` whitelist is gone.

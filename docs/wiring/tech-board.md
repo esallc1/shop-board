@@ -149,6 +149,7 @@ the My Numbers transition writer (option 3), never a raw dropdown.
 ## Session change log
 - 2026-09-19 — §4: noted the RO now has its own, separate `repair_orders.job_category`
   ([[ro-checkin-tech]] §7), never mirrored to the floor row this board reads. No code change here.
+  Shipped to prod at `de37577`.
 - 2026-09-17 — v1 `shop-board.html` deleted; dropped it from the manager floor-editor references
   (§4, §7, gaps, "Where it lives"). Rest not re-verified.
 - 2026-08-21 — **Columns now key off assignment, not role (§2a).** Jobs assigned to a name
