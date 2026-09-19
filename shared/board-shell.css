@@ -453,30 +453,50 @@ textarea { resize: vertical; width: 100%; min-height: 60px; }
   display: flex; align-items: flex-start; gap: 10px;
   padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
   background: var(--bg);
-  border-left-width: 3px;   /* room for the priority accent (color set per-priority below) */
+  border-left-width: 3px;   /* widened + coloured by .prio-edge (priority look, below) */
 }
 .todo-item.completed { opacity: 0.65; }
-/* Priority color accent on the row's left border. Immediate=red, High=amber,
-   Normal=neutral (blends with the border), Low=muted. The value is also shown as
-   text in the per-item dropdown, so the cue isn't color-only. */
-.todo-item.todo-prio-immediate { border-left-color: var(--red); }
-.todo-item.todo-prio-high      { border-left-color: var(--amber); }
-.todo-item.todo-prio-normal    { border-left-color: var(--border); }
-.todo-item.todo-prio-low       { border-left-color: var(--muted); }
+/* ══ PRIORITY LOOK — shared by the To-Do list AND Report a change ═══════════
+   One set of rules for both features (docs/wiring/todo-list.md §3). Levels:
+     Immediate  solid dark-red pill, white "IMMEDIATE" + thick dark-red edge
+     High       white pill, dark-orange outline + text "High" + dark-orange edge
+     Normal     the word "Normal" in plain muted text — no pill, no coloured edge
+     Low        small grey "Low" pill, no coloured edge
+   The level is ALWAYS a word (never colour alone), and Immediate vs High differ
+   by SHAPE (filled vs outlined), not just hue — as lines the two colours are
+   only ~1.3:1 apart. Contrast (WCAG): white on #b91c1c 6.47:1 · #b45309 on
+   white 5.02:1 · #4b5563 on #f3f4f6 6.87:1 · Normal word #646b7e 4.93:1 on the
+   row bg (the old --muted was 2.84:1) · edges on the row bg: #b91c1c
+   5.99:1, #b45309 4.65:1. Replaced the old thin red/amber edges (Immediate vs
+   High 1.75:1 — Kevin, 2026-08-06).
+   Rows: add `prio-edge prio-edge-<level>` (two classes → beats each row's own
+   border-left, including report-change.js's injected styles).
+   Words: <span class="prio-pill prio-pill-<level>">Label</span>. */
+.prio-edge.prio-edge-immediate { border-left: 5px solid #b91c1c; }
+.prio-edge.prio-edge-high      { border-left: 5px solid #b45309; }
+.prio-edge.prio-edge-normal,
+.prio-edge.prio-edge-low       { border-left: 5px solid var(--border); }
+.prio-pill {
+  display: inline-block; font-size: 0.66rem; font-weight: 700; line-height: 1.3;
+  padding: 2px 9px; border-radius: 20px; border: 1.5px solid transparent;
+  white-space: nowrap; vertical-align: middle;
+}
+.prio-pill.prio-pill-immediate { background: #b91c1c; border-color: #b91c1c; color: #fff; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 800; }
+.prio-pill.prio-pill-high      { background: #fff; border-color: #b45309; color: #b45309; }
+.prio-pill.prio-pill-normal    { background: none; border-color: transparent; color: #646b7e; padding-left: 0; padding-right: 0; font-weight: 600; }
+.prio-pill.prio-pill-low       { background: #f3f4f6; border-color: #d1d5db; color: #4b5563; font-size: 0.62rem; padding: 1px 7px; }
+.todo-prio { flex-shrink: 0; display: flex; align-items: center; }
 .todo-prio-select {
   font-size: 0.7rem; padding: 2px 5px; border: 1px solid var(--border);
   border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; max-width: 118px;
 }
 .todo-prio-select:focus { outline: none; border-color: var(--accent); }
-/* Read-only priority pill — shown to the RECEIVER (non-creator): same label +
-   color as the editable dropdown, but not changeable. */
-.todo-prio-tag {
-  font-size: 0.66rem; font-weight: 700; padding: 2px 9px; border-radius: 20px;
-  border: 1px solid var(--border); background: var(--surface-2); color: var(--muted); white-space: nowrap;
-}
-.todo-prio-tag-immediate { color: var(--red); border-color: #fecaca; background: #fef2f2; }
-.todo-prio-tag-high      { color: var(--amber); border-color: #fde68a; background: #fffbeb; }
-/* normal + low use the neutral/muted default above */
+/* The creator's editable dropdown wears the same pill (the word is the value it
+   shows). Two classes so it beats .todo-prio-select's own border/background.
+   The opened list stays plain black-on-white. */
+.todo-prio-select.prio-pill { border-radius: 20px; font-size: 0.68rem; padding: 2px 6px; max-width: 124px; }
+.todo-prio-select.prio-pill-normal { border-color: var(--border); background: var(--surface); padding-left: 6px; padding-right: 6px; }
+.todo-prio-select option { background: #fff; color: #1a1f36; text-transform: none; font-weight: 400; }
 .todo-checkbox { margin-top: 3px; width: 16px; height: 16px; flex-shrink: 0; cursor: pointer; }
 .todo-body { flex: 1; min-width: 0; }
 .todo-text { font-size: 0.86rem; color: var(--text); overflow-wrap: anywhere; }

@@ -1,7 +1,11 @@
 # How the To-Do list is wired
 
 > Doc: `/docs/wiring/todo-list.md`
-> Last updated: 2026-07-30 — verified vs commit `b02116e`
+> Last updated: 2026-09-18 — **§3 priority LOOK rewritten** (shared filled/outlined pills + thick
+> edges, the word always shown) after Kevin's "Immediate and High are hard to tell apart"
+> (2026-08-06). Branch `feat/priority-look` off `main` `4e73ade`, **unmerged**; §3 + Where-it-lives
+> re-checked against the code; staging pass in the change log. Rest not re-verified.
+> Previously: 2026-07-30 — verified vs commit `b02116e`
 > Status: ✅ verified vs commit `b02116e` — checked against the four boards' To-Do code, the
 > shared `board-shell.css`, and the `todos` migrations. ⚠ See the duplication note (§1).
 
@@ -41,8 +45,8 @@ priority is a **direct anon UPDATE**; **no endpoint** is needed and nothing is w
     an **id match**, the same reliable key the "Assigned by …" tag uses. `created_by_name` is
     display-only.
   - **The receiver sees it read-only.** For everyone else (the assignee), the control is a
-    non-editable pill `<span class="todo-prio-tag todo-prio-tag-<value>">` with the same label +
-    color — they see the priority, they just can't change it.
+    non-editable pill `<span class="prio-pill prio-pill-<value>">` with the same word + look —
+    they see the priority, they just can't change it.
   - **Safe fallback:** if the current user or the creator can't be determined
     (`!CURRENT_EMPLOYEE_ID` or `created_by` null / mismatched) → **read-only** (no editable
     control). In practice unknown identity renders *no* to-dos at all (`loadAndRenderTodos`
@@ -53,10 +57,28 @@ priority is a **direct anon UPDATE**; **no endpoint** is needed and nothing is w
   `row.created_by === CURRENT_EMPLOYEE_ID`, defense-in-depth beyond hiding the control), then
   optimistic (update the cached row + re-render) → `db.from('todos').update({ priority })`; on
   error it reverts, and it **degrades quietly** if the column isn't migrated yet (42703 swallowed).
-- **Color:** a left-border accent on `.todo-item` via a `todo-prio-<value>` class —
-  **Immediate = red, High = amber, Normal = neutral, Low = muted** (`shared/board-shell.css`) —
-  shown for **every** row (creator and receiver). The value is also shown as text (dropdown or
-  read-only pill), so the cue is **not color-only** (accessible).
+- **The look (shared with Report a change — ONE set of rules in `shared/board-shell.css`):**
+  | Level | Word | Pill | Row edge |
+  |---|---|---|---|
+  | Immediate | **IMMEDIATE** | solid dark red `#b91c1c`, white text | thick (5px) `#b91c1c` |
+  | High | **High** | white, `#b45309` outline + text | 5px `#b45309` |
+  | Normal | **Normal** | none — plain grey word `#646b7e` | neutral (`--border`) |
+  | Low | **Low** | small grey (`#f3f4f6` / `#4b5563`) | neutral |
+  Rows carry `prio-edge prio-edge-<value>` (two classes, so it outranks any row's own
+  `border-left`); words are `<span class="prio-pill prio-pill-<value>">`. The creator's dropdown
+  wears the same pill (`todo-prio-select prio-pill prio-pill-<value>`; the opened list stays
+  plain). **Immediate vs High differ by SHAPE** (filled vs outlined), not only hue — as lines the
+  two dark colours are only ~1.3:1 apart. WCAG: white on `#b91c1c` 6.47:1, `#b45309` on white
+  5.02:1, Low 6.87:1, Normal word 4.93:1 (the old `--muted` grey was 2.84:1); edges on the row bg
+  `#b91c1c` 5.99:1, `#b45309` 4.65:1. **Replaced** the old
+  3px `--red`/`--amber` edges + tinted tags (Immediate vs High **1.75:1**, High tag text 2.07:1,
+  the two tag backgrounds 1.05:1). No ⚠ icon: the filled pill + uppercase word already carry it,
+  and the dropdown can't show a pseudo-element, so an icon would appear on some rows only.
+- **The word is on every OPEN row.** The priority renders in its own `.todo-prio` slot, **outside**
+  the `canManage` actions block (it used to be inside it), so it no longer depends on who can
+  edit or delete the row.
+- **Completed rows drop the pill** (the priority no longer matters) and the whole row keeps its
+  existing 65% fade (`.todo-item.completed`), edge included.
 - **Sort:** `renderTodos` sorts a **copy** of `todoRows` with `todoSortByPriority` — **active
   before completed, then Immediate → Low, then newest-first**. Completed items sink to the
   bottom regardless of priority; `todoRows` itself (which feeds the nav badge) is untouched.
@@ -77,12 +99,20 @@ it's simply absent → treated as Normal). Realtime on the `todos` table re-runs
 - To-Do JS (identical ×4): `owner-board.html`, `advisor-board.html`, `gm-board.html`,
   `bookkeeping-board.html` — `renderTodos` / `setTodoPriority` / `todoSortByPriority` /
   `TODO_PRIORITIES` / `TODO_PRIORITY_OPTS`.
-- Styles (shared): `shared/board-shell.css` — `.todo-item`, `.todo-prio-*` (row border),
-  `.todo-prio-select` (creator's dropdown), `.todo-prio-tag*` (receiver's read-only pill).
+- Styles (shared): `shared/board-shell.css` — `.todo-item`, the **shared priority look**
+  `.prio-edge.prio-edge-*` (row edge) + `.prio-pill.prio-pill-*` (word/pill, also used by Report a
+  change), `.todo-prio` (slot), `.todo-prio-select` (+ `.prio-pill` for the creator's dropdown).
+  Static guard: `shared/priority-look.test.js` (4 tests).
 - Schema: `migrations/20260715_todos.sql` (+ `_realtime`, `_attachments`) and
   `migrations/20260730_todos_priority.sql`.
 
 ## Session change log
+- 2026-09-18 — **Priority look** (Kevin, 2026-08-06, "IMMEDIATE and HIGH are hard to
+  distinguish"): shared filled/outlined pills + thick edges replace the thin red/amber edges; the
+  word shows on every open row, including for the creator; completed rows drop the pill.
+  Report a change now uses the same shared classes. +`shared/priority-look.test.js`. Kevin's
+  "clear all completed" button is **not** in this change (separate follow-up). Branch
+  `feat/priority-look`.
 - 2026-07-30 — Added per-item **priority** (Immediate/High/Normal/Low, default Normal): the
   `priority` column (`20260730_todos_priority.sql`, hand-run), a dropdown + left-border color +
   Immediate-first sort in `renderTodos`, and `setTodoPriority` (direct anon UPDATE). Applied the

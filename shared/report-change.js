@@ -178,10 +178,8 @@ window.ReportChange = (function () {
     .rc-empty { color:var(--muted); font-size:0.85rem; padding:22px; text-align:center; }
     .rc-list { display:flex; flex-direction:column; gap:12px; }
     .rc-item { border:1px solid var(--border); border-left:3px solid var(--border); border-radius:10px; padding:13px 15px; background:var(--surface,#fff); }
-    .rc-item.prio-immediate { border-left-color:var(--red); }
-    .rc-item.prio-high { border-left-color:var(--amber); }
-    .rc-item.prio-normal { border-left-color:var(--border); }
-    .rc-item.prio-low { border-left-color:var(--muted); }
+    /* priority edge + pill: the SHARED priority look in shared/board-shell.css
+       (.prio-edge / .prio-pill) — no copy here. */
     .rc-item.is-closed { opacity:0.72; }
     .rc-item-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
     .rc-item-who { font-size:0.82rem; font-weight:700; color:var(--text); }
@@ -220,10 +218,6 @@ window.ReportChange = (function () {
     /* ── Phase 2: My requests list (read-only) ── */
     .rc-mine-list { display:flex; flex-direction:column; gap:11px; }
     .rc-mine-item { border:1px solid var(--border); border-left:3px solid var(--border); border-radius:10px; padding:12px 14px; background:var(--surface,#fff); }
-    .rc-mine-item.prio-immediate { border-left-color:var(--red); }
-    .rc-mine-item.prio-high { border-left-color:var(--amber); }
-    .rc-mine-item.prio-normal { border-left-color:var(--border); }
-    .rc-mine-item.prio-low { border-left-color:var(--muted); }
     .rc-mine-item.is-unread { box-shadow:inset 3px 0 0 0 var(--accent); background:#f7f8ff; }
     .rc-mine-new { display:inline-block; font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:#fff; background:var(--accent); border-radius:20px; padding:1px 7px; }
     /* read-only status pill */
@@ -839,13 +833,13 @@ window.ReportChange = (function () {
     function mineRowHtml(r, unread) {
       const type = TYPES.find(t => t.key === r.type) || { emoji: '', label: r.type };
       const prio = PRIORITIES.find(p => p.key === r.priority) || { label: r.priority };
-      const prioPill = `<span class="todo-prio-tag todo-prio-tag-${esc(r.priority)}">${esc(prio.label)}</span>`;
+      const prioPill = `<span class="prio-pill prio-pill-${esc(r.priority)}">${esc(prio.label)}</span>`;
       const statusPill = `<span class="rc-status-pill rc-status-${esc(r.status)}">${esc(statusLabel(r.status))}</span>`;
       const newTag = unread ? '<span class="rc-mine-new">Update</span>' : '';
       const update = r.owner_note
         ? `<div class="rc-update"><div class="rc-update-head">Update from the owner${r.owner_note_at ? ' · ' + esc(fmtWhen(r.owner_note_at)) : ''}</div><div class="rc-update-body">${esc(r.owner_note)}</div></div>`
         : '';
-      return `<div class="rc-mine-item prio-${esc(r.priority)}${unread ? ' is-unread' : ''}" data-id="${esc(r.id)}">
+      return `<div class="rc-mine-item prio-edge prio-edge-${esc(r.priority)}${unread ? ' is-unread' : ''}" data-id="${esc(r.id)}">
         <div class="rc-item-top">
           <span class="rc-chip rc-chip-${esc(r.type)}">${type.emoji} ${esc(type.label)}</span>
           ${prioPill}
@@ -972,7 +966,7 @@ window.ReportChange = (function () {
       const closed = !OPEN_STATUSES.includes(r.status);
       const who = esc(r.submitted_by_name || 'Someone');
       const role = r.submitted_by_role ? `<span class="rc-item-role">· ${esc(roleLabel(r.submitted_by_role))}</span>` : '';
-      const prioPill = `<span class="todo-prio-tag todo-prio-tag-${esc(r.priority)}">${esc(prio.label)}</span>`;
+      const prioPill = `<span class="prio-pill prio-pill-${esc(r.priority)}">${esc(prio.label)}</span>`;
 
       const ctxBits = [];
       if (r.context_board) ctxBits.push(`<b>${esc(roleLabel(r.context_board))}</b> board`);
@@ -985,7 +979,7 @@ window.ReportChange = (function () {
       const noteSent = (r.owner_note && r.owner_note_at)
         ? `<div class="rc-note-sent">Last update sent ${esc(fmtWhen(r.owner_note_at))}</div>` : '';
 
-      return `<div class="rc-item prio-${esc(r.priority)}${closed ? ' is-closed' : ''}" data-id="${esc(r.id)}">
+      return `<div class="rc-item prio-edge prio-edge-${esc(r.priority)}${closed ? ' is-closed' : ''}" data-id="${esc(r.id)}">
         <div class="rc-item-top">
           <span class="rc-chip rc-chip-${esc(r.type)}">${type.emoji} ${esc(type.label)}</span>
           ${prioPill}

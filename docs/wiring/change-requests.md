@@ -1,7 +1,11 @@
 # How the "Report a Change" intake is wired
 
 > Doc: `/docs/wiring/change-requests.md`
-> Last updated: 2026-07-31 — verified vs commit `4bf7eb0`
+> Last updated: 2026-09-18 — §3 + §6: the priority pill + row edge now use the **shared priority
+> look** in `shared/board-shell.css` (`.prio-pill-*` / `.prio-edge-*`, [[todo-list]] §3); this
+> module no longer carries its own edge rules. Branch `feat/priority-look`, unmerged. Rest not
+> re-verified this session.
+> Previously: 2026-07-31 — verified vs commit `4bf7eb0`
 > Status: ✅ ALL THREE PHASES BUILT — Phase 1 (submit + triage), Phase 2 ("My requests"
 > loop-back), Phase 3 (capture + annotate, with the large "annotate mode" §8). Verified vs commit `4bf7eb0`, against
 > `migrations/20260731_change_requests.sql`, `api/change-request.js` (+ `.test.js`),
@@ -88,7 +92,7 @@ Mirrors `api/announcement.js`: a pure, exported, **test-locked** `parseChangeReq
   `/api/version` (fetched once, cached), `navigator.userAgent`, and the `board`/identity getters —
   then POSTs `create`.
 - **Triage role.** Renders a **"Requests & Feedback" `.card`** into its mount. Each row shows a
-  type chip (🐞 Bug / 💡 Idea), a **priority pill reusing the To-Do `.todo-prio-tag-*` classes**,
+  type chip (🐞 Bug / 💡 Idea), a **priority pill from the shared priority look (`.prio-pill-*`)**,
   submitter + role + relative time, the note (or "screenshot only"), the **screenshot** (lazy
   `createSignedUrl`, 1 h), and an **auto-context box** (board · view · RO · build · user-agent).
   A **status `<select>`** drives `triage`, and a **"Send update to <submitter>"** textarea writes
@@ -134,9 +138,12 @@ DB call uses the public anon key. So:
   invoice images and chat/todo attachments. **A board screenshot may contain customer PII**;
   accepted for this team, revisited when Supabase Auth lands (a "tighter" bucket is still
   anon-read without a token).
-- Priority reuses the To-Do scale + colors verbatim ([[todo-list]] §3): the triage pills are the
-  shared `.todo-prio-tag-*` classes; the row's left border is `.rc-item.prio-*` (same
-  immediate=red / high=amber / normal=neutral / low=muted mapping).
+- Priority reuses the To-Do scale **and the one shared look** ([[todo-list]] §3): pills are
+  `<span class="prio-pill prio-pill-<value>">` and both lists' rows (`.rc-item` inbox,
+  `.rc-mine-item` My requests) carry `prio-edge prio-edge-<value>` — Immediate = solid dark-red
+  pill + thick dark-red edge, High = dark-orange outlined pill + edge, Normal = plain word,
+  Low = small grey pill. No copy of these rules lives in `report-change.js` any more (the old
+  `.rc-item.prio-*` / `.rc-mine-item.prio-*` blocks were removed 2026-09-18).
 
 ## 7. "My requests" loop-back (Phase 2 — BUILT)
 The submit role's modal has a second tab, **"My requests"**, showing the current user's own
@@ -244,6 +251,8 @@ mean. Two ways in, one annotator, flattened on submit — all in `shared/report-
   Related: [[todo-list]], [[settings]], [[file-cabinet]].
 
 ## Session change log
+- 2026-09-18 — Priority pill + row edge moved to the shared priority look ([[todo-list]] §3);
+  the module's own edge rules deleted. Branch `feat/priority-look`.
 - 2026-09-17 — §2: the endpoint now requires a signed-in active employee (`api/_lib/require-user.js`); both `create` (submit) and `triage` (owner) send the session token through `cdAuthFetch`. Validation and everything else unchanged.
 - 2026-07-31 — Created during the "Requests & Feedback intake" investigation (proposal only).
 - 2026-07-31 — **Built Phase 1** (submit + triage): the `change_requests` table

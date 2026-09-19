@@ -584,21 +584,25 @@
       // creator → read-only (safe default).
       const isCreator = !!CURRENT_EMPLOYEE_ID && t.created_by === CURRENT_EMPLOYEE_ID;
       const prioLabel = (TODO_PRIORITY_OPTS.find(o => o.v === priority) || {}).label || 'Normal';
+      // The level is ALWAYS a word on an open row (shared priority look,
+      // shared/board-shell.css): the creator's editable dropdown wears the pill,
+      // everyone else — receiver or not — sees the read-only pill. Completed rows
+      // drop it (the whole row fades; the priority no longer matters).
       const prioControl = isCompleted ? ''
         : isCreator
-          ? `<select class="todo-prio-select" title="Priority" aria-label="Priority">${TODO_PRIORITY_OPTS.map(o => `<option value="${o.v}"${o.v === priority ? ' selected' : ''}>${o.label}</option>`).join('')}</select>`
-          : `<span class="todo-prio-tag todo-prio-tag-${priority}" title="Priority — set by ${esc(t.created_by_name || 'the assigner')}">${esc(prioLabel)}</span>`;
+          ? `<select class="todo-prio-select prio-pill prio-pill-${priority}" title="Priority" aria-label="Priority">${TODO_PRIORITY_OPTS.map(o => `<option value="${o.v}"${o.v === priority ? ' selected' : ''}>${o.label}</option>`).join('')}</select>`
+          : `<span class="prio-pill prio-pill-${priority}" title="Priority — set by ${esc(t.created_by_name || 'the assigner')}">${esc(prioLabel)}</span>`;
       return `
-        <div class="todo-item todo-prio-${priority}${isCompleted ? ' completed' : ''}" data-id="${esc(t.id)}">
+        <div class="todo-item prio-edge prio-edge-${priority}${isCompleted ? ' completed' : ''}" data-id="${esc(t.id)}">
           <input type="checkbox" class="todo-checkbox" ${isCompleted ? 'checked' : ''}>
           <div class="todo-body">
             <div class="todo-text">${esc(t.text)}</div>
             <div class="todo-meta">${tag}${completedNote}</div>
             ${t.attachment_path ? `<a class="todo-attach-chip" href="#" data-att-path="${esc(t.attachment_path)}"><span>📄</span><span class="todo-attach-chip-name">${esc(t.attachment_name || 'file')}</span><span>⬇</span></a>` : ''}
           </div>
+          ${prioControl ? `<div class="todo-prio">${prioControl}</div>` : ''}
           ${canManage ? `
           <div class="todo-actions">
-            ${prioControl}
             <button type="button" class="todo-action-btn todo-edit-btn" title="Edit">✏️</button>
             <button type="button" class="todo-action-btn danger todo-delete-btn" title="Delete">🗑️</button>
           </div>` : ''}
