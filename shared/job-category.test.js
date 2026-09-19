@@ -129,16 +129,22 @@ test('board: archiveToCompletedJobs puts the RO\'s category (via archiveJobCateg
   assert.doesNotMatch(body, /shopboard_/);
 });
 
-test('board: the Off-lot path re-reads the RO before closing (so the archive sees its category)', () => {
+test('board: Off lot re-reads the RO, then runs the one close step (floor, status, archive-from-RO)', () => {
+  // Since fix/close-clears-floor: Off lot loads the RO and calls setStage('closed'),
+  // which removes the car from the floor BEFORE the status write, then archives
+  // from currentRo — the repair_orders row — so the category survives the floor
+  // removal (verified on staging with #5413). shared/floor-clear.test.js owns the order.
   const offLot = fnBody('offLotCard');
-  assert.ok(offLot.indexOf('removeCarFromFloor') < offLot.indexOf('loadRoContext'), 'floor first, then RO re-read');
+  assert.ok(offLot.indexOf('loadRoContext(') >= 0 && offLot.indexOf('loadRoContext(') < offLot.indexOf("setStage('closed'"), 'RO re-read, then close');
   assert.match(fnBody('loadRoContext'), /\.from\('repair_orders'\)\s*\n?\s*\.select\('\*, /);
+  const stage = fnBody('setStage');
+  assert.ok(stage.indexOf('FC.prepareClose(') < stage.indexOf('archiveToCompletedJobs('), 'floor removed before the archive runs');
 });
 
 test('board: job_category is never WRITTEN to a floor table by the advisor board', () => {
   // Every floor write in the board (insert/update into shopboard_*) — none may
-  // carry a category. EMPTY_LIFT's pre-existing `job_category: ''` clears a lift
-  // on Off-lot (v1 row shape) and is the one allowed mention.
+  // carry a category. (The empty-bay shape, EMPTY_LIFT with its `job_category: ''`,
+  // now lives in shared/floor-clear.js and only ever blanks a lift.)
   const lines = BOARD.split('\n');
   lines.forEach((line, i) => {
     if (!/\.from\('shopboard_(lifts|parking|pickup)'\)/.test(line)) return;

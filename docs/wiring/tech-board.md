@@ -1,7 +1,10 @@
 # How the Tech Board (dispatcher) is wired
 
 > Doc: `/docs/wiring/tech-board.md`
-> Last updated: 2026-08-21 — §2a added (columns key off ASSIGNMENT, not role); verified vs
+> Last updated: 2026-09-19 — **§8 added: why closed jobs used to linger here, and the fix**
+> (closing an RO now takes its car off the floor; one-time ghost cleanup). Branch
+> `fix/close-clears-floor`, unmerged. §2 re-checked vs `loadAll`; rest not re-verified this session.
+> Earlier: 2026-08-21 — §2a added (columns key off ASSIGNMENT, not role); verified vs
 > commit `d67d506`. Previously 2026-07-30 — verified vs commit `8ec2164`
 > Status: ✅ verified vs commit `8ec2164` — checked against `crisdata-techboard.html`,
 > `my-numbers.html`, `gm-board.html`, and the floor-table columns. Investigation-only capture
@@ -132,7 +135,36 @@ already handle the state machine correctly — the tech's My Numbers and the man
 Shop Floor tab — or, only if editing status from the tech board is truly wanted, route it through
 the My Numbers transition writer (option 3), never a raw dropdown.
 
-## Known gaps & open questions (as of 2026-07-30)
+## 8. Closed jobs lingering on the board ("ghosts") — cause and fix (Kevin, Aug 6 / 13 / 26)
+**What Kevin saw.** "completed jobs that have already left the shop and are no longer on ro board
+are still on tech board" (Aug 6); "LOTS OF OLD/COMPLETED JOBS STILL SHOW" (Aug 13); "fix old ROs
+still showing up in the unassigned pool" (Aug 26, middle clause of the pools request). One bug.
+
+**Why.** This board lists whatever is in the three floor tables (`loadAll`, §2) and **never reads
+`repair_orders`** — it only drops rows with a blank `vehicle`. So a car is shown until its floor row
+goes. Until 2026-09-19 the only thing in live use that removed a floor row was the advisor board's
+**Off lot** button (Ready-for-pickup cards). Closing an RO from the RO detail's **Stage dropdown** —
+how the shop closes most ROs — left the row behind. On prod on 2026-09-19 that was **14 of the 30
+cars** on this board, closed 10–42 days earlier, all unassigned (hence "the unassigned pool"). The
+same rows also showed in the advisor **Approval Queue** (floor `waiting-tech` / `waiting-auth`) and
+the Manager board's **Tech Status**, which read the floor the same way.
+
+**The fix (on the write side, not here).** Closing an RO now takes its car off the floor — one close
+path, `setStage('closed')`, used by the Stage dropdown and Off lot alike; a lift bay is cleared,
+never deleted ([[ro-checkin-tech]] §8, `shared/floor-clear.js`). This board is **unchanged**: it
+still shows exactly the floor, and the floor is now right. A display-side "hide closed ROs" filter
+was considered and not built — it would need a `repair_orders` read in every floor reader,
+including My Numbers, which runs without a login and would break under security Phase 3's
+staff-only `repair_orders`.
+
+**The ghosts already there** are removed once by hand-run SQL
+(`migrations/20260919_floor_ghosts_cleanup_{SANDBOX,PROD}.sql`, [[ro-checkin-tech]] §8).
+
+**Still shown until a later decision:** declined estimates and diag-fee-receipt cars — neither is a
+close, so nothing removes their floor rows.
+
+## Known gaps & open questions (as of 2026-07-30; §8 as of 2026-09-19)
+- §8: declined-estimate / diag-fee-receipt cars stay on the board until closed or removed by hand.
 - No viewer identity/role on the tech board (§2, §7) — the blocker for safe manager-only editing.
 - The read-only modal's premise ("techs update from My Numbers") understates that the board
   already writes on assignment (§5).
@@ -147,6 +179,9 @@ the My Numbers transition writer (option 3), never a raw dropdown.
   quirk), `floor-tags.md` (floor tags & lanes).
 
 ## Session change log
+- 2026-09-19 — §8 added: the "jobs that already left" ghosts — cause (only Off lot cleared the floor;
+  Stage-dropdown closes didn't) and the write-side fix + one-time cleanup. No change to this board's
+  code. Branch `fix/close-clears-floor`, unmerged.
 - 2026-09-19 — §4: noted the RO now has its own, separate `repair_orders.job_category`
   ([[ro-checkin-tech]] §7), never mirrored to the floor row this board reads. No code change here.
   Shipped to prod at `de37577`.

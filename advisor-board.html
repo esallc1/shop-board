@@ -1264,6 +1264,13 @@
   import * as JobCategory from './shared/job-category.js';
   window.JobCategory = JobCategory;
 </script>
+<!-- Closing an RO takes its car off the shop floor (ESM). Assigns
+     window.FloorClear; used only by the event-driven close step
+     (setStage('closed') — the Stage dropdown and Off lot). -->
+<script type="module">
+  import * as FloorClear from './shared/floor-clear.js';
+  window.FloorClear = FloorClear;
+</script>
 <!-- VIN decode — the ONE implementation (NHTSA vPIC). Assigns window.VinDecode;
      used by BOTH the New RO wizard and the RO detail decode button. -->
 <script type="module">
@@ -5510,30 +5517,14 @@
       if (currentRo && String(currentRo.id) === String(ro.id)) { currentRo.status = nextStage; renderHeader(); }
     }
 
-    // The empty-lift row shape v1 (shop-board.html) writes when clearing a
-    // bay — a lift is one of 6 FIXED rows, so we CLEAR it, never delete it.
-    const EMPTY_LIFT = {
-      po: '', vehicle: '', customer: '', work: '', status: 'empty', notes: '',
-      arrival_date: null, assigned_tech: '', tech_status: 'available',
-      tech_notes: '', job_category: '', warranty: false,
-    };
-
     // Remove a car from the v1 floor wherever it sits — the exact inverse of
-    // check-in. parking + pickup rows are dynamic (uuid) → delete; a lift is a
-    // fixed bay → clear to EMPTY_LIFT. Idempotent: matches nothing → no-op.
+    // check-in. parking + pickup rows → delete; a lift is a FIXED bay → cleared
+    // to EMPTY_LIFT, never deleted. Idempotent. Lives in shared/floor-clear.js
+    // (tested); called ONLY from the one close path, setStage('closed').
     async function removeCarFromFloor(po) {
-      const key = String(po);
-      const dp = await db.from('shopboard_parking').delete().eq('po', key);
-      if (dp.error) return { ok: false, error: dp.error };
-      const dk = await db.from('shopboard_pickup').delete().eq('po', key);
-      if (dk.error) return { ok: false, error: dk.error };
-      const { data: lifts, error: lErr } = await db.from('shopboard_lifts').select('id').eq('po', key);
-      if (lErr) return { ok: false, error: lErr };
-      for (const l of (lifts || [])) {
-        const { error } = await db.from('shopboard_lifts').update(EMPTY_LIFT).eq('id', l.id);
-        if (error) return { ok: false, error };
-      }
-      return { ok: true };
+      const FC = window.FloorClear;
+      if (!FC) return { ok: false, error: new Error('the floor module did not load — reload the page') };
+      return FC.removeCarFromFloor(db, po);
     }
 
     // Load a given RO into currentRo/currentLines WITHOUT switching to the
@@ -5552,28 +5543,22 @@
     }
 
     // OFF LOT — the bookend to check-in, on Ready-for-pickup cards only.
-    // Removes the car from the v1 floor AND closes the RO. Mirrors check-in's
-    // failure discipline: do the FLOOR mutation first; only stamp the RO state
-    // (close + archive) if it succeeded, so a partial failure leaves no orphan
-    // row on the floor and the card stays re-clickable.
+    // Asks once, loads the RO, then runs THE close step — setStage('closed') —
+    // which takes the car off the floor FIRST and only then writes the status
+    // + archive (floorConfirmed: we asked already, so it doesn't ask again).
+    // One close path, not two: a floor failure leaves the RO unclosed and the
+    // card re-clickable, exactly as before.
     async function offLotCard(roId) {
       const ro = allRos.find(r => String(r.id) === String(roId));
       if (!ro) return;
       const po = ro.po || String(ro.ro_number);
       if (!confirm(`Off-lot RO #${po}?\n\nThis closes the invoice and removes the car from the shop floor.`)) return;
-      // 1) floor first (inverse of check-in) — bail cleanly if it fails
-      const removed = await removeCarFromFloor(po);
-      if (!removed.ok) {
-        alert('Off-lot failed removing the car from the floor: ' + ((removed.error && removed.error.message) || 'unknown error'));
-        return;
-      }
-      // 2) close + archive, reusing the RO-detail close path exactly
       try {
         await loadRoContext(roId);
-        await setStage('closed');
+        await setStage('closed', { floorConfirmed: true });
       } catch (e) {
         console.error('[CdRO] off-lot close failed', e);
-        alert('Car removed from the floor, but closing the RO failed: ' + (e.message || e) + '\nRe-tap Off lot to finish closing.');
+        alert('Off lot failed: ' + (e.message || e) + '\nRe-tap Off lot to try again.');
       }
       await loadRecentList();
     }
@@ -7280,6 +7265,33 @@
         }
       }
 
+      // CLOSING = THE CAR HAS LEFT (Cris, 2026-09-19: the shop closes an RO only
+      // after the car is gone) → take it off the shop floor FIRST, then write the
+      // status. This is the ONE close path: the Stage dropdown and Off lot
+      // (floorConfirmed — it asked already) both arrive here. Cancel → nothing
+      // changes; a floor failure → the RO stays unclosed and a retry is safe
+      // (removal is idempotent). shared/floor-clear.js; ro-checkin-tech.md §8.
+      if (next === 'closed') {
+        const po = currentRo.po || String(currentRo.ro_number);
+        const FC = window.FloorClear;
+        const pre = FC
+          ? await FC.prepareClose({
+              alreadyConfirmed: !!opts.floorConfirmed,
+              confirm: () => confirm(`Close RO #${po}?\n\n${FC.CLOSE_CONFIRM_TEXT}`),
+              removeFloor: () => removeCarFromFloor(po),
+            })
+          : { ok: false, reason: 'floor', error: new Error('the floor module did not load — reload the page') };
+        if (!pre.ok) {
+          if (pre.reason === 'floor') {
+            console.error('[CdRO] close: floor removal failed', pre.error);
+            if (!opts.silent) alert('Not closed — removing the car from the shop floor failed: ' +
+              ((pre.error && pre.error.message) || 'unknown error') + '\nNothing was changed on the RO. Try again.');
+          }
+          const sel = $('cdRoStage'); if (sel) sel.value = STAGES.includes(currentRo.status) ? currentRo.status : 'estimate';
+          return;
+        }
+      }
+
       // optimistic local update so the UI feels instant
       currentRo.status = next;
       renderHeader();
@@ -7294,7 +7306,8 @@
           if (!opts.silent) alert(`Can't move to "${STATUS_LABEL[next]}" yet — the "closed" stage needs the Phase-4 migration applied first.`);
         } else {
           console.error('[CdRO] set stage failed', error);
-          if (!opts.silent) alert('Could not change stage: ' + error.message);
+          if (!opts.silent) alert('Could not change stage: ' + error.message +
+            (next === 'closed' ? '\n\nThe car was already taken off the shop floor — set the stage to Closed again to finish closing.' : ''));
         }
         currentRo.status = prev;   // revert
         renderHeader();

@@ -1,10 +1,10 @@
 # How RO check-in, active-RO status & tech assignment are wired
 
 > Doc: `/docs/wiring/ro-checkin-tech.md`
-> Last updated: 2026-09-19 — **§7 added: Job category on the RO** (`repair_orders.job_category`,
-> `shared/job-category.js`), **verified vs commit `a90963f`** on `test.*` as ZZ Test Advisor (see
-> change log). **Shipped to prod at `de37577`** (2026-09-19); migration applied to sandbox AND prod
-> (Cris, by hand). Rest not re-verified this session.
+> Last updated: 2026-09-19 (later) — **§8 added: closing an RO takes its car off the floor** (one
+> close path; `shared/floor-clear.js`; the ghost-cleanup SQL pair). Branch `fix/close-clears-floor`,
+> unmerged. §7 unchanged except its Off-lot sentence (now describes the one close path).
+> Earlier 2026-09-19 — **§7 added: Job category on the RO**, shipped to prod at `de37577`.
 > Earlier: 2026-09-18 — §3/§4 gained "what the RO detail re-reads afterwards" (Warranty + Status
 > refresh after check-in / tech assign, see [[comeback-warranty]] §6).
 > Previously: 2026-07-30 — verified vs commit `596006c`
@@ -178,9 +178,9 @@ invoice. Advisor board only; the New-RO wizard does not ask (out of scope for th
 **At close — the archive copy.** `archiveToCompletedJobs` puts
 `job_category: JobCategory.archiveJobCategory(ro)` in the `completed_jobs` payload — the RO's
 **final** value, blank → NULL. `ro` is `currentRo`, the `repair_orders` row, **never** the floor
-row. That matters for **Off lot** (`offLotCard`): it removes the car from the floor *first*, then
-`loadRoContext` re-reads `repair_orders` `'*'` and closes — so the category is still on the RO it
-reads. Same upsert-by-`(po, source_table='repair_orders')` as the rest of the payload: a re-close
+row. That matters because every close now takes the car off the floor *before* the status write
+and the archive (§8): **Off lot** (`offLotCard`) re-reads `repair_orders` `'*'` via `loadRoContext`
+and then runs the one close step — so the category is read from the RO, whatever the floor holds. Same upsert-by-`(po, source_table='repair_orders')` as the rest of the payload: a re-close
 overwrites the archive row with the then-current category. The quick diag-fee receipt
 (`recordDiagReceipt`, `source_table='diag_receipt'`) does **not** carry a category.
 
@@ -191,7 +191,69 @@ old `Diag` keeps its own slice, blank/unknown → Other. Every other `job_catego
 board Technicians pills, Comebacks table, Tech Status pools, the Tech Board modal, My Numbers, the
 advisor Approval Queue) reads the **floor rows**, which never receive the RO's value.
 
-## Known gaps & open questions (as of 2026-07-30; §7 items as of 2026-09-19)
+## 8. Closing an RO takes its car off the floor — ONE close path (Kevin, Aug 6 / 13 / 26)
+**The rule.** The shop closes an RO only **after the car has left the lot** (Cris, 2026-09-19), so
+*closed = gone*. Every close now removes the car's floor row. Before this, only **Off lot** did;
+closing from the RO detail's **Stage dropdown** (how the shop actually closes most ROs) left the
+row, and the Tech Board, the Approval Queue and the Manager board's Tech Status kept showing cars
+that had left weeks ago — 14 of them on prod on 2026-09-19 (see the cleanup below).
+
+**One close path: `setStage('closed')`.** In order:
+1. the existing checks — the comeback close-block, then the book-hours gate (unchanged);
+2. **`FloorClear.prepareClose`** (`shared/floor-clear.js`): asks *"Close RO #N? — This also removes
+   the car from the shop floor."* (skipped when the caller already asked: Off lot passes
+   `{ floorConfirmed: true }`), then **`removeCarFromFloor(po)`**;
+   - **Cancel → nothing changes** (the Stage dropdown snaps back; no floor or RO write);
+   - **floor failure → not closed**, nothing written to the RO, an alert says so; a retry is safe
+     (removal is idempotent);
+3. only then the status write (`repair_orders.status = 'closed'`), then `archiveToCompletedJobs`
+   (which reads the RO row — §7). If the status write itself fails after the floor removal, the
+   alert says the car is already off the floor and to set Closed again.
+
+**What "remove from the floor" does** (`removeCarFromFloor(db, po)`, by `po`, stops at the first
+error): `shopboard_parking` and `shopboard_pickup` rows are **deleted**; a `shopboard_lifts` bay —
+one of six fixed rows — is **cleared** to `EMPTY_LIFT` (the v1 empty-bay shape: `po`/`vehicle`/
+`customer`/`work`/`notes`/`tech_notes`/`job_category` `''`, `status` `empty`, `arrival_date` null,
+`assigned_tech` `''`, `tech_status` `available`, `warranty` false), **never deleted**. A blank `po`
+touches nothing. The board's `removeCarFromFloor(po)` is a thin wrapper and is called **only**
+from `setStage` (test-locked); `EMPTY_LIFT` exists only in `shared/floor-clear.js`.
+
+**Off lot** (`offLotCard`, Ready-for-pickup cards only) keeps its own confirm, then
+`loadRoContext(roId)` and `setStage('closed', { floorConfirmed: true })` — the same step. It no
+longer removes the floor itself, so the order is now *checks → floor → status → archive* on both
+paths (previously Off lot removed the floor before the comeback check could block the close).
+
+**Still NOT cleared (out of this slice, a later decision):** a **declined estimate** (Decline only
+stamps `declined_at`) and the **quick diag-fee receipt** (writes only `completed_jobs`). Those cars
+stay on the floor until closed or removed by hand.
+
+**Accepted side effect:** **reopening** a closed RO (Stage back to Invoice / Active RO) does **not**
+put the car back on the floor, and the **Check in** button stays in its "Checked in ✓" state
+(`arrived_at` is history, §3). **Assigning a tech** re-adds the car (`assignTechCore`'s
+auto-check-in, §4).
+
+**The one-time cleanup of the ghosts already there** —
+`migrations/20260919_floor_ghosts_cleanup_{SANDBOX,PROD}.sql`, hand-run by Cris, sandbox first.
+Explicit list of the 14 prod POs found 2026-09-19 (6017, 6027, 6029, 6030, 6033, 6040, 6043, 6053,
+6056, 6051, 6045, 6066, 6071, 6069); acts on a PO only if **every** RO with that `po` is **currently**
+`status = 'closed'` — **not** `closed_at`, which is kept when an RO is reopened (#6065, #6085, #6092
+carry it while open). Backs each row up whole into `floor_ghost_backup_20260919` (RLS on, no
+policies) first; deletes lot/pickup rows; clears the Lift 3 bay (#6029) to exactly `EMPTY_LIFT`;
+reports before/after floor-car counts and every skipped PO (RO not closed / no RO / not on the
+floor). Leaves out #6054 and #6072 (declined) and #6074 (paid, not closed). Undo at the bottom.
+`shared/floor-clear.test.js` locks the list, the exclusions, the status re-check, the lift shape
+and the guards.
+
+## Known gaps & open questions (as of 2026-07-30; §7 items as of 2026-09-19; §8 items as of 2026-09-19)
+- **§8: declined estimates and diag-fee-receipt cars still stay on the floor** — not a close, so
+  nothing removes them. Separate decision.
+- **§8: reopening a closed RO doesn't restore its floor row**; Check in can't re-drop it
+  (`arrived_at` set). Assigning a tech does. Accepted.
+- **§8: `EMPTY_LIFT` doesn't clear a bay's per-job stamps** (`diagnosing_at`…`tech_finished_at`,
+  `flag_hours`, `comeback_flagged_at`, `job_order`) — the v1 shape never did. Invisible today (every
+  reader skips a bay with a blank `vehicle`; only the discontinued Manager-board Shop Floor tab ever
+  places a car on a lift, and it doesn't reset them either), but a future "place on lift" writer
+  must set those itself.
 - **A category changed AFTER close** updates the RO but not its `completed_jobs` row (closed ROs
   aren't locked; only a re-close re-copies). Rare; not handled.
 - The Tech Board modal makes **one extra `repair_orders` read by `po`** per open (for the work
@@ -207,6 +269,12 @@ advisor Approval Queue) reads the **floor rows**, which never receive the RO's v
   behind the live schema) — no maintained migration documents today's columns.
 
 ## Where it lives in the code
+- Close clears the floor (§8): `shared/floor-clear.js` (`EMPTY_LIFT`, `CLOSE_CONFIRM_TEXT`,
+  `removeCarFromFloor`, `prepareClose`) + `shared/floor-clear.test.js` (21 tests: lot/pickup delete,
+  lift cleared never deleted, idempotent, cancel/failure, board static guards for the one close path,
+  and the cleanup SQL); `advisor-board.html` — the ESM loader (~1271), `removeCarFromFloor` wrapper
+  (~5524), `offLotCard` (~5551), the `if (next === 'closed')` floor step inside `setStage` (~7278).
+  Cleanup: `migrations/20260919_floor_ghosts_cleanup_{SANDBOX,PROD}.sql`.
 - Job category (§7): `shared/job-category.js` (`JOB_CATEGORIES`, `buildJobCategoryOptions`,
   `jobCategoryForSave`, `archiveJobCategory`, and for reports `LEGACY_CATEGORY_NAMES` /
   `REPORT_CATEGORY_ORDER` / `reportCategory`) + `shared/job-category.test.js` (19 tests: list,
@@ -232,6 +300,10 @@ advisor Approval Queue) reads the **floor rows**, which never receive the RO's v
   introspection, not a migration.
 
 ## Session change log
+- 2026-09-19 — **§8: closing an RO takes its car off the floor** (Kevin's "Tech Board shows jobs that
+  already left", Aug 6 / 13 / 26). One close path (`setStage('closed')`: checks → confirm → floor →
+  status → archive); Off lot calls it; lifts cleared, never deleted; `shared/floor-clear.js`. Plus the
+  one-time ghost cleanup SQL pair. Branch `fix/close-clears-floor`, unmerged.
 - 2026-09-19 — **Shipped:** prod = `de37577` after Cris ran the PROD migration (`set_count = 0`).
   Served `advisor-board.html` / `shared/job-category.js` byte-identical to git; prod
   `repair_orders.job_category` readable (all NULL). No prod RO opened.
