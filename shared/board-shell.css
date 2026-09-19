@@ -489,11 +489,11 @@ textarea { resize: vertical; width: 100%; min-height: 60px; }
 /* Phone: text gets the full row width; the priority word + edit/delete drop to
    a second line under it (inline, they squeezed the text into a ~100px column
    and broke words mid-way at 375px). 26px = checkbox 16 + gap 10. */
-@media (max-width: 560px) {
-  .todo-item { flex-wrap: wrap; row-gap: 8px; }
-  .todo-body { flex: 1 1 calc(100% - 26px); }
-  .todo-prio { margin-left: 26px; }
-  .todo-actions { margin-left: auto; }
+@media (max-width: 560px) {   /* child selectors: must outrank .todo-body/.todo-actions defined further down */
+  .todo-list .todo-item { flex-wrap: wrap; row-gap: 8px; }
+  .todo-item > .todo-body { flex: 1 1 calc(100% - 26px); }
+  .todo-item > .todo-prio { margin-left: 26px; }
+  .todo-item > .todo-actions { margin-left: auto; }
 }
 .todo-prio-select {
   font-size: 0.7rem; padding: 2px 5px; border: 1px solid var(--border);
