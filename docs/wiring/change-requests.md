@@ -252,7 +252,10 @@ mean. Two ways in, one annotator, flattened on submit — all in `shared/report-
 
 ## Session change log
 - 2026-09-18 — Priority pill + row edge moved to the shared priority look ([[todo-list]] §3);
-  the module's own edge rules deleted. Branch `feat/priority-look`.
+  the module's own edge rules deleted. Branch `feat/priority-look`. Verified on `test.*` at
+  `94c12b1`: My requests (ZZ Test Bookkeeping) and the owner inbox (ZZ Test Owner, 27 rows) show
+  the four levels with 5px edges — the shared two-class rule beats this module's injected 3px
+  `border-left`. Test reports deleted.
 - 2026-09-17 — §2: the endpoint now requires a signed-in active employee (`api/_lib/require-user.js`); both `create` (submit) and `triage` (owner) send the session token through `cdAuthFetch`. Validation and everything else unchanged.
 - 2026-07-31 — Created during the "Requests & Feedback intake" investigation (proposal only).
 - 2026-07-31 — **Built Phase 1** (submit + triage): the `change_requests` table

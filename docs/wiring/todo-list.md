@@ -3,8 +3,9 @@
 > Doc: `/docs/wiring/todo-list.md`
 > Last updated: 2026-09-18 — **§3 priority LOOK rewritten** (shared filled/outlined pills + thick
 > edges, the word always shown) after Kevin's "Immediate and High are hard to tell apart"
-> (2026-08-06). Branch `feat/priority-look` off `main` `4e73ade`, **unmerged**; §3 + Where-it-lives
-> re-checked against the code; staging pass in the change log. Rest not re-verified.
+> (2026-08-06). Verified vs commit `94c12b1` (branch `feat/priority-look` off `main` `4e73ade`, on
+> staging, **not yet on prod**); §3 + Where-it-lives re-checked against the code and driven on
+> `test.*` — see the change log. Rest not re-verified.
 > Previously: 2026-07-30 — verified vs commit `b02116e`
 > Status: ✅ verified vs commit `b02116e` — checked against the four boards' To-Do code, the
 > shared `board-shell.css`, and the `todos` migrations. ⚠ See the duplication note (§1).
@@ -79,6 +80,9 @@ priority is a **direct anon UPDATE**; **no endpoint** is needed and nothing is w
   edit or delete the row.
 - **Completed rows drop the pill** (the priority no longer matters) and the whole row keeps its
   existing 65% fade (`.todo-item.completed`), edge included.
+- **Phone (≤560px):** the priority word + edit/delete drop to a second line under the text
+  (`.todo-list .todo-item { flex-wrap: wrap }`, child selectors so they outrank the later
+  `.todo-body` / `.todo-actions` rules). Inline, they squeezed the text into ~100px at 375px.
 - **Sort:** `renderTodos` sorts a **copy** of `todoRows` with `todoSortByPriority` — **active
   before completed, then Immediate → Low, then newest-first**. Completed items sink to the
   bottom regardless of priority; `todoRows` itself (which feeds the nav badge) is untouched.
@@ -113,6 +117,17 @@ it's simply absent → treated as Normal). Realtime on the `todos` table re-runs
   Report a change now uses the same shared classes. +`shared/priority-look.test.js`. Kevin's
   "clear all completed" button is **not** in this change (separate follow-up). Branch
   `feat/priority-look`.
+  **Verified on `test.*` at `94c12b1`** (served files byte-identical to git). As ZZ Test
+  Bookkeeping: one To-Do added through the real Add + set to Immediate through its own dropdown
+  (DB `immediate`, row + pill re-classed); 8 more inserted (creator + receiver views of all four
+  levels, + one completed). Measured on the page: IMMEDIATE text 6.47:1, edge 5.99:1; High 5.02:1,
+  edge 4.65:1; Normal 4.93:1; Low 6.87:1; Immediate fill vs High fill 6.47:1 (the two edges alone
+  1.29:1); completed row opacity 0.65, no pill. Phone 375px: text 221px wide on all 9 rows,
+  priority on the line below, no sideways scroll (two layout gaps found + fixed on the way:
+  `ed3da61`, `94c12b1`). Report a change: 4 reports filed through the real form (one per level)
+  → My requests (bookkeeping) and the owner inbox (ZZ Test Owner; all 27 rows 5px edges, no old
+  class left) show the same look at wide + phone width. All ZZ PRIO TEST rows (9 to-dos, 4
+  reports, no screenshots) deleted afterwards; sandbox back to 5 open to-dos / 24 requests.
 - 2026-07-30 — Added per-item **priority** (Immediate/High/Normal/Low, default Normal): the
   `priority` column (`20260730_todos_priority.sql`, hand-run), a dropdown + left-border color +
   Immediate-first sort in `renderTodos`, and `setTodoPriority` (direct anon UPDATE). Applied the
