@@ -3,7 +3,8 @@
 > Doc: `/docs/wiring/tech-board.md`
 > Last updated: 2026-09-19 — **§8 added: why closed jobs used to linger here, and the fix**
 > (closing an RO now takes its car off the floor; one-time ghost cleanup). Branch
-> `fix/close-clears-floor`, unmerged; **verified vs commit `993b51e`** on `test.*` (change log).
+> `fix/close-clears-floor`, **shipped to prod at `929b6ee`** (prod ghost cleanup pending); verified
+> vs commit `993b51e` on `test.*` (change log).
 > §2 re-checked vs `loadAll`; rest not re-verified this session.
 > Earlier: 2026-08-21 — §2a added (columns key off ASSIGNMENT, not role); verified vs
 > commit `d67d506`. Previously 2026-07-30 — verified vs commit `8ec2164`

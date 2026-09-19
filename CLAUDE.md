@@ -12,11 +12,11 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `de37577`** (2026-09-19, ~05:20 ET — Job category on the RO + Financial Pulse old→new
-category mapping; prod migration `20260919_ro_job_category_PROD.sql` run by Cris first;
-www/board/apex `/api/version` verified, `advisor-board.html` + `bookkeeping-board.html` +
-`shared/job-category.js` byte-identical). Any later commit on `main` up to the one that wrote this
-line is docs-only. Update this line on every code ship.
+**Prod code = `929b6ee`** (2026-09-19, ~06:35 ET — closing an RO clears its floor row: one close
+path via `shared/floor-clear.js`; www/board/apex `/api/version` verified, `advisor-board.html` +
+`shared/floor-clear.js` byte-identical). The one-time ghost cleanup
+`20260919_floor_ghosts_cleanup_PROD.sql` is run by Cris AFTER this ship. Any later commit on `main`
+up to the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.

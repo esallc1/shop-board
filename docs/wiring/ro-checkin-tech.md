@@ -3,8 +3,8 @@
 > Doc: `/docs/wiring/ro-checkin-tech.md`
 > Last updated: 2026-09-19 (later) — **§8 added: closing an RO takes its car off the floor** (one
 > close path; `shared/floor-clear.js`; the ghost-cleanup SQL pair), **verified vs commit `993b51e`**
-> on `test.*` (change log). Branch `fix/close-clears-floor`, unmerged; cleanup run on the sandbox
-> only. §7 unchanged except its Off-lot sentence (now describes the one close path).
+> on `test.*` (change log). **Shipped to prod at `929b6ee`** (2026-09-19); cleanup run on the sandbox,
+> prod cleanup pending (Cris, after the ship). §7 unchanged except its Off-lot sentence.
 > Earlier 2026-09-19 — **§7 added: Job category on the RO**, shipped to prod at `de37577`.
 > Earlier: 2026-09-18 — §3/§4 gained "what the RO detail re-reads afterwards" (Warranty + Status
 > refresh after check-in / tech assign, see [[comeback-warranty]] §6).
@@ -301,6 +301,9 @@ and the guards.
   introspection, not a migration.
 
 ## Session change log
+- 2026-09-19 — §8 **shipped**: prod = `929b6ee`; served `advisor-board.html` + `shared/floor-clear.js`
+  byte-identical to git; served page has the one close path (one `removeCarFromFloor` call site, in
+  `setStage`; Off lot → `setStage('closed', { floorConfirmed: true })`). Prod cleanup SQL not yet run.
 - 2026-09-19 — **§8: closing an RO takes its car off the floor** (Kevin's "Tech Board shows jobs that
   already left", Aug 6 / 13 / 26). One close path (`setStage('closed')`: checks → confirm → floor →
   status → archive); Off lot calls it; lifts cleared, never deleted; `shared/floor-clear.js`. Plus the
