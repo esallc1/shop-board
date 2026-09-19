@@ -2,8 +2,9 @@
 
 > Doc: `/docs/wiring/ro-checkin-tech.md`
 > Last updated: 2026-09-19 — **§7 added: Job category on the RO** (`repair_orders.job_category`,
-> `shared/job-category.js`), verified against the code this session. Branch `feat/ro-job-category`,
-> unmerged; migration not yet applied anywhere. Rest not re-verified this session.
+> `shared/job-category.js`), **verified vs commit `a90963f`** on `test.*` as ZZ Test Advisor (see
+> change log). Branch `feat/ro-job-category`, unmerged; migration applied to the **sandbox only** —
+> prod not yet. Rest not re-verified this session.
 > Earlier: 2026-09-18 — §3/§4 gained "what the RO detail re-reads afterwards" (Warranty + Status
 > refresh after check-in / tech assign, see [[comeback-warranty]] §6).
 > Previously: 2026-07-30 — verified vs commit `596006c`
@@ -237,6 +238,14 @@ Other`, so the two new values currently land in **Other** — see Known gaps.
   the two values in `shared/job-category.js`), a dropdown under Status on the RO detail (red while
   blank, blocks nothing), copied into `completed_jobs.job_category` at close from the RO row. RO
   only — never mirrored to the floor. Financial Pulse naming gap logged.
+  **Verified on `test.*` at `a90963f`, ZZ Test Advisor, sandbox migration applied:** blank RO →
+  red "Pick a category" under Status (`rgb(239,68,68)` border + ring), NEW badge on; pick saved and
+  survived a `?ro=` reload; Transmission rebuild → General repair saved; "Pick a category" again →
+  NULL, red again. Closes: #6034 via Stage → `completed_jobs.job_category` = General repair;
+  #5413 via **Off lot** → Transmission rebuild (its pickup row said `Gen Auto` and was deleted
+  first — archive took the RO value); #6035 blank → not blocked, archive NULL. Floor rows never
+  written. 375px: no horizontal scroll, select full-width, layout identical badge on/off. Console:
+  only the pre-existing sandbox avatar-sign 400s.
 - 2026-09-18 — RO detail now re-reads Warranty + Status after its own check-in and after a
   successful tech assign (`refreshFloorControls`, [[comeback-warranty]] §6). Line refs re-pointed.
 - 2026-07-30 — Created during the RO #6018 "assign tech" investigation. Root-caused the

@@ -103,7 +103,9 @@ When a date passes, the markup can stay (it's inert) or be deleted in the next t
 
 ## Session change log
 - 2026-09-19 — Third use: the RO detail's **Job category** label, until `2026-09-28` (planned ship
-  Mon 2026-09-21 + 7). Branch `feat/ro-job-category`, unmerged.
+  Mon 2026-09-21 + 7). Branch `feat/ro-job-category`, unmerged. Verified on `test.*` at `a90963f`:
+  pill on (`rgb(22,163,74)`), and at 375px the select's position/height and the label height are
+  identical pill on vs off.
 - 2026-09-18 — Customer Edit badge moved with its button from the top strip into the profile
   card's name row (JS-rendered now, so it relies on the `MutationObserver` re-apply). Branch
   `fix/cust-edit-in-person-card`. Verified on `test.*` at `6c22499` as ZZ Test Advisor: pill on
