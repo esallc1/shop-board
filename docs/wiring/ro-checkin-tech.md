@@ -236,7 +236,8 @@ advisor Approval Queue) reads the **floor rows**, which never receive the RO's v
   the two values in `shared/job-category.js`), a dropdown under Status on the RO detail (red while
   blank, blocks nothing), copied into `completed_jobs.job_category` at close from the RO row. RO
   only — never mirrored to the floor. Financial Pulse naming gap logged — and fixed later the
-  same day (old names mapped onto the new two in the Pulse, [[financial-pulse]] §5).
+  same day (old names mapped onto the new two in the Pulse, [[financial-pulse]] §5; verified on
+  `test.*` at `7173ac6` — old and new rows share one slice).
   **Verified on `test.*` at `a90963f`, ZZ Test Advisor, sandbox migration applied:** blank RO →
   red "Pick a category" under Status (`rgb(239,68,68)` border + ring), NEW badge on; pick saved and
   survived a `?ro=` reload; Transmission rebuild → General repair saved; "Pick a category" again →

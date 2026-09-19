@@ -4,7 +4,8 @@
 > Last updated: 2026-09-19 — §5 donut now buckets through `shared/job-category.js`
 > (`reportCategory`: old Rebuild / Gen Auto join the new Transmission rebuild / General repair
 > slices; old Diag keeps its own, shown only when in range). The ⚠ Needs-review flag raised
-> earlier the same day is cleared. Branch `feat/ro-job-category`, unmerged. Only §5, the gaps and
+> earlier the same day is cleared. **Verified vs commit `7173ac6`** on `test.*` as ZZ Test
+> Bookkeeping (change log). Branch `feat/ro-job-category`, unmerged. Only §5, the gaps and
 > Where-it-lives were re-verified this session.
 > Previously: 2026-08-11 — verified vs branch `profit-by-ro` (date math extracted to the
 > shared `PeriodRange` module; §4 updated. Realized-income logic unchanged.)
@@ -361,7 +362,13 @@ surfaced). PO 6009 (open) → provisional. Unmatched PO → "no receipts" empty 
 - 2026-09-19 — **Donut buckets through the shared job-category map** (Cris-approved): old Rebuild /
   Gen Auto join the new Transmission rebuild / General repair slices (old colours kept), old Diag
   keeps its own slice only when in range, blank/unknown → Other. The `CAT_ORDER` whitelist is gone.
-  ⚠ Needs-review flag (raised earlier the same day) cleared.
+  ⚠ Needs-review flag (raised earlier the same day) cleared. **Verified on `test.*` at `7173ac6`,
+  ZZ Test Bookkeeping**, with sandbox test payments (note "sandbox pulse test") on #6034, #5413,
+  #5504, #5510: Aug 1 → Sep 19 = Transmission rebuild $5,902.21 (#5511 old *Rebuild* + #5413 new),
+  General repair $5,549.70 (#6034 new + #5504 old *Gen Auto*), Diag $22.35 (#5510), Other
+  $19,742.24 (the 10 uncategorized paid ROs only); slices sum to the $31,216.51 scorecard (1¢
+  legend rounding); old colours. Aug 1 → Aug 31 = Transmission rebuild $5,879.85 + Other — no
+  Diag slice, no empty slice. Console: only the pre-existing sandbox avatar-sign 400s.
 - 2026-09-19 — Flagged ⚠ Needs review: the RO job category (`feat/ro-job-category`) writes new
   names into `completed_jobs.job_category` that this donut's whitelist sends to Other. No code change.
 - 2026-09-18 — `update()` waits for THE RO calculator; failed load → message, no numbers
