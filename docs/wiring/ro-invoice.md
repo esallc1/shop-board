@@ -3,7 +3,8 @@
 > Doc: `/docs/wiring/ro-invoice.md`
 > **2026-09-19 — §5 added: "Warranty given"** (`repair_orders.warranty_terms`, printed above the
 > signature / PAID block) **+ line breaks now print in Advisory notes and the Warranty block.**
-> Branch `feat/ro-warranty-terms`, unmerged. §5, the `workAndTotals`/`bodyHtml` order and the CSS
+> **Verified vs commit `91dd415`** on `test.*` (change log). Branch `feat/ro-warranty-terms`,
+> unmerged; migration on the sandbox only. §5, the `workAndTotals`/`bodyHtml` order and the CSS
 > re-checked against `shared/ro-invoice.js` this session; the rest carried.
 > **2026-09-18 — §2a added: fee lines print BY NAME in the totals box** (branch
 > `feat/invoice-fee-by-name`, UNMERGED — staging only). §2a, Known gaps and the change log
@@ -189,7 +190,10 @@ lines instead of one run-on line. This changes reprints of old multi-line ROs (a
 
 **Bookkeeping** names its RO columns (`RO_COLS` in `openRoDetail`): `warranty_terms` is included,
 and if the database doesn't have it yet the query retries without it (then without `card_fee_on`,
-as before) — newest optional column first.
+as before) — newest optional column first. ⚠ The retry starts from `RO_COLS_NOWRITER` (the old
+card-fee fallback did too), so on a database WITHOUT the column the pane's document shows the
+Service Advisor as "—". Run the migration **before** shipping this code and the fallback never
+fires.
 
 ## Known gaps & open questions (as of 2026-09-18; §5 items as of 2026-09-19)
 - **§5: Symptoms / DTC line breaks still collapse** on the print (the complaint box says "one per
@@ -240,6 +244,20 @@ as before) — newest optional column first.
   detail, `shared/warranty-presets.js` (Cris-approved wording), the print block above the signature /
   PAID, line breaks kept in it and in Advisory notes, Bookkeeping `RO_COLS` fallback. Branch
   `feat/ro-warranty-terms`, unmerged.
+  **Verified on `test.*` at `91dd415`** (sandbox, migration run by Cris). Pre-migration: box +
+  picker disabled with "Warranty needs the database update". As **ZZ Test GM** (Kevin's role) on the
+  advisor board: preset 1 on #6013 → in the box, "Saved ✓", stored exactly, survives reload; preset 2
+  → appended on a new line + the yellow vendor warning (approved wording, amber colours); a custom
+  third line saved with its line breaks. Prints captured from the real Print button and measured at
+  page width: #6013 Repair Order, #6031 Estimate, #6026 unpaid Invoice → totals → **Warranty** →
+  signature; #6009 paid Invoice → totals → **Warranty** → **PAID** (no signature). Warranty lines drawn
+  = lines saved; #6013 Advisory notes drew 2 lines. The vendor warning never appears in a print; the
+  diag-fee receipt has no Warranty block. 375px: all within the 277px column, no sideways scroll,
+  NEW badge moves nothing. As **ZZ Test Bookkeeping**: the RO-detail pane and its Print for #6026,
+  #6009, #6013 show the Warranty block in the same place (pane text = print text), #6013's Advisory
+  notes on 2 lines, no receipts/profit in the print; RO loads 200 with `warranty_terms`. Fallback
+  checked read-only against prod (no column): `42703` → retry without it → loads. Consoles: only the
+  pre-existing sandbox avatar-sign 400.
 - 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-09-18 — **Fee lines print by name** (§2a): the single "Fees" totals row became one row per
   fee line labelled with its stored description (blank → "Fee"). Display only — totals, tax and
