@@ -3,7 +3,8 @@
 > Doc: `/docs/wiring/tech-board.md`
 > Last updated: 2026-09-19 — **§8 added: why closed jobs used to linger here, and the fix**
 > (closing an RO now takes its car off the floor; one-time ghost cleanup). Branch
-> `fix/close-clears-floor`, **shipped to prod at `929b6ee`** (prod ghost cleanup pending); verified
+> `fix/close-clears-floor`, **shipped to prod at `929b6ee`**; prod ghost cleanup **done** (30 → 16
+> cars on this board, 2026-09-19); verified
 > vs commit `993b51e` on `test.*` (change log).
 > §2 re-checked vs `loadAll`; rest not re-verified this session.
 > Earlier: 2026-08-21 — §2a added (columns key off ASSIGNMENT, not role); verified vs
@@ -181,6 +182,8 @@ close, so nothing removes their floor rows.
   quirk), `floor-tags.md` (floor tags & lanes).
 
 ## Session change log
+- 2026-09-19 — Prod ghost cleanup done: this board's source went from 30 floor cars to 16 (the 14
+  closed-RO ghosts removed; 13 open + 2 declined + #6074 remain). [[ro-checkin-tech]] change log.
 - 2026-09-19 — §8 added: the "jobs that already left" ghosts — cause (only Off lot cleared the floor;
   Stage-dropdown closes didn't) and the write-side fix + one-time cleanup. No change to this board's
   code. Branch `fix/close-clears-floor`, unmerged. Verified on `test.*` at `993b51e`: after the

@@ -15,7 +15,8 @@ Both are automatic and both are live (verified 2026-08-19).
 **Prod code = `929b6ee`** (2026-09-19, ~06:15 ET — closing an RO clears its floor row: one close
 path via `shared/floor-clear.js`; www/board/apex `/api/version` verified, `advisor-board.html` +
 `shared/floor-clear.js` byte-identical). The one-time ghost cleanup
-`20260919_floor_ghosts_cleanup_PROD.sql` is run by Cris AFTER this ship. Any later commit on `main`
+`20260919_floor_ghosts_cleanup_PROD.sql` was run by Cris after this ship — **done** (30 → 16 floor
+cars, 14 removed, nothing skipped; verified read-only). Any later commit on `main`
 up to the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not

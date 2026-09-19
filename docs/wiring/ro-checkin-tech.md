@@ -3,8 +3,9 @@
 > Doc: `/docs/wiring/ro-checkin-tech.md`
 > Last updated: 2026-09-19 (later) — **§8 added: closing an RO takes its car off the floor** (one
 > close path; `shared/floor-clear.js`; the ghost-cleanup SQL pair), **verified vs commit `993b51e`**
-> on `test.*` (change log). **Shipped to prod at `929b6ee`** (2026-09-19); cleanup run on the sandbox,
-> prod cleanup pending (Cris, after the ship). §7 unchanged except its Off-lot sentence.
+> on `test.*` (change log). **Shipped to prod at `929b6ee`** (2026-09-19); ghost cleanup run on the
+> sandbox AND prod (Cris, after the ship — prod 30 → 16 floor cars). §7 unchanged except its Off-lot
+> sentence.
 > Earlier 2026-09-19 — **§7 added: Job category on the RO**, shipped to prod at `de37577`.
 > Earlier: 2026-09-18 — §3/§4 gained "what the RO detail re-reads afterwards" (Warranty + Status
 > refresh after check-in / tech assign, see [[comeback-warranty]] §6).
@@ -301,6 +302,12 @@ and the guards.
   introspection, not a migration.
 
 ## Session change log
+- 2026-09-19 — **Prod ghost cleanup done** (Cris ran `20260919_floor_ghosts_cleanup_PROD.sql` after
+  the `929b6ee` ship): floor 30 → 16, 14 found + backed up (12 lot deleted, #6017 pickup deleted,
+  Lift 3 / #6029 cleared), nothing skipped — matched the read-only prediction. Verified read-only:
+  none of the 14 POs on any floor table; all six lift rows present and empty; the 14 ROs still
+  `closed` with their 14 `completed_jobs` rows; backup table invisible to the API. The 16 left = 13
+  open + #6054 / #6072 (declined) + #6074 (Invoice), as intended.
 - 2026-09-19 — §8 **shipped**: prod = `929b6ee`; served `advisor-board.html` + `shared/floor-clear.js`
   byte-identical to git; served page has the one close path (one `removeCarFromFloor` call site, in
   `setStage`; Off lot → `setStage('closed', { floorConfirmed: true })`). Prod cleanup SQL not yet run.
