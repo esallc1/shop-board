@@ -486,6 +486,15 @@ textarea { resize: vertical; width: 100%; min-height: 60px; }
 .prio-pill.prio-pill-normal    { background: none; border-color: transparent; color: #646b7e; padding-left: 0; padding-right: 0; font-weight: 600; }
 .prio-pill.prio-pill-low       { background: #f3f4f6; border-color: #d1d5db; color: #4b5563; font-size: 0.62rem; padding: 1px 7px; }
 .todo-prio { flex-shrink: 0; display: flex; align-items: center; }
+/* Phone: text gets the full row width; the priority word + edit/delete drop to
+   a second line under it (inline, they squeezed the text into a ~100px column
+   and broke words mid-way at 375px). 26px = checkbox 16 + gap 10. */
+@media (max-width: 560px) {
+  .todo-item { flex-wrap: wrap; row-gap: 8px; }
+  .todo-body { flex: 1 1 calc(100% - 26px); }
+  .todo-prio { margin-left: 26px; }
+  .todo-actions { margin-left: auto; }
+}
 .todo-prio-select {
   font-size: 0.7rem; padding: 2px 5px; border: 1px solid var(--border);
   border-radius: 6px; background: var(--surface); color: var(--text); cursor: pointer; max-width: 118px;
