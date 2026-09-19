@@ -104,7 +104,8 @@ When a date passes, the markup can stay (it's inert) or be deleted in the next t
 
 ## Session change log
 - 2026-09-19 — Fourth use: the RO detail's **Warranty given** label, until `2026-09-28`. Branch
-  `feat/ro-warranty-terms`, unmerged. Verified on `test.*` at `91dd415`: pill on; at 375px the label
+  `feat/ro-warranty-terms`, **shipped to prod at `d8ba486`** (served `data-new-until="2026-09-28"`).
+  Verified on `test.*` at `91dd415`: pill on; at 375px the label
   wraps to two lines and the box's position/label height are identical pill on vs off.
 - 2026-09-19 — Third use: the RO detail's **Job category** label, until `2026-09-28` (planned ship
   Mon 2026-09-21 + 7). **Shipped to prod at `de37577`** (2026-09-19) — visible Mon 21 → Sun 27 ET,

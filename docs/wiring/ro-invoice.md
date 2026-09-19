@@ -3,8 +3,8 @@
 > Doc: `/docs/wiring/ro-invoice.md`
 > **2026-09-19 — §5 added: "Warranty given"** (`repair_orders.warranty_terms`, printed above the
 > signature / PAID block) **+ line breaks now print in Advisory notes and the Warranty block.**
-> **Verified vs commit `91dd415`** on `test.*` (change log). Branch `feat/ro-warranty-terms`,
-> unmerged; migration on the sandbox only. §5, the `workAndTotals`/`bodyHtml` order and the CSS
+> **Verified vs commit `91dd415`** on `test.*` (change log). **Shipped to prod at `d8ba486`**
+> (2026-09-19); migration run on sandbox AND prod (prod first, so the Bookkeeping fallback never fires). §5, the `workAndTotals`/`bodyHtml` order and the CSS
 > re-checked against `shared/ro-invoice.js` this session; the rest carried.
 > **2026-09-18 — §2a added: fee lines print BY NAME in the totals box** (branch
 > `feat/invoice-fee-by-name`, UNMERGED — staging only). §2a, Known gaps and the change log
@@ -239,6 +239,11 @@ fires.
   [[packages]] (package lines print under Parts), [[settings]] (shop profile + `payment_methods`).
 
 ## Session change log
+- 2026-09-19 — §5 **shipped**: prod = `d8ba486` after Cris ran the PROD migration (`set_count = 0`).
+  Served `advisor-board.html`, `bookkeeping-board.html`, `shared/ro-invoice.js`,
+  `shared/warranty-presets.js` byte-identical to git; served presets = the 6 approved strings, vendor on
+  2 + 3; the served Bookkeeping `RO_COLS` query returns 200 on prod first try (writer name intact, no
+  fallback). Read-only checks only; no prod RO opened.
 - 2026-09-19 — **§5 "Warranty given"**: `repair_orders.warranty_terms` (full text, ≤2000), the box +
   "Insert preset…" (insert when empty, else append on a new line) + vendor warning on the advisor RO
   detail, `shared/warranty-presets.js` (Cris-approved wording), the print block above the signature /
