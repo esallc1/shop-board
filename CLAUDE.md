@@ -12,7 +12,7 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `929b6ee`** (2026-09-19, ~06:35 ET — closing an RO clears its floor row: one close
+**Prod code = `929b6ee`** (2026-09-19, ~06:15 ET — closing an RO clears its floor row: one close
 path via `shared/floor-clear.js`; www/board/apex `/api/version` verified, `advisor-board.html` +
 `shared/floor-clear.js` byte-identical). The one-time ghost cleanup
 `20260919_floor_ghosts_cleanup_PROD.sql` is run by Cris AFTER this ship. Any later commit on `main`
