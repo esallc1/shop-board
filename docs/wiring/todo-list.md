@@ -3,8 +3,10 @@
 > Doc: `/docs/wiring/todo-list.md`
 > Last updated: 2026-09-18 — **§3 priority LOOK rewritten** (shared filled/outlined pills + thick
 > edges, the word always shown) after Kevin's "Immediate and High are hard to tell apart"
-> (2026-08-06). Verified vs commit `94c12b1` (branch `feat/priority-look` off `main` `4e73ade`, on
-> staging, **not yet on prod**); §3 + Where-it-lives re-checked against the code and driven on
+> (2026-08-06). Verified vs commit `94c12b1`; **shipped to prod at `b26ce94`** (2026-09-18 20:20
+> ET — www/board/apex `/api/version` = `b26ce94`, the 6 changed files byte-identical; prod owner
+> inbox seen anonymously, read-only: 32 open requests = 2 IMMEDIATE filled / 4 High outlined / 26
+> Normal, no old classes, no console errors); §3 + Where-it-lives re-checked against the code and driven on
 > `test.*` — see the change log. Rest not re-verified.
 > Previously: 2026-07-30 — verified vs commit `b02116e`
 > Status: ✅ verified vs commit `b02116e` — checked against the four boards' To-Do code, the

@@ -1,9 +1,10 @@
 # How hosting & domains are wired
 
 > Doc: `/docs/wiring/hosting-domains.md`
-> **Prod code = `368d5e5`** (2026-09-18 19:26 ET; www/board/apex `/api/version` verified; that push
-> built and took the domains in 31s with no Promote — a second clean push after `cb4e2d8`/`baecd25`/
-> `b7ba7dd`, consistent with §3.6 point 4's answer). Later `main` commits up to this line are docs-only.
+> **Prod code = `b26ce94`** (2026-09-18 20:20 ET — priority look; www/board/apex `/api/version`
+> verified; built and took the domains in 16s with no Promote, like `368d5e5`, `cb4e2d8`, `baecd25`
+> and `b7ba7dd` before it — consistent with §3.6 point 4's answer). Later `main` commits up to this
+> line are docs-only.
 > Last updated: 2026-09-18 — **§3.6 consequences 3 + 4 rewritten to what was observed**: a push
 > lagged ~30 min during a Vercel build incident (not skipped); a Ready prod build the domains didn't
 > follow, fixed by a dashboard Promote. Observed live vs `b77f679` / `f7cf54d` / `8b3a14f`.
@@ -371,6 +372,8 @@ bucket layout should now come from `migrations/20260819_storage_buckets.sql`, no
 - Client-side idle logout: `shared/office-identity.js` (`armIdleLogout`) — see [[office-auth]] §8.8.
 
 ## Session change log
+- 2026-09-18 (20:20 ET) — Prod = `b26ce94` (priority look); fast-forward push of `main` alone,
+  live in 16s, domains auto-assigned. Header updated.
 - 2026-09-18 (19:26 ET) — Prod = `368d5e5` (RO-totals load-order fix); fast-forward push of `main`
   alone, live in 31s, domains auto-assigned. Recorded in the header.
 - 2026-09-18 (later) — §3.6 points 3 + 4 **rewritten**: the "skip" was a ~30-min lag during
