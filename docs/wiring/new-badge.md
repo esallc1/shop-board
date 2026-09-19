@@ -83,6 +83,7 @@ patterns above.
 |---|---|---|
 | Customer record profile card, name row — corner tag on **Edit** ([[customer-record]] §4, §4f). Rendered by `renderCustProfile`, so it is switched on by the `MutationObserver` path on every re-render | `.cd-new-anchor` > `#custEditBtn` + `.cd-new` | `2026-09-26` |
 | RO "Vehicle & reference details" → **Transmission** label ([[ro-vehicle-details]]) | inside the `<label>` | `2026-09-26` |
+| RO detail right column → **Job category** label ([[ro-checkin-tech]] §7) | inside the `<label>` | `2026-09-28` |
 
 When a date passes, the markup can stay (it's inert) or be deleted in the next tidy-up.
 
@@ -101,6 +102,8 @@ When a date passes, the markup can stay (it's inert) or be deleted in the next t
 - `advisor-board.html` — the `<link>` + module loader and the two uses.
 
 ## Session change log
+- 2026-09-19 — Third use: the RO detail's **Job category** label, until `2026-09-28` (planned ship
+  Mon 2026-09-21 + 7). Branch `feat/ro-job-category`, unmerged.
 - 2026-09-18 — Customer Edit badge moved with its button from the top strip into the profile
   card's name row (JS-rendered now, so it relies on the `MutationObserver` re-apply). Branch
   `fix/cust-edit-in-person-card`. Verified on `test.*` at `6c22499` as ZZ Test Advisor: pill on

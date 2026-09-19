@@ -1,10 +1,11 @@
 # How RO check-in, active-RO status & tech assignment are wired
 
 > Doc: `/docs/wiring/ro-checkin-tech.md`
-> Last updated: 2026-09-18 — §3/§4 gained "what the RO detail re-reads afterwards" (Warranty +
-> Status now refresh after check-in / tech assign, see [[comeback-warranty]] §6); line numbers in
-> §3, §4 and Where-it-lives re-pointed. Branch `fix/floor-controls-refresh`, unmerged. Rest not
-> re-verified this session.
+> Last updated: 2026-09-19 — **§7 added: Job category on the RO** (`repair_orders.job_category`,
+> `shared/job-category.js`), verified against the code this session. Branch `feat/ro-job-category`,
+> unmerged; migration not yet applied anywhere. Rest not re-verified this session.
+> Earlier: 2026-09-18 — §3/§4 gained "what the RO detail re-reads afterwards" (Warranty + Status
+> refresh after check-in / tech assign, see [[comeback-warranty]] §6).
 > Previously: 2026-07-30 — verified vs commit `596006c`
 > Status: ✅ verified vs commit `596006c` — code re-checked against `advisor-board.html` +
 > `crisdata-techboard.html`, and the floor-table columns introspected against the live DB.
@@ -139,7 +140,62 @@ body and take it to the bench"), stored in **`repair_orders.work_description`** 
   missing column). The tech does **not** edit it — techs update jobs from My Numbers, and this
   modal is read-only by design.
 
-## Known gaps & open questions (as of 2026-07-30)
+## 7. Job category — the RO's own field (Kevin, Aug 10: "NOWHERE TO MARK JOB CATEGORY")
+**What it is.** `repair_orders.job_category` (text, nullable) — **NULL = not decided yet**, or
+exactly one of the two values in **`shared/job-category.js`** (`JOB_CATEGORIES`):
+`Transmission rebuild` · `General repair`. The stored value *is* the label. A database CHECK
+(`repair_orders_job_category_check`) allows only NULL or those two strings;
+`shared/job-category.test.js` reads both migration files and fails if their CHECK and the JS list
+ever disagree. `advisor-board.html` carries **no inline copy** of the two strings (also
+test-locked), so the list lives in one place.
+Migrations: `migrations/20260919_ro_job_category_{SANDBOX,PROD}.sql` (hand-run, sandbox first;
+`app_env`-guarded; undo at the bottom). No backfill — every existing RO starts NULL.
+
+**It lives on the RO ONLY.** It is **not** the floor rows' `shopboard_*.job_category` (the old
+`Gen Auto / Rebuild / Diag` tag the discontinued Manager-board Shop Floor tab writes, [[tech-board]]
+§4). Nothing copies between the two, in either direction, by decision (Cris, 2026-09-19). A static
+test asserts no advisor-board floor insert/update carries a category.
+
+**Where it's set.** The advisor-board RO detail, right column, **directly under Status**:
+`#cdRoJobCategory` inside `#cdRoJobCategoryField`, with a NEW badge until `2026-09-28`
+([[new-badge]]). Options (`buildJobCategoryOptions`): **"Pick a category"** (value `''`) then the
+two values; the current value is selected. Changeable **at any stage** — estimate, active RO,
+invoice. Advisor board only; the New-RO wizard does not ask (out of scope for this slice).
+- **Render** — `renderJobCategory()`, called (not awaited) from `populateRoEditFields` on every RO
+  open. It waits for the shared list via `jcReady()` (a `?ro=` deep link can open an RO before
+  the deferred module has run; resolves null if the module never loads). Pre-migration the column
+  is absent from the `select('*')` row → the dropdown stays disabled with *"Job category needs the
+  database update"*; module failed → *"couldn't load — reload the page"*.
+- **Blank = red, not blocked.** While blank the select carries `.cd-jc-unset` — the board's
+  `var(--red)` border (same as `.cd-lf-bad`) + a 1px red ring + red text. It clears the moment a
+  value is picked. **Nothing blocks on it**: no save gate, no stage gate, no close gate.
+- **Save** — `setJobCategory(value)` on `change`: `jobCategoryForSave` maps "Pick a category" →
+  `NULL`, writes `repair_orders.job_category` with `.select('id, job_category')` (an RLS-dropped
+  0-row write is an error), reverts the select + alerts on failure. Choosing "Pick a category"
+  again clears it back to NULL.
+
+**At close — the archive copy.** `archiveToCompletedJobs` puts
+`job_category: JobCategory.archiveJobCategory(ro)` in the `completed_jobs` payload — the RO's
+**final** value, blank → NULL. `ro` is `currentRo`, the `repair_orders` row, **never** the floor
+row. That matters for **Off lot** (`offLotCard`): it removes the car from the floor *first*, then
+`loadRoContext` re-reads `repair_orders` `'*'` and closes — so the category is still on the RO it
+reads. Same upsert-by-`(po, source_table='repair_orders')` as the rest of the payload: a re-close
+overwrites the archive row with the then-current category. The quick diag-fee receipt
+(`recordDiagReceipt`, `source_table='diag_receipt'`) does **not** carry a category.
+
+**Who reads it downstream.** Only `completed_jobs.job_category` → the Bookkeeping **Financial
+Pulse** income donut ([[financial-pulse]]). ⚠ That donut whitelists `Rebuild / Gen Auto / Diag /
+Other`, so the two new values currently land in **Other** — see Known gaps.
+
+## Known gaps & open questions (as of 2026-07-30; §7 items as of 2026-09-19)
+- **Financial Pulse can't show the new category names yet (§7).** Its `CAT_ORDER`
+  (`bookkeeping-board.html` `FinancialPulse`) is `['Rebuild','Gen Auto','Diag','Other']` and
+  anything else falls to **Other** — so every RO closed with `Transmission rebuild` / `General
+  repair` is counted in Other, next to old rows still showing Rebuild / Gen Auto / Diag. Proposed
+  fix (not built): map both vocabularies onto the new two in the Pulse, importing the list from
+  `shared/job-category.js`.
+- **A category changed AFTER close** updates the RO but not its `completed_jobs` row (closed ROs
+  aren't locked; only a re-close re-copies). Rare; not handled.
 - The Tech Board modal makes **one extra `repair_orders` read by `po`** per open (for the work
   description). Cheap; only on modal open. A future option is to mirror it onto the floor row
   (like `technician` → `assigned_tech`) to avoid the read, but that adds a write path.
@@ -153,6 +209,13 @@ body and take it to the bench"), stored in **`repair_orders.work_description`** 
   behind the live schema) — no maintained migration documents today's columns.
 
 ## Where it lives in the code
+- Job category (§7): `shared/job-category.js` (`JOB_CATEGORIES`, `buildJobCategoryOptions`,
+  `jobCategoryForSave`, `archiveJobCategory`) + `shared/job-category.test.js` (12 tests: list,
+  migration CHECK = list, close copy, board static guards); `advisor-board.html` — the ESM loader
+  (~1264), `.cd-jc-unset` (~432), `#cdRoJobCategoryField` (~2330), `jcReady` / `renderJobCategory`
+  / `setJobCategory` (~6627–6690), the call in `populateRoEditFields` (~5938), the `change`
+  listener (~7563), the `job_category:` line in `archiveToCompletedJobs` (~7378). Schema:
+  `migrations/20260919_ro_job_category_{SANDBOX,PROD}.sql`.
 - Work Description: `advisor-board.html` — `#cdRoWorkDescription` textarea (under Complaint) +
   its hydrate/`updateRoField('work_description', …)` wiring; `crisdata-techboard.html` —
   `loadWorkDescriptionInto` (in `openJob`) + the `.m-field-work` modal style. Schema:
@@ -170,6 +233,10 @@ body and take it to the bench"), stored in **`repair_orders.work_description`** 
   introspection, not a migration.
 
 ## Session change log
+- 2026-09-19 — **§7 Job category** (Kevin, Aug 10): `repair_orders.job_category` (NULL or one of
+  the two values in `shared/job-category.js`), a dropdown under Status on the RO detail (red while
+  blank, blocks nothing), copied into `completed_jobs.job_category` at close from the RO row. RO
+  only — never mirrored to the floor. Financial Pulse naming gap logged.
 - 2026-09-18 — RO detail now re-reads Warranty + Status after its own check-in and after a
   successful tech assign (`refreshFloorControls`, [[comeback-warranty]] §6). Line refs re-pointed.
 - 2026-07-30 — Created during the RO #6018 "assign tech" investigation. Root-caused the

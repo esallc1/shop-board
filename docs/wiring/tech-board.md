@@ -76,6 +76,11 @@ Today it's written on the **gm-board "Shop Floor" tab** (the manager's
 floor editor); `my-numbers.html` reads it but does not write it. So editing category is
 low-risk — last-write-wins, nothing derived depends on it.
 
+**Not the RO's category.** Since 2026-09-19 the RO has its own `repair_orders.job_category`
+(`Transmission rebuild` / `General repair`, set on the advisor RO detail — [[ro-checkin-tech]] §7).
+The two are **separate on purpose**: nothing copies the RO value onto the floor row or back, so
+this board's "Category" line (and the Manager board pools) still show only the floor tag.
+
 ## 5. What the board WRITES today (it's not fully read-only)
 Dragging a card onto a tech (or onto "Unassigned") calls **`assignTechCore`** (the same
 pickup-aware function documented in `ro-checkin-tech.md` §4) → writes `assigned_tech` and nudges
@@ -142,6 +147,8 @@ the My Numbers transition writer (option 3), never a raw dropdown.
   quirk), `floor-tags.md` (floor tags & lanes).
 
 ## Session change log
+- 2026-09-19 — §4: noted the RO now has its own, separate `repair_orders.job_category`
+  ([[ro-checkin-tech]] §7), never mirrored to the floor row this board reads. No code change here.
 - 2026-09-17 — v1 `shop-board.html` deleted; dropped it from the manager floor-editor references
   (§4, §7, gaps, "Where it lives"). Rest not re-verified.
 - 2026-08-21 — **Columns now key off assignment, not role (§2a).** Jobs assigned to a name

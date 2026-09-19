@@ -426,6 +426,11 @@
      320px and everything in it paints outside the card. Matches the two-column
      .cd-ro-edit rule above, which had it right. */
   .cd-ro-edit.cd-ro-rail-fields { grid-template-columns: minmax(0, 1fr); }
+  /* Job category, while blank: "Pick a category" in the board's red (same
+     var(--red) border as .cd-lf-bad), plus a 1px ring so it reads on an iPad.
+     A reminder only — nothing is blocked. Normal again once one is picked. */
+  .cd-ro-rail-fields select.cd-jc-unset { border-color: var(--red); box-shadow: 0 0 0 1px var(--red); color: var(--red); }
+  .cd-ro-rail-fields select.cd-jc-unset option { color: var(--text); }
   /* ── Book Hours row (rail): value + "0 hrs" chip + the N/A tick ──
      Sized for the 320px rail on an iPad, not for the desktop width it was
      written at. Three things were letting "N/A · no labor" render past the
@@ -1251,6 +1256,13 @@
 <script type="module">
   import * as StatusMirror from './shared/status-mirror.js';
   window.StatusMirror = StatusMirror;
+</script>
+<!-- THE job-category list (ESM). Assigns window.JobCategory; the RO detail's
+     Job category dropdown waits for it (jcReady) — a ?ro= deep link can open an
+     RO before deferred modules run. RO only, never the floor rows. -->
+<script type="module">
+  import * as JobCategory from './shared/job-category.js';
+  window.JobCategory = JobCategory;
 </script>
 <!-- VIN decode — the ONE implementation (NHTSA vPIC). Assigns window.VinDecode;
      used by BOTH the New RO wizard and the RO detail decode button. -->
@@ -2310,6 +2322,15 @@
                 <label>Status</label>
                 <select id="cdRoStatusFloor"></select>
                 <span id="cdRoStatusHint" style="font-size:0.72rem;color:var(--muted)"></span>
+              </div>
+              <!-- JOB CATEGORY — repair_orders.job_category, the RO's OWN field
+                   (never copied to the floor rows). List = shared/job-category.js.
+                   Changeable at any stage; blank shows a red "Pick a category"
+                   but blocks nothing. Copied into completed_jobs at close. -->
+              <div class="intake-field" id="cdRoJobCategoryField">
+                <label for="cdRoJobCategory">Job category<span class="cd-new" data-new-until="2026-09-28">NEW</span></label>
+                <select id="cdRoJobCategory" disabled></select>
+                <span id="cdRoJobCategoryHint" style="font-size:0.72rem;color:var(--muted)"></span>
               </div>
               <!-- BOOK HOURS — a PAY field (tech flat-rate), NOT a price. Never
                    enters the money math; write-through mirrors onto the floor
@@ -5912,6 +5933,9 @@
       $('cdRoComplaint').value = currentRo.complaint || '';
       $('cdRoWorkDescription').value = currentRo.work_description || '';
       $('cdRoAdvisory').value = currentRo.advisory_notes || '';
+      // Job category — the RO's own field (shared/job-category.js). Not awaited:
+      // it only waits on the shared list module, never on the network.
+      renderJobCategory();
       // Comeback resolution — shown ONLY for a comeback (parent_ro_id set).
       // parent_ro_id is known synchronously (openRo selects *); the ordinal/root
       // badge needs the async chain walk, but the field's visibility does not.
@@ -6587,6 +6611,81 @@
       currentRo.card_fee_on = !!data[0].card_fee_on;
       refreshListCacheFor(currentRo.id);
       recalcTotals();
+    }
+
+    // ── JOB CATEGORY (repair_orders.job_category) ─────────────────────────
+    // The RO's OWN field — never read from or written to the floor rows. The
+    // list is shared/job-category.js and nothing else (no inline copy here, so
+    // there is nothing to drift). Changeable at any stage; blank blocks nothing,
+    // it just shows "Pick a category" in red. archiveToCompletedJobs copies the
+    // final value into completed_jobs at close. See ro-checkin-tech.md §7.
+    //
+    // The list is a deferred module and a ?ro= deep link can open an RO during
+    // page load, so wait for it. The browser fires DOMContentLoaded only after
+    // every module has run (or failed); still missing by then → null (the `load`
+    // listener covers asking between DOMContentLoaded and load).
+    function jcReady() {
+      return new Promise((resolve) => {
+        if (window.JobCategory) return resolve(window.JobCategory);
+        if (document.readyState === 'complete') return resolve(null);
+        const done = () => resolve(window.JobCategory || null);
+        document.addEventListener('DOMContentLoaded', done, { once: true });
+        window.addEventListener('load', done, { once: true });
+      });
+    }
+    function paintJobCategoryUnset() {
+      const sel = $('cdRoJobCategory'), JC = window.JobCategory;
+      if (!sel || !JC) return;
+      sel.classList.toggle('cd-jc-unset', !sel.disabled && JC.isJobCategoryUnset(sel.value));
+    }
+    async function renderJobCategory() {
+      const sel = $('cdRoJobCategory'), hint = $('cdRoJobCategoryHint');
+      if (!sel || !currentRo) return;
+      const ro = currentRo;
+      const JC = await jcReady();
+      if (currentRo !== ro) return;              // another RO opened meanwhile
+      sel.innerHTML = '';
+      sel.classList.remove('cd-jc-unset');
+      // Pre-migration the column isn't on the row (openRo selects '*'): say so,
+      // never offer a pick that can't save. Same posture as the card-fee switch.
+      const colHere = 'job_category' in ro;
+      if (!JC || !colHere) {
+        sel.disabled = true;
+        hint.textContent = !JC ? 'Job categories couldn’t load — reload the page.'
+                               : 'Job category needs the database update';
+        return;
+      }
+      JC.buildJobCategoryOptions(ro.job_category).forEach((o) => {
+        const opt = document.createElement('option');
+        opt.value = o.value; opt.textContent = o.label;
+        if (o.selected) opt.selected = true;
+        sel.appendChild(opt);
+      });
+      sel.disabled = false;
+      hint.textContent = '';
+      paintJobCategoryUnset();
+    }
+    async function setJobCategory(raw) {
+      const JC = window.JobCategory, sel = $('cdRoJobCategory');
+      if (!JC || !currentRo || !('job_category' in currentRo)) return;
+      const ro = currentRo;
+      const next = JC.jobCategoryForSave(raw);
+      const prev = ro.job_category == null ? null : ro.job_category;
+      paintJobCategoryUnset();
+      if (next === prev) return;
+      sel.disabled = true;
+      // .select() so an RLS-dropped write (0 rows) is an error, not a silent no-op.
+      const { data, error } = await db.from('repair_orders')
+        .update({ job_category: next }).eq('id', ro.id).select('id, job_category');
+      sel.disabled = false;
+      if (error || !data || !data.length) {
+        console.error('[CdRO] job category save failed', error);
+        if (currentRo === ro) { sel.value = prev || ''; paintJobCategoryUnset(); }
+        alert('Could not save the job category: ' + ((error && error.message) || 'the database saved nothing — are you signed in?'));
+        return;
+      }
+      ro.job_category = data[0].job_category;
+      if (currentRo === ro) { sel.value = ro.job_category || ''; paintJobCategoryUnset(); }
     }
 
     // ══════════════════════════════════════════════════════════
@@ -7272,6 +7371,11 @@
         // is the source of truth on the RO; N/A or blank archive as NULL. The
         // pickup-archive path already copies flag_hours via the floor mirror.
         flag_hours: (ro.book_hours != null ? ro.book_hours : null),
+        // The RO's FINAL job category, read from the RO row — never the floor
+        // row (Off-lot has already removed the car from the floor by now; its
+        // loadRoContext re-reads repair_orders '*'). Blank → NULL. The module
+        // is long loaded by close time; the fallback just passes the RO value.
+        job_category: window.JobCategory ? window.JobCategory.archiveJobCategory(ro) : (ro.job_category || null),
         arrival_date: ro.created_at ? ro.created_at.slice(0, 10) : null,
         status: 'closed',
         labor_subtotal: laborSub,
@@ -7456,6 +7560,7 @@
     $('qrSaveBtn').addEventListener('click', () => submitQuickReceipt(false));
     $('cdAddLineBtn').addEventListener('click', () => openLineModal(null));
     $('cdCardFeeOn').addEventListener('change', (e) => setCardFeeOn(e.target.checked));
+    $('cdRoJobCategory').addEventListener('change', (e) => setJobCategory(e.target.value));
     // Add/Edit-Line pop-up wiring
     $('cdLineType').addEventListener('change', () => { captureLineCommon(); renderLineFields(); });
     $('cdLineSaveBtn').addEventListener('click', saveLineModal);

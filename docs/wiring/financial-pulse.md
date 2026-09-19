@@ -1,6 +1,9 @@
 # How the Financial Pulse is wired
 
 > Doc: `/docs/wiring/financial-pulse.md`
+> ⚠ **Needs review (flagged 2026-09-19):** the donut's category vocabulary is now stale — closed
+> ROs archive `Transmission rebuild` / `General repair` ([[ro-checkin-tech]] §7), which this
+> donut's whitelist sends to **Other**. See Known gaps. Code here NOT changed.
 > Last updated: 2026-08-11 — verified vs branch `profit-by-ro` (date math extracted to the
 > shared `PeriodRange` module; §4 updated. Realized-income logic unchanged.)
 > Status: ✅ Verified vs `bookkeeping-board.html`. Realized income reads the `ro_payments`
@@ -283,6 +286,10 @@ surfaced). PO 6009 (open) → provisional. Unmatched PO → "no receipts" empty 
 - **Bucketing assumes the board runs on Eastern time.** Income buckets by `paid_at` in
   America/New_York; the range presets use the viewer's local calendar day. In-shop these
   align; a viewer in another timezone could see an edge-of-week payment shift by a day.
+- **New RO categories land in "Other" (since 2026-09-19).** `CAT_ORDER` is
+  `['Rebuild','Gen Auto','Diag','Other']`; the RO's new `Transmission rebuild` / `General repair`
+  (archived to `completed_jobs.job_category` at close) aren't on it, so they fold into Other next
+  to old rows still showing Rebuild / Gen Auto / Diag. Needs a mapping decision.
 - **Donut "Other" can be large** — paid ROs whose `po` isn't in `completed_jobs` land in
   Other. Honest, not a bug.
 - **Pipeline is CrisData-only** — open work still living purely in ALLDATA isn't counted,
@@ -330,6 +337,8 @@ surfaced). PO 6009 (open) → provisional. Unmatched PO → "no receipts" empty 
   GP-vs-cost view — labor+parts-markup per advisor).
 
 ## Session change log
+- 2026-09-19 — Flagged ⚠ Needs review: the RO job category (`feat/ro-job-category`) writes new
+  names into `completed_jobs.job_category` that this donut's whitelist sends to Other. No code change.
 - 2026-09-18 — `update()` waits for THE RO calculator; failed load → message, no numbers
   ([[card-fee]] §3a). Rest of this doc not re-verified.
 - 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
