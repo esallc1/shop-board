@@ -4058,7 +4058,7 @@
       }
       let ro = null, receipts = [], poLines = [], payments = [];
       // Full RO fields so the LEFT pane can render the real invoice document.
-      const RO_COLS = 'po,ro_number,status,created_at,closed_at,card_fee_on,complaint,advisory_notes,technician,odometer_in,miles_out,customers(name,phone_primary,email,tax_exempt),vehicles(year,make,model,engine,transmission_code,vin,plate,plate_state),service_writer:employees!service_writer_id(name),ro_line_items(line_type,description,part_number,quantity,unit_price,taxable)';
+      const RO_COLS = 'po,ro_number,status,created_at,closed_at,card_fee_on,complaint,advisory_notes,warranty_terms,technician,odometer_in,miles_out,customers(name,phone_primary,email,tax_exempt),vehicles(year,make,model,engine,transmission_code,vin,plate,plate_state),service_writer:employees!service_writer_id(name),ro_line_items(line_type,description,part_number,quantity,unit_price,taxable)';
       const RO_COLS_NOWRITER = RO_COLS.replace(',service_writer:employees!service_writer_id(name)', '');
       try {
         const [roRes, iqRes, plRes, payRes] = await Promise.all([
@@ -4072,9 +4072,16 @@
         if (roRes.error && /service_writer|relationship|employees/i.test(roRes.error.message || '')) {
           roData = await db.from('repair_orders').select(RO_COLS_NOWRITER).eq('po', po).limit(1).maybeSingle();
         }
-        // card_fee_on is optional until the card-fee migration's STEP 1 has run.
-        if (roData.error && isMissingCol(roData.error)) {
-          roData = await db.from('repair_orders').select(RO_COLS_NOWRITER.replace(',card_fee_on', '')).eq('po', po).limit(1).maybeSingle();
+        // Optional columns, newest first — each is dropped only if THIS database
+        // hasn't had its migration yet: warranty_terms (20260919_ro_warranty_terms_*,
+        // the "Warranty given" block — ro-invoice.md §5), then card_fee_on (the
+        // card-fee migration's STEP 1). Without warranty_terms the document just
+        // prints no Warranty block.
+        let fallbackCols = RO_COLS_NOWRITER;
+        for (const opt of [',warranty_terms', ',card_fee_on']) {
+          if (!(roData.error && isMissingCol(roData.error))) break;
+          fallbackCols = fallbackCols.replace(opt, '');
+          roData = await db.from('repair_orders').select(fallbackCols).eq('po', po).limit(1).maybeSingle();
         }
         if (roData.error) throw roData.error;
         ro = roData.data;

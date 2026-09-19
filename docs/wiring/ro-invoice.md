@@ -1,6 +1,10 @@
 # How the RO / invoice document builder is wired
 
 > Doc: `/docs/wiring/ro-invoice.md`
+> **2026-09-19 — §5 added: "Warranty given"** (`repair_orders.warranty_terms`, printed above the
+> signature / PAID block) **+ line breaks now print in Advisory notes and the Warranty block.**
+> Branch `feat/ro-warranty-terms`, unmerged. §5, the `workAndTotals`/`bodyHtml` order and the CSS
+> re-checked against `shared/ro-invoice.js` this session; the rest carried.
 > **2026-09-18 — §2a added: fee lines print BY NAME in the totals box** (branch
 > `feat/invoice-fee-by-name`, UNMERGED — staging only). §2a, Known gaps and the change log
 > re-checked against `shared/ro-invoice.js` this session; the rest carried from 2026-09-11.
@@ -121,7 +125,79 @@ pre-switch builder (checked on 54 real sandbox ROs, 2026-09-18).
   - The button is **hidden for an ALLDATA-only job** (no `repair_orders` row → nothing to print)
     and is cleared while a new RO loads, so the previous RO can't be printed mid-fetch.
 
-## Known gaps & open questions (as of 2026-09-18)
+## 5. "Warranty given" — the warranty the shop GIVES (Kevin, Sep 11)
+**Why.** The team typed warranties into Advisory notes — 32 of 114 prod ROs by 2026-09-19, the same
+1 yr / 12,000 mi term spelled 13 different ways — while `shop_settings.legal_terms` (the small print)
+already tells the customer the only warranties are "the ones explicitly stated in this document".
+There was no field that stated one. This is that field.
+
+**Data.** `repair_orders.warranty_terms` (text, nullable; CHECK `char_length <= 2000`;
+`migrations/20260919_ro_warranty_terms_{SANDBOX,PROD}.sql`, hand-run, no backfill). It holds the
+**full text** that prints — never a preset name — so rewording a preset later never changes a
+document a customer already has. NULL = none stated.
+
+**Presets** — `shared/warranty-presets.js` (`WARRANTY_PRESETS`), the one list, wording approved
+word-for-word by Cris 2026-09-19, in picker order:
+1. Transmission Rebuild — 1 year or 12,000 miles parts & labor warranty, whichever comes first.
+2. Remanufactured Transmission — 3 years or 100,000 miles … provided by the unit's manufacturer. *(vendor)*
+3. Remanufactured Transmission — 3 years / unlimited miles … provided by the unit's manufacturer. *(vendor)*
+4. Customer-provided parts — no warranty can be given on this repair.
+5. Customer declined the recommended repair — no warranty can be given on the work performed.
+6. Comeback — the original warranty still stands.
+
+(Kevin's "1 Year parts & labor" is deliberately not a preset — custom text covers it.) Each preset
+has a short `label` for the picker (UI only) and the approved `text`. `vendor: true` on 2 and 3 marks
+a manufacturer's (third-party) warranty — **data, not hard-coded**. `advisor-board.html` carries no
+copy of the wording (test-locked).
+
+**The box** (advisor board only) — RO detail, **Complaint & Notes card, directly under Advisory
+Notes**: label *"Warranty given — prints on the estimate & invoice"* (NEW badge until `2026-09-28`,
+[[new-badge]]), an **"Insert preset…"** picker, a textarea, a save-status line, and the vendor warning.
+- **Insert preset** (`onWarrantyPresetPick` → `insertPreset`): an **empty** box gets the preset; a box
+  with text **keeps it and gets the preset on a new line** (trailing blank lines dropped first). The
+  picker resets to "Insert preset…" — it's an action, not a state. The box is always editable.
+- **Save** (`queueWarrantySave`, on the textarea's `change` and right after a pick): `warrantyForSave`
+  trims the outer whitespace, keeps line breaks, normalises `\r\n`, blank → NULL, over 2000 →
+  refused with a red status. Written with `.select('id, warranty_terms')` so a 0-row (RLS) write is a
+  failure; a failure shows red status + an alert and **reverts** the in-memory value so a print right
+  after can't show unsaved text. Saves are **chained** (land in the order made) and each targets the
+  RO that was open when the edit happened. Not the generic `updateRoField`, which only logs errors.
+- **Vendor warning** (`paintWarrantyVendor`, never printed): while the box contains preset 2's or 3's
+  text, a yellow note shows under it — *"⚠ Vendor warranty — confirm this supplier's exact terms
+  before putting it on the invoice."* Content-based, so it appears on the pick, again when the RO is
+  reopened, and goes away if that text is deleted.
+- **Pre-migration / module failure:** the box and picker are disabled with *"Warranty needs the
+  database update"* / *"presets couldn't load"*. `renderWarrantyTerms` waits for the module
+  (`wpReady`, the `?ro=` deep-link race).
+- **Not auto-filled** from the job category or a package (by decision).
+
+**Not the Warranty / Comeback switch.** That right-column switch marks a visit as comeback work, lives
+on the floor row (`shopboard_*.warranty`) and never prints ([[comeback-warranty]]). The two are kept
+apart on screen: different cards, different wording ("Warranty given" vs "Warranty / Comeback").
+
+**Print** (`buildInvoiceHtml`): when `warranty_terms` is non-blank, a **"Warranty"** section
+(`<div class="warranty"><h2>Warranty</h2><div class="wtext">…`) prints **after the totals** and
+**just above** the authorization + signature (estimate / RO / unpaid invoice) or the **PAID** block
+(paid) — so the customer signs under it. **Never in receipt mode.** Blank → nothing (old ROs print as
+before). Text is escaped; **line breaks print** (`.wtext { white-space: pre-line }`). Adding the
+block changes no other byte of the document (test-locked). All three consumers (§4) get it.
+
+**Line breaks in Advisory notes** (same change): the value is wrapped in `<span class="ml">`
+(`white-space: pre-line`, inline-block beside its label), so multi-line advisories print on separate
+lines instead of one run-on line. This changes reprints of old multi-line ROs (approved). **Symptoms
+/ DTC** (`complaint`) still collapses its line breaks — not in this slice.
+
+**Bookkeeping** names its RO columns (`RO_COLS` in `openRoDetail`): `warranty_terms` is included,
+and if the database doesn't have it yet the query retries without it (then without `card_fee_on`,
+as before) — newest optional column first.
+
+## Known gaps & open questions (as of 2026-09-18; §5 items as of 2026-09-19)
+- **§5: Symptoms / DTC line breaks still collapse** on the print (the complaint box says "one per
+  line"). Same one-line fix as Advisory notes; not approved in this slice.
+- **§5: the warranty prints as of the moment of printing.** An estimate printed with one warranty and
+  an invoice printed after an edit can differ; there is no lock after close.
+- **§5: old ROs keep their warranty inside Advisory notes** (no backfill), so on their reprints it
+  appears under Advisory notes, not in a Warranty block.
 - **5 of the sandbox's 10 fee lines are marked `taxable`** (the 4 old `CARD PROCESSING FEE` lines
   and RO #6011), so sales tax is charged on those fees. The old `addCardFee` always inserted
   `taxable:false` (and the live switch that replaced it is never taxed — [[card-fee]]). Left as-is by decision (display-only change); flagged for a data decision.
@@ -141,8 +217,15 @@ pre-switch builder (checked on 54 real sandbox ROs, 2026-09-18).
   renders identically in HTML text — no visual change, slightly more correct.
 
 ## Where it lives in the code
-- **Builder:** `shared/ro-invoice.js` (`buildInvoiceHtml` — totals box incl. `feeRows`,
-  `buildPrintDoc`, `INVOICE_CSS`) + `shared/ro-invoice.test.js`.
+- **Builder:** `shared/ro-invoice.js` (`buildInvoiceHtml` — totals box incl. `feeRows`, the
+  `warrantyBlock`, the `.ml` advisory span; `buildPrintDoc`, `INVOICE_CSS`) + `shared/ro-invoice.test.js`.
+- **Warranty given (§5):** `shared/warranty-presets.js` (`WARRANTY_PRESETS`, `VENDOR_WARNING`,
+  `MAX_WARRANTY_LEN`, `presetById`, `insertPreset`, `hasVendorWarranty`, `warrantyForSave`) +
+  `shared/warranty-presets.test.js`; `advisor-board.html` — the ESM loader (~1285),
+  `#cdRoWarrantyTermsField` (~2239), `.cd-wt-*` CSS (~436), `renderWarrantyTerms` (~6745) /
+  `queueWarrantySave` (~6770) / `onWarrantyPresetPick` (~6798), the call in `populateRoEditFields` (~5953),
+  the listeners; `bookkeeping-board.html` `RO_COLS` + the optional-column fallback loop. Schema:
+  `migrations/20260919_ro_warranty_terms_{SANDBOX,PROD}.sql`.
 - **Advisor wrapper:** `advisor-board.html` `printRo` + the `import * as RoInvoice` module tag.
 - **Bookkeeping embed + print:** `bookkeeping-board.html` `openRoDetail` (full RO + payments
   fetch) / `renderRoDetail` (LEFT pane embed + pre-tax profit; arms the print button) /
@@ -152,6 +235,11 @@ pre-switch builder (checked on 54 real sandbox ROs, 2026-09-18).
   [[packages]] (package lines print under Parts), [[settings]] (shop profile + `payment_methods`).
 
 ## Session change log
+- 2026-09-19 — **§5 "Warranty given"**: `repair_orders.warranty_terms` (full text, ≤2000), the box +
+  "Insert preset…" (insert when empty, else append on a new line) + vendor warning on the advisor RO
+  detail, `shared/warranty-presets.js` (Cris-approved wording), the print block above the signature /
+  PAID, line breaks kept in it and in Advisory notes, Bookkeeping `RO_COLS` fallback. Branch
+  `feat/ro-warranty-terms`, unmerged.
 - 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-09-18 — **Fee lines print by name** (§2a): the single "Fees" totals row became one row per
   fee line labelled with its stored description (blank → "Fee"). Display only — totals, tax and

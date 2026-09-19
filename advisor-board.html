@@ -431,6 +431,13 @@
      A reminder only — nothing is blocked. Normal again once one is picked. */
   .cd-ro-rail-fields select.cd-jc-unset { border-color: var(--red); box-shadow: 0 0 0 1px var(--red); color: var(--red); }
   .cd-ro-rail-fields select.cd-jc-unset option { color: var(--text); }
+  /* Warranty given — preset picker row, save status, and the vendor warning
+     (the board's existing amber "look at this" colours; on-screen only). */
+  .cd-wt-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+  .intake-field .cd-wt-bar select { width: auto; max-width: 100%; }
+  .cd-wt-status { font-size: 0.72rem; color: var(--muted); }
+  .cd-wt-status.err { color: var(--red); font-weight: 600; }
+  .cd-wt-vendor { margin-top: 6px; padding: 7px 10px; border: 1px solid var(--amber); border-radius: 8px; background: #fef3c7; color: #92400e; font-size: 0.78rem; font-weight: 600; }
   /* ── Book Hours row (rail): value + "0 hrs" chip + the N/A tick ──
      Sized for the 320px rail on an iPad, not for the desktop width it was
      written at. Three things were letting "N/A · no labor" render past the
@@ -1270,6 +1277,13 @@
 <script type="module">
   import * as FloorClear from './shared/floor-clear.js';
   window.FloorClear = FloorClear;
+</script>
+<!-- THE "Warranty given" presets (ESM). Assigns window.WarrantyPresets; the RO
+     detail's warranty box waits for it (wpReady) — a ?ro= deep link can open an
+     RO before deferred modules run. -->
+<script type="module">
+  import * as WarrantyPresets from './shared/warranty-presets.js';
+  window.WarrantyPresets = WarrantyPresets;
 </script>
 <!-- VIN decode — the ONE implementation (NHTSA vPIC). Assigns window.VinDecode;
      used by BOTH the New RO wizard and the RO detail decode button. -->
@@ -2216,6 +2230,20 @@
               <div class="intake-field cd-hf-full">
                 <label>Advisory Notes</label>
                 <textarea id="cdRoAdvisory" placeholder="Advisories / recommendations beyond the complaint"></textarea>
+              </div>
+              <!-- WARRANTY GIVEN — repair_orders.warranty_terms: the warranty we
+                   are GIVING, FULL TEXT, printed above the signature / PAID block
+                   (shared/ro-invoice.js). NOT the Warranty / Comeback switch in the
+                   right column. Presets = shared/warranty-presets.js; they only
+                   fill the box. The vendor warning is on-screen only. -->
+              <div class="intake-field cd-hf-full" id="cdRoWarrantyTermsField">
+                <label for="cdRoWarrantyTerms">Warranty given — prints on the estimate &amp; invoice<span class="cd-new" data-new-until="2026-09-28">NEW</span></label>
+                <div class="cd-wt-bar">
+                  <select id="cdRoWarrantyPreset" aria-label="Insert a warranty preset" disabled><option value="">Insert preset…</option></select>
+                  <span id="cdRoWarrantyStatus" class="cd-wt-status" aria-live="polite"></span>
+                </div>
+                <textarea id="cdRoWarrantyTerms" disabled placeholder="The warranty on this job — pick a preset above or type your own"></textarea>
+                <div id="cdRoWarrantyVendor" class="cd-wt-vendor" role="note" style="display:none"></div>
               </div>
               <!-- TECH FINDINGS — read-only, never printed, renders only when a
                    diagnosis was actually submitted (no empty heading). Populated
@@ -5921,6 +5949,8 @@
       // Job category — the RO's own field (shared/job-category.js). Not awaited:
       // it only waits on the shared list module, never on the network.
       renderJobCategory();
+      // Warranty given (shared/warranty-presets.js) — same: module wait only.
+      renderWarrantyTerms();
       // Comeback resolution — shown ONLY for a comeback (parent_ro_id set).
       // parent_ro_id is known synchronously (openRo selects *); the ordinal/root
       // badge needs the async chain walk, but the field's visibility does not.
@@ -6671,6 +6701,111 @@
       }
       ro.job_category = data[0].job_category;
       if (currentRo === ro) { sel.value = ro.job_category || ''; paintJobCategoryUnset(); }
+    }
+
+    // ── WARRANTY GIVEN (repair_orders.warranty_terms) ─────────────────────
+    // The warranty the shop is GIVING, as FULL TEXT — what prints above the
+    // signature / PAID block. "Insert preset…" only fills the box (empty → the
+    // preset; text → preset on a new line); the box is always editable and the
+    // TEXT is saved, never a preset name. Presets + the vendor flag live in
+    // shared/warranty-presets.js. NOT the Warranty / Comeback switch.
+    // ro-invoice.md §5.
+    //
+    // Saves are chained so they land in the order they were made (a preset pick
+    // followed by a quick edit can't be overwritten by the earlier write), and
+    // each save targets the RO that was open when the edit happened. Every save
+    // is checked (.select) and a failure is shown, not swallowed: this is
+    // customer-facing warranty wording.
+    function wpReady() {
+      return new Promise((resolve) => {
+        if (window.WarrantyPresets) return resolve(window.WarrantyPresets);
+        if (document.readyState === 'complete') return resolve(null);
+        const done = () => resolve(window.WarrantyPresets || null);
+        document.addEventListener('DOMContentLoaded', done, { once: true });
+        window.addEventListener('load', done, { once: true });
+      });
+    }
+    let wtSaveChain = Promise.resolve();
+    let wtStatusTimer = null;
+    function setWarrantyStatus(msg, isErr) {
+      const el = $('cdRoWarrantyStatus');
+      if (!el) return;
+      clearTimeout(wtStatusTimer);
+      el.textContent = msg || '';
+      el.classList.toggle('err', !!isErr);
+      if (msg && !isErr) wtStatusTimer = setTimeout(() => { el.textContent = ''; }, 3000);
+    }
+    function paintWarrantyVendor() {
+      const WP = window.WarrantyPresets, box = $('cdRoWarrantyTerms'), warn = $('cdRoWarrantyVendor');
+      if (!WP || !box || !warn) return;
+      const on = WP.hasVendorWarranty(box.value);
+      warn.textContent = on ? WP.VENDOR_WARNING : '';
+      warn.style.display = on ? '' : 'none';
+    }
+    async function renderWarrantyTerms() {
+      const box = $('cdRoWarrantyTerms'), pick = $('cdRoWarrantyPreset');
+      if (!box || !pick || !currentRo) return;
+      const ro = currentRo;
+      const WP = await wpReady();
+      if (currentRo !== ro) return;              // another RO opened meanwhile
+      if (WP && pick.options.length <= 1) {
+        WP.WARRANTY_PRESETS.forEach((p) => {
+          const opt = document.createElement('option');
+          opt.value = p.id; opt.textContent = p.label;
+          pick.appendChild(opt);
+        });
+      }
+      pick.value = '';
+      box.value = ro.warranty_terms || '';
+      // Pre-migration the column isn't on the row (openRo selects '*'): say so,
+      // never offer a box that can't save. Same posture as the job category.
+      const colHere = 'warranty_terms' in ro;
+      const usable = !!WP && colHere;
+      box.disabled = !usable; pick.disabled = !usable;
+      if (!WP) setWarrantyStatus('Warranty presets couldn’t load — reload the page.', true);
+      else if (!colHere) setWarrantyStatus('Warranty needs the database update', true);
+      else setWarrantyStatus('');
+      paintWarrantyVendor();
+    }
+    function queueWarrantySave() {
+      const WP = window.WarrantyPresets, box = $('cdRoWarrantyTerms');
+      if (!WP || !box || !currentRo || !('warranty_terms' in currentRo)) return;
+      const ro = currentRo;
+      const r = WP.warrantyForSave(box.value);
+      if (!r.ok) {
+        setWarrantyStatus(`Not saved — too long (${r.length} characters; ${r.max} max).`, true);
+        return;
+      }
+      const prev = ro.warranty_terms == null ? null : ro.warranty_terms;
+      if (r.value === prev) return;
+      ro.warranty_terms = r.value;               // optimistic: a Print right now uses it
+      setWarrantyStatus('Saving…');
+      wtSaveChain = wtSaveChain.then(async () => {
+        // .select() so an RLS-dropped write (0 rows) is an error, not a silent no-op.
+        const { data, error } = await db.from('repair_orders')
+          .update({ warranty_terms: r.value }).eq('id', ro.id).select('id, warranty_terms');
+        if (error || !data || !data.length) {
+          console.error('[CdRO] warranty save failed', error);
+          if (ro.warranty_terms === r.value) ro.warranty_terms = prev;   // not saved → don't print it
+          if (currentRo === ro) setWarrantyStatus('Not saved — it will not print until it saves. ' + ((error && error.message) || 'Are you signed in?'), true);
+          alert('Could not save the warranty: ' + ((error && error.message) || 'the database saved nothing — are you signed in?') + '\n\nYour text is still in the box — click away from it to try again.');
+          return;
+        }
+        ro.warranty_terms = data[0].warranty_terms;
+        if (currentRo === ro) setWarrantyStatus('Saved ✓');
+      });
+    }
+    function onWarrantyPresetPick() {
+      const WP = window.WarrantyPresets, box = $('cdRoWarrantyTerms'), pick = $('cdRoWarrantyPreset');
+      if (!WP || !box || !pick || box.disabled) return;
+      const p = WP.presetById(pick.value);
+      pick.value = '';                           // the picker is an action, not a state
+      if (!p) return;
+      box.value = WP.insertPreset(box.value, p.text);
+      paintWarrantyVendor();
+      queueWarrantySave();
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
     }
 
     // ══════════════════════════════════════════════════════════
@@ -7574,6 +7709,9 @@
     $('cdAddLineBtn').addEventListener('click', () => openLineModal(null));
     $('cdCardFeeOn').addEventListener('change', (e) => setCardFeeOn(e.target.checked));
     $('cdRoJobCategory').addEventListener('change', (e) => setJobCategory(e.target.value));
+    $('cdRoWarrantyPreset').addEventListener('change', onWarrantyPresetPick);
+    $('cdRoWarrantyTerms').addEventListener('change', queueWarrantySave);
+    $('cdRoWarrantyTerms').addEventListener('input', paintWarrantyVendor);
     // Add/Edit-Line pop-up wiring
     $('cdLineType').addEventListener('change', () => { captureLineCommon(); renderLineFields(); });
     $('cdLineSaveBtn').addEventListener('click', saveLineModal);

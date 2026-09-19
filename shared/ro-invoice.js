@@ -20,6 +20,12 @@
      • INVOICE  — everything else (estimate / ro / unpaid invoice): the work/totals
                   tables + the authorization + customer-signature block (UNCHANGED
                   from the original printout).
+
+   WARRANTY (ro.warranty_terms — the warranty GIVEN, full text): when set, a
+   "Warranty" block prints after the totals, just ABOVE the authorization /
+   signature (unpaid) or the PAID block (paid) — never in receipt mode; blank →
+   nothing. Its line breaks print, and so do Advisory notes' (`.ml`). See
+   docs/wiring/ro-invoice.md §5.
    ============================================================ */
 
 import { computeRoTotals } from './ro-totals.js';
@@ -73,6 +79,10 @@ export const INVOICE_CSS = `
 .roinv h2 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; color: #555; margin: 10px 0 3px; border-bottom: 1px solid #ccc; padding-bottom: 2px; }
 .roinv .grid2 { display: flex; gap: 22px; } .roinv .grid2 > div { flex: 1; }
 .roinv .kv { margin: 1px 0; } .roinv .kv b { display: inline-block; min-width: 92px; color: #444; font-weight: 600; }
+.roinv .kv .ml { display: inline-block; vertical-align: top; white-space: pre-line; max-width: calc(100% - 100px); }
+.roinv .warranty { margin-top: 10px; break-inside: avoid; page-break-inside: avoid; }
+.roinv .warranty h2 { margin-top: 0; }
+.roinv .warranty .wtext { white-space: pre-line; }
 .roinv table.lt { width: 100%; border-collapse: collapse; margin-top: 3px; }
 .roinv table.lt th, .roinv table.lt td { border-bottom: 1px solid #ddd; padding: 3px 5px; text-align: left; }
 .roinv table.lt th { background: #f2f2f4; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.4px; color: #555; }
@@ -184,7 +194,7 @@ export function buildInvoiceHtml(opts) {
   const workAndTotals = `
   <h2>Customer Issues &amp; Advisories</h2>
   <div class="kv"><b>Symptoms / DTC</b> ${P(ro.complaint) || '—'}</div>
-  <div class="kv"><b>Advisory notes</b> ${P(ro.advisory_notes) || '—'}</div>
+  <div class="kv"><b>Advisory notes</b> <span class="ml">${P(ro.advisory_notes) || '—'}</span></div>
 
   <h2>Work Performed — Labor</h2>
   <table class="lt"><thead><tr><th>Description</th><th class="tc">Tech</th><th class="tr">Hrs</th><th class="tr">Price</th><th class="tr">Total</th></tr></thead><tbody>${laborRows}</tbody></table>
@@ -204,6 +214,17 @@ export function buildInvoiceHtml(opts) {
     </table>
     <div class="foot-note">* Shop supplies &amp; hazmat are flat shop charges, not per-part.</div>
   </div>`;
+
+  // WARRANTY GIVEN — ro.warranty_terms, printed exactly as saved (escaped, line
+  // breaks kept via .wtext). Blank → no block. It sits after the totals and just
+  // above the signature (unpaid) or the PAID block (paid), so the customer signs
+  // under the warranty they're given. Never in receipt mode (see bodyHtml).
+  const warrantyText = String(ro.warranty_terms == null ? '' : ro.warranty_terms).trim();
+  const warrantyBlock = warrantyText ? `
+  <div class="warranty">
+    <h2>Warranty</h2>
+    <div class="wtext">${P(warrantyText)}</div>
+  </div>` : '';
 
   // UNPAID authorization + signature (unchanged from the original printout)
   const authBlock = `
@@ -260,7 +281,8 @@ export function buildInvoiceHtml(opts) {
   </div>
   <div class="foot-note" style="margin-top:6px">Diagnostic fee for the declined estimate above. The estimate itself remains unbilled — no repair was authorized.</div>`;
 
-  const bodyHtml = isReceipt ? receiptBody : (isPaid ? (workAndTotals + paidBlock) : (workAndTotals + authBlock));
+  const bodyHtml = isReceipt ? receiptBody
+    : (isPaid ? (workAndTotals + warrantyBlock + paidBlock) : (workAndTotals + warrantyBlock + authBlock));
 
   return `<div class="inv${isReceipt ? ' inv-receipt' : ''}">
   <div class="top">

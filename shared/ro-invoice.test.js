@@ -177,3 +177,66 @@ test('a paid invoice with a card fee is still PAID against the same total', () =
   assert.match(html, /Balance Due<\/td><td class="tr">\$0\.00/);
   assert.match(html, /<tr><td>Card processing fee \(4\.00%\)<\/td>/);
 });
+
+// ── "Warranty given" block + line breaks (ro-invoice.md §5) ─────
+const W1 = 'Transmission Rebuild — 1 year or 12,000 miles parts & labor warranty, whichever comes first.';
+const W2 = 'Customer-provided parts — no warranty can be given on this repair.';
+const PAID = [{ amount: 1840.40, method: 'cash', paid_at: '2026-09-19T15:00:00Z' }];
+const withW = (status, extra) => ({ ...roBase(status), warranty_terms: W1 + '\n' + W2, ...(extra || {}) });
+const idx = (html, re) => { const m = html.match(re); return m ? m.index : -1; };
+
+test('warranty: on estimate / RO / unpaid invoice it prints after the totals, just ABOVE the authorization + signature', () => {
+  for (const status of ['estimate', 'ro', 'invoice']) {
+    const html = buildInvoiceHtml({ ro: withW(status), lines: LINES, settings: SETTINGS, payments: [] });
+    const w = idx(html, /<div class="warranty">/), total = idx(html, /Invoice Total/), auth = idx(html, /<div class="auth">/);
+    assert.ok(w > 0, status + ': block present');
+    assert.ok(total < w && w < auth, status + ': totals → warranty → authorization');
+    assert.match(html, /<h2>Warranty<\/h2>/);
+  }
+});
+
+test('warranty: on a PAID invoice it prints just ABOVE the PAID block', () => {
+  const html = buildInvoiceHtml({ ro: withW('closed'), lines: LINES, settings: SETTINGS, payments: PAID });
+  assert.match(html, /class="paidstamp">PAID/);
+  const w = idx(html, /<div class="warranty">/), total = idx(html, /Invoice Total/), paid = idx(html, /<div class="paid">/);
+  assert.ok(total < w && w < paid, 'totals → warranty → PAID');
+  assert.doesNotMatch(html, /Customer signature/);
+});
+
+test('warranty: blank / whitespace / missing → NO block at all', () => {
+  for (const v of [null, undefined, '', '   \n ']) {
+    const html = buildInvoiceHtml({ ro: { ...roBase('invoice'), warranty_terms: v }, lines: LINES, settings: SETTINGS, payments: [] });
+    assert.doesNotMatch(html, /class="warranty"/, JSON.stringify(v));
+    assert.doesNotMatch(html, /<h2>Warranty<\/h2>/);
+  }
+});
+
+test('warranty: NEVER on the diag-fee receipt', () => {
+  const html = buildInvoiceHtml({ ro: withW('closed'), lines: LINES, settings: SETTINGS,
+    receipt: { amount: 150, description: 'Diagnostic fee', method: 'cash', receiptNumber: 'R-6001', estimateNumber: 6001 } });
+  assert.doesNotMatch(html, /class="warranty"/);
+});
+
+test('warranty: printed as saved — escaped, line breaks KEPT (pre-line), text between the lines intact', () => {
+  const html = buildInvoiceHtml({ ro: withW('invoice', { warranty_terms: W1 + '\n<b>x</b> & more' }), lines: LINES, settings: SETTINGS, payments: [] });
+  const block = html.slice(idx(html, /<div class="warranty">/), idx(html, /<div class="auth">/));
+  assert.match(block, /<div class="wtext">Transmission Rebuild — 1 year or 12,000 miles parts &amp; labor warranty, whichever comes first\.\n&lt;b&gt;x&lt;\/b&gt; &amp; more<\/div>/);
+  assert.match(INVOICE_CSS, /\.roinv \.warranty \.wtext \{ white-space: pre-line; \}/);
+});
+
+test('advisory notes: line breaks KEPT — wrapped in .ml (pre-line); "—" when blank', () => {
+  const html = buildInvoiceHtml({ ro: { ...roBase('invoice'), advisory_notes: 'LEAK AT PAN\nCHECK MOUNTS' }, lines: LINES, settings: SETTINGS, payments: [] });
+  assert.match(html, /<b>Advisory notes<\/b> <span class="ml">LEAK AT PAN\nCHECK MOUNTS<\/span>/);
+  assert.match(INVOICE_CSS, /\.roinv \.kv \.ml \{[^}]*white-space: pre-line;[^}]*\}/);
+  const blank = buildInvoiceHtml({ ro: roBase('invoice'), lines: LINES, settings: SETTINGS, payments: [] });
+  assert.match(blank, /<b>Advisory notes<\/b> <span class="ml">—<\/span>/);
+});
+
+test('warranty block ONLY adds itself: totals, PAID decision and every other byte unchanged', () => {
+  const a = buildInvoiceHtml({ ro: roBase('closed'), lines: LINES, settings: SETTINGS, payments: PAID });
+  const b = buildInvoiceHtml({ ro: withW('closed'), lines: LINES, settings: SETTINGS, payments: PAID });
+  assert.equal(totalOf(a), totalOf(b));
+  assert.equal(/class="paidstamp"/.test(a), /class="paidstamp"/.test(b));
+  // Strip the one warranty block → byte-identical to the same RO without a warranty.
+  assert.equal(b.replace(/\n  <div class="warranty">[\s\S]*?\n  <\/div>/, ''), a);
+});
