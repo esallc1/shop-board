@@ -12,14 +12,15 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `cde6aa6`** (2026-09-20, ~06:45 ET — the Desk stops hiding overdue and undated
-drop-offs: Coming-in shows them (overdue at top, oldest first), the calendar is fed past weeks so
-`‹ Previous week` draws, and the overdue badge counts drop-offs; rules in
-`shared/desk-appointments.js`, self-expiring "recovered" banner + row tag. **Display only — no
-migration, no new write path**; `resolved_at` and Mark-done untouched. www/board `/api/version`
-verified, `advisor-board.html` + `shared/desk-appointments.js` + `shared/new-badge.js`
-byte-identical). Any later commit on `main` up to the one that wrote this line is docs-only. Update
-this line on every code ship.
+**Prod code = `1aeb2ee`** (2026-09-20, ~08:20 ET — the Desk's one destructive "Done" is gone.
+Coming-in rows now carry four outcomes — **Arrived · Reschedule · Not coming · Follow up** —
+plus a confirm before clearing anything still ahead and a **Recently cleared** undo panel;
+"Mark done" is removed from the call window. `follow_up` deliberately does NOT resolve: it parks
+the lead in Callbacks with a call-back date. Rules in `shared/desk-outcomes.js`. **Prod migration
+`20260920_calls_outcome_PROD.sql` run by Cris FIRST** (3 nullable columns + CHECK + index;
+0 rows backfilled). www/board `/api/version` verified, `advisor-board.html` +
+`shared/desk-outcomes.js` + `shared/desk-appointments.js` byte-identical). Any later commit on
+`main` up to the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.
@@ -99,7 +100,7 @@ Every file under `/docs/wiring/` follows this shape:
 | RO vehicle box (Vehicle & reference details · Transmission) | `ro-vehicle-details.md` | `advisor-board.html` (`updateVehicleField`, `decodeRoVin`, `#cdRoTrans`), `vehicles.transmission_code`, `shared/vin-decode.js` |
 | Intake wizard | `intake-wizard.md` | `advisor-board.html` |
 | Floor tags & lanes | `floor-tags.md` | `advisor-board.html` |
-| Call window & Desk | `call-window-desk.md` | `advisor-board.html` (`callerCard` + `desk` IIFEs) |
+| Call window & Desk (incl. **§6a** what the lanes show, **§9** the four outcomes + undo) | `call-window-desk.md` | `advisor-board.html` (`callerCard` + `desk` IIFEs), `shared/desk-appointments.js`, `shared/desk-outcomes.js` (+`.test.js`), `migrations/20260920_calls_outcome_*.sql` |
 | Call auto-attach (Phase 2) | `call-auto-attach.md` | `shared/call-auto-attach.js`, `api/ctm-webhook.js` (`autoAttachCall`), `advisor-board.html` (`autoFileRoForCall`), `migrations/20260818_call_auto_attach.sql`, `migrations/20260818_customers_phone_l10.sql` |
 | Announcement banner | `announcements.md` (§5 = the employees-only gate) | `shared/announcement-banner.js`, `api/announcement.js` (+ `api/_lib/require-user.js`, `shared/auth-fetch.js`), advisor + owner boards |
 | To-Do list | `todo-list.md` | To-Do JS duplicated in all 4 office boards; `shared/board-shell.css` |

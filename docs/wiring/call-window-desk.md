@@ -4,8 +4,9 @@
 > Last updated: 2026-09-20 (2) — **new §9: the one destructive "Done" is gone.** Four real
 > outcomes on Coming-in (Arrived · Reschedule · Not coming · Follow up), a confirm before
 > clearing anything still ahead, and a "Recently cleared" undo. "Mark done" is removed from
-> the call window. Three new nullable columns on `calls`. **Not on prod yet** — verified on
-> `test.*`, prod migration unrun. §5 rewritten (it described the removed button).
+> the call window. Three new nullable columns on `calls`. **LIVE ON PROD at `1aeb2ee`**
+> (2026-09-20 ~08:20 ET; `20260920_calls_outcome_PROD.sql` run by Cris first).
+> §5 rewritten (it described the removed button).
 > Previously: 2026-09-20 — **§6 + new §6a: the Desk no longer only models the future.**
 > Coming-in shows overdue and undated drop-offs, the calendar receives past weeks, and the
 > overdue badge counts drop-offs. Display only — nothing about what a drop-off IS changed,
@@ -344,18 +345,28 @@ change**, **no new endpoint**: same anon UPDATE the Desk already used.
   was edited in place and has no twin. A CHECK mismatch is 23514, not 42703, so the fallback
   does **not** cover it: the renamed board's writes fail loudly until this runs.
 
-### 9e. Status
-Verified end-to-end on `test.*` on 2026-09-20 (ZZ Test rows 286–290): all four outcomes,
-the confirm and its Cancel branch, the parked-lead reason line, Recently cleared and Undo,
-and the served page carrying no `cc-done`. **Prod migration not yet run; not shipped.**
+### 9e. Status — LIVE
+Verified end-to-end on `test.*` on 2026-09-20 (ZZ Test rows 286–292, phones `(999) 555-000x`):
+all four outcomes and their DB rows, the confirm and its Cancel branch, the parked-lead reason
+line, Recently cleared, Undo (before *and* after the value rename), and the served page carrying
+no `cc-done`.
+
+**Shipped to prod at `1aeb2ee`** (2026-09-20 ~08:20 ET), DB first. Read-only check on `board.*`
+straight after: 24 Coming-in rows, all four buttons on **one line** in the 351px lane, the new
+banner wording, no `cc-done` anywhere, and **Recently cleared listing 16 rows — including
+`(863) 517-1163` (OMAR MADRID), drop-off Mon Sep 28, "cleared 11 days ago by MANNY PAGAN", with
+a working Undo.** That is the row this whole slice existed to make recoverable; Cris undoes it
+himself.
+
+Every pre-existing resolved row reads **"Done (before outcomes)"**, as intended — nothing was
+backfilled with a guess.
 
 ## Known gaps & open questions (as of 2026-09-20)
 - The four chips are one undifferentiated wrap row; "Quoted — will call back" and
   "Dropping off" are adjacent and easy to mis-tap. The echo now catches the *result*;
   visually separating "an appointment" from "a reminder" is a possible next step.
-- ~~"Mark done" is a one-click, no-confirm, no-undo delete~~ — **fixed in §9** (four
-  outcomes, a confirm on future-dated clears, and Recently cleared / Undo). Still true on
-  **prod** until `20260920_calls_outcome_PROD.sql` is run and the branch ships.
+- ~~"Mark done" is a one-click, no-confirm, no-undo delete~~ — **fixed in §9 and live on prod
+  at `1aeb2ee`** (four outcomes, a confirm on future-dated clears, and Recently cleared / Undo).
 - **A resolved appointment's DATE is recoverable nowhere in the UI** *(outside the 30-day
   Recently-cleared window, §9c)*. The Call Log's
   `LOG_COLS` doesn't select `due_at`, and the customer record has no `due_at` at all — a
@@ -413,6 +424,11 @@ and the served page carrying no `cc-done`. **Prod migration not yet run; not shi
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- 2026-09-20 — **Shipped to prod at `1aeb2ee`** (fast-forward `2eb77b1..1aeb2ee`, no Promote,
+  after `20260920_calls_outcome_PROD.sql`). `advisor-board.html` + `shared/desk-outcomes.js` +
+  `shared/desk-appointments.js` byte-identical to git on `www` and `board.*`. Prod read-only
+  check: 24 Coming-in rows, buttons on one line, Omar (id 755) listed in Recently cleared with
+  Undo. §9e flipped from "not shipped" to live.
 - 2026-09-20 — **§9 added; §5 rewritten; §6 bullet replaced.** Four outcomes replace the one
   destructive "Done"; "Mark done" removed from the call window; confirm on future-dated
   clears; "Recently cleared" undo. New `shared/desk-outcomes.js` (+ tests, 791 total) and
