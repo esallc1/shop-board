@@ -1237,6 +1237,13 @@
   import * as CallAttach from './shared/call-attach.js';
   window.CallAttach = CallAttach;
 </script>
+<!-- What happens to a Desk item when someone finishes with it, and how to take
+     it back (ESM). Assigns window.DeskOutcomes; read only by event-driven Desk
+     handlers. See docs/wiring/call-window-desk.md §9. -->
+<script type="module">
+  import * as DeskOutcomes from './shared/desk-outcomes.js';
+  window.DeskOutcomes = DeskOutcomes;
+</script>
 <!-- What the Desk's "Coming in" lane and drop-off calendar may SHOW (ESM).
      Assigns window.DeskAppointments; read only inside deskRender/renderCalendar,
      which never run before a `calls` round-trip has resolved. If it somehow
@@ -1497,10 +1504,6 @@
      never accidentally resolves a future callback/drop-off. */
   .cc-close { border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 8px; padding: 5px 14px; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
   .cc-close:hover { filter: brightness(0.96); }
-  /* "Mark done" = truly resolve (sets resolved_at). Secondary; only shown for an
-     unresolved callback/drop-off. */
-  .cc-done { border: 1px solid var(--green); background: var(--surface); color: var(--green); border-radius: 8px; padding: 5px 14px; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
-  .cc-done:hover { background: #e7f9f1; }
 </style>
 
 <div class="app-shell">
@@ -1866,6 +1869,38 @@
     .desk-recovered-tag { display:block; margin-top:5px; font-size:0.7rem; line-height:1.3;
       color:#6B4310; background:#FFF4E5; border-radius:6px; padding:3px 6px; font-weight:600; }
 
+    /* Four outcomes need their own row — they don't fit beside the due date in a
+       200px lane. Colour says what each one MEANS: green = the lead landed, amber
+       = still a live lead (moves to Callbacks), plain = closed / no follow-up. */
+    .desk-row-outcomes { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; }
+    .desk-row-outcomes .desk-btn { flex:0 1 auto; }
+    .desk-btn.warn { border-color:#C0563A; color:#8A3A22; }
+    .desk-btn.hold { border-color:#C08A2A; color:#7A5510; }
+    /* Why a lead is sitting in Callbacks (set by "Can't right now"). */
+    .desk-row-why { font-size:0.74rem; color:#7A5510; background:#FFF6E5; border-radius:6px;
+      padding:3px 6px; margin-top:4px; font-weight:600; }
+
+    /* Recently cleared — the undo list. */
+    .desk-cleared-card { margin-bottom:18px; padding:0; overflow:hidden; }
+    .desk-cleared-head { width:100%; display:flex; align-items:center; gap:8px; background:none;
+      border:0; padding:11px 13px; cursor:pointer; text-align:left; font:inherit; }
+    .desk-cleared-head:hover { background:var(--bg); }
+    .desk-cleared-caret { font-size:0.8rem; color:var(--muted); width:12px; }
+    .desk-cleared-title { font-weight:800; font-size:0.9rem; color:var(--text); }
+    .desk-cleared-count { font-size:0.72rem; font-weight:800; color:#fff; background:var(--muted);
+      border-radius:999px; padding:2px 9px; min-width:20px; text-align:center; }
+    .desk-cleared-hint { font-size:0.72rem; color:var(--muted); font-weight:600; }
+    @media (max-width:700px){ .desk-cleared-hint { display:none; } }
+    .desk-cleared-body { padding:0 13px 12px; display:flex; flex-direction:column; gap:7px; }
+    .desk-cleared-row { display:flex; align-items:center; gap:9px; flex-wrap:wrap;
+      background:var(--bg); border-radius:8px; padding:7px 9px; }
+    .desk-cleared-who { font-weight:700; font-size:0.82rem; color:var(--text); }
+    .desk-cleared-when { font-size:0.74rem; color:var(--muted); }
+    .desk-cleared-outcome { font-size:0.72rem; font-weight:700; color:#085041; background:#E1F5EE;
+      border-radius:999px; padding:2px 8px; }
+    .desk-cleared-outcome.unknown { color:var(--muted); background:#EBEDF2; }
+    .desk-cleared-row .desk-btn { margin-left:auto; }
+
     .desk-cal-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
     .desk-cal-title { font-weight:800; font-size:0.95rem; }
     .desk-cal-nav { margin-left:auto; display:flex; align-items:center; gap:6px; }
@@ -2047,6 +2082,17 @@
       </div>
       <div id="deskCal"></div>
     </div>
+    <!-- RECENTLY CLEARED — the undo. Collapsed by default; the count is the point.
+         Everything here was cleared from a lane and can be put straight back. -->
+    <div class="card desk-cleared-card" id="deskClearedCard" style="display:none">
+      <button type="button" class="desk-cleared-head" id="deskClearedToggle" aria-expanded="false">
+        <span class="desk-cleared-caret" id="deskClearedCaret">▸</span>
+        <span class="desk-cleared-title">Recently cleared</span>
+        <span class="desk-cleared-count" id="deskClearedCount">0</span>
+        <span class="desk-cleared-hint">cleared in the last 30 days, or still due ahead — Undo puts it back</span>
+      </button>
+      <div class="desk-cleared-body" id="deskClearedList" style="display:none"></div>
+    </div>
 
     <!-- Call log slide-out (slice 3d): every inbound call for a day, touched or
          not. Lives INSIDE #view-desk so it auto-hides when another tab is shown.
@@ -2115,6 +2161,31 @@
       <div class="deskedit-foot">
         <button type="button" class="desk-btn" id="deskEditCancel">Cancel</button>
         <button type="button" class="deskedit-save" id="deskEditSave">Save</button>
+      </div>
+    </div>
+
+    <!-- "Not coming — can't right now". The lead is NOT over: this moves the row
+         to Callbacks with a call-back date. It never resolves anything, so there
+         is nothing to undo — the row stays on the Desk the whole time. -->
+    <div class="deskedit-backdrop" id="deskNotNowBackdrop"></div>
+    <div class="deskedit" id="deskNotNow" role="dialog" aria-modal="true" aria-hidden="true">
+      <div class="deskedit-head">
+        <span class="deskedit-title">Can&rsquo;t right now</span>
+        <button type="button" class="desk-log-x" id="deskNotNowX" aria-label="Close">×</button>
+      </div>
+      <div class="deskedit-body">
+        <div class="deskedit-who-name" id="deskNotNowWho"></div>
+        <div class="deskedit-who-sub" id="deskNotNowMissed"></div>
+        <div class="deskedit-echo lane-cb">Stays a live lead — moves to Callbacks. Nothing is cleared.</div>
+        <div class="deskedit-label">Call them back on</div>
+        <div class="deskedit-when"><input type="date" id="deskNotNowDate"></div>
+        <div class="deskedit-label">Why (optional)</div>
+        <div class="deskedit-when"><input type="text" id="deskNotNowNote" maxlength="120" placeholder="e.g. no money till the 1st" autocomplete="off"></div>
+        <div class="deskedit-err" id="deskNotNowErr"></div>
+      </div>
+      <div class="deskedit-foot">
+        <button type="button" class="desk-btn" id="deskNotNowCancel">Cancel</button>
+        <button type="button" class="deskedit-save" id="deskNotNowSave">Move to Callbacks</button>
       </div>
     </div>
   </div>
@@ -11474,6 +11545,13 @@
     // the ESM block above somehow didn't run — every read is guarded so the Desk
     // degrades to the old today-onward view instead of throwing.
     const DA = () => window.DeskAppointments || null;
+    // What FINISHING with an item does (the four outcomes, confirm, undo).
+    // Same fail-soft posture as DA(): absent ⇒ the lanes fall back to one plain
+    // "Done", which is exactly the old behaviour.
+    const DO = () => window.DeskOutcomes || null;
+    // Set by deskLoad: false when the outcome columns aren't in this database yet
+    // (42703 on the wider select). The four-outcome UI stays hidden until then.
+    let outcomeColsAvailable = true;
 
     // A callback / drop-off is overdue when its due moment has passed. All-day
     // items aren't late until the day itself is past; timed items use the clock.
@@ -11550,17 +11628,49 @@
     // `due_at` (20260728_calls_notes.sql), so it can't be missing on its own:
     // a pre-migration DB already falls into renderNeedsMigration via isMissingCol.
     const CALL_COLS = 'id, ctm_call_id, caller_bare, caller_formatted, customer_id, ro_id, note, next_step, due_at, due_all_day, noted_at, resolved_at';
+    // Outcome tier — tried FIRST, falling back to CALL_COLS on 42703, the same
+    // trick logLoad uses for the attach columns. This is what makes the deploy
+    // order not matter: until `20260920_calls_outcome_*.sql` is run the board
+    // keeps working with the single "Done".
+    const CALL_COLS_OUTCOME = CALL_COLS + ', resolved_by_name, outcome, outcome_note, outcome_prev_due_at';
     async function deskLoad() {
       // 1. open call-backed lane items (unresolved callbacks + drop-offs)
-      const callsResp = await db.from('calls').select(CALL_COLS)
+      const openSel = (cols) => db.from('calls').select(cols)
         .in('next_step', ['quoted_callback', 'dropping_off'])
         .is('resolved_at', null)
         .order('due_at', { ascending: true, nullsFirst: false });
+      let callsResp = await openSel(CALL_COLS_OUTCOME);
+      if (callsResp.error && isMissingCol(callsResp.error)) {
+        outcomeColsAvailable = false;                 // pre-migration: plain "Done"
+        callsResp = await openSel(CALL_COLS);
+      } else if (!callsResp.error) {
+        outcomeColsAvailable = true;
+      }
       if (callsResp.error) {
         if (isMissingCol(callsResp.error)) { renderNeedsMigration(); return; }
         console.error('[desk] calls load failed', callsResp.error);
       }
       const calls = callsResp.data || [];
+
+      // 1b. RECENTLY CLEARED — the undo list. Resolved rows only, and only the
+      //     ones still reachable: cleared in the last 30 days, or cleared but
+      //     still due ahead (that second half is the only reason a Sep-28
+      //     drop-off cleared on Sep 8 can be brought back). Capped, newest first.
+      //     A failure here never blocks the lanes.
+      let cleared = [];
+      try {
+        const since = new Date(Date.now() - (DO() ? DO().CLEARED_WINDOW_DAYS : 30) * 86400000).toISOString();
+        const clSel = (cols) => db.from('calls').select(cols)
+          .in('next_step', ['quoted_callback', 'dropping_off'])
+          .not('resolved_at', 'is', null)
+          .or(`resolved_at.gte.${since},due_at.gte.${new Date().toISOString()}`)
+          .order('resolved_at', { ascending: false })
+          .limit(100);
+        let cl = await clSel(CALL_COLS_OUTCOME);
+        if (cl.error && isMissingCol(cl.error)) cl = await clSel(CALL_COLS);
+        if (!cl.error) cleared = cl.data || [];
+        else console.warn('[desk] cleared load failed', cl.message || cl.error.message);
+      } catch (e) { console.warn('[desk] cleared load threw', e && e.message); }
 
       // 2. resolve customer names + (single) vehicles for the involved customers.
       //    Targeted .in() lookups — NOT a select-all (the 1000-row cap trap).
@@ -11586,7 +11696,7 @@
       if (dRes.error) { if (!isMissingCol(dRes.error)) console.error('[desk] declined load failed', dRes.error); }
       else declined = dRes.data || [];
 
-      lastData = { calls, custMap, vehMap, declined };
+      lastData = { calls, custMap, vehMap, declined, cleared };
       deskRender(lastData);
     }
     window.cdDeskReload = deskLoad;
@@ -11599,7 +11709,7 @@
     }
 
     // ── render ──
-    function deskRender({ calls, custMap, vehMap, declined }) {
+    function deskRender({ calls, custMap, vehMap, declined, cleared }) {
       const today = startOfToday();
       const callbacks = calls.filter(c => c.next_step === 'quoted_callback');
       // Coming-in used to be "today onward only", which quietly deleted a
@@ -11615,12 +11725,17 @@
       // Callbacks lane — soonest first (query already ordered by due_at asc)
       $('deskCbList').innerHTML = callbacks.length ? callbacks.map(c => {
         const overdue = isOverdue(c.due_at, c.due_all_day);
+        // A lead parked here by "Can't right now" looks like any other callback
+        // unless the row says so — that reason is the whole reason it is a lane
+        // move and not a delete.
+        const why = DO() ? DO().callbackReason(c, (iso) => dueLabel(iso, true)) : '';
         return `<div class="desk-row" data-open-phone="${esc(c.caller_bare || '')}">
           <div class="desk-row-top"><span class="desk-row-name">${esc(customerLabel(c, custMap))}</span></div>
+          ${why ? `<div class="desk-row-why">${esc(why)}</div>` : ''}
           ${c.note ? `<div class="desk-row-note">${esc(c.note)}</div>` : ''}
           <div class="desk-row-meta">
             <span class="desk-row-due${overdue ? ' overdue' : ''}">${esc(dueLabel(c.due_at, c.due_all_day))}</span>
-            <span class="desk-row-actions"><button class="desk-btn" data-edit="${esc(String(c.id))}">Edit</button><button class="desk-btn done" data-done="${esc(String(c.id))}">Done</button></span>
+            <span class="desk-row-actions"><button class="desk-btn" data-edit="${esc(String(c.id))}">Edit</button><button class="desk-btn done" data-outcome="called" data-id="${esc(String(c.id))}" title="I made the call — clears it from the Desk">Done</button></span>
           </div>
         </div>`;
       }).join('') : '<div class="desk-lane-empty">No callbacks owed.</div>';
@@ -11658,13 +11773,24 @@
         const tag = (showRecovered && mod.isRecovered(c))
           ? `<span class="desk-recovered-tag">${esc(mod.RECOVERED_TAG)}</span>` : '';
         const cls = overdue ? ' is-overdue' : (undated ? ' is-undated' : '');
+        // A drop-off is a LEAD, so finishing with it is four different things —
+        // not one "Done". Reschedule is not an outcome (nothing happened yet); it
+        // reuses the Edit modal. Before the outcome columns exist we show the old
+        // Edit|Done pair rather than buttons that cannot save.
+        const M = DO();
+        const acts = (M && outcomeColsAvailable)
+          ? `<button class="desk-btn done" data-outcome="arrived" data-id="${esc(String(c.id))}" title="${esc(M.OUTCOME_LABEL.arrived)} — clears it from the Desk">${esc(M.OUTCOME_SHORT.arrived)}</button>`
+            + `<button class="desk-btn" data-edit="${esc(String(c.id))}" title="Pick a new date — stays on Coming in, nothing is cleared">Reschedule</button>`
+            + `<button class="desk-btn warn" data-outcome="fixed_elsewhere" data-id="${esc(String(c.id))}" title="${esc(M.OUTCOME_LABEL.fixed_elsewhere)} — clears it from the Desk">${esc(M.OUTCOME_SHORT.fixed_elsewhere)}</button>`
+            + `<button class="desk-btn hold" data-outcome="not_now" data-id="${esc(String(c.id))}" title="${esc(M.OUTCOME_LABEL.not_now)} — stays a live lead, moves to Callbacks">${esc(M.OUTCOME_SHORT.not_now)}</button>`
+          : `<button class="desk-btn" data-edit="${esc(String(c.id))}">Edit</button><button class="desk-btn done" data-done="${esc(String(c.id))}">Done</button>`;
         return `<div class="desk-row${cls}" data-open-phone="${esc(c.caller_bare || '')}">
           <div class="desk-row-top"><span class="desk-row-name">${esc(customerLabel(c, custMap))}</span></div>
           ${veh ? `<div class="desk-row-veh">${esc(veh)}</div>` : ''}
           <div class="desk-row-meta">
             <span class="desk-row-due${overdue ? ' overdue' : ''}">${esc(dueLabel(c.due_at, c.due_all_day))}</span>
-            <span class="desk-row-actions"><button class="desk-btn" data-edit="${esc(String(c.id))}">Edit</button><button class="desk-btn done" data-done="${esc(String(c.id))}">Done</button></span>
           </div>
+          <div class="desk-row-outcomes">${acts}</div>
           ${tag}
         </div>`;
       }).join('');
@@ -11687,6 +11813,8 @@
       const ov = $('deskOverdue'), badge = $('desk-overdue-badge');
       if (overdueN) { ov.style.display = ''; ov.textContent = `${overdueN} overdue`; if (badge) { badge.style.display = ''; badge.textContent = overdueN; } }
       else { ov.style.display = 'none'; if (badge) badge.style.display = 'none'; }
+
+      renderCleared(cleared || [], custMap);
 
       // The calendar gets EVERY dated unresolved drop-off, past included — not
       // the lane's list. Handing it a today-onward array was what made
@@ -11872,7 +12000,136 @@
       }
     }
 
+    // ── RECENTLY CLEARED (the undo) ──────────────────────────────────
+    // Nothing here is destructive: every row is one click from being back on its
+    // lane exactly as it was. The panel hides itself when there is nothing to show.
+    let clearedOpen = false;
+    function renderCleared(rows, custMap) {
+      const card = $('deskClearedCard'); if (!card) return;
+      const M = DO();
+      const list = M ? M.recentlyCleared(rows, new Date()) : [];
+      if (!list.length) { card.style.display = 'none'; return; }
+      card.style.display = '';
+      $('deskClearedCount').textContent = list.length;
+      $('deskClearedList').innerHTML = list.map(c => {
+        const label = M.clearedLabel(c);
+        const known = M.isOutcome(c.outcome);
+        const who = esc(customerLabel(c, custMap || {}));
+        const by = c.resolved_by_name ? ` by ${c.resolved_by_name}` : '';
+        // Say what it WAS as well as when it was cleared — the due date is what
+        // makes "this shouldn't have gone" obvious at a glance.
+        const was = c.due_at ? `${c.next_step === 'quoted_callback' ? 'callback' : 'drop-off'} ${dueLabel(c.due_at, c.due_all_day)}` : 'no date';
+        return `<div class="desk-cleared-row">
+          <span class="desk-cleared-who">${who}</span>
+          <span class="desk-cleared-outcome${known ? '' : ' unknown'}">${esc(label)}</span>
+          <span class="desk-cleared-when">${esc(was)} · cleared ${esc(agoLabel(c.resolved_at))}${esc(by)}</span>
+          ${c.outcome_note ? `<span class="desk-cleared-when">“${esc(c.outcome_note)}”</span>` : ''}
+          <button class="desk-btn" data-undo="${esc(String(c.id))}" title="Put it back on the Desk exactly as it was">↩ Undo</button>
+        </div>`;
+      }).join('');
+      $('deskClearedList').style.display = clearedOpen ? '' : 'none';
+      $('deskClearedCaret').textContent = clearedOpen ? '▾' : '▸';
+      $('deskClearedToggle').setAttribute('aria-expanded', clearedOpen ? 'true' : 'false');
+    }
+    (function wireClearedToggle() {
+      const t = $('deskClearedToggle'); if (!t) return;
+      t.addEventListener('click', () => {
+        clearedOpen = !clearedOpen;
+        $('deskClearedList').style.display = clearedOpen ? '' : 'none';
+        $('deskClearedCaret').textContent = clearedOpen ? '▾' : '▸';
+        t.setAttribute('aria-expanded', clearedOpen ? 'true' : 'false');
+      });
+    })();
+
     // ── actions ──
+    /* THE outcome write. One path for all four, so the rules can't drift:
+         - a clearing outcome (arrived / fixed_elsewhere / called) sets resolved_at
+           and NEVER touches the lane or the date;
+         - not_now sets NOTHING on resolved_at — it moves the row to Callbacks with
+           a call-back date, because a lead who can't afford it this month is still
+           a lead. Resolving it would be the old bug in a new coat.
+       A clear whose date is still ahead asks first: that is the exact shape of
+       every real mis-click we found (id 755, cleared 20 days before it was due). */
+    async function applyOutcome(id, outcome) {
+      const M = DO(); if (!M) return;
+      const call = (lastData && lastData.calls || []).find(c => String(c.id) === String(id));
+      if (!call) return;
+
+      if (outcome === 'not_now') { openNotNow(call); return; }   // needs a date + note first
+
+      if (M.needsConfirm(call, new Date())) {
+        const who = customerLabel(call, (lastData && lastData.custMap) || {});
+        if (!confirm(M.confirmMessage(call, who, dueLabel(call.due_at, call.due_all_day)))) return;
+      }
+      const patch = M.outcomePatch(outcome, {
+        now: new Date().toISOString(),
+        byName: (typeof CHAT_IDENTITY !== 'undefined' && CHAT_IDENTITY.name) || null,
+      });
+      if (!patch) return;
+      const { error } = await db.from('calls').update(patch).eq('id', id);
+      if (error) { console.error('[desk] outcome failed', error); alert('Could not save: ' + error.message); return; }
+      deskLoad();
+    }
+
+    // Undo — put a cleared item back exactly where it was. next_step/due_at were
+    // never touched by a clear, so nulling resolved_at + the outcome restores it.
+    async function undoCleared(id) {
+      const M = DO(); if (!M) return;
+      const { error } = await db.from('calls').update(M.undoPatch()).eq('id', id);
+      if (error) { console.error('[desk] undo failed', error); alert('Could not undo: ' + error.message); return; }
+      deskLoad();
+    }
+
+    // "Not coming — can't right now": the only outcome that needs input before it
+    // can be written (a call-back date, and optionally why).
+    let notNowCall = null;
+    function openNotNow(call) {
+      const M = DO(); if (!M) return;
+      notNowCall = call;
+      $('deskNotNowWho').textContent = customerLabel(call, (lastData && lastData.custMap) || {});
+      $('deskNotNowMissed').textContent = call.due_at
+        ? `Was due to drop off ${dueLabel(call.due_at, call.due_all_day)}.`
+        : 'Had no drop-off date.';
+      $('deskNotNowDate').value = M.defaultCallbackDate(new Date());
+      $('deskNotNowNote').value = '';
+      $('deskNotNowErr').textContent = '';
+      $('deskNotNowBackdrop').classList.add('open');
+      $('deskNotNow').classList.add('open');
+      $('deskNotNow').setAttribute('aria-hidden', 'false');
+    }
+    function closeNotNow() {
+      $('deskNotNowBackdrop').classList.remove('open');
+      $('deskNotNow').classList.remove('open');
+      $('deskNotNow').setAttribute('aria-hidden', 'true');
+      notNowCall = null;
+    }
+    async function saveNotNow() {
+      const M = DO(); if (!M || !notNowCall) return;
+      const err = $('deskNotNowErr'); err.textContent = '';
+      const dateKey = $('deskNotNowDate').value;
+      if (!dateKey) { err.textContent = 'Pick a date to call them back.'; return; }
+      const patch = M.outcomePatch('not_now', {
+        call: notNowCall,
+        note: $('deskNotNowNote').value,
+        callbackDueAt: deskDueAt(dateKey, null, null),   // callbacks are all-day
+        byName: (typeof CHAT_IDENTITY !== 'undefined' && CHAT_IDENTITY.name) || null,
+      });
+      if (!patch) { err.textContent = 'Could not build that change.'; return; }
+      const btn = $('deskNotNowSave'); btn.disabled = true;
+      try {
+        const { error } = await db.from('calls').update(patch).eq('id', notNowCall.id);
+        if (error) { err.textContent = 'Could not save: ' + error.message; return; }
+        closeNotNow(); deskLoad();
+      } finally { btn.disabled = false; }
+    }
+    (function wireNotNow() {
+      const save = $('deskNotNowSave'); if (!save) return;
+      save.addEventListener('click', saveNotNow);
+      $('deskNotNowCancel').addEventListener('click', closeNotNow);
+      $('deskNotNowX').addEventListener('click', closeNotNow);
+      $('deskNotNowBackdrop').addEventListener('click', closeNotNow);
+    })();
+
     async function resolveCall(id) {
       const { error } = await db.from('calls').update({
         resolved_at: new Date().toISOString(),
@@ -12047,7 +12304,10 @@
     })();
 
     function wireDesk() {
+      // Pre-migration fallback only — the plain "Done" (no outcome recorded).
       document.querySelectorAll('#view-desk [data-done]').forEach(b => b.onclick = (e) => { e.stopPropagation(); resolveCall(b.dataset.done); });
+      document.querySelectorAll('#view-desk [data-outcome]').forEach(b => b.onclick = (e) => { e.stopPropagation(); applyOutcome(b.dataset.id, b.dataset.outcome); });
+      document.querySelectorAll('#view-desk [data-undo]').forEach(b => b.onclick = (e) => { e.stopPropagation(); undoCleared(b.dataset.undo); });
       document.querySelectorAll('#view-desk [data-edit]').forEach(b => b.onclick = (e) => {
         e.stopPropagation();
         const call = (lastData && lastData.calls || []).find(c => String(c.id) === String(b.dataset.edit));
@@ -12855,7 +13115,7 @@
       }
       Object.assign(card._call, p);
       card._lastPatch = p;                          // exposed for local verification
-      updateEcho(card);                             // reflect lane/date + toggle "Mark done"
+      updateEcho(card);                             // reflect the lane + date
       setSaved(card, 'saving');
       const id = card._call && card._call.id;
       if (id == null) { setSaved(card, 'saved'); return; }   // dry-run card
@@ -12989,8 +13249,7 @@
         <div class="cc-footer">
           <span class="cc-saved" aria-live="polite"></span>
           <span class="cc-actions">
-            <button type="button" class="cc-done" style="display:none" title="The callback / drop-off is complete — clears it from the Desk">Mark done</button>
-            <button type="button" class="cc-close" title="Close this call. A callback or drop-off stays on the Desk until it's done.">Close</button>
+            <button type="button" class="cc-close" title="Close this call. A callback or drop-off stays on the Desk until you say what happened on the Desk.">Close</button>
           </span>
         </div>
       </div>`;
@@ -13009,15 +13268,14 @@
 
     // Outcome-echo under the chips: which LANE this lands in + the WEEKDAY, so a
     // wrong lane or a wrong date is visible before the card is closed. Only the
-    // two Desk-tracked steps get an echo. Also toggles "Mark done" — only an
-    // unresolved callback/drop-off can be resolved.
+    // two Desk-tracked steps get an echo. The card CANNOT clear an item: "Mark done"
+    // lived here and caused 22 of 40 prod wipes (see docs/wiring/call-window-desk.md §9),
+    // so clearing now happens only from the Desk lanes, with a confirm and an undo.
     function updateEcho(card) {
       const echo = card.querySelector('.cc-echo');
-      const doneBtn = card.querySelector('.cc-done');
       const call = card._call || {};
       const step = call.next_step;
       const tracked = step === 'quoted_callback' || step === 'dropping_off';
-      if (doneBtn) doneBtn.style.display = (tracked && !call.resolved_at) ? '' : 'none';
       if (!echo) return;
       if (!tracked) { echo.className = 'cc-echo'; echo.textContent = ''; return; }
       const when = echoDateLabel(call.due_at, call.due_all_day !== false);
@@ -13148,16 +13406,6 @@
       const closeBtn = card.querySelector('.cc-close');
       if (closeBtn) closeBtn.addEventListener('click', () => { clearTimeout(noteTimer); saveIfChanged(); dismissedCardIds.add(card.dataset.callId); card.remove(); });
 
-      // "Mark done" — the callback / drop-off is actually complete: set
-      // resolved_at (same as the Desk lane's Done), then close. Only shown for an
-      // unresolved callback/drop-off (updateEcho toggles it).
-      const doneBtn = card.querySelector('.cc-done');
-      if (doneBtn) doneBtn.addEventListener('click', async () => {
-        clearTimeout(noteTimer); saveIfChanged();
-        await resolveCallCard(card);
-        card.remove();
-      });
-
       card.querySelectorAll('.cc-next button').forEach(b =>
         b.addEventListener('click', () => {
           const step = b.dataset.next;
@@ -13176,20 +13424,6 @@
           saveNote(card, { next_step: step, due_at: null, due_all_day: true });
           renderWhen(card);
         }));
-    }
-
-    // Resolve a call from its card — mirrors the Desk lane's resolveCall so the
-    // two "done" paths write the same fields. No-op on a dry-run card (no id).
-    async function resolveCallCard(card) {
-      const id = card._call && card._call.id;
-      if (id == null) return;
-      const patch = {
-        resolved_at: new Date().toISOString(),
-        resolved_by_name: (typeof CHAT_IDENTITY !== 'undefined' && CHAT_IDENTITY.name) || null,
-      };
-      Object.assign(card._call, patch);
-      const { error } = await db.from('calls').update(patch).eq('id', id);
-      if (error) { console.error('[callerCard] resolve failed', error); alert('Could not mark done: ' + (error.message || error)); }
     }
 
     async function handleNewCall(call) {
@@ -13236,7 +13470,7 @@
       }
       wireForm(card);
       renderFiledRo(card);   // persistent "Filed to RO" row (empty until a customer resolves)
-      updateEcho(card);   // reflect any hydrated step/date + "Mark done" visibility
+      updateEcho(card);   // reflect any hydrated step/date
 
       try {
         const matches = await matchCustomers(call.caller_bare);

@@ -48,7 +48,8 @@ export const RECOVERED_TAG =
 
 export const RECOVERED_BANNER =
   'Old drop-offs are back. A display bug was hiding drop-offs once their date passed — '
-  + 'nothing new broke. Go through the red ones: mark done any that already came in or aren’t coming.';
+  + 'nothing new broke. Go through the red ones and say what happened: Arrived, Reschedule, '
+  + 'Fixed elsewhere, or Can’t right now.';
 
 // ── the one overdue rule ──────────────────────────────────────
 // Local midnight of whatever moment `now` names. The board renders in shop-
