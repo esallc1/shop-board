@@ -1,7 +1,12 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-09-20 — **§6 + new §6a: the Desk no longer only models the future.**
+> Last updated: 2026-09-20 (2) — **new §9: the one destructive "Done" is gone.** Four real
+> outcomes on Coming-in (Arrived · Reschedule · Not coming · Follow up), a confirm before
+> clearing anything still ahead, and a "Recently cleared" undo. "Mark done" is removed from
+> the call window. Three new nullable columns on `calls`. **Not on prod yet** — verified on
+> `test.*`, prod migration unrun. §5 rewritten (it described the removed button).
+> Previously: 2026-09-20 — **§6 + new §6a: the Desk no longer only models the future.**
 > Coming-in shows overdue and undated drop-offs, the calendar receives past weeks, and the
 > overdue badge counts drop-offs. Display only — nothing about what a drop-off IS changed,
 > and resolved rows are still hidden. **Shipped to prod at `cde6aa6`** and verified read-only on
@@ -158,16 +163,17 @@ date is set; hidden for `checking_on_car` / `price_shopper`. The **weekday** is 
 point — it makes a wrong lane or a wrong date (e.g. "Thu, Jul 30" when Tuesday was
 meant) visible **before** the card is closed.
 
-## 5. Closing vs resolving (two distinct actions)
-- **Close** (`.cc-close`) — dismiss the popup **without resolving**. A callback/drop-off
-  stays on the Desk (`resolved_at` null) so it can't fall off the radar. This is the
-  everyday action after scheduling something for later, and is the prominent/rightmost
-  button so a habitual tap never accidentally resolves a future item.
-- **Mark done** (`.cc-done`) — the callback/drop-off is actually complete: sets
-  `resolved_at` + `resolved_by_name` (via `resolveCallCard`, mirroring the Desk's
-  `resolveCall`), then closes. Only shown for an **unresolved** callback/drop-off.
-- Invariant: a customer never *leaves the advisor's view while unresolved* — either it's
-  resolved, or it's still visible on the Desk.
+## 5. Closing the call window (it can no longer clear anything)
+The card has **one** button: **Close**. It flushes any pending note and dismisses the
+popup. A callback or drop-off **stays on the Desk** (`resolved_at` null) so it cannot fall
+off the radar.
+
+**"Mark done" used to sit next to it and is gone** (2026-09-20). It appeared the instant a
+step was picked — i.e. at the exact moment of booking — and set `resolved_at` with no
+confirm. Prod audit: of 40 resolved appointments **22 were resolved within 60 seconds of
+being noted, by the person who noted them** (fastest 3s, 5s, 6s). Clearing now happens only
+from the lanes (§9), where the date you are about to erase is on screen. The call window
+writes `resolved_at` **nowhere** — locked by a test.
 
 ## 6. The Desk — `desk` IIFE
 - `deskLoad` reads `calls` where `next_step in ('quoted_callback','dropping_off')`
@@ -179,8 +185,9 @@ meant) visible **before** the card is closed.
 - **Drop-off calendar:** `renderCalendar(calendarFeed())` — a week grid of every dated
   unresolved `dropping_off`, **past and future**. The week window is the only date filter,
   so `‹ ›` browses real history. Chips are drag-to-reschedule (`rescheduleCall`).
-- **Desk row "Done"** (`data-done` → `resolveCall`) sets `resolved_at` — same write as
-  the card's "Mark done".
+- **Finishing with an item** is §9 — four outcomes on Coming-in, a plain "Done" on
+  Callbacks. The old one-click `data-done` → `resolveCall` survives only as the
+  pre-migration fallback.
 
 ## 6a. What Coming-in and the calendar may SHOW — `shared/desk-appointments.js`
 Until 2026-09-20 the Desk only modelled the future, and four separate filters threw work
@@ -266,18 +273,91 @@ only guard: anyone on the internet could call it and it would run with the servi
   `api/desk-appointment.test.js`. **Prod-only:** the endpoint runs on Vercel, so manual
   add does not work under a bare static preview; edit/re-route (anon UPDATE) works anywhere.
 
+## 9. Finishing with a Desk item — `shared/desk-outcomes.js`
+Until 2026-09-20 there was exactly one way: **"Done" → `resolved_at`**, no confirm, no undo,
+no record of what happened. It was on both lanes *and* in the call window, and the audit
+above shows what that cost. The Desk is where **leads** live — people who called but have no
+RO yet — so "finished with it" is four different things, and only three end the lead.
+
+### 9a. The four outcomes
+The Coming-in row carries: **Arrived · Reschedule · Not coming · Follow up**.
+
+| Button | Stored `outcome` | Clears it? | What it does |
+|---|---|---|---|
+| Arrived | `arrived` | yes | the car showed up |
+| Reschedule | *(none)* | **no** | not an outcome — nothing happened yet. Reuses the §7 Edit modal, changes the date, item stays on Coming in |
+| Not coming | `not_coming` | yes | modal asks **why** (free text, optional) |
+| Follow up | `follow_up` | **no** | modal asks for a **call-back date** (default +14 d, editable) + why |
+| Callbacks "Done" | `called` | yes | I made the call |
+
+**The buttons say WHAT HAPPENED; the note says WHY.** The first cut used
+`fixed_elsewhere` / `not_now`, which each name ONE reason — the first car that fixed itself
+or customer who sold theirs would have been filed under "fixed elsewhere" and every report
+would have repeated it. Reasons can't be enumerated, so they're free text; four buttons that
+describe the *outcome* can stay four buttons forever. A test fails if a value ever names a
+reason again.
+
+**`follow_up` is the one that does not resolve, and that is the point.** A lead who can't do
+it this month is still a lead. The row STAYS OPEN and moves lanes: `next_step` →
+`quoted_callback`, `due_at` → the call-back date, `outcome_prev_due_at` keeps the drop-off
+date they missed, `resolved_at` is never touched. The Callbacks row then shows
+`callbackReason()` — *"Couldn't make Fri, Sep 18 drop-off — no money till the 1st"* — so a
+parked lead never looks like an ordinary callback. Resolving it would be the old bug in a
+new coat.
+
+### 9b. The confirm
+Clearing an item whose **day is still ahead** asks first: *"This clears &lt;who&gt;'s
+&lt;date&gt; drop-off from the Desk. Sure?"* That is the shape of every real mis-click found
+(id 755: cleared Sep 8, due Sep 28).
+
+Deliberately **strictly-future-day**, not "any moment still ahead". A car arriving later
+today is the normal flow; prompting on every ordinary arrival trains people to click
+through, which is how a confirm stops working the day it matters. For `arrived`/`called` it
+fires on the button; for `not_coming` it fires on the modal's **Save**, so cancelling the
+modal costs nobody a dialog. `follow_up` never asks — it clears nothing.
+
+### 9c. Undo — "Recently cleared"
+A collapsed panel under the calendar, hidden when empty. It lists resolved rows that are
+**cleared in the last 30 days OR still due ahead however long ago they were cleared** — the
+second half is the only reason a Sep-28 drop-off cleared on Sep 8 is reachable at all. Each
+row shows who cleared it, when, which outcome and any note, with one **↩ Undo**.
+
+`undoPatch()` nulls `resolved_at`, `resolved_by_name`, `outcome`, `outcome_note` — and
+nothing else. A clearing outcome never changed `next_step`/`due_at`, so the row comes back
+exactly where it was. `outcome_prev_due_at` is deliberately **kept**: only `follow_up` sets
+it, and a row later cleared from Callbacks should return still knowing why it is there.
+
+A row cleared before outcomes existed reads **"Done (before outcomes)"** rather than
+inventing a reason for it.
+
+### 9d. Data — three nullable columns on `calls`
+`outcome` (CHECK: `arrived | not_coming | follow_up | called`), `outcome_note`,
+`outcome_prev_due_at`, plus a partial index on `resolved_at` for the cleared list.
+**No new table** — a Desk appointment IS a calls row (§1). **No backfill**, **no RLS
+change**, **no new endpoint**: same anon UPDATE the Desk already used.
+
+- `migrations/20260920_calls_outcome_{SANDBOX,PROD}.sql` — **either order is safe.**
+  `deskLoad` tries `CALL_COLS_OUTCOME` and falls back to `CALL_COLS` on 42703 (the tier
+  trick `logLoad` uses), showing the old single "Done" until the columns exist.
+- `migrations/20260920_calls_outcome_rename_SANDBOX.sql` — **sandbox only, and order
+  matters.** The sandbox ran the first draft's values; prod never did, so the `_PROD` file
+  was edited in place and has no twin. A CHECK mismatch is 23514, not 42703, so the fallback
+  does **not** cover it: the renamed board's writes fail loudly until this runs.
+
+### 9e. Status
+Verified end-to-end on `test.*` on 2026-09-20 (ZZ Test rows 286–290): all four outcomes,
+the confirm and its Cancel branch, the parked-lead reason line, Recently cleared and Undo,
+and the served page carrying no `cc-done`. **Prod migration not yet run; not shipped.**
+
 ## Known gaps & open questions (as of 2026-09-20)
 - The four chips are one undifferentiated wrap row; "Quoted — will call back" and
   "Dropping off" are adjacent and easy to mis-tap. The echo now catches the *result*;
   visually separating "an appointment" from "a reminder" is a possible next step.
-- **"Mark done" is a one-click, no-confirm, no-undo delete — and it bites.** `resolved_at`
-  is write-once: nothing in the repo ever writes it back to null, there is no "show
-  resolved" view, and the card backfill excludes resolved rows. Prod audit 2026-09-20: of
-  40 resolved appointments **22 were resolved within 60 seconds of being noted, by the
-  person who noted them** (fastest 3s, 5s, 6s) — that is a mis-click, not "the car came
-  in". One live casualty: a Sep 28 drop-off resolved 72 s after it was booked, invisible.
-  Confirm + un-resolve is the next job; §6a deliberately did **not** touch it.
-- **A resolved appointment's DATE is recoverable nowhere in the UI.** The Call Log's
+- ~~"Mark done" is a one-click, no-confirm, no-undo delete~~ — **fixed in §9** (four
+  outcomes, a confirm on future-dated clears, and Recently cleared / Undo). Still true on
+  **prod** until `20260920_calls_outcome_PROD.sql` is run and the branch ships.
+- **A resolved appointment's DATE is recoverable nowhere in the UI** *(outside the 30-day
+  Recently-cleared window, §9c)*. The Call Log's
   `LOG_COLS` doesn't select `due_at`, and the customer record has no `due_at` at all — a
   resolved drop-off shows only the words "Dropping off". A manual walk-in (`started_at`
   null) isn't in the Call Log either, so once resolved it exists on no screen.
@@ -310,6 +390,15 @@ only guard: anyone on the internet could call it and it would run with the servi
 - Desk: `advisor-board.html` — `desk` IIFE (`deskLoad`, `deskRender`, `renderCalendar`,
   `calendarFeed`, `chipFlags`, `resolveCall`, `rescheduleCall`); `dueLabel` /
   `startOfToday` here, and `isOverdue`, which delegates to the module below.
+- **Outcomes / confirm / undo (§9):** `shared/desk-outcomes.js` — `OUTCOMES`,
+  `OUTCOME_LABEL`/`_SHORT`/`_NOTE_PLACEHOLDER`, `clearsItem`, `outcomePatch`, `undoPatch`,
+  `needsConfirm`, `confirmMessage`, `recentlyCleared`, `clearedLabel`, `callbackReason`,
+  `defaultCallbackDate` (+ `shared/desk-outcomes.test.js`). ESM →
+  `window.DeskOutcomes`. Board side in the `desk` IIFE: `applyOutcome`, `undoCleared`,
+  `openOutcomeModal` / `saveNotNow`, `renderCleared`, the `#deskClearedCard` panel and the
+  `#deskNotNow` modal; CSS `.desk-row-outcomes`, `.desk-btn.warn/.hold`, `.desk-row-why`,
+  `.desk-cleared-*`. Schema: `migrations/20260920_calls_outcome_{SANDBOX,PROD}.sql` +
+  `_rename_SANDBOX.sql`.
 - **Display rules (§6a):** `shared/desk-appointments.js` — `isOverdueDue`, `splitComingIn`,
   `comingInOrder`, `calendarItems`, `overdueCount`, `isRecovered`, `recoveryNoticeVisible`,
   `showRecoveryBanner`, and the `RECOVERED_*` constants (+ `shared/desk-appointments.test.js`).
@@ -324,6 +413,12 @@ only guard: anyone on the internet could call it and it would run with the servi
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- 2026-09-20 — **§9 added; §5 rewritten; §6 bullet replaced.** Four outcomes replace the one
+  destructive "Done"; "Mark done" removed from the call window; confirm on future-dated
+  clears; "Recently cleared" undo. New `shared/desk-outcomes.js` (+ tests, 791 total) and
+  three nullable `calls` columns. Values renamed `fixed_elsewhere`/`not_now` →
+  `not_coming`/`follow_up` the same day, so the buttons name the outcome and the note the
+  reason. Verified on `test.*` at `42a30b2`/`2c67b41`. **Not on prod.**
 - 2026-09-20 — Shipped to prod at `cde6aa6` (fast-forward `8a49358..cde6aa6`, no Promote).
   `advisor-board.html` + `shared/desk-appointments.js` + `shared/new-badge.js` byte-identical to
   git on `www` and `board.*`. Prod numbers matched the 2026-09-20 audit exactly: 16 overdue,
