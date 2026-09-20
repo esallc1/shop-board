@@ -12,10 +12,12 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `d8ba486`** (2026-09-19, ~07:15 ET — "Warranty given" on the RO: `repair_orders.warranty_terms`,
-`shared/warranty-presets.js`, printed above the signature/PAID; prod migration
-`20260919_ro_warranty_terms_PROD.sql` run by Cris first; www/board/apex `/api/version` verified,
-`advisor-board.html` + `bookkeeping-board.html` + `shared/ro-invoice.js` + `shared/warranty-presets.js`
+**Prod code = `cde6aa6`** (2026-09-20, ~06:45 ET — the Desk stops hiding overdue and undated
+drop-offs: Coming-in shows them (overdue at top, oldest first), the calendar is fed past weeks so
+`‹ Previous week` draws, and the overdue badge counts drop-offs; rules in
+`shared/desk-appointments.js`, self-expiring "recovered" banner + row tag. **Display only — no
+migration, no new write path**; `resolved_at` and Mark-done untouched. www/board `/api/version`
+verified, `advisor-board.html` + `shared/desk-appointments.js` + `shared/new-badge.js`
 byte-identical). Any later commit on `main` up to the one that wrote this line is docs-only. Update
 this line on every code ship.
 

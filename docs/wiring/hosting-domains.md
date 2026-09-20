@@ -1,10 +1,11 @@
 # How hosting & domains are wired
 
 > Doc: `/docs/wiring/hosting-domains.md`
-> **Prod code = `d8ba486`** (2026-09-19 ~07:15 ET — "Warranty given" on the RO; www/board/apex
-> `/api/version` verified; built and took the domains in ~45s with no Promote, like `929b6ee`,
-> `de37577`, `b26ce94`, `368d5e5` and earlier — consistent with §3.6 point 4's answer). Later `main`
-> commits up to this line are docs-only.
+> **Prod code = `cde6aa6`** (2026-09-20 ~06:45 ET — the Desk stops hiding overdue/undated
+> drop-offs; www/board `/api/version` verified; built and took the domains with no Promote, like
+> `d8ba486`, `929b6ee`, `de37577`, `b26ce94` and earlier — consistent with §3.6 point 4's answer.
+> `board.*` served the new SHA ~1 min before `www`, so a single domain reading stale for a minute
+> is normal propagation, not a stuck deploy). Later `main` commits up to this line are docs-only.
 > Last updated: 2026-09-18 — **§3.6 consequences 3 + 4 rewritten to what was observed**: a push
 > lagged ~30 min during a Vercel build incident (not skipped); a Ready prod build the domains didn't
 > follow, fixed by a dashboard Promote. Observed live vs `b77f679` / `f7cf54d` / `8b3a14f`.
@@ -372,6 +373,9 @@ bucket layout should now come from `migrations/20260819_storage_buckets.sql`, no
 - Client-side idle logout: `shared/office-identity.js` (`armIdleLogout`) — see [[office-auth]] §8.8.
 
 ## Session change log
+- 2026-09-20 (~06:45 ET) — Prod = `cde6aa6` (Desk shows overdue + undated drop-offs); fast-forward
+  push of `main` alone (8a49358..cde6aa6), domains auto-assigned, no Promote. `board.*` flipped
+  ~1 min before `www`. Docs-only follow-up commit updated this header.
 - 2026-09-19 (~07:15 ET) — Prod = `d8ba486` (warranty given); fast-forward push of `main` alone
   (8c6df96..d8ba486), live in ~45s, domains auto-assigned. Header updated.
 - 2026-09-19 (~06:15 ET) — Prod = `929b6ee` (close clears floor); fast-forward push of `main` alone

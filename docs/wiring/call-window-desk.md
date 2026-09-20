@@ -1,10 +1,14 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-09-21 — **§6 + new §6a: the Desk no longer only models the future.**
+> Last updated: 2026-09-20 — **§6 + new §6a: the Desk no longer only models the future.**
 > Coming-in shows overdue and undated drop-offs, the calendar receives past weeks, and the
 > overdue badge counts drop-offs. Display only — nothing about what a drop-off IS changed,
-> and resolved rows are still hidden. Verified vs branch `staging`.
+> and resolved rows are still hidden. **Shipped to prod at `cde6aa6`** and verified read-only on
+> `board.*`: 24 Coming-in rows = **16 overdue + 3 undated + 5 upcoming**, badge "16 overdue"
+> (it read 0 before), banner + tag on 20 rows, `‹ Previous week` drawing past chips back to
+> Aug 3–9. Verified on `test.*` first at `cde6aa6` (8 overdue + 3 undated — the sandbox is an
+> older, diverged copy).
 > Previously: 2026-08-18 — verified vs branch `feat/confirm-phone-learn` (base `7860272`)
 > (§2c added: attaching a call no longer writes a phone number silently — it asks. §2 + §3
 > already carried the `ro_id`/disposition decoupling. See [[call-auto-attach]] §7 and §8.)
@@ -179,7 +183,7 @@ meant) visible **before** the card is closed.
   the card's "Mark done".
 
 ## 6a. What Coming-in and the calendar may SHOW — `shared/desk-appointments.js`
-Until 2026-09-21 the Desk only modelled the future, and four separate filters threw work
+Until 2026-09-20 the Desk only modelled the future, and four separate filters threw work
 away. A read-only audit of prod on 2026-09-20 found **16 unresolved past-due drop-offs and
 3 undated ones** sitting invisible — the oldest from Aug 4, the newest from Sep 18. What
 was wrong, and what each now does:
@@ -262,7 +266,7 @@ only guard: anyone on the internet could call it and it would run with the servi
   `api/desk-appointment.test.js`. **Prod-only:** the endpoint runs on Vercel, so manual
   add does not work under a bare static preview; edit/re-route (anon UPDATE) works anywhere.
 
-## Known gaps & open questions (as of 2026-09-21)
+## Known gaps & open questions (as of 2026-09-20)
 - The four chips are one undifferentiated wrap row; "Quoted — will call back" and
   "Dropping off" are adjacent and easy to mis-tap. The echo now catches the *result*;
   visually separating "an appointment" from "a reminder" is a possible next step.
@@ -320,7 +324,13 @@ only guard: anyone on the internet could call it and it would run with the servi
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
-- 2026-09-21 — **§6a added; §6 rewritten.** Coming-in now shows overdue (top, oldest first)
+- 2026-09-20 — Shipped to prod at `cde6aa6` (fast-forward `8a49358..cde6aa6`, no Promote).
+  `advisor-board.html` + `shared/desk-appointments.js` + `shared/new-badge.js` byte-identical to
+  git on `www` and `board.*`. Prod numbers matched the 2026-09-20 audit exactly: 16 overdue,
+  3 undated. **Known nit:** a drop-off due *today* is tagged "recovered" although the old filter
+  always showed it — the cutoff is `due_at < RECOVERED_CUTOFF`, not `< today`. One row
+  (2026-09-20), cosmetic, self-expires 2026-10-05.
+- 2026-09-20 — **§6a added; §6 rewritten.** Coming-in now shows overdue (top, oldest first)
   and undated drop-offs, the calendar is fed every dated drop-off so past weeks draw, and
   the overdue badge counts drop-offs. New `shared/desk-appointments.js` (+ 26 tests) holds
   the rules; the board's `isOverdue` delegates to it. Recovered-row tag + lane banner,
