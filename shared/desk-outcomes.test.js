@@ -4,7 +4,7 @@
    no undo and no record of what happened — 22 of 40 resolved prod appointments
    were cleared within 60s of being booked, by the booker. See desk-outcomes.js.
 
-   The invariant these exist to defend: **not_now must never resolve a row.** A
+   The invariant these exist to defend: **follow_up must never resolve a row.** A
    lead who can't afford it this month is still a lead; resolving it is the same
    bug in a new coat.
 
@@ -13,12 +13,12 @@
    board renders in. */
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
-  OUTCOMES, DROPOFF_OUTCOMES, OUTCOME_LABEL, OUTCOME_SHORT,
-  NOT_NOW_DEFAULT_DAYS, CLEARED_WINDOW_DAYS,
+  OUTCOMES, DROPOFF_OUTCOMES, OUTCOME_LABEL, OUTCOME_SHORT, OUTCOME_NOTE_PLACEHOLDER,
+  FOLLOW_UP_DEFAULT_DAYS, CLEARED_WINDOW_DAYS,
   isOutcome, clearsItem, outcomePatch, undoPatch,
   needsConfirm, confirmMessage,
   isRecentlyCleared, recentlyCleared, clearedLabel,
@@ -28,6 +28,7 @@ import {
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BOARD = readFileSync(join(root, 'advisor-board.html'), 'utf8');
 const SANDBOX_SQL = readFileSync(join(root, 'migrations/20260920_calls_outcome_SANDBOX.sql'), 'utf8');
+const RENAME_SQL = readFileSync(join(root, 'migrations/20260920_calls_outcome_rename_SANDBOX.sql'), 'utf8');
 const PROD_SQL = readFileSync(join(root, 'migrations/20260920_calls_outcome_PROD.sql'), 'utf8');
 
 const at = (y, m, d, hh = 0, mm = 0) => new Date(y, m - 1, d, hh, mm, 0, 0);
@@ -38,8 +39,8 @@ const drop = (o) => Object.assign({ id: 1, next_step: 'dropping_off', due_all_da
 
 // ── vocabulary ───────────────────────────────────────────────────────
 test('exactly four outcomes, and the drop-off lane offers three of them', () => {
-  assert.deepEqual(OUTCOMES, ['arrived', 'fixed_elsewhere', 'not_now', 'called']);
-  assert.deepEqual(DROPOFF_OUTCOMES, ['arrived', 'fixed_elsewhere', 'not_now']);
+  assert.deepEqual(OUTCOMES, ['arrived', 'not_coming', 'follow_up', 'called']);
+  assert.deepEqual(DROPOFF_OUTCOMES, ['arrived', 'not_coming', 'follow_up']);
   assert.ok(!DROPOFF_OUTCOMES.includes('called'), '"called" belongs to the Callbacks lane');
   for (const o of OUTCOMES) {
     assert.ok(OUTCOME_LABEL[o], `${o} needs a full label`);
@@ -49,11 +50,33 @@ test('exactly four outcomes, and the drop-off lane offers three of them', () => 
   assert.equal(isOutcome(null), false);
 });
 
-test('THE INVARIANT: not_now does not clear; the other three do', () => {
-  assert.equal(clearsItem('not_now'), false);
+test('THE INVARIANT: follow_up does not clear; the other three do', () => {
+  assert.equal(clearsItem('follow_up'), false);
   assert.equal(clearsItem('arrived'), true);
-  assert.equal(clearsItem('fixed_elsewhere'), true);
+  assert.equal(clearsItem('not_coming'), true);
   assert.equal(clearsItem('called'), true);
+});
+
+/* The names are the point, not decoration. 'fixed_elsewhere' and 'not_now' each
+   named ONE reason, so the first car that fixed itself would have been filed as
+   "fixed elsewhere" in every report from then on. These fail if a reason ever
+   gets put back into the vocabulary. */
+test('the values name an OUTCOME, never a reason', () => {
+  for (const o of OUTCOMES) {
+    assert.ok(!/elsewhere|money|dealer|sold|itself/i.test(o), `${o} names a reason, not an outcome`);
+  }
+  assert.equal(OUTCOME_SHORT.not_coming, 'Not coming');
+  assert.equal(OUTCOME_SHORT.follow_up, 'Follow up');
+  // the reasons live in the PLACEHOLDER, as examples the advisor types over
+  assert.match(OUTCOME_NOTE_PLACEHOLDER.not_coming, /fixed elsewhere.*fixed itself.*sold the car/);
+  assert.match(OUTCOME_NOTE_PLACEHOLDER.follow_up, /no money till the 1st.*out of town/);
+});
+
+test('every button label is short enough for one row in the lane', () => {
+  // The lane is 351px at 1440px and holds four buttons; anything longer wraps.
+  for (const o of OUTCOMES) {
+    assert.ok(OUTCOME_SHORT[o].length <= 12, `"${OUTCOME_SHORT[o]}" is too long for the row`);
+  }
 });
 
 // ── the writes ───────────────────────────────────────────────────────
@@ -70,25 +93,25 @@ test('a clearing outcome resolves, and touches NOTHING about the lane or date', 
   }
 });
 
-test('not_now moves lanes and NEVER writes resolved_at', () => {
+test('follow_up moves lanes and NEVER writes resolved_at', () => {
   const call = drop({ due_at: iso(2026, 9, 25, 12), due_all_day: true });
-  const p = outcomePatch('not_now', {
+  const p = outcomePatch('follow_up', {
     call, byName: 'Josh', note: '  no money till the 1st  ',
     callbackDueAt: iso(2026, 10, 8, 12),
   });
   assert.equal(p.next_step, 'quoted_callback');
   assert.equal(p.due_at, iso(2026, 10, 8, 12));
   assert.equal(p.due_all_day, true);
-  assert.equal(p.outcome, 'not_now');
+  assert.equal(p.outcome, 'follow_up');
   assert.equal(p.outcome_note, 'no money till the 1st', 'note is trimmed');
   assert.equal(p.outcome_prev_due_at, call.due_at, 'keeps the date it could not make');
-  assert.ok(!('resolved_at' in p), 'not_now must never resolve — it is still a live lead');
+  assert.ok(!('resolved_at' in p), 'follow_up must never resolve — it is still a live lead');
   assert.ok(!('resolved_by_name' in p));
 });
 
-test('not_now without a call-back date writes nothing at all', () => {
-  assert.equal(outcomePatch('not_now', { call: drop({}), callbackDueAt: null }), null);
-  assert.equal(outcomePatch('not_now', { call: drop({}), callbackDueAt: 'garbage' }), null);
+test('follow_up without a call-back date writes nothing at all', () => {
+  assert.equal(outcomePatch('follow_up', { call: drop({}), callbackDueAt: null }), null);
+  assert.equal(outcomePatch('follow_up', { call: drop({}), callbackDueAt: 'garbage' }), null);
 });
 
 test('an unknown outcome writes nothing', () => {
@@ -98,14 +121,14 @@ test('an unknown outcome writes nothing', () => {
 });
 
 test('a blank note is stored as null, not an empty string', () => {
-  assert.equal(outcomePatch('fixed_elsewhere', { note: '   ' }).outcome_note, null);
-  assert.equal(outcomePatch('fixed_elsewhere', {}).outcome_note, null);
+  assert.equal(outcomePatch('not_coming', { note: '   ' }).outcome_note, null);
+  assert.equal(outcomePatch('not_coming', {}).outcome_note, null);
 });
 
 test('undo clears exactly the four fields a clear wrote, and keeps prev_due_at', () => {
   const p = undoPatch();
   assert.deepEqual(p, { resolved_at: null, resolved_by_name: null, outcome: null, outcome_note: null });
-  assert.ok(!('outcome_prev_due_at' in p), 'a row parked by not_now must keep why it is in Callbacks');
+  assert.ok(!('outcome_prev_due_at' in p), 'a row parked by follow_up must keep why it is in Callbacks');
   assert.ok(!('next_step' in p) && !('due_at' in p), 'a clear never changed these, so undo must not either');
 });
 
@@ -177,12 +200,12 @@ test('a row cleared before outcomes existed says so instead of inventing a reaso
 // ── the callback row's reason ────────────────────────────────────────
 test('a parked lead says why it is in Callbacks', () => {
   const fmt = () => 'Fri, Sep 25';
-  const c = { outcome: 'not_now', outcome_prev_due_at: iso(2026, 9, 25, 12), outcome_note: 'no money' };
+  const c = { outcome: 'follow_up', outcome_prev_due_at: iso(2026, 9, 25, 12), outcome_note: 'no money' };
   assert.equal(callbackReason(c, fmt), 'Couldn’t make Fri, Sep 25 drop-off — no money');
   assert.equal(callbackReason({ ...c, outcome_note: '' }, fmt), 'Couldn’t make Fri, Sep 25 drop-off');
   assert.equal(callbackReason({ ...c, outcome_prev_due_at: null }, fmt),
     'Couldn’t make the drop-off — no money', 'no stored date, note still shown');
-  assert.equal(callbackReason({ outcome: 'not_now' }, fmt), 'Couldn’t make the drop-off');
+  assert.equal(callbackReason({ outcome: 'follow_up' }, fmt), 'Couldn’t make the drop-off');
 });
 
 test('an ordinary callback gets no reason line', () => {
@@ -192,7 +215,7 @@ test('an ordinary callback gets no reason line', () => {
 });
 
 test('the call-back date defaults to 14 days out and is overridable', () => {
-  assert.equal(NOT_NOW_DEFAULT_DAYS, 14);
+  assert.equal(FOLLOW_UP_DEFAULT_DAYS, 14);
   assert.equal(defaultCallbackDate(at(2026, 9, 24, 10)), '2026-10-08');
   assert.equal(defaultCallbackDate(at(2026, 9, 24, 10), 7), '2026-10-01');
   assert.equal(defaultCallbackDate(at(2026, 12, 28, 10)), '2027-01-11', 'crosses the year');
@@ -257,8 +280,8 @@ test('board asks before clearing a future-dated item, and offers undo', () => {
   assert.match(BOARD, /openOutcomeModal\(call, outcome\)/, 'the two note-taking outcomes');
   // "Fixed elsewhere" keeps a typed reason, so it goes through the modal too —
   // and because it CLEARS, the future-date confirm fires there, on Save.
-  assert.match(BOARD, /outcome === 'not_now' \|\| outcome === 'fixed_elsewhere'/, 'both take a note');
-  assert.match(BOARD, /const parking = outcome === 'not_now'/, 'only not_now shows a call-back date');
+  assert.match(BOARD, /outcome === 'follow_up' \|\| outcome === 'not_coming'/, 'both take a note');
+  assert.match(BOARD, /const parking = outcome === 'follow_up'/, 'only follow_up shows a call-back date');
   assert.match(BOARD, /if \(!parking && M\.needsConfirm\(call, new Date\(\)\)\)/, 'confirm on the clearing one');
 });
 
@@ -273,4 +296,33 @@ test('the group-1 recovered banner no longer says "mark done"', () => {
   assert.ok(m, 'RECOVERED_BANNER not found');
   assert.ok(!/mark done/i.test(m[1]), 'it must name the new buttons instead');
   assert.match(m[1], /Arrived/);
+  assert.match(m[1], /Not coming/);
+  assert.match(m[1], /Follow up/);
+  assert.ok(!/Fixed elsewhere|right now/i.test(m[1]), 'the old button names must be gone');
+});
+
+// ── the sandbox rename file ──────────────────────────────────────────
+test('the rename file remaps both old values and swaps the CHECK', () => {
+  assert.match(RENAME_SQL, /set outcome = 'not_coming' where outcome = 'fixed_elsewhere'/);
+  assert.match(RENAME_SQL, /set outcome = 'follow_up'  where outcome = 'not_now'/);
+  // drop BEFORE the remap, or the old CHECK rejects the new strings
+  const dropAt = RENAME_SQL.indexOf('drop constraint if exists calls_outcome_check');
+  const updAt = RENAME_SQL.indexOf("set outcome = 'not_coming'");
+  const addAt = RENAME_SQL.indexOf('add constraint calls_outcome_check');
+  assert.ok(dropAt > -1 && dropAt < updAt && updAt < addAt, 'drop -> remap -> add');
+  const m = /check \(outcome is null or outcome in \(([^)]+)\)\)/.exec(RENAME_SQL.slice(addAt));
+  assert.deepEqual(m[1].split(',').map(x => x.trim().replace(/^'|'$/g, '')), OUTCOMES);
+});
+
+test('the rename file is SANDBOX-ONLY and has no prod twin', () => {
+  assert.match(RENAME_SQL, /if v like 'PROD%' then/, 'must refuse to run on prod');
+  assert.ok(!existsSync(join(root, 'migrations/20260920_calls_outcome_rename_PROD.sql')),
+    'prod never ran the old values, so a prod twin would be wrong');
+});
+
+test('the rename file never touches the reasons people typed', () => {
+  const live = RENAME_SQL.split('\n').filter(l => !l.trim().startsWith('--')).join('\n');
+  assert.ok(!/outcome_note\s*=/.test(live), 'outcome_note must be left exactly as typed');
+  assert.ok(!/outcome_prev_due_at\s*=/.test(live));
+  assert.ok(!/resolved_at\s*=/.test(live), 'the remap must not clear or set anything');
 });

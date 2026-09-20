@@ -16,15 +16,21 @@
 --
 --   outcome              which of the four things happened (CHECK-listed below).
 --   outcome_note         the advisor's short reason ("no money till the 1st"). Optional.
---   outcome_prev_due_at  the drop-off date the lead could not make. Only 'not_now' sets it.
+--   outcome_prev_due_at  the drop-off date the lead could not make. Only 'follow_up' sets it.
 --
 -- THE FOUR VALUES — and whether each one CLEARS the item:
---   'arrived'          drop-off: the car showed up             -> clears (resolved_at set)
---   'fixed_elsewhere'  drop-off: not coming, went elsewhere    -> clears (resolved_at set)
---   'not_now'          drop-off: can't right now (money/time)  -> DOES NOT CLEAR
---   'called'           Callbacks lane "Done" = I made the call -> clears
+--   'arrived'     drop-off: the car showed up                   -> clears (resolved_at set)
+--   'not_coming'  drop-off: it isn't coming, whatever the reason -> clears (resolved_at set)
+--   'follow_up'   drop-off: not now, call them back later        -> DOES NOT CLEAR
+--   'called'      Callbacks lane "Done" = I made the call        -> clears
 --
--- !! 'not_now' IS THE ONE OUTCOME THAT DOES NOT RESOLVE. The row stays OPEN and moves to
+-- THE BUTTONS SAY WHAT HAPPENS; THE NOTE SAYS WHY. These values name the OUTCOME, not a
+-- reason. An earlier draft used 'fixed_elsewhere'/'not_now', and the first car that fixed
+-- itself, or customer who sold theirs, would have been filed under "fixed elsewhere"
+-- forever with every report repeating it. outcome_note carries the why, in free text,
+-- precisely because the reasons cannot be enumerated.
+--
+-- !! 'follow_up' IS THE ONE OUTCOME THAT DOES NOT RESOLVE. The row stays OPEN and moves to
 --    the Callbacks lane: next_step becomes 'quoted_callback', due_at becomes the call-back
 --    date, outcome_prev_due_at keeps the drop-off date it missed, resolved_at stays NULL.
 --    Do NOT "tidy" it into the resolved set — that would delete a live lead from the Desk,
@@ -66,11 +72,11 @@ begin
     add column if not exists outcome_prev_due_at timestamptz;
 
   comment on column public.calls.outcome is
-    'What actually happened to this Desk item. NULL = cleared before outcomes existed ("old Done") or still open. One of shared/desk-outcomes.js OUTCOMES: arrived | fixed_elsewhere | not_now | called. NOTE not_now does NOT resolve the row — it moves it to the Callbacks lane as a live lead.';
+    'What actually happened to this Desk item. NULL = cleared before outcomes existed ("old Done") or still open. One of shared/desk-outcomes.js OUTCOMES: arrived | not_coming | follow_up | called. NOTE follow_up does NOT resolve the row — it moves it to the Callbacks lane as a live lead.';
   comment on column public.calls.outcome_note is
     'Short free-text reason the advisor typed ("no money till the 1st"). Optional.';
   comment on column public.calls.outcome_prev_due_at is
-    'Only set by not_now: the drop-off date the lead could not make. That outcome rewrites due_at to the call-back date, so without this the callback row could not say why it is there.';
+    'Only set by follow_up: the drop-off date the lead could not make. That outcome rewrites due_at to the call-back date, so without this the callback row could not say why it is there.';
 
   if not exists (
     select 1 from pg_constraint
@@ -79,7 +85,7 @@ begin
   ) then
     alter table public.calls
       add constraint calls_outcome_check
-      check (outcome is null or outcome in ('arrived', 'fixed_elsewhere', 'not_now', 'called'));
+      check (outcome is null or outcome in ('arrived', 'not_coming', 'follow_up', 'called'));
   end if;
 
   -- "Recently cleared" reads resolved rows newest-first; partial so it stays small.
@@ -124,7 +130,7 @@ notify pgrst, 'reload schema';
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- UNDO (not run). Drops the index, the CHECK and the three columns. Every outcome
--- recorded since is LOST, and any row parked in Callbacks by 'not_now' STAYS in
+-- recorded since is LOST, and any row parked in Callbacks by 'follow_up' STAYS in
 -- Callbacks (its next_step/due_at were really changed — only the reason is lost).
 -- Deploy the app version without the outcome UI first, or it falls back to the
 -- plain "Done" on its own (the 42703 tier), which is harmless.

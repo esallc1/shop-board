@@ -1872,8 +1872,11 @@
     /* Four outcomes need their own row — they don't fit beside the due date in a
        200px lane. Colour says what each one MEANS: green = the lead landed, amber
        = still a live lead (moves to Callbacks), plain = closed / no follow-up. */
-    .desk-row-outcomes { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; }
-    .desk-row-outcomes .desk-btn { flex:0 1 auto; }
+    .desk-row-outcomes { display:flex; flex-wrap:wrap; gap:4px; margin-top:7px; }
+    /* Four buttons must fit ONE line in the 351px lane at 1440px, so this row
+       runs tighter than a normal .desk-btn — measured, not guessed. They still
+       wrap rather than overflow on a narrow phone. */
+    .desk-row-outcomes .desk-btn { flex:0 1 auto; padding:3px 7px; font-size:0.69rem; letter-spacing:-0.1px; white-space:nowrap; }
     .desk-btn.warn { border-color:#C0563A; color:#8A3A22; }
     .desk-btn.hold { border-color:#C08A2A; color:#7A5510; }
     /* Why a lead is sitting in Callbacks (set by "Can't right now"). */
@@ -11781,10 +11784,10 @@
         // Edit|Done pair rather than buttons that cannot save.
         const M = DO();
         const acts = (M && outcomeColsAvailable)
-          ? `<button class="desk-btn done" data-outcome="arrived" data-id="${esc(String(c.id))}" title="${esc(M.OUTCOME_LABEL.arrived)} — clears it from the Desk">${esc(M.OUTCOME_SHORT.arrived)}</button>`
+          ? `<button class="desk-btn done" data-outcome="arrived" data-id="${esc(String(c.id))}" title="The car showed up — clears it from the Desk">${esc(M.OUTCOME_SHORT.arrived)}</button>`
             + `<button class="desk-btn" data-edit="${esc(String(c.id))}" title="Pick a new date — stays on Coming in, nothing is cleared">Reschedule</button>`
-            + `<button class="desk-btn warn" data-outcome="fixed_elsewhere" data-id="${esc(String(c.id))}" title="${esc(M.OUTCOME_LABEL.fixed_elsewhere)} — clears it from the Desk">${esc(M.OUTCOME_SHORT.fixed_elsewhere)}</button>`
-            + `<button class="desk-btn hold" data-outcome="not_now" data-id="${esc(String(c.id))}" title="${esc(M.OUTCOME_LABEL.not_now)} — stays a live lead, moves to Callbacks">${esc(M.OUTCOME_SHORT.not_now)}</button>`
+            + `<button class="desk-btn warn" data-outcome="not_coming" data-id="${esc(String(c.id))}" title="It isn't coming — clears it from the Desk; you say why in the box">${esc(M.OUTCOME_SHORT.not_coming)}</button>`
+            + `<button class="desk-btn hold" data-outcome="follow_up" data-id="${esc(String(c.id))}" title="Not now — stays a live lead, moves to Callbacks with a date">${esc(M.OUTCOME_SHORT.follow_up)}</button>`
           : `<button class="desk-btn" data-edit="${esc(String(c.id))}">Edit</button><button class="desk-btn done" data-done="${esc(String(c.id))}">Done</button>`;
         return `<div class="desk-row${cls}" data-open-phone="${esc(c.caller_bare || '')}">
           <div class="desk-row-top"><span class="desk-row-name">${esc(customerLabel(c, custMap))}</span></div>
@@ -12045,9 +12048,9 @@
 
     // ── actions ──
     /* THE outcome write. One path for all four, so the rules can't drift:
-         - a clearing outcome (arrived / fixed_elsewhere / called) sets resolved_at
+         - a clearing outcome (arrived / not_coming / called) sets resolved_at
            and NEVER touches the lane or the date;
-         - not_now sets NOTHING on resolved_at — it moves the row to Callbacks with
+         - follow_up sets NOTHING on resolved_at — it moves the row to Callbacks with
            a call-back date, because a lead who can't afford it this month is still
            a lead. Resolving it would be the old bug in a new coat.
        A clear whose date is still ahead asks first: that is the exact shape of
@@ -12058,7 +12061,7 @@
       if (!call) return;
 
       // Both of these want something typed first; the modal owns their confirm.
-      if (outcome === 'not_now' || outcome === 'fixed_elsewhere') { openOutcomeModal(call, outcome); return; }
+      if (outcome === 'follow_up' || outcome === 'not_coming') { openOutcomeModal(call, outcome); return; }
 
       if (M.needsConfirm(call, new Date())) {
         const who = customerLabel(call, (lastData && lastData.custMap) || {});
@@ -12085,9 +12088,9 @@
 
     /* The two outcomes that need something typed before they can be written.
        ONE modal, two shapes:
-         not_now         → a call-back date (default +14d) + an optional reason.
-                           Nothing is cleared; the row moves to Callbacks.
-         fixed_elsewhere → the reason only. This one DOES clear, so the
+         follow_up  → a call-back date (default +14d) + an optional reason.
+                      Nothing is cleared; the row moves to Callbacks.
+         not_coming → the reason only. This one DOES clear, so the
                            future-date confirm still applies — it fires on Save,
                            not on the button, so cancelling the modal costs
                            nobody a pointless dialog. */
@@ -12095,7 +12098,7 @@
     function openOutcomeModal(call, outcome) {
       const M = DO(); if (!M) return;
       notNowCall = call; notNowOutcome = outcome;
-      const parking = outcome === 'not_now';
+      const parking = outcome === 'follow_up';
       $('deskNotNowTitle').textContent = M.OUTCOME_SHORT[outcome] || 'What happened?';
       $('deskNotNowWho').textContent = customerLabel(call, (lastData && lastData.custMap) || {});
       $('deskNotNowMissed').textContent = call.due_at
@@ -12108,7 +12111,7 @@
       $('deskNotNowDateRow').style.display = parking ? '' : 'none';
       $('deskNotNowDate').value = M.defaultCallbackDate(new Date());
       $('deskNotNowSave').textContent = parking ? 'Move to Callbacks' : 'Clear from the Desk';
-      $('deskNotNowNote').placeholder = parking ? 'e.g. no money till the 1st' : 'e.g. went to the dealer';
+      $('deskNotNowNote').placeholder = (M.OUTCOME_NOTE_PLACEHOLDER || {})[outcome] || 'Why? (optional)';
       $('deskNotNowNote').value = '';
       $('deskNotNowErr').textContent = '';
       $('deskNotNowBackdrop').classList.add('open');
@@ -12125,7 +12128,7 @@
       const M = DO(); if (!M || !notNowCall || !notNowOutcome) return;
       const call = notNowCall, outcome = notNowOutcome;
       const err = $('deskNotNowErr'); err.textContent = '';
-      const parking = outcome === 'not_now';
+      const parking = outcome === 'follow_up';
       const dateKey = $('deskNotNowDate').value;
       if (parking && !dateKey) { err.textContent = 'Pick a date to call them back.'; return; }
       // Only a CLEARING outcome can lose a future appointment, so only it asks.

@@ -15,12 +15,19 @@
    but have no RO yet. So "finished with it" is four different things, and only
    three of them mean the lead is over:
 
-     arrived          the car showed up            → CLEARS (resolved)
-     fixed_elsewhere  not coming, went elsewhere   → CLEARS (resolved), reason kept
-     not_now          can't right now — money/time → **DOES NOT CLEAR**
-     called           Callbacks lane: I made the call → CLEARS (resolved)
+     arrived     the car showed up                    → CLEARS (resolved)
+     not_coming  it is not coming, whatever the reason → CLEARS (resolved)
+     follow_up   not now — call them back later        → **DOES NOT CLEAR**
+     called      Callbacks lane: I made the call       → CLEARS (resolved)
 
-   `not_now` is the whole point. A lead who can't afford it this month is still a
+   THE BUTTONS SAY WHAT HAPPENS; THE NOTE SAYS WHY (Cris, 2026-09-20). These were
+   briefly `fixed_elsewhere` and `not_now`, which each named ONE reason — so the
+   first car that fixed itself, or the first customer who sold theirs, would have
+   been filed under "fixed elsewhere" and every report would have repeated the
+   lie. The reason is free text precisely because we cannot enumerate it; four
+   buttons that describe the OUTCOME can stay four buttons forever.
+
+   `follow_up` is the whole point. A lead who can't afford it this month is still a
    lead, so the row STAYS OPEN and moves lanes: `next_step` → `quoted_callback`,
    `due_at` → the call-back date (default 14 days out), `outcome_prev_due_at`
    keeps the drop-off date they missed so the callback row can say why it is
@@ -35,30 +42,39 @@
    ============================================================ */
 
 // ── the vocabulary (must match migrations/20260920_calls_outcome_*.sql) ──
-export const OUTCOMES = ['arrived', 'fixed_elsewhere', 'not_now', 'called'];
+export const OUTCOMES = ['arrived', 'not_coming', 'follow_up', 'called'];
 
 // The outcomes a DROP-OFF row offers, in the order the buttons appear.
-export const DROPOFF_OUTCOMES = ['arrived', 'fixed_elsewhere', 'not_now'];
+// Reschedule sits between `arrived` and `not_coming` on the row but is NOT an
+// outcome — nothing has happened yet, it only moves the date.
+export const DROPOFF_OUTCOMES = ['arrived', 'not_coming', 'follow_up'];
 
 // Full wording — used in "Recently cleared" and in confirms.
 export const OUTCOME_LABEL = {
   arrived: 'Car arrived',
-  fixed_elsewhere: 'Not coming — fixed elsewhere',
-  not_now: 'Not coming — can’t right now',
+  not_coming: 'Not coming',
+  follow_up: 'Follow up later',
   called: 'Called',
 };
 
-// Short wording — the lane buttons are ~90px wide; the full label is the tooltip.
+// Button wording — the lane is ~350px for four buttons, so these stay short.
 export const OUTCOME_SHORT = {
   arrived: 'Arrived',
-  fixed_elsewhere: 'Fixed elsewhere',
-  not_now: 'Can’t right now',
+  not_coming: 'Not coming',
+  follow_up: 'Follow up',
   called: 'Done',
 };
 
-// How many days out the call-back date defaults to for `not_now`. The advisor can
+// The reason prompt. Examples, never a list to pick from — the whole reason the
+// buttons were renamed is that we cannot enumerate why a car doesn't come in.
+export const OUTCOME_NOTE_PLACEHOLDER = {
+  not_coming: 'Why? (fixed elsewhere, fixed itself, sold the car…)',
+  follow_up: 'Why? (no money till the 1st, out of town…)',
+};
+
+// How many days out the call-back date defaults to for `follow_up`. The advisor can
 // change it before saving — this is a starting point, not a rule.
-export const NOT_NOW_DEFAULT_DAYS = 14;
+export const FOLLOW_UP_DEFAULT_DAYS = 14;
 
 // "Recently cleared" window. Anything cleared inside it can be undone; so can
 // anything still due in the future, however long ago it was cleared (that is the
@@ -70,9 +86,9 @@ const nowMs = (now) => (now instanceof Date ? now.getTime() : (now == null ? Dat
 
 export function isOutcome(v) { return OUTCOMES.indexOf(v) !== -1; }
 
-// Does this outcome end the lead? `not_now` is the one that does not.
+// Does this outcome end the lead? `follow_up` is the one that does not.
 export function clearsItem(outcome) {
-  return outcome === 'arrived' || outcome === 'fixed_elsewhere' || outcome === 'called';
+  return outcome === 'arrived' || outcome === 'not_coming' || outcome === 'called';
 }
 
 // ── the writes ────────────────────────────────────────────────
@@ -81,23 +97,23 @@ export function clearsItem(outcome) {
      opts.now        ISO string stamped into resolved_at
      opts.byName     who did it (CHAT_IDENTITY.name)
      opts.note       optional short reason
-     opts.call       the row (needed by not_now for the date it is leaving)
-     opts.callbackDueAt  not_now only: ISO for the new call-back date
-   A clearing outcome never touches next_step/due_at; `not_now` never touches
+     opts.call       the row (needed by follow_up for the date it is leaving)
+     opts.callbackDueAt  follow_up only: ISO for the new call-back date
+   A clearing outcome never touches next_step/due_at; `follow_up` never touches
    resolved_at. Neither ever writes a field the other owns. */
 export function outcomePatch(outcome, opts) {
   const o = opts || {};
   if (!isOutcome(outcome)) return null;
   const note = (o.note == null ? '' : String(o.note)).trim().slice(0, 500) || null;
 
-  if (outcome === 'not_now') {
+  if (outcome === 'follow_up') {
     if (!o.callbackDueAt || ms(o.callbackDueAt) == null) return null;
     const call = o.call || {};
     return {
       next_step: 'quoted_callback',
       due_at: o.callbackDueAt,
       due_all_day: true,                    // callbacks are all-day; the lane has no time column
-      outcome: 'not_now',
+      outcome: 'follow_up',
       outcome_note: note,
       // the drop-off date they could not make — due_at is about to be overwritten
       outcome_prev_due_at: call.due_at || null,
@@ -115,7 +131,7 @@ export function outcomePatch(outcome, opts) {
 /* Undo — put a cleared item back exactly where it was. next_step and due_at were
    never changed by a clearing outcome, so nulling the four fields below restores
    the row completely. `outcome_prev_due_at` is deliberately NOT cleared: only
-   `not_now` sets it, and if such a row was later cleared from the Callbacks lane,
+   `follow_up` sets it, and if such a row was later cleared from the Callbacks lane,
    undoing should return it to that lane still knowing why it is there. */
 export function undoPatch() {
   return { resolved_at: null, resolved_by_name: null, outcome: null, outcome_note: null };
@@ -174,12 +190,12 @@ export function clearedLabel(call) {
 }
 
 // ── the callback row's "why am I here" line ───────────────────
-/* A lead parked by `not_now` looks identical to an ordinary callback unless the
+/* A lead parked by `follow_up` looks identical to an ordinary callback unless the
    row says what happened. `fmtDate` is injected so this stays DOM-free and the
    board can pass its own dueLabel. */
 export function callbackReason(call, fmtDate) {
   const c = call || {};
-  if (c.outcome !== 'not_now') return '';
+  if (c.outcome !== 'follow_up') return '';
   const when = (c.outcome_prev_due_at && typeof fmtDate === 'function')
     ? fmtDate(c.outcome_prev_due_at) : '';
   const head = when ? `Couldn’t make ${when} drop-off` : 'Couldn’t make the drop-off';
@@ -187,12 +203,12 @@ export function callbackReason(call, fmtDate) {
   return note ? `${head} — ${note}` : head;
 }
 
-// The call-back date the not_now dialog opens on: N days out, local, as
+// The call-back date the Follow-up dialog opens on: N days out, local, as
 // 'YYYY-MM-DD' for a date input.
 export function defaultCallbackDate(now, days) {
   const d = new Date(nowMs(now));
   d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + (days == null ? NOT_NOW_DEFAULT_DAYS : days));
+  d.setDate(d.getDate() + (days == null ? FOLLOW_UP_DEFAULT_DAYS : days));
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
