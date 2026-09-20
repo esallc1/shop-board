@@ -1,7 +1,11 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-08-18 — verified vs branch `feat/confirm-phone-learn` (base `7860272`)
+> Last updated: 2026-09-21 — **§6 + new §6a: the Desk no longer only models the future.**
+> Coming-in shows overdue and undated drop-offs, the calendar receives past weeks, and the
+> overdue badge counts drop-offs. Display only — nothing about what a drop-off IS changed,
+> and resolved rows are still hidden. Verified vs branch `staging`.
+> Previously: 2026-08-18 — verified vs branch `feat/confirm-phone-learn` (base `7860272`)
 > (§2c added: attaching a call no longer writes a phone number silently — it asks. §2 + §3
 > already carried the `ro_id`/disposition decoupling. See [[call-auto-attach]] §7 and §8.)
 > Status: ✅ verified — the confirm-before-learning flow (§2c) driven end-to-end in the real
@@ -164,13 +168,56 @@ meant) visible **before** the card is closed.
 ## 6. The Desk — `desk` IIFE
 - `deskLoad` reads `calls` where `next_step in ('quoted_callback','dropping_off')`
   **AND `resolved_at is null`**, ordered by `due_at` asc.
-- **Lanes:** **Callbacks** = `quoted_callback`; **Coming in** = `dropping_off` with
-  `due_at >= today`; **Declined estimates** = `repair_orders.declined_at` (its own
+- **Lanes:** **Callbacks** = `quoted_callback` (no date filter — a past-due callback
+  shows, in red); **Coming in** = **every** unresolved `dropping_off`, ordered overdue →
+  undated → upcoming (§6a); **Declined estimates** = `repair_orders.declined_at` (its own
   restore lifecycle, *not* `resolved_at`).
-- **Drop-off calendar:** `renderCalendar(comingIn)` — a week grid of `dropping_off`
-  rows with `due_at` today-onward; chips are drag-to-reschedule (`rescheduleCall`).
+- **Drop-off calendar:** `renderCalendar(calendarFeed())` — a week grid of every dated
+  unresolved `dropping_off`, **past and future**. The week window is the only date filter,
+  so `‹ ›` browses real history. Chips are drag-to-reschedule (`rescheduleCall`).
 - **Desk row "Done"** (`data-done` → `resolveCall`) sets `resolved_at` — same write as
   the card's "Mark done".
+
+## 6a. What Coming-in and the calendar may SHOW — `shared/desk-appointments.js`
+Until 2026-09-21 the Desk only modelled the future, and four separate filters threw work
+away. A read-only audit of prod on 2026-09-20 found **16 unresolved past-due drop-offs and
+3 undated ones** sitting invisible — the oldest from Aug 4, the newest from Sep 18. What
+was wrong, and what each now does:
+
+| Was | Now |
+|---|---|
+| Lane filtered `due_at >= today`, so a drop-off vanished the morning after its date | Lane shows every unresolved drop-off |
+| `renderCalendar` was handed that same today-onward array (all 4 call sites), so `‹ Previous week` drew an empty grid whatever had been booked | `calendarFeed()` passes every **dated** drop-off; the week window does the filtering |
+| Overdue badge counted callbacks only — a missed drop-off wasn't just hidden, it was uncounted | `overdueCount` counts overdue callbacks **and** drop-offs |
+| A drop-off with `due_at` null was dropped by both (each required `c.due_at`) | Shown in the lane under `dueLabel`'s existing **"No date"** |
+
+- **Order in the lane:** overdue first (**oldest miss first** — the one that has waited
+  longest), then undated (oldest booked first), then upcoming (soonest first, as before).
+  Undated sits *above* upcoming on purpose: burying it under next month's bookings would
+  hide it a second way.
+- **Look:** an overdue row gets `.desk-row.is-overdue` (red left edge) plus the red due
+  date the Callbacks lane already used; an undated row gets a muted edge. A calendar chip
+  whose date has gone gets `.desk-chip.is-past` (red edge, muted text) so a past week
+  doesn't read like upcoming bookings.
+- **One overdue rule.** `isOverdueDue(dueAt, allDay, now)` in the module is THE definition
+  for both lanes (all-day = not late until the day is past; timed = the clock; **no date is
+  not overdue, it's undated**). The board's local `isOverdue` delegates to it.
+- **Resolved rows are still hidden** — `deskLoad` keeps `.is('resolved_at', null)`. Making
+  a resolved item visible / un-resolvable is a separate job; see Known gaps.
+- **The "recovered" note.** So the reappearing rows don't read as a new bug, a drop-off
+  **booked before `RECOVERED_CUTOFF` (2026-09-21)** and either undated or dated before it
+  carries a one-line tag (also the chip's tooltip), and the lane carries one banner while
+  any such row is still unresolved. A drop-off booked after the cutoff is just normally
+  overdue and gets no tag. Both expire on `RECOVERED_UNTIL` (2026-10-05) via
+  `isNewBadgeVisible` from [[new-badge]] — the same shop-time rule, so the notice can never
+  get stuck on and nobody has to remember to remove it. The banner also disappears early,
+  on its own, once the team has cleared the pile.
+- **Fail-soft.** The module is ESM on `window.DeskAppointments`, read only inside
+  `deskRender` / `renderCalendar` / `calendarFeed`, which never run before a `calls`
+  round-trip has resolved. If it is somehow absent, those three fall back to the **old
+  today-onward view** rather than throwing.
+- Pure, no DOM, every entry point takes `now` → `shared/desk-appointments.test.js`
+  (26 cases, incl. board-wiring assertions that no copy of the old filter survives).
 
 ## 7. Editing / re-routing a Desk item, and adding one by hand
 Nothing on the Desk depends on the live call popup any more — an item can be fixed or
@@ -215,13 +262,29 @@ only guard: anyone on the internet could call it and it would run with the servi
   `api/desk-appointment.test.js`. **Prod-only:** the endpoint runs on Vercel, so manual
   add does not work under a bare static preview; edit/re-route (anon UPDATE) works anywhere.
 
-## Known gaps & open questions (as of 2026-07-30)
+## Known gaps & open questions (as of 2026-09-21)
 - The four chips are one undifferentiated wrap row; "Quoted — will call back" and
   "Dropping off" are adjacent and easy to mis-tap. The echo now catches the *result*;
   visually separating "an appointment" from "a reminder" is a possible next step.
-- "Mark done" on a **future**-dated drop-off resolves it immediately with no confirm.
-  Low-risk (Close is the prominent action), but a "this is scheduled for <date> — mark
-  done anyway?" confirm is an option if it ever bites.
+- **"Mark done" is a one-click, no-confirm, no-undo delete — and it bites.** `resolved_at`
+  is write-once: nothing in the repo ever writes it back to null, there is no "show
+  resolved" view, and the card backfill excludes resolved rows. Prod audit 2026-09-20: of
+  40 resolved appointments **22 were resolved within 60 seconds of being noted, by the
+  person who noted them** (fastest 3s, 5s, 6s) — that is a mis-click, not "the car came
+  in". One live casualty: a Sep 28 drop-off resolved 72 s after it was booked, invisible.
+  Confirm + un-resolve is the next job; §6a deliberately did **not** touch it.
+- **A resolved appointment's DATE is recoverable nowhere in the UI.** The Call Log's
+  `LOG_COLS` doesn't select `due_at`, and the customer record has no `due_at` at all — a
+  resolved drop-off shows only the words "Dropping off". A manual walk-in (`started_at`
+  null) isn't in the Call Log either, so once resolved it exists on no screen.
+- **Two timed chips in the same slot: only one is drawn.** `timedChip` gives every chip the
+  same `left:2px; right:2px` and a `top` from the hour, `position:absolute` over an opaque
+  background — identical times fully hide one, and anything under ~30 min apart partially
+  covers the earlier one (22 px of chip spans 30 min of grid). Seen on a real screenshot:
+  two Aug 4 9:00 AM drop-offs, lane count 2, one chip. Needs side-by-side lanes.
+- The grid is 24 h tall inside a 520 px scroller opened at 6 am, so a drop-off before 6 am
+  or after ~5:50 pm needs a scroll. `DAY_END = 20` is declared and **never used** — looks
+  like an intended 6 am–8 pm clamp that was never wired.
 
 ## Where it lives in the code
 - **Confirm-before-learning (§2c):** decision logic in `shared/call-attach.js` —
@@ -241,7 +304,14 @@ only guard: anyone on the internet could call it and it would run with the servi
   (advisor-board.html, ~line 2853) — the only place the global calls channel is health-
   checked/re-subscribed + backfilled.
 - Desk: `advisor-board.html` — `desk` IIFE (`deskLoad`, `deskRender`, `renderCalendar`,
-  `resolveCall`, `rescheduleCall`); `dueLabel` / `isOverdue` / `startOfToday` here.
+  `calendarFeed`, `chipFlags`, `resolveCall`, `rescheduleCall`); `dueLabel` /
+  `startOfToday` here, and `isOverdue`, which delegates to the module below.
+- **Display rules (§6a):** `shared/desk-appointments.js` — `isOverdueDue`, `splitComingIn`,
+  `comingInOrder`, `calendarItems`, `overdueCount`, `isRecovered`, `recoveryNoticeVisible`,
+  `showRecoveryBanner`, and the `RECOVERED_*` constants (+ `shared/desk-appointments.test.js`).
+  Loaded as ESM → `window.DeskAppointments`; reuses `shopToday` / `isNewBadgeVisible` from
+  `shared/new-badge.js`. CSS `.desk-row.is-overdue` / `.is-undated`, `.desk-chip.is-past`,
+  `.desk-recovered-banner`, `.desk-recovered-tag`.
 - Edit / re-route + manual-add modal: `advisor-board.html` `desk` IIFE
   (`openDeskEdit` / `deskEditSave` / `deskEditEcho` / `deskTimeOptions`, the `#deskEdit`
   markup, the lane `data-edit` buttons, `#deskCalAdd`, and the empty-slot click wiring in
@@ -250,6 +320,14 @@ only guard: anyone on the internet could call it and it would run with the servi
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- 2026-09-21 — **§6a added; §6 rewritten.** Coming-in now shows overdue (top, oldest first)
+  and undated drop-offs, the calendar is fed every dated drop-off so past weeks draw, and
+  the overdue badge counts drop-offs. New `shared/desk-appointments.js` (+ 26 tests) holds
+  the rules; the board's `isOverdue` delegates to it. Recovered-row tag + lane banner,
+  self-expiring on the [[new-badge]] date rule. Display only — no schema, no new write
+  path, `resolved_at` untouched. Known gaps rewritten from the 2026-09-20 prod audit
+  (Mark-done mis-clicks, the unrecoverable date, same-slot chip overlap, the unused
+  `DAY_END`).
 - 2026-09-17 — §8: manual add now requires a signed-in active employee (`api/_lib/require-user.js`); the advisor board sends its session token through `cdAuthFetch`. The anon-UPDATE edit path is unchanged.
 - 2026-08-18 — **Confirm before learning a phone number** (§2c). Attaching no longer performs a
   silent second write to `customers`: when a number would be learned the row shows an inline

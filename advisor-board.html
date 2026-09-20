@@ -1237,6 +1237,15 @@
   import * as CallAttach from './shared/call-attach.js';
   window.CallAttach = CallAttach;
 </script>
+<!-- What the Desk's "Coming in" lane and drop-off calendar may SHOW (ESM).
+     Assigns window.DeskAppointments; read only inside deskRender/renderCalendar,
+     which never run before a `calls` round-trip has resolved. If it somehow
+     isn't there, the Desk falls back to the old today-onward view rather than
+     throwing. See docs/wiring/call-window-desk.md. -->
+<script type="module">
+  import * as DeskAppointments from './shared/desk-appointments.js';
+  window.DeskAppointments = DeskAppointments;
+</script>
 <!-- Auto-attach (Phase 2) decision logic (ESM). Assigns window.CallAutoAttach;
      used only by event-driven attach handlers (Desk + caller card), which run
      long after this module executes. Same rules the CTM webhook and the
@@ -1838,11 +1847,24 @@
     .desk-row-meta { display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap; }
     .desk-row-due { font-size:0.76rem; font-weight:700; color:var(--text); }
     .desk-row-due.overdue { color:var(--red); }
+    /* A missed drop-off sits at the TOP of Coming-in, so the red due date isn't
+       enough on its own — the row itself carries the same red edge the To-Do /
+       request lists use for "immediate". Undated rows get a muted edge: they
+       need attention too, but they are not late. */
+    .desk-row.is-overdue { border-left:5px solid var(--red); }
+    .desk-row.is-undated { border-left:5px solid var(--muted); }
     .desk-row-actions { margin-left:auto; display:flex; gap:6px; }
     .desk-btn { border:1px solid var(--border); background:#fff; border-radius:7px; padding:3px 9px; font-size:0.72rem; font-weight:700; cursor:pointer; color:var(--text); }
     .desk-btn:hover { border-color:var(--accent); }
     .desk-btn.done { border-color:var(--green); color:var(--green); }
     .desk-lane-empty { font-size:0.78rem; color:var(--muted); padding:8px 2px; }
+    /* "Recovered" note — the rows below were hidden by a display bug, not by
+       anything the team did. Both the banner and the per-row tag expire on
+       their own (shared/desk-appointments.js RECOVERED_UNTIL). */
+    .desk-recovered-banner { background:#FFF4E5; border:1px solid #F0B968; border-radius:9px;
+      padding:8px 10px; margin-bottom:8px; font-size:0.76rem; line-height:1.35; color:#6B4310; font-weight:600; }
+    .desk-recovered-tag { display:block; margin-top:5px; font-size:0.7rem; line-height:1.3;
+      color:#6B4310; background:#FFF4E5; border-radius:6px; padding:3px 6px; font-weight:600; }
 
     .desk-cal-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
     .desk-cal-title { font-weight:800; font-size:0.95rem; }
@@ -1867,6 +1889,11 @@
     .desk-chip.dragging { opacity:0.5; cursor:grabbing; }
     .desk-chip .desk-chip-t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
     .desk-chip.timed { position:absolute; box-sizing:border-box; }
+    /* Past weeks now draw (they used to be filtered out before the calendar saw
+       them), so a chip whose date has gone must not read as an upcoming booking:
+       red edge, muted text. */
+    .desk-chip.is-past { border-left-color:var(--red); background:#FCF3F3; }
+    .desk-chip.is-past .desk-chip-t { color:var(--muted); font-weight:600; }
 
     /* Call log slide-out (slice 3d) */
     .desk-head { position:relative; }
@@ -11443,9 +11470,18 @@
     function mondayOf(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); const dow = (x.getDay() + 6) % 7; x.setDate(x.getDate() - dow); return x; }
     function isMissingCol(err) { return err && (err.code === '42703' || /column .* does not exist/i.test(err.message || '')); }
 
+    // Display rules for what Coming-in / the calendar may show. Absent only if
+    // the ESM block above somehow didn't run — every read is guarded so the Desk
+    // degrades to the old today-onward view instead of throwing.
+    const DA = () => window.DeskAppointments || null;
+
     // A callback / drop-off is overdue when its due moment has passed. All-day
     // items aren't late until the day itself is past; timed items use the clock.
+    // THE rule lives in shared/desk-appointments.js so both lanes share one copy;
+    // the inline branch is the no-module fallback only.
     function isOverdue(dueAt, allDay) {
+      const m = DA();
+      if (m) return m.isOverdueDue(dueAt, allDay, new Date());
       if (!dueAt) return false;
       const due = new Date(dueAt); if (isNaN(due)) return false;
       if (allDay) { const d = new Date(due); d.setHours(0, 0, 0, 0); return d < startOfToday(); }
@@ -11561,8 +11597,15 @@
     function deskRender({ calls, custMap, vehMap, declined }) {
       const today = startOfToday();
       const callbacks = calls.filter(c => c.next_step === 'quoted_callback');
-      const comingIn = calls.filter(c => c.next_step === 'dropping_off'
-        && c.due_at && new Date(c.due_at) >= today);   // scheduling view: today onward only
+      // Coming-in used to be "today onward only", which quietly deleted a
+      // drop-off from the board the morning after its date and never showed an
+      // undated one at all. Now the lane shows every unresolved drop-off:
+      // overdue at the top (oldest first), then undated, then upcoming.
+      const mod = DA();
+      const comingIn = mod
+        ? mod.comingInOrder(calls, new Date())
+        : calls.filter(c => c.next_step === 'dropping_off' && c.due_at && new Date(c.due_at) >= today);
+      const showRecovered = !!mod && mod.showRecoveryBanner(calls, new Date());
 
       // Callbacks lane — soonest first (query already ordered by due_at asc)
       $('deskCbList').innerHTML = callbacks.length ? callbacks.map(c => {
@@ -11595,41 +11638,77 @@
         </div>`;
       }).join('') : '<div class="desk-lane-empty">No declined estimates.</div>';
 
-      // Coming-in lane — soonest first
-      $('deskInList').innerHTML = comingIn.length ? comingIn.map(c => {
+      // Coming-in lane — overdue (oldest first), then undated, then upcoming.
+      // A row that the display bug had been hiding carries a one-line note so
+      // its reappearance doesn't read as something new breaking; the banner
+      // above says the same thing once for the whole lane. Both expire on their
+      // own — see shared/desk-appointments.js.
+      const banner = showRecovered
+        ? `<div class="desk-recovered-banner">${esc(mod.RECOVERED_BANNER)}</div>` : '';
+      const rows = comingIn.map(c => {
         const vs = c.customer_id ? (vehMap[c.customer_id] || []) : [];
         const veh = vs.length === 1 ? vehLabel(vs[0]) : '';   // show only when unambiguous
-        return `<div class="desk-row" data-open-phone="${esc(c.caller_bare || '')}">
+        const overdue = isOverdue(c.due_at, c.due_all_day);
+        const undated = !c.due_at || isNaN(new Date(c.due_at));
+        const tag = (showRecovered && mod.isRecovered(c))
+          ? `<span class="desk-recovered-tag">${esc(mod.RECOVERED_TAG)}</span>` : '';
+        const cls = overdue ? ' is-overdue' : (undated ? ' is-undated' : '');
+        return `<div class="desk-row${cls}" data-open-phone="${esc(c.caller_bare || '')}">
           <div class="desk-row-top"><span class="desk-row-name">${esc(customerLabel(c, custMap))}</span></div>
           ${veh ? `<div class="desk-row-veh">${esc(veh)}</div>` : ''}
           <div class="desk-row-meta">
-            <span class="desk-row-due">${esc(dueLabel(c.due_at, c.due_all_day))}</span>
+            <span class="desk-row-due${overdue ? ' overdue' : ''}">${esc(dueLabel(c.due_at, c.due_all_day))}</span>
             <span class="desk-row-actions"><button class="desk-btn" data-edit="${esc(String(c.id))}">Edit</button><button class="desk-btn done" data-done="${esc(String(c.id))}">Done</button></span>
           </div>
+          ${tag}
         </div>`;
-      }).join('') : '<div class="desk-lane-empty">Nothing scheduled to come in.</div>';
+      }).join('');
+      $('deskInList').innerHTML = comingIn.length
+        ? banner + rows
+        : '<div class="desk-lane-empty">Nothing scheduled to come in.</div>';
 
       // counts
       $('deskCbCount').textContent = callbacks.length;
       $('deskDeclCount').textContent = declined.length;
       $('deskInCount').textContent = comingIn.length;
 
-      // total overdue (callbacks past due; coming-in is today-onward by filter)
-      const overdueN = callbacks.filter(c => isOverdue(c.due_at, c.due_all_day)).length;
+      // total overdue — callbacks AND drop-offs past due. It used to count
+      // callbacks only, because coming-in was today-onward by filter: a missed
+      // drop-off wasn't merely hidden from the lane, it was uncounted here too.
+      // (Undated rows are not late, so they don't count.)
+      const overdueN = mod
+        ? mod.overdueCount(calls, new Date())
+        : callbacks.filter(c => isOverdue(c.due_at, c.due_all_day)).length;
       const ov = $('deskOverdue'), badge = $('desk-overdue-badge');
       if (overdueN) { ov.style.display = ''; ov.textContent = `${overdueN} overdue`; if (badge) { badge.style.display = ''; badge.textContent = overdueN; } }
       else { ov.style.display = 'none'; if (badge) badge.style.display = 'none'; }
 
-      renderCalendar(comingIn);
+      // The calendar gets EVERY dated unresolved drop-off, past included — not
+      // the lane's list. Handing it a today-onward array was what made
+      // "‹ Previous week" draw an empty grid no matter what had been booked.
+      renderCalendar(calendarFeed());
       wireDesk();
     }
 
+    // Everything the week calendar is allowed to draw: every unresolved
+    // drop-off that HAS a date, past and future alike. The week window does the
+    // date filtering — that is what makes the ‹ › nav mean something. Undated
+    // rows are left out (no slot to draw them in); the lane carries those.
+    function calendarFeed() {
+      const calls = (lastData && lastData.calls) || [];
+      const mod = DA();
+      return mod ? mod.calendarItems(calls)
+                 : calls.filter(c => c.next_step === 'dropping_off' && c.due_at && new Date(c.due_at) >= startOfToday());
+    }
+
     // ── week calendar (mirrors planner.js visual language; own classes) ──
-    function renderCalendar(comingIn) {
+    // `drops` is every dated unresolved drop-off (calendarFeed) — the week
+    // window below is the ONLY date filter, so any week can be browsed.
+    function renderCalendar(drops) {
       const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
       const keyed = days.map(d => {
         const key = ymd(d);
-        const items = comingIn.filter(c => c.due_at && ymd(new Date(c.due_at)) === key);
+        const items = drops.filter(c => c.due_at && ymd(new Date(c.due_at)) === key);
         return { d, key, allday: items.filter(c => c.due_all_day !== false), timed: items.filter(c => c.due_all_day === false) };
       });
       // narrow weekends unless they hold items
@@ -11672,14 +11751,28 @@
     // (customerLabel + the loaded custMap) — no second lookup. Falls back to the
     // formatted number only when customer_id is null.
     function chipName(c) { return esc(customerLabel(c, (lastData && lastData.custMap) || {})); }
+    // Past weeks draw now, so a chip has to say whether its date has gone:
+    // `is-past` is the red/muted look, and a recovered row carries the same
+    // sentence the lane row does, as the chip's tooltip.
+    function chipFlags(c) {
+      const mod = DA();
+      const past = isOverdue(c.due_at, c.due_all_day);
+      const rec = !!mod && mod.recoveryNoticeVisible(new Date()) && mod.isRecovered(c);
+      return {
+        cls: past ? ' is-past' : '',
+        title: rec ? ` title="${esc(mod.RECOVERED_TAG)}"` : '',
+      };
+    }
     function calChip(c) {
-      return `<div class="desk-chip" data-call-id="${esc(String(c.id))}" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${chipName(c)}</div></div>`;
+      const f = chipFlags(c);
+      return `<div class="desk-chip${f.cls}"${f.title} data-call-id="${esc(String(c.id))}" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${chipName(c)}</div></div>`;
     }
     function timedChip(c) {
       const d = new Date(c.due_at);
       const top = (d.getHours() + d.getMinutes() / 60) * HOUR_PX;
       const t = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-      return `<div class="desk-chip timed" style="top:${top}px;left:2px;right:2px;min-height:22px" data-call-id="${esc(String(c.id))}" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${t} ${chipName(c)}</div></div>`;
+      const f = chipFlags(c);
+      return `<div class="desk-chip timed${f.cls}"${f.title} style="top:${top}px;left:2px;right:2px;min-height:22px" data-call-id="${esc(String(c.id))}" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${t} ${chipName(c)}</div></div>`;
     }
 
     // ── BUG-4: drag a chip to another day / slot to reschedule ──
@@ -11964,9 +12057,11 @@
     }
 
     // week nav
-    $('deskCalPrev').addEventListener('click', () => { weekStart = new Date(weekStart); weekStart.setDate(weekStart.getDate() - 7); if (lastData) renderCalendar(lastData.calls.filter(c => c.next_step === 'dropping_off' && c.due_at && new Date(c.due_at) >= startOfToday())); });
-    $('deskCalNext').addEventListener('click', () => { weekStart = new Date(weekStart); weekStart.setDate(weekStart.getDate() + 7); if (lastData) renderCalendar(lastData.calls.filter(c => c.next_step === 'dropping_off' && c.due_at && new Date(c.due_at) >= startOfToday())); });
-    $('deskCalToday').addEventListener('click', () => { weekStart = mondayOf(new Date()); if (lastData) renderCalendar(lastData.calls.filter(c => c.next_step === 'dropping_off' && c.due_at && new Date(c.due_at) >= startOfToday())); });
+    // All three go through calendarFeed() — they used to inline the SAME
+    // today-onward filter, which is why stepping back a week always drew blank.
+    $('deskCalPrev').addEventListener('click', () => { weekStart = new Date(weekStart); weekStart.setDate(weekStart.getDate() - 7); if (lastData) renderCalendar(calendarFeed()); });
+    $('deskCalNext').addEventListener('click', () => { weekStart = new Date(weekStart); weekStart.setDate(weekStart.getDate() + 7); if (lastData) renderCalendar(calendarFeed()); });
+    $('deskCalToday').addEventListener('click', () => { weekStart = mondayOf(new Date()); if (lastData) renderCalendar(calendarFeed()); });
 
     // ══ CALL LOG SLIDE-OUT (slice 3d) — every inbound call for a day, whether
     // or not anyone touched the card. The safety net. Read-only here. ══
