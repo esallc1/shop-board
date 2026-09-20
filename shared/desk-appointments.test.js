@@ -223,6 +223,18 @@ test('board renders the lane, the badge and the calendar through the shared rule
   assert.equal((BOARD.match(/renderCalendar\(calendarFeed\(\)\)/g) || []).length, 4, 'all 4 call sites');
 });
 
+test('deskLoad SELECTS noted_at — without it every row silently looks un-recovered', () => {
+  // Caught on staging: the lane reordered correctly but no banner and no tags
+  // appeared, because CALL_COLS didn't ask for noted_at, so isRecovered saw
+  // undefined and said false for every row. It is also the undated sort key.
+  const m = /const CALL_COLS = '([^']+)'/.exec(BOARD);
+  assert.ok(m, 'CALL_COLS not found');
+  const cols = m[1].split(',').map(s => s.trim());
+  for (const need of ['noted_at', 'next_step', 'due_at', 'due_all_day', 'resolved_at']) {
+    assert.ok(cols.includes(need), `CALL_COLS is missing ${need}`);
+  }
+});
+
 test('board shows the recovered banner + per-row tag and marks past chips', () => {
   assert.match(BOARD, /mod\.showRecoveryBanner\(calls, new Date\(\)\)/);
   assert.match(BOARD, /desk-recovered-banner/);

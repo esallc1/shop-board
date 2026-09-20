@@ -11544,7 +11544,12 @@
     function vehLabel(v) { return [v.year, v.make, v.model].filter(Boolean).join(' '); }
 
     // ── data load ──
-    const CALL_COLS = 'id, ctm_call_id, caller_bare, caller_formatted, customer_id, ro_id, note, next_step, due_at, due_all_day, resolved_at';
+    // `noted_at` is here for the recovered rule (§6a) — it's how we tell a
+    // drop-off booked while the display bug was live from one booked after the
+    // fix — and it's the undated rows' sort key. Same migration as `next_step` /
+    // `due_at` (20260728_calls_notes.sql), so it can't be missing on its own:
+    // a pre-migration DB already falls into renderNeedsMigration via isMissingCol.
+    const CALL_COLS = 'id, ctm_call_id, caller_bare, caller_formatted, customer_id, ro_id, note, next_step, due_at, due_all_day, noted_at, resolved_at';
     async function deskLoad() {
       // 1. open call-backed lane items (unresolved callbacks + drop-offs)
       const callsResp = await db.from('calls').select(CALL_COLS)
