@@ -2170,15 +2170,17 @@
     <div class="deskedit-backdrop" id="deskNotNowBackdrop"></div>
     <div class="deskedit" id="deskNotNow" role="dialog" aria-modal="true" aria-hidden="true">
       <div class="deskedit-head">
-        <span class="deskedit-title">Can&rsquo;t right now</span>
+        <span class="deskedit-title" id="deskNotNowTitle">Can&rsquo;t right now</span>
         <button type="button" class="desk-log-x" id="deskNotNowX" aria-label="Close">×</button>
       </div>
       <div class="deskedit-body">
         <div class="deskedit-who-name" id="deskNotNowWho"></div>
         <div class="deskedit-who-sub" id="deskNotNowMissed"></div>
-        <div class="deskedit-echo lane-cb">Stays a live lead — moves to Callbacks. Nothing is cleared.</div>
-        <div class="deskedit-label">Call them back on</div>
-        <div class="deskedit-when"><input type="date" id="deskNotNowDate"></div>
+        <div class="deskedit-echo lane-cb" id="deskNotNowEcho"></div>
+        <div id="deskNotNowDateRow">
+          <div class="deskedit-label">Call them back on</div>
+          <div class="deskedit-when"><input type="date" id="deskNotNowDate"></div>
+        </div>
         <div class="deskedit-label">Why (optional)</div>
         <div class="deskedit-when"><input type="text" id="deskNotNowNote" maxlength="120" placeholder="e.g. no money till the 1st" autocomplete="off"></div>
         <div class="deskedit-err" id="deskNotNowErr"></div>
@@ -12055,7 +12057,8 @@
       const call = (lastData && lastData.calls || []).find(c => String(c.id) === String(id));
       if (!call) return;
 
-      if (outcome === 'not_now') { openNotNow(call); return; }   // needs a date + note first
+      // Both of these want something typed first; the modal owns their confirm.
+      if (outcome === 'not_now' || outcome === 'fixed_elsewhere') { openOutcomeModal(call, outcome); return; }
 
       if (M.needsConfirm(call, new Date())) {
         const who = customerLabel(call, (lastData && lastData.custMap) || {});
@@ -12080,17 +12083,32 @@
       deskLoad();
     }
 
-    // "Not coming — can't right now": the only outcome that needs input before it
-    // can be written (a call-back date, and optionally why).
-    let notNowCall = null;
-    function openNotNow(call) {
+    /* The two outcomes that need something typed before they can be written.
+       ONE modal, two shapes:
+         not_now         → a call-back date (default +14d) + an optional reason.
+                           Nothing is cleared; the row moves to Callbacks.
+         fixed_elsewhere → the reason only. This one DOES clear, so the
+                           future-date confirm still applies — it fires on Save,
+                           not on the button, so cancelling the modal costs
+                           nobody a pointless dialog. */
+    let notNowCall = null, notNowOutcome = null;
+    function openOutcomeModal(call, outcome) {
       const M = DO(); if (!M) return;
-      notNowCall = call;
+      notNowCall = call; notNowOutcome = outcome;
+      const parking = outcome === 'not_now';
+      $('deskNotNowTitle').textContent = M.OUTCOME_SHORT[outcome] || 'What happened?';
       $('deskNotNowWho').textContent = customerLabel(call, (lastData && lastData.custMap) || {});
       $('deskNotNowMissed').textContent = call.due_at
         ? `Was due to drop off ${dueLabel(call.due_at, call.due_all_day)}.`
         : 'Had no drop-off date.';
+      $('deskNotNowEcho').textContent = parking
+        ? 'Stays a live lead — moves to Callbacks. Nothing is cleared.'
+        : 'Closes this lead — clears it from the Desk. Undo is in Recently cleared.';
+      $('deskNotNowEcho').className = parking ? 'deskedit-echo lane-cb' : 'deskedit-echo';
+      $('deskNotNowDateRow').style.display = parking ? '' : 'none';
       $('deskNotNowDate').value = M.defaultCallbackDate(new Date());
+      $('deskNotNowSave').textContent = parking ? 'Move to Callbacks' : 'Clear from the Desk';
+      $('deskNotNowNote').placeholder = parking ? 'e.g. no money till the 1st' : 'e.g. went to the dealer';
       $('deskNotNowNote').value = '';
       $('deskNotNowErr').textContent = '';
       $('deskNotNowBackdrop').classList.add('open');
@@ -12101,23 +12119,31 @@
       $('deskNotNowBackdrop').classList.remove('open');
       $('deskNotNow').classList.remove('open');
       $('deskNotNow').setAttribute('aria-hidden', 'true');
-      notNowCall = null;
+      notNowCall = null; notNowOutcome = null;
     }
     async function saveNotNow() {
-      const M = DO(); if (!M || !notNowCall) return;
+      const M = DO(); if (!M || !notNowCall || !notNowOutcome) return;
+      const call = notNowCall, outcome = notNowOutcome;
       const err = $('deskNotNowErr'); err.textContent = '';
+      const parking = outcome === 'not_now';
       const dateKey = $('deskNotNowDate').value;
-      if (!dateKey) { err.textContent = 'Pick a date to call them back.'; return; }
-      const patch = M.outcomePatch('not_now', {
-        call: notNowCall,
+      if (parking && !dateKey) { err.textContent = 'Pick a date to call them back.'; return; }
+      // Only a CLEARING outcome can lose a future appointment, so only it asks.
+      if (!parking && M.needsConfirm(call, new Date())) {
+        const who = customerLabel(call, (lastData && lastData.custMap) || {});
+        if (!confirm(M.confirmMessage(call, who, dueLabel(call.due_at, call.due_all_day)))) return;
+      }
+      const patch = M.outcomePatch(outcome, {
+        call,
         note: $('deskNotNowNote').value,
-        callbackDueAt: deskDueAt(dateKey, null, null),   // callbacks are all-day
+        now: new Date().toISOString(),
+        callbackDueAt: parking ? deskDueAt(dateKey, null, null) : null,   // callbacks are all-day
         byName: (typeof CHAT_IDENTITY !== 'undefined' && CHAT_IDENTITY.name) || null,
       });
       if (!patch) { err.textContent = 'Could not build that change.'; return; }
       const btn = $('deskNotNowSave'); btn.disabled = true;
       try {
-        const { error } = await db.from('calls').update(patch).eq('id', notNowCall.id);
+        const { error } = await db.from('calls').update(patch).eq('id', call.id);
         if (error) { err.textContent = 'Could not save: ' + error.message; return; }
         closeNotNow(); deskLoad();
       } finally { btn.disabled = false; }

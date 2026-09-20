@@ -254,7 +254,12 @@ test('board asks before clearing a future-dated item, and offers undo', () => {
   assert.match(BOARD, /data-undo=/, 'an Undo control per cleared row');
   assert.match(BOARD, /\brecentlyCleared\(rows, new Date\(\)\)/, 'the Recently cleared list');
   assert.match(BOARD, /function applyOutcome\(/, 'one write path for all four outcomes');
-  assert.match(BOARD, /outcomePatch\('not_now'/, 'not_now goes through the same builder');
+  assert.match(BOARD, /openOutcomeModal\(call, outcome\)/, 'the two note-taking outcomes');
+  // "Fixed elsewhere" keeps a typed reason, so it goes through the modal too —
+  // and because it CLEARS, the future-date confirm fires there, on Save.
+  assert.match(BOARD, /outcome === 'not_now' \|\| outcome === 'fixed_elsewhere'/, 'both take a note');
+  assert.match(BOARD, /const parking = outcome === 'not_now'/, 'only not_now shows a call-back date');
+  assert.match(BOARD, /if \(!parking && M\.needsConfirm\(call, new Date\(\)\)\)/, 'confirm on the clearing one');
 });
 
 test('board survives the columns not existing yet (the 42703 tier)', () => {
