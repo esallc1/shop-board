@@ -23,6 +23,15 @@ test('dueLine: null due_all_day counts as all-day (the calendar rule)', () => {
     '→ Drop-off 2026-09-23');
 });
 
+test('dueLine: a key-box drop-off says so; a callback with a stale flag does not', () => {
+  assert.equal(dueLine({ next_step: 'dropping_off', due_at: '2026-09-23T16:00:00Z', due_all_day: true, dropoff_key_box: true }, fmt),
+    '→ Drop-off 2026-09-23 · 🔑 Key box');
+  assert.equal(dueLine({ next_step: 'quoted_callback', due_at: '2026-09-23T16:00:00Z', due_all_day: true, dropoff_key_box: true }, fmt),
+    '→ Call back 2026-09-23');
+  assert.equal(dueLine({ next_step: 'dropping_off', due_at: '2026-09-23T16:00:00Z', due_all_day: false, dropoff_key_box: true }, fmt),
+    '→ Drop-off 2026-09-23 · T');
+});
+
 test('dueLine: nothing without a Desk step, a valid date, or a formatter', () => {
   assert.equal(dueLine({ next_step: 'price_shopper', due_at: '2026-09-23T16:00:00Z' }, fmt), '');
   assert.equal(dueLine({ next_step: 'dropping_off', due_at: null }, fmt), '');

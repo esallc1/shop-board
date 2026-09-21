@@ -18,13 +18,16 @@
    See docs/wiring/call-window-desk.md §10.
    ============================================================ */
 
+import { isKeyBox, KEY_BOX_LABEL } from './desk-appointments.js';
+
 // The verb for each Desk step. Other next_steps carry no appointment.
 export const DUE_VERB = { dropping_off: 'Drop-off', quoted_callback: 'Call back' };
 
 // Tag for a row made by "+Add" on the Desk rather than by a real phone call.
 export const MANUAL_TAG = 'Added on the Desk';
 
-// "→ Drop-off Tue, Sep 23 · 9:00 AM" / "→ Call back Tue, Sep 23" — or '' when
+// "→ Drop-off Tue, Sep 23 · 9:00 AM" / "→ Drop-off Tue, Sep 23 · 🔑 Key box" /
+// "→ Call back Tue, Sep 23" — or '' when
 // the call has no (valid) appointment. All-day follows the calendar's rule:
 // only an explicit `false` is timed.
 export function dueLine(call, fmtDue) {
@@ -32,8 +35,12 @@ export function dueLine(call, fmtDue) {
   const verb = DUE_VERB[c.next_step];
   if (!verb || !c.due_at || typeof fmtDue !== 'function') return '';
   if (Number.isNaN(Date.parse(c.due_at))) return '';
-  const when = fmtDue(c.due_at, c.due_all_day !== false);
-  return when ? `→ ${verb} ${when}` : '';
+  const allDay = c.due_all_day !== false;
+  const when = fmtDue(c.due_at, allDay);
+  if (!when) return '';
+  // A key-drop-box drop-off (desk-appointments.js §6b) says so: "… · 🔑 Key box".
+  const kb = (allDay && isKeyBox(c)) ? ` · ${KEY_BOX_LABEL}` : '';
+  return `→ ${verb} ${when}${kb}`;
 }
 
 // What came of it. A resolved row → "✓ <label> · by <name>" (a row cleared

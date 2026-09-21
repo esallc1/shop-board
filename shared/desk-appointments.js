@@ -28,6 +28,15 @@
    notice can never get stuck on forever and nobody has to remember to remove
    it. A drop-off booked after the cutoff is just a normal overdue item.
 
+   TWO LATER ADDITIONS (2026-09-21, call-window-desk.md §6b/§6c):
+     • layoutTimedChips — same-time chips used to be drawn exactly on top of
+       each other (prod: ids 31 + 35, both Aug 4 9:00 AM, drew as ONE chip).
+     • the KEY DROP BOX — a drop-off left in the front-door box after hours.
+       Stored as `calls.dropoff_key_box` WITH due_all_day = true. The helpers
+       below build the small patch objects the board writes (they never write
+       themselves), so the "which columns does this choice set" rule lives in
+       one tested place instead of three pickers.
+
    Pure — no DOM, no Date.now() of its own (every entry point takes `now`), so
    shared/desk-appointments.test.js drives it directly under `node --test`.
    ============================================================ */
@@ -157,4 +166,70 @@ export function showRecoveryBanner(calls, now, opts) {
   const o = opts || {};
   if (!recoveryNoticeVisible(now, o.until)) return false;
   return (calls || []).some((c) => isRecovered(c, o.cutoff));
+}
+
+// ── same-time chips side by side (§6c) ─────────────────────────
+/* A timed chip is drawn `min-height:22px` at 44px/h, i.e. it covers ~30 min of
+   grid. Chips whose 30-min spans overlap are grouped (transitively — 9:00,
+   9:20, 9:40 are one group) and share the column: chip i of n gets
+   left = i/n, width = 1/n. Returns [{ call, i, n }] in time order; rows
+   without a usable due_at are skipped. Drag hit-tests the COLUMN, not the
+   chip, so a narrower chip changes nothing about where a drop lands. */
+export const CHIP_OVERLAP_MIN = 30;
+export function layoutTimedChips(items, windowMin) {
+  const span = (windowMin == null ? CHIP_OVERLAP_MIN : windowMin) * 60000;
+  const rows = (items || [])
+    .filter((c) => c && parsed(c.due_at) != null)
+    .slice()
+    .sort((a, b) => (parsed(a.due_at) - parsed(b.due_at)) || String(a.id).localeCompare(String(b.id)));
+  const out = [];
+  let group = [], groupEnd = -Infinity;
+  const flush = () => { group.forEach((c, i) => out.push({ call: c, i, n: group.length })); group = []; };
+  for (const c of rows) {
+    const t = parsed(c.due_at);
+    if (group.length && t >= groupEnd) flush();
+    group.push(c);
+    groupEnd = Math.max(groupEnd === -Infinity ? t + span : groupEnd, t + span);
+  }
+  flush();
+  return out;
+}
+
+// ── the key drop box (§6b) ─────────────────────────────────────
+export const KEY_BOX_LABEL = '🔑 Key box';
+export const KEY_BOX_OPTION = 'After hours · key drop box';
+export const KEY_BOX_VALUE = '__keybox__';       // the time <select>'s option value
+export const ANY_TIME_OPTION = 'Any time';       // value '' — the default for a new drop-off
+
+// Only a drop-off can be a key-box drop-off; a row turned into a callback by
+// Follow up keeps a stale flag, which is simply never shown.
+export function isKeyBox(call) {
+  return !!call && call.next_step === 'dropping_off' && call.dropoff_key_box === true;
+}
+
+/* The drop-off time picker's value → what it means.
+     ''            Any time      → all-day, no key box
+     KEY_BOX_VALUE key drop box  → all-day + key box
+     'HH:MM'       a real time   → timed
+   Anything unreadable falls back to Any time (never a silent timed slot). */
+export function dropoffTimeChoice(value) {
+  if (value === KEY_BOX_VALUE) return { allDay: true, keyBox: true, hh: null, mm: null };
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value || '');
+  if (!m || +m[1] > 23 || +m[2] > 59) return { allDay: true, keyBox: false, hh: null, mm: null };
+  return { allDay: false, keyBox: false, hh: +m[1], mm: +m[2] };
+}
+
+// Add the key-box column to a write ONLY when this database has it
+// (`supported`), so a board running ahead of the migration never sends an
+// unknown column (a 400 that would lose the whole save).
+export function withKeyBox(patch, keyBox, supported) {
+  return supported ? { ...patch, dropoff_key_box: !!keyBox } : { ...patch };
+}
+
+// Dragging a chip: onto the all-day strip keeps the key box; onto a timed
+// slot means "they're coming at a time" — the key box is cleared in the SAME
+// write, so an all-day flag can never ride along on a timed row.
+export function reschedulePatch(dueAt, allDay, supported) {
+  const base = { due_at: dueAt, due_all_day: !!allDay };
+  return allDay ? base : withKeyBox(base, false, supported);
 }

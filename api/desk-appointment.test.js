@@ -70,3 +70,20 @@ test('syntheticCtmId separates two same-ms adds by the random component', () => 
   const b = syntheticCtmId(1_700_000_000_000, 0.9);
   assert.notEqual(a, b);
 });
+
+// ── key drop box (call-window-desk.md §6b) ──
+test('dropoff_key_box absent from the body stays absent from the row (pre-migration DB)', () => {
+  const r = parseApptBody({ next_step: 'dropping_off', due_at: DUE, caller_bare: '2395550123' });
+  assert.equal(r.ok, true);
+  assert.equal('dropoff_key_box' in r.row, false);
+});
+test('a key-box drop-off is written as such, all-day', () => {
+  const r = parseApptBody({ next_step: 'dropping_off', due_at: DUE, caller_bare: '2395550123', dropoff_key_box: true });
+  assert.equal(r.row.dropoff_key_box, true);
+  assert.equal(r.row.due_all_day, true);
+});
+test('dropoff_key_box: a callback can never be one; must be boolean; never timed', () => {
+  assert.equal(parseApptBody({ next_step: 'quoted_callback', due_at: DUE, caller_bare: '2395550123', dropoff_key_box: true }).row.dropoff_key_box, false);
+  assert.equal(parseApptBody({ next_step: 'dropping_off', due_at: DUE, caller_bare: '2395550123', dropoff_key_box: 'yes' }).ok, false);
+  assert.equal(parseApptBody({ next_step: 'dropping_off', due_at: DUE, caller_bare: '2395550123', dropoff_key_box: true, due_all_day: false }).ok, false);
+});

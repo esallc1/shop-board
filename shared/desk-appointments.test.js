@@ -21,6 +21,9 @@ import {
   RECOVERED_CUTOFF, RECOVERED_UNTIL, RECOVERED_TAG, RECOVERED_BANNER,
   isOverdueDue, splitComingIn, comingInOrder, calendarItems, overdueCount,
   isRecovered, recoveryNoticeVisible, showRecoveryBanner,
+  CHIP_OVERLAP_MIN, layoutTimedChips,
+  KEY_BOX_LABEL, KEY_BOX_OPTION, KEY_BOX_VALUE, ANY_TIME_OPTION,
+  isKeyBox, dropoffTimeChoice, withKeyBox, reschedulePatch,
 } from './desk-appointments.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -242,4 +245,82 @@ test('board shows the recovered banner + per-row tag and marks past chips', () =
   assert.match(BOARD, /mod\.isRecovered\(c\)/);
   assert.match(BOARD, /\.desk-row\.is-overdue \{[^}]*var\(--red\)/, 'overdue rows get the red edge');
   assert.match(BOARD, /\.desk-chip\.is-past \{[^}]*var\(--red\)/, 'past chips look overdue');
+});
+
+// ── same-time chips side by side (§6c) ───────────────────────────────
+const lay = (rows) => layoutTimedChips(rows).map(x => `${x.call.id}:${x.i}/${x.n}`);
+
+test('two chips at the exact same time split the column (prod ids 31 + 35, Aug 4 9:00)', () => {
+  assert.deepStrictEqual(lay([
+    drop({ id: 35, due_at: iso(2026, 8, 4, 9, 0), due_all_day: false }),
+    drop({ id: 31, due_at: iso(2026, 8, 4, 9, 0), due_all_day: false }),
+  ]), ['31:0/2', '35:1/2']);
+});
+
+test('under 30 min apart share; exactly 30 min apart do not', () => {
+  assert.deepStrictEqual(lay([drop({ id: 1, due_at: iso(2026, 9, 24, 9, 0) }), drop({ id: 2, due_at: iso(2026, 9, 24, 9, 29) })]), ['1:0/2', '2:1/2']);
+  assert.deepStrictEqual(lay([drop({ id: 1, due_at: iso(2026, 9, 24, 9, 0) }), drop({ id: 2, due_at: iso(2026, 9, 24, 9, 30) })]), ['1:0/1', '2:0/1']);
+  assert.strictEqual(CHIP_OVERLAP_MIN, 30);
+});
+
+test('overlap is transitive — 9:00, 9:20, 9:40 are one group of three; 11:00 stands alone', () => {
+  assert.deepStrictEqual(lay([
+    drop({ id: 'c', due_at: iso(2026, 9, 24, 9, 40) }),
+    drop({ id: 'x', due_at: iso(2026, 9, 24, 11, 0) }),
+    drop({ id: 'a', due_at: iso(2026, 9, 24, 9, 0) }),
+    drop({ id: 'b', due_at: iso(2026, 9, 24, 9, 20) }),
+  ]), ['a:0/3', 'b:1/3', 'c:2/3', 'x:0/1']);
+});
+
+test('layoutTimedChips skips rows without a usable date and tolerates junk', () => {
+  assert.deepStrictEqual(lay([drop({ id: 1, due_at: null }), drop({ id: 2, due_at: 'nope' })]), []);
+  assert.deepStrictEqual(layoutTimedChips(null), []);
+});
+
+// ── the key drop box (§6b) ───────────────────────────────────────────
+test('isKeyBox: drop-offs only, explicit true only', () => {
+  assert.strictEqual(isKeyBox(drop({ dropoff_key_box: true })), true);
+  assert.strictEqual(isKeyBox(drop({ dropoff_key_box: false })), false);
+  assert.strictEqual(isKeyBox(drop({})), false);                                  // column absent
+  assert.strictEqual(isKeyBox(callback({ dropoff_key_box: true })), false);       // Follow up left a stale flag
+  assert.strictEqual(isKeyBox(null), false);
+});
+
+test('dropoffTimeChoice: Any time / key box / a time / junk', () => {
+  assert.deepStrictEqual(dropoffTimeChoice(''), { allDay: true, keyBox: false, hh: null, mm: null });
+  assert.deepStrictEqual(dropoffTimeChoice(KEY_BOX_VALUE), { allDay: true, keyBox: true, hh: null, mm: null });
+  assert.deepStrictEqual(dropoffTimeChoice('09:30'), { allDay: false, keyBox: false, hh: 9, mm: 30 });
+  assert.deepStrictEqual(dropoffTimeChoice('__custom__'), { allDay: true, keyBox: false, hh: null, mm: null });
+  assert.deepStrictEqual(dropoffTimeChoice('25:00'), { allDay: true, keyBox: false, hh: null, mm: null });
+});
+
+test('withKeyBox: the column is only sent when the database has it', () => {
+  assert.deepStrictEqual(withKeyBox({ due_all_day: true }, true, true), { due_all_day: true, dropoff_key_box: true });
+  assert.deepStrictEqual(withKeyBox({ due_all_day: true }, true, false), { due_all_day: true });
+  const p = { a: 1 }; withKeyBox(p, true, true); assert.deepStrictEqual(p, { a: 1 });   // never mutates
+});
+
+test('reschedulePatch: drag to a timed slot clears the key box in the same write; all-day keeps it', () => {
+  assert.deepStrictEqual(reschedulePatch('T', false, true), { due_at: 'T', due_all_day: false, dropoff_key_box: false });
+  assert.deepStrictEqual(reschedulePatch('T', true, true), { due_at: 'T', due_all_day: true });
+  assert.deepStrictEqual(reschedulePatch('T', false, false), { due_at: 'T', due_all_day: false });
+});
+
+test('key-box wording', () => {
+  assert.strictEqual(KEY_BOX_LABEL, '🔑 Key box');
+  assert.strictEqual(KEY_BOX_OPTION, 'After hours · key drop box');
+  assert.strictEqual(ANY_TIME_OPTION, 'Any time');
+});
+
+// ── board wiring for §6b/§6c ─────────────────────────────────────────
+test('board: calendar view uses DAY_START/DAY_END; the 24 h grid stays', () => {
+  assert.match(BOARD, /const HOUR_PX = 44, DAY_START = 7, DAY_END = 18;/);
+  assert.match(BOARD, /const gridH = 24 \* HOUR_PX;/);
+  assert.match(BOARD, /\(DAY_END - DAY_START\) \* HOUR_PX/);
+});
+
+test('board: timed chips go through layoutTimedChips; no "Morning (no time)" left', () => {
+  assert.match(BOARD, /layoutTimedChips\(/);
+  assert.doesNotMatch(BOARD, /Morning \(no time\)/);
+  assert.match(BOARD, /reschedulePatch\(/);
 });

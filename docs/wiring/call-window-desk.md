@@ -1,7 +1,8 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-09-21 (2) — **new §10: the appointment date + outcome show on the Call Log and the customer record** (no migration; manual "+Add" rows stay out of the Call Log by decision). **LIVE ON PROD at `6733056`**, verified vs commit `6733056`.
+> Last updated: 2026-09-21 (3) — **new §6b (key drop box) + §6c (calendar 7 am–6 pm, same-time chips side by side).** On staging, not yet on prod; needs `20260921_calls_dropoff_key_box_PROD.sql` before main.
+> Previously: 2026-09-21 (2) — **new §10: the appointment date + outcome show on the Call Log and the customer record** (no migration; manual "+Add" rows stay out of the Call Log by decision). **LIVE ON PROD at `6733056`**, verified vs commit `6733056`.
 > Previously: 2026-09-21 — **§6: each lane scrolls inside its own ~6-row box** so the calendar stays close (CSS only). **LIVE ON PROD at `e74136f`**, verified vs commit `e74136f`.
 > Previously: 2026-09-20 (2) — **new §9: the one destructive "Done" is gone.** Four real
 > outcomes on Coming-in (Arrived · Reschedule · Not coming · Follow up), a confirm before
@@ -194,7 +195,9 @@ writes `resolved_at` **nowhere** — locked by a test.
   `position: sticky; top: 0`. CSS only — row order is untouched.
 - **Drop-off calendar:** `renderCalendar(calendarFeed())` — a week grid of every dated
   unresolved `dropping_off`, **past and future**. The week window is the only date filter,
-  so `‹ ›` browses real history. Chips are drag-to-reschedule (`rescheduleCall`).
+  so `‹ ›` browses real history. Chips are drag-to-reschedule (`rescheduleCall`). The box
+  opens on **7 am–6 pm** and same-time chips sit side by side (§6c); a key-box drop-off is
+  an all-day chip with a 🔑 (§6b).
 - **Finishing with an item** is §9 — four outcomes on Coming-in, a plain "Done" on
   Callbacks. The old one-click `data-done` → `resolveCall` survives only as the
   pre-migration fallback.
@@ -240,6 +243,50 @@ was wrong, and what each now does:
 - Pure, no DOM, every entry point takes `now` → `shared/desk-appointments.test.js`
   (26 cases, incl. board-wiring assertions that no copy of the old filter survives).
 
+## 6b. The key drop box — `calls.dropoff_key_box`
+The shop has a **key drop box** at the front door; customers leave cars at 10 pm. A
+drop-off's exact time mostly doesn't matter — whether the keys are **in the box** does,
+because someone has to check it in the morning.
+
+- **Stored as** `calls.dropoff_key_box = true` **with** `due_all_day = true`
+  (`migrations/20260921_calls_dropoff_key_box_{SANDBOX,PROD}.sql`: `boolean not null default
+  false`, no RLS change). Only meaningful on a `dropping_off` row — `isKeyBox(call)` also
+  requires the step, so a flag left behind when Follow up turns the row into a callback
+  is never shown.
+- **The time picker** (both the call window's `dropoffTimeOptions` and the Desk modal's
+  `deskTimeOptions`) now reads: **Any time** (value `''`, the default for a new drop-off,
+  all-day — this was "Morning (no time)") · **After hours · key drop box**
+  (`KEY_BOX_VALUE`) · 7a–6p times · (call window only) Custom time…. Callbacks have no time
+  picker and are unchanged. `dropoffTimeChoice(value)` is the one mapping from the picked
+  value to `{ allDay, keyBox, hh, mm }`; both save paths use it.
+- **Every drop-off save writes the flag** (true or false), so switching from the key box
+  to "Any time" or a time clears it. Switching the call window's step chip clears it too.
+  **Dragging a chip onto a timed slot clears it in the same write**
+  (`reschedulePatch`); dragging onto the all-day strip keeps it.
+- **Shown as:** 🔑 at the start of the calendar chip; a **🔑 Key box** pill next to the date
+  on the Coming-in row; and `· 🔑 Key box` on the §10 line (Call Log + customer record).
+  It's all-day, so it's late by the all-day rule — nothing else about overdue changes.
+- **Runs ahead of the migration safely.** The board reads the column in its own top select
+  tier (`CALL_COLS_KEYBOX`, `LOG_COLS_KEYBOX`) and sets `keyBoxColAvailable` from it; the
+  call window checks `'dropoff_key_box' in card._call`. Without the column the key-box
+  option isn't offered and `withKeyBox` leaves the column out of every write, so no save
+  ever 400s on it. `api/desk-appointment.js` only writes the field when the body carries it.
+
+## 6c. The calendar's view and same-time chips
+- **The view:** `HOUR_PX = 44, DAY_START = 7, DAY_END = 18`. The grid is still **24 h**
+  tall (a 6 pm or a custom 10:15 pm chip stays reachable by scrolling); only the box
+  changes — `max-height = (DAY_END − DAY_START) × HOUR_PX + 24px` (one chip's height, so a
+  6 pm chip isn't clipped at the edge), opened scrolled to 7 am. Before, the box was a
+  fixed 520 px opened at 6 am (≈ 6 am–5:50 pm) and `DAY_END` was never used.
+- **Same-time chips:** `layoutTimedChips(items)` groups a day's timed chips whose 30-min
+  spans overlap (a chip is `min-height:22px` ≈ 30 min; grouping is transitive — 9:00, 9:20,
+  9:40 are one group of three; exactly 30 min apart is not an overlap) and returns
+  `{ call, i, n }`. `timedChip` gives chip i of n `left = i/n`, `width = 1/n` (`.is-split`
+  tightens the padding). Before, every chip was `left:2px; right:2px`, so prod ids **31 + 35**
+  (both Tue Aug 4, 9:00 AM) drew as one chip. Drag still hit-tests the **column**, so a
+  narrower chip drops exactly where it did.
+- All-day chips never overlapped (they stack in a flex column) and are unchanged.
+
 ## 7. Editing / re-routing a Desk item, and adding one by hand
 Nothing on the Desk depends on the live call popup any more — an item can be fixed or
 created directly. One modal (`#deskEdit`, `openDeskEdit(mode, opts)`) does both, with the
@@ -248,7 +295,8 @@ created directly. One modal (`#deskEdit`, `openDeskEdit(mode, opts)`) does both,
 - **Edit / re-route** — the **Edit** button on a Callbacks or Coming-in row opens the
   modal on that item. It can **change the type** (Callback ⇄ Drop-off = `quoted_callback`
   ⇄ `dropping_off`) and the **date/time**. Save is an **anon UPDATE**
-  (`update({ next_step, due_at, due_all_day })`) — it never touches `resolved_at`, so the
+  (`update({ next_step, due_at, due_all_day, dropoff_key_box })` — the last only when the
+  column exists, §6b) — it never touches `resolved_at`, so the
   item stays on the Desk (invariant held). This is how a mis-bucketed callback becomes a
   drop-off on the calendar. (Dragging a chip still reschedules date/time only.)
 - **Manual add** — the **`+ Add`** button (calendar header) **or clicking an empty
@@ -273,8 +321,11 @@ project's `auth.users`. The board sends the token via `cdAuthFetch` (`shared/aut
 which also logs any rejection instead of swallowing it. Before this, the method check was the
 only guard: anyone on the internet could call it and it would run with the service-role key.
 
-- `POST { next_step, due_at, due_all_day, caller_bare, caller_formatted, cnam,
-  customer_id, note, noted_by_name }` → inserts one `calls` row, returns `{ appointment }`.
+- `POST { next_step, due_at, due_all_day, dropoff_key_box?, caller_bare, caller_formatted,
+  cnam, customer_id, note, noted_by_name }` → inserts one `calls` row, returns
+  `{ appointment }`. `dropoff_key_box` is optional and only written when present (the board
+  omits it on a DB without the column); it must be a boolean, is forced false on a callback,
+  and is refused with `due_all_day: false` (§6b).
 - `next_step` is limited to `quoted_callback | dropping_off` (the only schedulable steps);
   requires a 10-digit phone **or** a `customer_id`; `due_at` must be a valid timestamp.
 - Sets the walk-in markers from §1: a synthetic negative `ctm_call_id` (regenerated once
@@ -376,7 +427,9 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 
 - **What the line says.** `dueLine(call, dueLabel)` → `→ Drop-off Tue, Sep 23 · 9:00 AM`, or
   `→ Call back Tue, Sep 23` for `quoted_callback`; all-day = the date only, with the calendar's
-  rule (only `due_all_day === false` is timed). `outcomeLine(call, clearedLabel)` →
+  rule (only `due_all_day === false` is timed). A key-box drop-off (§6b) reads
+  `→ Drop-off Tue, Sep 23 · 🔑 Key box`; the Call Log reads the flag in its top tier
+  `LOG_COLS_KEYBOX`, the customer record already has it via `select('*')`. `outcomeLine(call, clearedLabel)` →
   `✓ Car arrived · by <resolved_by_name>` / `✓ Not coming` / `✓ Called`, and
   `✓ Done (before outcomes)` for a row cleared before outcomes existed. `follow_up` never
   resolves (§9), so it shows as `Follow up later` with no tick. Undo nulls the outcome
@@ -410,16 +463,19 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 - **A manual "+Add" appointment is still absent from the Call Log** (by decision, §10) — it
   shows on the Desk and on the customer record only. The RO header, New-RO wizard and the
   RO's Call History panel still show no appointment date (out of scope 2026-09-21).
-- **Two timed chips in the same slot: only one is drawn.** `timedChip` gives every chip the
-  same `left:2px; right:2px` and a `top` from the hour, `position:absolute` over an opaque
-  background — identical times fully hide one, and anything under ~30 min apart partially
-  covers the earlier one (22 px of chip spans 30 min of grid). Seen on a real screenshot:
-  two Aug 4 9:00 AM drop-offs, lane count 2, one chip. Needs side-by-side lanes.
-- The grid is 24 h tall inside a 520 px scroller opened at 6 am, so a drop-off before 6 am
-  or after ~5:50 pm needs a scroll. `DAY_END = 20` is declared and **never used** — looks
-  like an intended 6 am–8 pm clamp that was never wired.
+- ~~Two timed chips in the same slot drew as one; the box opened at 6 am and `DAY_END` was
+  unused~~ — **fixed in §6c** (side by side; 7 am–6 pm view on the same 24 h grid).
+- The time pickers still offer **7a–6p** while the shop is open 8–5; left as is on purpose
+  (a key-box drop-off covers "after hours").
 
 ## Where it lives in the code
+- **Key box + calendar layout (§6b/§6c):** `shared/desk-appointments.js` (`layoutTimedChips`,
+  `isKeyBox`, `dropoffTimeChoice`, `withKeyBox`, `reschedulePatch`, `KEY_BOX_*`,
+  `ANY_TIME_OPTION`, +`.test.js`); `advisor-board.html` — `DAY_START`/`DAY_END`,
+  `renderCalendar`, `timedChip`/`calChip`, `rescheduleCall`, `CALL_COLS_KEYBOX` /
+  `keyBoxColAvailable`, `deskTimeOptions`/`deskEditSave`, `LOG_COLS_KEYBOX`, and the call
+  window's `dropoffTimeOptions` + drop-off save; `api/desk-appointment.js` (`parseApptBody`);
+  `migrations/20260921_calls_dropoff_key_box_{SANDBOX,PROD}.sql`.
 - **Appointment outside the Desk (§10):** `shared/call-appointment.js` (`dueLine`,
   `outcomeLine`, `isManualCall`, `callWhen`, `compareCallWhen`, +`.test.js`), loaded as
   `window.CallAppointment`; `advisor-board.html` — `LOG_COLS` / `LOG_COLS_OUTCOME` +
@@ -467,6 +523,7 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- 2026-09-21 — **§6b + §6c added:** key drop box (`calls.dropoff_key_box`, picker option, 🔑 on chip / Coming-in / §10 line, cleared on drag-to-timed); "Morning (no time)" → "Any time"; same-time chips side by side (`layoutTimedChips`); calendar view 7 am–6 pm via `DAY_START`/`DAY_END` on the unchanged 24 h grid. Sandbox migration run by Cris; PROD pending.
 - 2026-09-21 — §10 shipped to prod at `6733056` (fast-forward `57763fb..6733056`); the 3 changed files byte-identical to git on www, board.* and apex.
 - 2026-09-21 — **§10 added:** the Call Log and the customer record draw a call's due + outcome line (Desk wording, `shared/call-appointment.js`); customer-record call time falls back `started_at` → `created_at`; manual rows tagged. Manual rows stay out of the Call Log by decision. No migration.
 - 2026-09-21 — Shipped to prod at `e74136f` (fast-forward `bbe6203..e74136f`). `advisor-board.html` byte-identical to git on www, board.* and apex.

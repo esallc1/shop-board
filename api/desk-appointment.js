@@ -2,7 +2,7 @@
    api/desk-appointment.js — create a MANUAL Desk appointment (a walk-in or any
    scheduled drop-off/callback that never came in as a call).
 
-   POST { next_step, due_at, due_all_day, caller_bare, caller_formatted, cnam,
+   POST { next_step, due_at, due_all_day, dropoff_key_box?, caller_bare, caller_formatted, cnam,
           customer_id, note, noted_by_name }
      → inserts one `calls` row and returns { appointment: { id, ... } }.
 
@@ -54,6 +54,18 @@ export function parseApptBody(body) {
     return { ok: false, error: 'a 10-digit phone or a customer is required' };
   }
   const trim = (v, n) => (v == null ? null : String(v).slice(0, n) || null);
+  // Key drop box (call-window-desk.md §6b). The column is only SENT when the
+  // client knows the database has it, so it is only written when present in the
+  // body — an absent key must stay absent (a pre-migration DB would 400 on it).
+  // Only a drop-off can be one, and it is always all-day.
+  const keyBox = {};
+  if ('dropoff_key_box' in b) {
+    if (typeof b.dropoff_key_box !== 'boolean') return { ok: false, error: 'dropoff_key_box must be a boolean' };
+    keyBox.dropoff_key_box = b.dropoff_key_box && b.next_step === 'dropping_off';
+    if (keyBox.dropoff_key_box && b.due_all_day === false) {
+      return { ok: false, error: 'a key-box drop-off is all-day (due_all_day must not be false)' };
+    }
+  }
   return {
     ok: true,
     row: {
@@ -66,6 +78,7 @@ export function parseApptBody(body) {
       note: trim(b.note, 2000),
       customer_id,
       noted_by_name: trim(b.noted_by_name, 120),
+      ...keyBox,
     },
   };
 }

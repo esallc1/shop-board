@@ -1948,6 +1948,10 @@
     .desk-chip.dragging { opacity:0.5; cursor:grabbing; }
     .desk-chip .desk-chip-t { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
     .desk-chip.timed { position:absolute; box-sizing:border-box; }
+    .desk-chip.timed.is-split { padding:2px 3px; }
+    .desk-chip-key { margin-right:3px; }
+    /* 🔑 Key box — the car is in the front-door drop box; check it in the morning. */
+    .desk-keybox { font-size:0.7rem; font-weight:800; color:#6B4310; background:#FFF4E5; border:1px solid #F0B968; border-radius:999px; padding:1px 7px; }
     /* Past weeks now draw (they used to be filtered out before the calendar saw
        them), so a chip whose date has gone must not read as an upcoming booking:
        red edge, muted text. */
@@ -2181,7 +2185,7 @@
         <div class="deskedit-label">When</div>
         <div class="deskedit-when">
           <input type="date" id="deskEditDate">
-          <select id="deskEditTime" title="Drop-off time — Morning = no specific time"></select>
+          <select id="deskEditTime" title="Drop-off time — Any time = no specific time; key drop box = after hours"></select>
         </div>
         <div class="deskedit-echo prompt" id="deskEditEcho"></div>
         <div class="deskedit-err" id="deskEditErr"></div>
@@ -11576,7 +11580,10 @@
   // Does NOT depend on shared/planner.js — it only mirrors its look.
   // ══════════════════════════════════════════════════════════
   (function desk() {
-    const HOUR_PX = 44, DAY_START = 6, DAY_END = 20;
+    // The grid is always 24 h (an odd time — 6 pm, a custom 10:15 pm — must stay
+    // reachable by scrolling); DAY_START/DAY_END only set what the box SHOWS on
+    // open: 7 am to 6 pm, the pickers' range (call-window-desk.md §6c).
+    const HOUR_PX = 44, DAY_START = 7, DAY_END = 18;
     const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
     // ── date helpers (local) ──
@@ -11596,6 +11603,9 @@
     // Set by deskLoad: false when the outcome columns aren't in this database yet
     // (42703 on the wider select). The four-outcome UI stays hidden until then.
     let outcomeColsAvailable = true;
+    // calls.dropoff_key_box (20260921_calls_dropoff_key_box_*.sql). Until it
+    // exists the key-box choice is not offered and no write carries the column.
+    let keyBoxColAvailable = false;
 
     // A callback / drop-off is overdue when its due moment has passed. All-day
     // items aren't late until the day itself is past; timed items use the clock.
@@ -11680,13 +11690,18 @@
     // order not matter: until `20260920_calls_outcome_*.sql` is run the board
     // keeps working with the single "Done".
     const CALL_COLS_OUTCOME = CALL_COLS + ', resolved_by_name, outcome, outcome_note, outcome_prev_due_at';
+    // Key-box tier on top — its own tier, so a missing dropoff_key_box costs only
+    // the 🔑, never the outcome buttons.
+    const CALL_COLS_KEYBOX = CALL_COLS_OUTCOME + ', dropoff_key_box';
     async function deskLoad() {
       // 1. open call-backed lane items (unresolved callbacks + drop-offs)
       const openSel = (cols) => db.from('calls').select(cols)
         .in('next_step', ['quoted_callback', 'dropping_off'])
         .is('resolved_at', null)
         .order('due_at', { ascending: true, nullsFirst: false });
-      let callsResp = await openSel(CALL_COLS_OUTCOME);
+      let callsResp = await openSel(CALL_COLS_KEYBOX);
+      keyBoxColAvailable = !callsResp.error;
+      if (callsResp.error && isMissingCol(callsResp.error)) callsResp = await openSel(CALL_COLS_OUTCOME);
       if (callsResp.error && isMissingCol(callsResp.error)) {
         outcomeColsAvailable = false;                 // pre-migration: plain "Done"
         callsResp = await openSel(CALL_COLS);
@@ -11836,6 +11851,7 @@
           ${veh ? `<div class="desk-row-veh">${esc(veh)}</div>` : ''}
           <div class="desk-row-meta">
             <span class="desk-row-due${overdue ? ' overdue' : ''}">${esc(dueLabel(c.due_at, c.due_all_day))}</span>
+            ${(DA() && DA().isKeyBox(c)) ? `<span class="desk-keybox" title="Left in the front-door key drop box — check the box in the morning">${esc(DA().KEY_BOX_LABEL)}</span>` : ''}
           </div>
           <div class="desk-row-outcomes">${acts}</div>
           ${tag}
@@ -11913,7 +11929,8 @@
       gutter += `</div>`;
       let cols = '';
       keyed.forEach(k => {
-        cols += `<div class="desk-cal-col" data-date="${k.key}" style="height:${gridH}px">${k.timed.map(timedChip).join('')}</div>`;
+        const laid = DA() ? DA().layoutTimedChips(k.timed) : k.timed.map(call => ({ call, i: 0, n: 1 }));
+        cols += `<div class="desk-cal-col" data-date="${k.key}" style="height:${gridH}px">${laid.map(x => timedChip(x.call, x.i, x.n)).join('')}</div>`;
       });
       const timed = `<div class="desk-cal-scroll"><div class="desk-cal-timed-row" style="height:${gridH}px">${gutter}${cols}</div></div>`;
 
@@ -11921,7 +11938,9 @@
       cal.style.setProperty('--desk-tpl', tpl.join(' '));
       cal.innerHTML = head + allday + timed;
       const scroller = cal.querySelector('.desk-cal-scroll');
-      if (scroller) scroller.scrollTop = DAY_START * HOUR_PX;
+      // The box shows DAY_START..DAY_END (+ one chip's height so a 6 pm chip is
+      // visible, not clipped at the edge); everything else is a scroll away.
+      if (scroller) { scroller.style.maxHeight = `${(DAY_END - DAY_START) * HOUR_PX + 24}px`; scroller.scrollTop = DAY_START * HOUR_PX; }
 
       const label = `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${days[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
       $('deskCalLabel').textContent = label;
@@ -11945,14 +11964,19 @@
     }
     function calChip(c) {
       const f = chipFlags(c);
-      return `<div class="desk-chip${f.cls}"${f.title} data-call-id="${esc(String(c.id))}" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${chipName(c)}</div></div>`;
+      const kb = (DA() && DA().isKeyBox(c)) ? `<span class="desk-chip-key" title="Key drop box">🔑</span>` : '';
+      return `<div class="desk-chip${f.cls}"${f.title} data-call-id="${esc(String(c.id))}" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${kb}${chipName(c)}</div></div>`;
     }
-    function timedChip(c) {
+    // Same-time chips share the column: chip i of n (shared/desk-appointments.js
+    // layoutTimedChips). Drag hit-tests the column, so narrow chips drop the same.
+    function timedChip(c, i, n) {
+      i = i || 0; n = n || 1;
       const d = new Date(c.due_at);
       const top = (d.getHours() + d.getMinutes() / 60) * HOUR_PX;
       const t = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
       const f = chipFlags(c);
-      return `<div class="desk-chip timed${f.cls}"${f.title} style="top:${top}px;left:2px;right:2px;min-height:22px" data-call-id="${esc(String(c.id))}" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${t} ${chipName(c)}</div></div>`;
+      const pos = n > 1 ? `left:calc(${(100 * i / n).toFixed(4)}% + 1px);width:calc(${(100 / n).toFixed(4)}% - 2px)` : 'left:2px;right:2px';
+      return `<div class="desk-chip timed${n > 1 ? ' is-split' : ''}${f.cls}"${f.title} style="top:${top}px;${pos};min-height:22px" data-call-id="${esc(String(c.id))}" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${t} ${chipName(c)}</div></div>`;
     }
 
     // ── BUG-4: drag a chip to another day / slot to reschedule ──
@@ -12033,16 +12057,18 @@
     async function rescheduleCall(callId, dueAt, dueAllDay) {
       const call = (lastData && lastData.calls || []).find(c => String(c.id) === String(callId));
       if (!call) return;
-      const prev = { due_at: call.due_at, due_all_day: call.due_all_day };
-      call.due_at = dueAt; call.due_all_day = dueAllDay;   // optimistic
+      const prev = { due_at: call.due_at, due_all_day: call.due_all_day, dropoff_key_box: call.dropoff_key_box };
+      // Onto a timed slot clears the key box in the same write (§6b).
+      const patch = DA() ? DA().reschedulePatch(dueAt, dueAllDay, keyBoxColAvailable) : { due_at: dueAt, due_all_day: dueAllDay };
+      Object.assign(call, patch);   // optimistic
       deskRender(lastData);
       try {
-        const { error } = await db.from('calls').update({ due_at: dueAt, due_all_day: dueAllDay }).eq('id', callId);
+        const { error } = await db.from('calls').update(patch).eq('id', callId);
         if (error) throw error;
       } catch (e) {
         console.error('[desk] reschedule failed', e);
         alert('Could not reschedule: ' + (e && e.message ? e.message : e));
-        call.due_at = prev.due_at; call.due_all_day = prev.due_all_day;   // revert
+        Object.assign(call, prev);   // revert
         deskRender(lastData);
       }
     }
@@ -12226,9 +12252,14 @@
     // invariant: the item is on the Desk (unresolved) the moment it's saved.
     let deskEditState = { mode: 'add', id: null, type: 'dropping_off', addCustomerId: null };
 
+    // Drop-off time for +Add / Edit. '' = Any time (the default, all-day); the
+    // key-drop-box choice (all-day + 🔑) only once the column exists.
     function deskTimeOptions(selected) {
-      let out = '<option value="">Morning (no time)</option>';
-      let has = false;
+      const M = DA();
+      const kb = (M && keyBoxColAvailable) ? M.KEY_BOX_VALUE : null;
+      let out = `<option value="">${esc(M ? M.ANY_TIME_OPTION : 'Any time')}</option>`;
+      if (kb) out += `<option value="${kb}"${selected === kb ? ' selected' : ''}>${esc(M.KEY_BOX_OPTION)}</option>`;
+      let has = !!kb && selected === kb;
       const add = (v) => { const [h, m] = v.split(':').map(Number); const d = new Date(2000, 0, 1, h, m);
         out += `<option value="${v}"${v === selected ? ' selected' : ''}>${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</option>`; };
       for (let h = 7; h <= 18; h++) for (const m of [0, 30]) {
@@ -12291,6 +12322,7 @@
         $('deskEditDate').value = d ? ymd(d) : '';
         const allDay = call.due_all_day !== false;
         presetTime = (!allDay && d) ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : '';
+        if (allDay && DA() && DA().isKeyBox(call)) presetTime = DA().KEY_BOX_VALUE;
       } else {
         st.type = 'dropping_off';
         $('deskEditTitle').textContent = 'New appointment';
@@ -12328,16 +12360,20 @@
       const dateKey = $('deskEditDate').value;
       if (!dateKey) { err.textContent = 'Pick a date.'; return; }
       const timeVal = type === 'dropping_off' ? ($('deskEditTime').value || '') : '';
-      const allDay = !timeVal;
-      const [hh, mm] = timeVal ? timeVal.split(':').map(Number) : [null, null];
-      const due_at = deskDueAt(dateKey, allDay ? null : hh, allDay ? null : mm);
+      // '' = Any time, the key-box value = all-day + 🔑, 'HH:MM' = timed (§6b).
+      const ch = DA() ? DA().dropoffTimeChoice(timeVal)
+        : (timeVal ? { allDay: false, keyBox: false, hh: +timeVal.split(':')[0], mm: +timeVal.split(':')[1] } : { allDay: true, keyBox: false, hh: null, mm: null });
+      const allDay = ch.allDay;
+      const due_at = deskDueAt(dateKey, allDay ? null : ch.hh, allDay ? null : ch.mm);
       const due_all_day = allDay;
+      const keyBox = type === 'dropping_off' && ch.keyBox;
+      const kbPatch = (p) => DA() ? DA().withKeyBox(p, keyBox, keyBoxColAvailable) : p;
       const saveBtn = $('deskEditSave'); saveBtn.disabled = true;
       try {
         if (st.mode === 'edit') {
           // Re-route / reschedule — anon UPDATE. resolved_at is untouched, so the
           // item stays visible on the Desk (invariant held).
-          const { error } = await db.from('calls').update({ next_step: type, due_at, due_all_day }).eq('id', st.id);
+          const { error } = await db.from('calls').update(kbPatch({ next_step: type, due_at, due_all_day })).eq('id', st.id);
           if (error) { err.textContent = 'Could not save: ' + error.message; return; }
           closeDeskEdit(); deskLoad();
         } else {
@@ -12348,7 +12384,7 @@
           if (!customer_id && bare.length === 10) { const idx = await ensureCustIndex(); const hits = idx.byPhone[bare] || []; if (hits.length === 1) customer_id = hits[0].id; }
           if (bare.length !== 10 && !customer_id) { err.textContent = 'Enter a 10-digit phone (or a number that matches a customer).'; return; }
           const fmt = (bare.length === 10 && window.formatPhone) ? window.formatPhone(bare) : (bare.length === 10 ? bare : null);
-          const body = { next_step: type, due_at, due_all_day, caller_bare: bare.length === 10 ? bare : null, caller_formatted: fmt, cnam: name || null, customer_id: customer_id || null, noted_by_name: (typeof CHAT_IDENTITY !== 'undefined' && CHAT_IDENTITY.name) || null };
+          const body = kbPatch({ next_step: type, due_at, due_all_day, caller_bare: bare.length === 10 ? bare : null, caller_formatted: fmt, cnam: name || null, customer_id: customer_id || null, noted_by_name: (typeof CHAT_IDENTITY !== 'undefined' && CHAT_IDENTITY.name) || null });
           let resp;
           try { resp = await cdAuthFetch(db, '/api/desk-appointment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
           catch (e) { err.textContent = 'Could not add (network): ' + (e.message || e); return; }
@@ -12418,6 +12454,8 @@
     // first. Only drawn (the "✓ Car arrived · by …" line), never written here,
     // so on a project without them the log just loses that line.
     const LOG_COLS_OUTCOME = LOG_COLS_AUTO + ', outcome, resolved_at, resolved_by_name';
+    // …and the key box (§6b) on top, falling back to LOG_COLS_OUTCOME.
+    const LOG_COLS_KEYBOX = LOG_COLS_OUTCOME + ', dropoff_key_box';
     let attachColsAvailable = true;
     let logOpen = false;
     let logDay = startOfToday();
@@ -12466,7 +12504,8 @@
       // Try the widest select first and step down one tier at a time, so a
       // project missing the auto-attach columns keeps the full attach UI, and a
       // project missing the attach columns still loads the log.
-      let resp = await sel(LOG_COLS_OUTCOME);
+      let resp = await sel(LOG_COLS_KEYBOX);
+      if (resp.error && isMissingCol(resp.error)) resp = await sel(LOG_COLS_OUTCOME);
       if (resp.error && isMissingCol(resp.error)) resp = await sel(LOG_COLS_AUTO);
       if (resp.error && isMissingCol(resp.error)) resp = await sel(LOG_COLS_ATTACH);
       if (resp.error && isMissingCol(resp.error)) {
@@ -13122,13 +13161,18 @@
     }
 
     // Drop-off time picker options: 15-min intervals across shop hours (7a–6p),
-    // "Morning (no time)" as the default all-day choice, and a "Custom time…"
-    // escape hatch that reveals a free-entry time field (any minute). A <select>
-    // fires `change` reliably on selection — unlike the raw iOS time wheel, whose
-    // change failing to reach the handler is what silently dropped the time.
-    function dropoffTimeOptions(selectedHHMM) {
-      let opts = `<option value=""${selectedHHMM ? '' : ' selected'}>Morning (no time)</option>`;
-      let matched = false;
+    // "Any time" as the default all-day choice, the key drop box (all-day + 🔑,
+    // offered only when this row carries the dropoff_key_box column — §6b), and
+    // a "Custom time…" escape hatch that reveals a free-entry time field (any
+    // minute). A <select> fires `change` reliably on selection — unlike the raw
+    // iOS time wheel, whose change failing to reach the handler is what silently
+    // dropped the time.
+    function dropoffTimeOptions(selectedHHMM, keyBoxOk) {
+      const M = window.DeskAppointments;
+      const kb = (M && keyBoxOk) ? M.KEY_BOX_VALUE : null;
+      let opts = `<option value=""${selectedHHMM ? '' : ' selected'}>${esc(M ? M.ANY_TIME_OPTION : 'Any time')}</option>`;
+      if (kb) opts += `<option value="${kb}"${selectedHHMM === kb ? ' selected' : ''}>${esc(M.KEY_BOX_OPTION)}</option>`;
+      let matched = !!kb && selectedHHMM === kb;
       for (let mins = 7 * 60; mins <= 18 * 60; mins += 15) {
         const hh = Math.floor(mins / 60), mm = mins % 60;
         const val = `${pad2(hh)}:${pad2(mm)}`;
@@ -13404,11 +13448,14 @@
         // the currently-chosen time on every save — so a picked time can never
         // be silently dropped behind a stale all-day "Saved ✓".
         const allDay = card._call.due_all_day !== false;
-        const curTime = allDay ? '' : dueAtToTimeStr(card._call.due_at);
+        const DAm = window.DeskAppointments;
+        const keyBoxOk = !!DAm && 'dropoff_key_box' in card._call;   // the column exists on this DB
+        const isKb = allDay && keyBoxOk && DAm.isKeyBox(card._call);
+        const curTime = isKb ? DAm.KEY_BOX_VALUE : (allDay ? '' : dueAtToTimeStr(card._call.due_at));
         when.innerHTML =
           `<input type="date" class="cc-date" value="${esc(dueAtToDateStr(card._call.due_at))}">
-           <select class="cc-timesel" title="Drop-off time — Morning = no specific time">${dropoffTimeOptions(curTime)}</select>
-           <input type="time" class="cc-timecustom" style="display:none" value="${allDay ? '' : esc(curTime)}" title="Any time">`;
+           <select class="cc-timesel" title="Drop-off time — Any time = no specific time; key drop box = after hours">${dropoffTimeOptions(curTime, keyBoxOk)}</select>
+           <input type="time" class="cc-timecustom" style="display:none" value="${(allDay || isKb) ? '' : esc(curTime)}" title="Any time">`;
         const dateEl = when.querySelector('.cc-date');
         const sel = when.querySelector('.cc-timesel');
         const custom = when.querySelector('.cc-timecustom');
@@ -13417,8 +13464,12 @@
         const readTime = () => (sel.value === '__custom__') ? (custom.value || '') : (sel.value || '');
         const save = () => {
           const ds = dateEl.value;
-          const ts = readTime();
-          saveNote(card, { due_at: toDueAt(ds, ts || null), due_all_day: !ts });
+          const v = readTime();
+          // '' = Any time, key-box value = all-day + 🔑, 'HH:MM' = timed (§6b)
+          const kbPick = !!DAm && v === DAm.KEY_BOX_VALUE;
+          const ts = kbPick ? '' : v;
+          const p = { due_at: toDueAt(ds, ts || null), due_all_day: !ts };
+          saveNote(card, DAm ? DAm.withKeyBox(p, kbPick, keyBoxOk) : p);
         };
         dateEl.addEventListener('change', save);
         sel.addEventListener('change', () => {
@@ -13504,7 +13555,10 @@
           // any other step silently threw the link away. Which RO a call is
           // about is independent of what happens next; the picker is now its
           // own persistent row (renderFiledRo).
-          saveNote(card, { next_step: step, due_at: null, due_all_day: true });
+          // …and a key-box flag from the old step never rides across either (§6b).
+          const stepPatch = { next_step: step, due_at: null, due_all_day: true };
+          saveNote(card, (window.DeskAppointments && card._call && 'dropoff_key_box' in card._call)
+            ? window.DeskAppointments.withKeyBox(stepPatch, false, true) : stepPatch);
           renderWhen(card);
         }));
     }
