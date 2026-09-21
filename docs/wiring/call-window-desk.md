@@ -282,7 +282,8 @@ because someone has to check it in the morning.
   spans overlap (a chip is `min-height:22px` ≈ 30 min; grouping is transitive — 9:00, 9:20,
   9:40 are one group of three; exactly 30 min apart is not an overlap) and returns
   `{ call, i, n }`. `timedChip` gives chip i of n `left = i/n`, `width = 1/n` (`.is-split`
-  tightens the padding). Before, every chip was `left:2px; right:2px`, so prod ids **31 + 35**
+  tightens the padding, and a split chip shows the **name** only — the row gives the time — with
+  "9:00 AM Name" as its tooltip). Before, every chip was `left:2px; right:2px`, so prod ids **31 + 35**
   (both Tue Aug 4, 9:00 AM) drew as one chip. Drag still hit-tests the **column**, so a
   narrower chip drops exactly where it did.
 - All-day chips never overlapped (they stack in a flex column) and are unchanged.

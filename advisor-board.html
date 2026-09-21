@@ -11976,7 +11976,11 @@
       const t = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
       const f = chipFlags(c);
       const pos = n > 1 ? `left:calc(${(100 * i / n).toFixed(4)}% + 1px);width:calc(${(100 / n).toFixed(4)}% - 2px)` : 'left:2px;right:2px';
-      return `<div class="desk-chip timed${n > 1 ? ' is-split' : ''}${f.cls}"${f.title} style="top:${top}px;${pos};min-height:22px" data-call-id="${esc(String(c.id))}" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${t} ${chipName(c)}</div></div>`;
+      // A split chip is narrow: the row already says the time, so it shows the
+      // NAME and keeps "time name" in the tooltip (unless the recovered note has it).
+      const text = n > 1 ? chipName(c) : `${t} ${chipName(c)}`;
+      const title = f.title || (n > 1 ? ` title="${`${esc(t)} ${chipName(c)}`.replace(/"/g, '&quot;')}"` : '');
+      return `<div class="desk-chip timed${n > 1 ? ' is-split' : ''}${f.cls}"${title} style="top:${top}px;${pos};min-height:22px" data-call-id="${esc(String(c.id))}" data-open-phone="${esc(c.caller_bare || '')}"><div class="desk-chip-t">${text}</div></div>`;
     }
 
     // ── BUG-4: drag a chip to another day / slot to reschedule ──
