@@ -1,7 +1,7 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-09-21 (2) — **new §10: the appointment date + outcome show on the Call Log and the customer record** (no migration; manual "+Add" rows stay out of the Call Log by decision). On staging, not yet on prod.
+> Last updated: 2026-09-21 (2) — **new §10: the appointment date + outcome show on the Call Log and the customer record** (no migration; manual "+Add" rows stay out of the Call Log by decision). **LIVE ON PROD at `6733056`**, verified vs commit `6733056`.
 > Previously: 2026-09-21 — **§6: each lane scrolls inside its own ~6-row box** so the calendar stays close (CSS only). **LIVE ON PROD at `e74136f`**, verified vs commit `e74136f`.
 > Previously: 2026-09-20 (2) — **new §9: the one destructive "Done" is gone.** Four real
 > outcomes on Coming-in (Arrived · Reschedule · Not coming · Follow up), a confirm before
@@ -467,6 +467,7 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- 2026-09-21 — §10 shipped to prod at `6733056` (fast-forward `57763fb..6733056`); the 3 changed files byte-identical to git on www, board.* and apex.
 - 2026-09-21 — **§10 added:** the Call Log and the customer record draw a call's due + outcome line (Desk wording, `shared/call-appointment.js`); customer-record call time falls back `started_at` → `created_at`; manual rows tagged. Manual rows stay out of the Call Log by decision. No migration.
 - 2026-09-21 — Shipped to prod at `e74136f` (fast-forward `bbe6203..e74136f`). `advisor-board.html` byte-identical to git on www, board.* and apex.
 - 2026-09-21 — Desk lanes scroll inside their own box (~6 rows, `.desk-lane-body` max-height); "recovered" banner sticky. CSS only, all three lanes (§6).
