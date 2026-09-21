@@ -1,7 +1,7 @@
 # How the customer record is wired
 
 > Doc: `/docs/wiring/customer-record.md`
-> **2026-09-21 — timeline entries carry the Desk appointment + outcome line; call time falls back to `created_at` (§ Timeline entry, [[call-window-desk]] §10).** On staging, not yet on prod.
+> **2026-09-21 — timeline entries carry the Desk appointment + outcome line; call time falls back to `created_at` (§ Timeline entry, [[call-window-desk]] §10).** **LIVE ON PROD at `6733056`**, verified vs commit `6733056`.
 > **2026-09-18 — Edit moved from the top strip into the profile card's name row (§4, §4f).**
 > Verified vs commit `6c22499` (branch `fix/cust-edit-in-person-card` off `main` `2960da9`, on
 > staging, NOT yet on prod). §0, §4, §4f and Where-it-lives re-checked against the code, and driven
@@ -592,6 +592,7 @@ then branches on whether the search box has text:
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
+- 2026-09-21 — Shipped to prod at `6733056`; `shared/customer-record.js` + `advisor-board.html` byte-identical to git on www, board.*, apex.
 - 2026-09-21 — Timeline entries show the Desk appointment + outcome line and an "Added on the Desk" tag; every call time/sort on the record uses `started_at` → `created_at` (`cdCallWhen` / `compareCallWhen`). See [[call-window-desk]] §10.
 - 2026-09-18 — **Edit moved into the profile card**, top-right on the name row, NEW corner tag
   kept (same `2026-09-26`); the top strip is Back only. Click now delegated because the card
