@@ -12,14 +12,15 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `6733056`** (2026-09-21 — Desk Group 3: a call's appointment date + outcome now
-show on the **Call Log** and the **customer record** (`→ Drop-off Tue, Sep 23 · 9:00 AM` ·
-`✓ Car arrived · by …`), in the Desk's own wording via `shared/call-appointment.js`; customer-record
-call times fall back `started_at` → `created_at`, manual rows tagged "Added on the Desk". Manual
-"+Add" rows stay OUT of the Call Log by decision. No migration. Fast-forward `57763fb..6733056`;
-www, board.* and apex `advisor-board.html`, `shared/call-appointment.js`, `shared/customer-record.js`
-byte-identical to `git show 6733056:`. Previous code ship: `e74136f` (Desk lanes scroll in their own
-box). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
+**Prod code = `83826ed`** (2026-09-21 — Desk Group 4: same-time calendar chips sit side by side
+(`layoutTimedChips`; prod ids 31 + 35 no longer draw as one), the calendar opens on 7 am–6 pm via
+`DAY_START`/`DAY_END` on the unchanged 24 h grid, and the **key drop box**: `calls.dropoff_key_box`,
+picker choice "After hours · key drop box" (all-day + 🔑), "Morning (no time)" renamed "Any time".
+**Prod migration `20260921_calls_dropoff_key_box_PROD.sql` run by Cris FIRST** (1 boolean NOT NULL
+DEFAULT false; 0 rows set). Fast-forward `28c49bd..83826ed`; www, board.* and apex
+`advisor-board.html`, `shared/desk-appointments.js`, `shared/call-appointment.js` byte-identical to
+`git show 83826ed:`. Previous code ship: `6733056` (Desk Group 3). Any later commit on `main` up to
+the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.
