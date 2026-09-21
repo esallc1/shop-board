@@ -227,7 +227,8 @@ so new columns are covered automatically.
 - **Call site 2:** `advisor-board.html` — `autoFileRoForCall` (script top level, shared by both
   IIFEs); wired into `performAttach`, `persistCustomer`, `saveNote`. Tag clearing in
   `performUnattach` and in `saveNote`'s `ro_id` branch. `LOG_COLS_AUTO` is the third select
-  tier that loads the auto columns.
+  tier that loads the auto columns (a fourth, `LOG_COLS_OUTCOME`, now sits on top of it and
+  falls back to it — [[call-window-desk]] §10).
 - **Migrations (hand-run):** `migrations/20260818_call_auto_attach.sql` (undo tag),
   `migrations/20260818_customers_phone_l10.sql` (lookup key + indexes).
 - **Consumer:** the Customer Record's `computeCallGroups` — every call this fills moves from

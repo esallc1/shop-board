@@ -1160,6 +1160,11 @@
   .cust-tl-who { font-size:0.74rem; color:var(--muted); }
   .cust-tl-disp { font-size:0.58rem; font-weight:800; text-transform:uppercase; letter-spacing:0.3px; color:var(--accent); background:var(--surface-2); border-radius:999px; padding:1px 7px; }
   .cust-tl-note { font-size:0.8rem; color:var(--text); margin-top:3px; }
+  /* Desk appointment on a timeline entry (call-window-desk.md §10) */
+  .cust-tl-appt { display:flex; flex-wrap:wrap; gap:2px 10px; margin-top:3px; font-size:0.74rem; font-weight:700; }
+  .cust-tl-due { color:#085041; }
+  .cust-tl-outcome { color:var(--muted); }
+  .cust-tl-manual { font-size:0.58rem; font-weight:800; text-transform:uppercase; letter-spacing:0.3px; color:#085041; background:#E1F5EE; border-radius:999px; padding:1px 7px; }
   .cust-tl-play { margin-top:5px; }
   .cust-tl-play:empty { display:none; }
   /* clickable customer links into the record view */
@@ -1374,6 +1379,14 @@
 <script type="module">
   import * as CustomerRecord from './shared/customer-record.js';
   window.CustomerRecord = CustomerRecord;
+</script>
+<!-- A call's Desk appointment OUTSIDE the Desk (ESM -> window.CallAppointment):
+     the due + outcome lines on the Call Log and the customer record, and the
+     started_at -> created_at "when" rule. Read only at render time, long after
+     this runs; absent -> the lines are simply omitted. See call-window-desk.md §10. -->
+<script type="module">
+  import * as CallAppointment from './shared/call-appointment.js';
+  window.CallAppointment = CallAppointment;
 </script>
 <!-- PER-RO photo buckets (ESM -> window.PhotoBuckets) and the photo downscaler
      (ESM -> window.PhotoCompress). Both are shared VERBATIM with
@@ -1973,6 +1986,10 @@
     .log-cnam { font-size:0.78rem; color:var(--muted); margin-top:1px; }
     .log-newcaller { display:inline-block; font-size:0.62rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:#3C3489; background:#EEEDFE; border-radius:999px; padding:1px 7px; margin-top:4px; }
     .log-note { font-size:0.8rem; color:var(--text); margin-top:5px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    /* The appointment line under the disposition pill (call-window-desk.md §10). */
+    .log-appt { display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:5px; font-size:0.74rem; font-weight:700; }
+    .log-due { color:#085041; }
+    .log-outcome { color:var(--muted); }
     .log-nextstep { display:inline-block; font-size:0.68rem; font-weight:700; color:var(--muted); border:1px solid var(--border); border-radius:6px; padding:1px 7px; margin-top:5px; }
     .log-untouched-tag { display:inline-block; font-size:0.66rem; font-weight:800; color:#92400e; margin-top:5px; }
     .desk-log-empty { color:var(--muted); font-size:0.82rem; text-align:center; padding:28px 8px; }
@@ -10717,6 +10734,11 @@
       const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + 'T12:00:00') : new Date(s);
       return (d && !isNaN(d)) ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
     }
+    // A call's moment on the record: started_at, else created_at — a manual
+    // "+Add" appointment never rang, so started_at is NULL on purpose
+    // (shared/call-appointment.js callWhen). Used for display AND every sort.
+    const cdCallWhen = (c) => window.CallAppointment ? window.CallAppointment.callWhen(c)
+      : ((c && (c.started_at || c.created_at)) || null);
     function custFmtWhen(iso) {
       const d = iso ? new Date(iso) : null;
       if (!d || isNaN(d)) return '—';
@@ -10737,7 +10759,7 @@
       const consider = (s) => { s = String(s || ''); if (s > t) t = s; };
       if (custCustomer) consider(custCustomer.last_invoiced);
       custRos.forEach(r => consider(r.created_at));
-      custRecCallsAll.forEach(c => consider(c.started_at));
+      custRecCallsAll.forEach(c => consider(cdCallWhen(c)));
       return t ? custFmtDate(t) : '—';
     }
     // Lifetime $ from CLOSED ROs only (else null → tile omitted). CrisData-only,
@@ -10768,11 +10790,11 @@
     }
 
     // A vehicle's most-recent-activity timestamp (for sorting + the "last visit"
-    // chip): the latest of its ROs' created_at and its linked calls' started_at.
+    // chip): the latest of its ROs' created_at and its linked calls' cdCallWhen (started_at, else created_at).
     function vehActivity(v) {
       let t = '';
       const consider = (s) => { s = String(s || ''); if (s > t) t = s; };
-      const push = (arr) => (arr || []).forEach(c => consider(c.started_at || c.noted_at));
+      const push = (arr) => (arr || []).forEach(c => consider(cdCallWhen(c)));
       custRos.forEach(r => { if (String(r.vehicle_id) === String(v.id)) { consider(r.created_at); push(custCallGroups.byRo[String(r.id)]); } });
       push(custCallGroups.byVehNoRo[String(v.id)]);
       return t;
@@ -11002,7 +11024,7 @@
     // recording→vehicle "file it" control on unfiled confirmed recordings.
     function timelineHtml(calls, emptyMsg, allowAssign) {
       const list = (calls || []).slice().sort((a, b) =>
-        String(a.started_at || a.noted_at || '').localeCompare(String(b.started_at || b.noted_at || '')));
+        String(cdCallWhen(a) || '').localeCompare(String(cdCallWhen(b) || '')));
       if (!list.length) return emptyMsg ? `<div class="cust-tl-empty">${esc(emptyMsg)}</div>` : '';
       return `<div class="cust-timeline">` + list.map(c => callEntryHtml(c, allowAssign)).join('') + `</div>`;
     }
@@ -11023,6 +11045,14 @@
         else play = `<span class="rec-marker" title="${esc(dsc.aria)}">${esc(dsc.label)}</span>`;
       }
       const note = (c.note && String(c.note).trim()) ? `<div class="cust-tl-note">${esc(String(c.note).trim())}</div>` : '';
+      // The Desk appointment this call carries + what came of it, in the Desk's
+      // own words (dueLabel / clearedLabel); a "+Add" row is tagged as such.
+      const CA = window.CallAppointment, DOm = window.DeskOutcomes;
+      const dueTxt = (CA && window.cdDueLabel) ? CA.dueLine(c, window.cdDueLabel) : '';
+      const outTxt = (CA && DOm) ? CA.outcomeLine(c, DOm.clearedLabel) : '';
+      const appt = (dueTxt || outTxt)
+        ? `<div class="cust-tl-appt">${dueTxt ? `<span class="cust-tl-due">${esc(dueTxt)}</span>` : ''}${outTxt ? `<span class="cust-tl-outcome">${esc(outTxt)}</span>` : ''}</div>` : '';
+      const manual = (CA && CA.isManualCall(c)) ? `<span class="cust-tl-manual">${esc(CA.MANUAL_TAG)}</span>` : '';
       // "auto" chip — this link was made by the machine, not by the crew. Shown
       // for either half: auto_attached_at (it picked the customer) or
       // auto_ro_filed_at (it picked the RO). Deliberately visible so the crew can
@@ -11066,7 +11096,8 @@
         fileRo = `<select class="cust-ro-filesel" data-file-call="${esc(c.id)}" aria-label="File this call to a repair order">${opts}</select>`;
       }
       return `<div class="cust-tl-entry${c.confirmed ? '' : ' unconfirmed'}">
-        <div class="cust-tl-top"><span class="cust-tl-when">${esc(custFmtWhen(c.started_at))}</span>${who ? `<span class="cust-tl-who">${esc(who)}</span>` : ''}${disp ? `<span class="cust-tl-disp">${esc(disp)}</span>` : ''}${unconf}${autoChip}</div>
+        <div class="cust-tl-top"><span class="cust-tl-when">${esc(custFmtWhen(cdCallWhen(c)))}</span>${who ? `<span class="cust-tl-who">${esc(who)}</span>` : ''}${disp ? `<span class="cust-tl-disp">${esc(disp)}</span>` : ''}${manual}${unconf}${autoChip}</div>
+        ${appt}
         ${note}
         ${fileRo}
         ${assign}
@@ -11585,6 +11616,9 @@
       if (allDay) return date;
       return `${date} · ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
     }
+    // The customer record draws the same due line (call-window-desk.md §10) from
+    // another IIFE — hand it THIS formatter rather than a second copy.
+    window.cdDueLabel = dueLabel;
     // Relative "when" phrase for the Declined lane. Owns the WHOLE phrase incl.
     // the "ago" suffix, so the same-day case reads "today" (not "today ago") —
     // the caller must NOT append " ago".
@@ -12368,7 +12402,7 @@
     // ══ CALL LOG SLIDE-OUT (slice 3d) — every inbound call for a day, whether
     // or not anyone touched the card. The safety net. Read-only here. ══
     const NEXT_LABELS = { quoted_callback: 'Quoted — will call back', dropping_off: 'Dropping off', checking_on_car: 'Checking on car', price_shopper: 'Price shopper' };
-    const LOG_COLS = 'id, caller_bare, caller_formatted, cnam, tracking_bare, is_new_caller, note, next_step, customer_id, started_at';
+    const LOG_COLS = 'id, caller_bare, caller_formatted, cnam, tracking_bare, is_new_caller, note, next_step, customer_id, started_at, due_at, due_all_day';
     // Slice 3f attach columns — added on top of LOG_COLS when they exist. On a
     // pre-migration DB the extended select 42703s and we fall back to LOG_COLS
     // with the attach actions + unattached filter dormant (attachColsAvailable).
@@ -12380,6 +12414,10 @@
     // silently switch the existing attach UI off. Un-attach needs
     // auto_ro_filed_at to know whether an ro_id was the robot's to clear.
     const LOG_COLS_AUTO = LOG_COLS_ATTACH + ', ro_id, auto_attached_at, auto_ro_filed_at, auto_attach_run_id';
+    // Outcome columns (20260920_calls_outcome_*.sql) — a FOURTH tier, tried
+    // first. Only drawn (the "✓ Car arrived · by …" line), never written here,
+    // so on a project without them the log just loses that line.
+    const LOG_COLS_OUTCOME = LOG_COLS_AUTO + ', outcome, resolved_at, resolved_by_name';
     let attachColsAvailable = true;
     let logOpen = false;
     let logDay = startOfToday();
@@ -12428,7 +12466,8 @@
       // Try the widest select first and step down one tier at a time, so a
       // project missing the auto-attach columns keeps the full attach UI, and a
       // project missing the attach columns still loads the log.
-      let resp = await sel(LOG_COLS_AUTO);
+      let resp = await sel(LOG_COLS_OUTCOME);
+      if (resp.error && isMissingCol(resp.error)) resp = await sel(LOG_COLS_AUTO);
       if (resp.error && isMissingCol(resp.error)) resp = await sel(LOG_COLS_ATTACH);
       if (resp.error && isMissingCol(resp.error)) {
         attachColsAvailable = false;
@@ -12484,6 +12523,13 @@
         const note = hasNote ? `<div class="log-note">${esc(String(c.note).trim())}</div>` : '';
         const nextstep = c.next_step ? `<div class="log-nextstep">${esc(NEXT_LABELS[c.next_step] || c.next_step)}</div>` : '';
         const untouchedTag = untouched ? `<div class="log-untouched-tag">⚠ No note — nobody logged this call</div>` : '';
+        // The appointment this call booked, and what came of it — the Desk's own
+        // dueLabel + clearedLabel wording, composed by shared/call-appointment.js.
+        const CA = window.CallAppointment, M = DO();
+        const dueTxt = CA ? CA.dueLine(c, dueLabel) : '';
+        const outTxt = (CA && M) ? CA.outcomeLine(c, M.clearedLabel) : '';
+        const appt = (dueTxt || outTxt)
+          ? `<div class="log-appt">${dueTxt ? `<span class="log-due">${esc(dueTxt)}</span>` : ''}${outTxt ? `<span class="log-outcome">${esc(outTxt)}</span>` : ''}</div>` : '';
 
         // Action bar — only once the attach columns exist (dormant otherwise).
         let actions = '';
@@ -12541,7 +12587,7 @@
             <span class="log-${isNew ? 'num' : 'name'}">${esc(label)}</span>
             <span class="log-chip">${esc(chip)}</span>
           </div>
-          ${cnam}${newcaller}${note}${nextstep}${untouchedTag}
+          ${cnam}${newcaller}${note}${nextstep}${appt}${untouchedTag}
           <div class="log-rec" data-rec-call="${esc(c.id)}"></div>
           ${actions}${learnAsk}
         </div>`;

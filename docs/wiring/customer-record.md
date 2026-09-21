@@ -1,6 +1,7 @@
 # How the customer record is wired
 
 > Doc: `/docs/wiring/customer-record.md`
+> **2026-09-21 — timeline entries carry the Desk appointment + outcome line; call time falls back to `created_at` (§ Timeline entry, [[call-window-desk]] §10).** On staging, not yet on prod.
 > **2026-09-18 — Edit moved from the top strip into the profile card's name row (§4, §4f).**
 > Verified vs commit `6c22499` (branch `fix/cust-edit-in-person-card` off `main` `2960da9`, on
 > staging, NOT yet on prod). §0, §4, §4f and Where-it-lives re-checked against the code, and driven
@@ -55,7 +56,7 @@ only, the **RO photo buckets** under each RO (§4b). Everything else is read-onl
   `cardFeeOnByRo`. [[card-fee]]). The tile is **omitted** when no closed RO has a total — never
   shown as `$0` or as a lifetime figure that pretends to include ALLDATA years.
 - **Last activity** = best-available max of `customers.last_invoiced`, latest RO
-  `created_at`, and the most recent call `started_at` (`custLastActivity()`).
+  `created_at`, and the most recent call `cdCallWhen` (`started_at`, else `created_at`) (`custLastActivity()`).
 - `completed_jobs` has **no customer_id** — never used for history or counts.
 
 ## 2. Which calls & recordings show
@@ -146,7 +147,7 @@ exist**:
 
 **RIGHT — vehicles accordion (`#custVehicles`, `renderCustVehicles` → `vehRowHtml`).**
 - One collapsible row per vehicle, **sorted by most-recent activity** (`vehActivity` = latest
-  of the vehicle's RO `created_at` and its linked calls' `started_at`).
+  of the vehicle's RO `created_at` and its linked calls' `cdCallWhen`).
 - **Row header:** `year make model`, a `VIN … · Plate …` subline, counts (`N ROs · M calls`
   — the call count is shown only when linkable), and a **status chip**: green
   **`Open · <stage>`** when the vehicle has an open/active RO (`status != 'closed'` and not
@@ -354,7 +355,10 @@ Desk caller card), the same scope split that §4c's first fix got wrong. `custom
 really fires — that was checked, not assumed. Guarded by `shared/cust-cache-guard.test.js`,
 which fails if any future `customers` write skips the invalidation.
 
-**Timeline entry (`callEntryHtml`):** time (`started_at`), caller-ID (`cnam` / `caller_formatted`
+**Timeline entry (`callEntryHtml`):** time (`cdCallWhen` = `started_at`, else `created_at` — a
+manual "+Add" appointment never rang; [[call-window-desk]] §10), an **Added on the Desk** tag on a
+manual row (negative `ctm_call_id`), the call's Desk appointment + outcome line
+(`→ Drop-off Tue, Sep 23 · 9:00 AM` · `✓ Car arrived · by …`, `shared/call-appointment.js`), caller-ID (`cnam` / `caller_formatted`
 / formatted phone), a **disposition** chip from `calls.next_step`
 (`NEXT_STEP_LABEL`), the advisor **note**, a ▶ recording when one exists, and an **unconfirmed**
 tag for phone-matched calls. A confirmed entry has an accent left border; unconfirmed is amber.
@@ -588,6 +592,7 @@ then branches on whether the search box has text:
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
+- 2026-09-21 — Timeline entries show the Desk appointment + outcome line and an "Added on the Desk" tag; every call time/sort on the record uses `started_at` → `created_at` (`cdCallWhen` / `compareCallWhen`). See [[call-window-desk]] §10.
 - 2026-09-18 — **Edit moved into the profile card**, top-right on the name row, NEW corner tag
   kept (same `2026-09-26`); the top strip is Back only. Click now delegated because the card
   re-renders. Nothing else changed. Branch `fix/cust-edit-in-person-card`.

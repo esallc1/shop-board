@@ -21,6 +21,7 @@
    window.CustomerRecord, and imported directly by shared/customer-record.test.js.
    ============================================================ */
 import { computeRoTotals } from './ro-totals.js';
+import { compareCallWhen } from './call-appointment.js';
 
 
 export const ALL_VEHICLES = 'all';
@@ -51,7 +52,7 @@ export function buildRecordingCalls(customerIdCalls, phoneMatchCalls, opts) {
     if (cid && cid !== customerId) continue;                 // attached to someone else → not ours
     out.push({ ...c, confirmed: cid === customerId && cid !== null });
   }
-  out.sort((a, b) => String(a.started_at || '').localeCompare(String(b.started_at || '')));  // OLDEST first
+  out.sort(compareCallWhen);  // OLDEST first — started_at, else created_at (a manual "+Add" row never rang)
   return out;
 }
 

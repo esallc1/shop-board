@@ -1,7 +1,8 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-09-21 — **§6: each lane scrolls inside its own ~6-row box** so the calendar stays close (CSS only). **LIVE ON PROD at `e74136f`**, verified vs commit `e74136f`.
+> Last updated: 2026-09-21 (2) — **new §10: the appointment date + outcome show on the Call Log and the customer record** (no migration; manual "+Add" rows stay out of the Call Log by decision). On staging, not yet on prod.
+> Previously: 2026-09-21 — **§6: each lane scrolls inside its own ~6-row box** so the calendar stays close (CSS only). **LIVE ON PROD at `e74136f`**, verified vs commit `e74136f`.
 > Previously: 2026-09-20 (2) — **new §9: the one destructive "Done" is gone.** Four real
 > outcomes on Coming-in (Arrived · Reschedule · Not coming · Follow up), a confirm before
 > clearing anything still ahead, and a "Recently cleared" undo. "Mark done" is removed from
@@ -369,17 +370,46 @@ himself.
 Every pre-existing resolved row reads **"Done (before outcomes)"**, as intended — nothing was
 backfilled with a guess.
 
-## Known gaps & open questions (as of 2026-09-20)
+## 10. The appointment OUTSIDE the Desk — `shared/call-appointment.js`
+A call's Desk appointment (`due_at`) and what came of it (`outcome` / `resolved_at`) used to
+show only on the Desk. Two other screens now draw it, in the **Desk's own words**:
+
+- **What the line says.** `dueLine(call, dueLabel)` → `→ Drop-off Tue, Sep 23 · 9:00 AM`, or
+  `→ Call back Tue, Sep 23` for `quoted_callback`; all-day = the date only, with the calendar's
+  rule (only `due_all_day === false` is timed). `outcomeLine(call, clearedLabel)` →
+  `✓ Car arrived · by <resolved_by_name>` / `✓ Not coming` / `✓ Called`, and
+  `✓ Done (before outcomes)` for a row cleared before outcomes existed. `follow_up` never
+  resolves (§9), so it shows as `Follow up later` with no tick. Undo nulls the outcome
+  fields, so an undone row shows no outcome line.
+- **No second formatter.** The module only composes. The date is the Desk's `dueLabel`
+  (exposed to the other IIFE as `window.cdDueLabel`); the outcome wording is
+  `DeskOutcomes.clearedLabel` — the same words **Recently cleared** uses.
+- **Call Log (`logRender`).** `LOG_COLS` now carries `due_at, due_all_day`; a fourth select
+  tier `LOG_COLS_OUTCOME` (= `LOG_COLS_AUTO` + `outcome, resolved_at, resolved_by_name`) is
+  tried first and falls back to `LOG_COLS_AUTO` on a missing column. The line
+  (`.log-appt`) sits under the disposition pill. **Real calls only:** the log still filters
+  on `started_at`, so manual "+Add" rows (§8, `started_at` NULL) stay out of it — on purpose,
+  decided 2026-09-21; the Front Desk redesign's History view will own those.
+- **Customer record (`callEntryHtml`).** The same line (`.cust-tl-appt`) under the entry's top
+  row; the row is already `select('*')`, so no query changed. A manual row
+  (`isManualCall`: synthetic negative `ctm_call_id`) carries an **Added on the Desk** tag.
+- **The "when" rule.** `callWhen(call)` = `started_at`, else `created_at` — a manual row never
+  rang. Every customer-record read of a call's time goes through it (`cdCallWhen`): the
+  entry's time, `timelineHtml`'s sort, `buildRecordingCalls`' sort (`compareCallWhen`),
+  `vehActivity`, `custLastActivity`. So a manual row shows when it was added and sorts
+  there, instead of "—" at the top.
+- Pure, no DOM → `shared/call-appointment.test.js`, incl. board-wiring assertions that the
+  customer-record path never reads `started_at` raw.
+
+## Known gaps & open questions (as of 2026-09-21)
 - The four chips are one undifferentiated wrap row; "Quoted — will call back" and
   "Dropping off" are adjacent and easy to mis-tap. The echo now catches the *result*;
   visually separating "an appointment" from "a reminder" is a possible next step.
 - ~~"Mark done" is a one-click, no-confirm, no-undo delete~~ — **fixed in §9 and live on prod
   at `1aeb2ee`** (four outcomes, a confirm on future-dated clears, and Recently cleared / Undo).
-- **A resolved appointment's DATE is recoverable nowhere in the UI** *(outside the 30-day
-  Recently-cleared window, §9c)*. The Call Log's
-  `LOG_COLS` doesn't select `due_at`, and the customer record has no `due_at` at all — a
-  resolved drop-off shows only the words "Dropping off". A manual walk-in (`started_at`
-  null) isn't in the Call Log either, so once resolved it exists on no screen.
+- **A manual "+Add" appointment is still absent from the Call Log** (by decision, §10) — it
+  shows on the Desk and on the customer record only. The RO header, New-RO wizard and the
+  RO's Call History panel still show no appointment date (out of scope 2026-09-21).
 - **Two timed chips in the same slot: only one is drawn.** `timedChip` gives every chip the
   same `left:2px; right:2px` and a `top` from the hour, `position:absolute` over an opaque
   background — identical times fully hide one, and anything under ~30 min apart partially
@@ -390,6 +420,11 @@ backfilled with a guess.
   like an intended 6 am–8 pm clamp that was never wired.
 
 ## Where it lives in the code
+- **Appointment outside the Desk (§10):** `shared/call-appointment.js` (`dueLine`,
+  `outcomeLine`, `isManualCall`, `callWhen`, `compareCallWhen`, +`.test.js`), loaded as
+  `window.CallAppointment`; `advisor-board.html` — `LOG_COLS` / `LOG_COLS_OUTCOME` +
+  `logRender` (Desk IIFE), `window.cdDueLabel`, `cdCallWhen` + `callEntryHtml`
+  (customer-record IIFE); `shared/customer-record.js` `buildRecordingCalls` sort.
 - **Confirm-before-learning (§2c):** decision logic in `shared/call-attach.js` —
   `wouldLearnPhone`, `countForeignCalls`, `phoneLearnDefaultYes`, `phoneLearnDeclineKey`,
   `isPhoneLearnDeclined`, `rememberPhoneLearnDecline` (tested in `shared/call-attach.test.js`).
@@ -432,6 +467,7 @@ backfilled with a guess.
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- 2026-09-21 — **§10 added:** the Call Log and the customer record draw a call's due + outcome line (Desk wording, `shared/call-appointment.js`); customer-record call time falls back `started_at` → `created_at`; manual rows tagged. Manual rows stay out of the Call Log by decision. No migration.
 - 2026-09-21 — Shipped to prod at `e74136f` (fast-forward `bbe6203..e74136f`). `advisor-board.html` byte-identical to git on www, board.* and apex.
 - 2026-09-21 — Desk lanes scroll inside their own box (~6 rows, `.desk-lane-body` max-height); "recovered" banner sticky. CSS only, all three lanes (§6).
 - 2026-09-20 — **Shipped to prod at `1aeb2ee`** (fast-forward `2eb77b1..1aeb2ee`, no Promote,
