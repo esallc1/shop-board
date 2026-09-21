@@ -1,7 +1,8 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-09-20 (2) — **new §9: the one destructive "Done" is gone.** Four real
+> Last updated: 2026-09-21 — **§6: each lane scrolls inside its own ~6-row box** so the calendar stays close (CSS only).
+> Previously: 2026-09-20 (2) — **new §9: the one destructive "Done" is gone.** Four real
 > outcomes on Coming-in (Arrived · Reschedule · Not coming · Follow up), a confirm before
 > clearing anything still ahead, and a "Recently cleared" undo. "Mark done" is removed from
 > the call window. Three new nullable columns on `calls`. **LIVE ON PROD at `1aeb2ee`**
@@ -183,6 +184,13 @@ writes `resolved_at` **nowhere** — locked by a test.
   shows, in red); **Coming in** = **every** unresolved `dropping_off`, ordered overdue →
   undated → upcoming (§6a); **Declined estimates** = `repair_orders.declined_at` (its own
   restore lifecycle, *not* `resolved_at`).
+- **Each lane scrolls in its own box.** All three lane lists share `.desk-lane-body`, capped
+  at `max-height: min(420px, 55vh)` (~6 rows) with `overflow-y: auto` +
+  `overscroll-behavior: contain`, so a long lane (Coming-in, once §6a surfaced the backlog)
+  can't push the drop-off calendar down the page, and a flick at the end of a lane doesn't
+  scroll the page on the iPad. The lane head (title + count) sits outside the box and stays
+  put; the §6a "recovered" banner is the first child *inside* the box, so it is
+  `position: sticky; top: 0`. CSS only — row order is untouched.
 - **Drop-off calendar:** `renderCalendar(calendarFeed())` — a week grid of every dated
   unresolved `dropping_off`, **past and future**. The week window is the only date filter,
   so `‹ ›` browses real history. Chips are drag-to-reschedule (`rescheduleCall`).
@@ -424,6 +432,7 @@ backfilled with a guess.
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- 2026-09-21 — Desk lanes scroll inside their own box (~6 rows, `.desk-lane-body` max-height); "recovered" banner sticky. CSS only, all three lanes (§6).
 - 2026-09-20 — **Shipped to prod at `1aeb2ee`** (fast-forward `2eb77b1..1aeb2ee`, no Promote,
   after `20260920_calls_outcome_PROD.sql`). `advisor-board.html` + `shared/desk-outcomes.js` +
   `shared/desk-appointments.js` byte-identical to git on `www` and `board.*`. Prod read-only

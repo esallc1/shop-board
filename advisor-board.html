@@ -1839,7 +1839,14 @@
     .desk-lane.lane-comingin .desk-lane-head, .desk-lane.lane-comingin .desk-lane-title { color:#085041; }
     .desk-lane.lane-comingin .desk-lane-count { background:#0F6E56; }
     .desk-lane.lane-comingin .desk-lane-icon { color:#0F6E56; }
-    .desk-lane-body { display:flex; flex-direction:column; gap:8px; }
+    /* Each lane's rows scroll inside their own box (~6 rows) so a long lane
+       can't push the drop-off calendar off the screen. The head (title + count)
+       sits outside this box and stays put; overscroll-behavior stops a flick at
+       the end from scrolling the whole page on the iPad. */
+    .desk-lane-body { display:flex; flex-direction:column; gap:8px;
+      max-height:min(420px, 55vh); overflow-y:auto; overscroll-behavior:contain;
+      -webkit-overflow-scrolling:touch; padding-right:4px; }
+    .desk-lane-body > * { flex-shrink:0; }   /* rows keep full height; the box scrolls instead */
     .desk-row { background:#fff; border-radius:9px; padding:9px 10px; cursor:pointer; box-shadow:0 1px 2px rgba(20,30,60,0.06); }
     .desk-row:hover { box-shadow:0 2px 8px rgba(20,30,60,0.12); }
     .desk-row-top { display:flex; align-items:baseline; gap:8px; }
@@ -1863,8 +1870,9 @@
     .desk-lane-empty { font-size:0.78rem; color:var(--muted); padding:8px 2px; }
     /* "Recovered" note — the rows below were hidden by a display bug, not by
        anything the team did. Both the banner and the per-row tag expire on
-       their own (shared/desk-appointments.js RECOVERED_UNTIL). */
-    .desk-recovered-banner { background:#FFF4E5; border:1px solid #F0B968; border-radius:9px;
+       their own (shared/desk-appointments.js RECOVERED_UNTIL). It is the first
+       child of the scrolling lane body, so it sticks to the top of the box. */
+    .desk-recovered-banner { position:sticky; top:0; z-index:1; flex-shrink:0; background:#FFF4E5; border:1px solid #F0B968; border-radius:9px;
       padding:8px 10px; margin-bottom:8px; font-size:0.76rem; line-height:1.35; color:#6B4310; font-weight:600; }
     .desk-recovered-tag { display:block; margin-top:5px; font-size:0.7rem; line-height:1.3;
       color:#6B4310; background:#FFF4E5; border-radius:6px; padding:3px 6px; font-weight:600; }
