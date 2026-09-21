@@ -12,14 +12,12 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `1aeb2ee`** (2026-09-20, ~08:20 ET — the Desk's one destructive "Done" is gone.
-Coming-in rows now carry four outcomes — **Arrived · Reschedule · Not coming · Follow up** —
-plus a confirm before clearing anything still ahead and a **Recently cleared** undo panel;
-"Mark done" is removed from the call window. `follow_up` deliberately does NOT resolve: it parks
-the lead in Callbacks with a call-back date. Rules in `shared/desk-outcomes.js`. **Prod migration
-`20260920_calls_outcome_PROD.sql` run by Cris FIRST** (3 nullable columns + CHECK + index;
-0 rows backfilled). www/board `/api/version` verified, `advisor-board.html` +
-`shared/desk-outcomes.js` + `shared/desk-appointments.js` byte-identical). Any later commit on
+**Prod code = `e74136f`** (2026-09-21 — the Desk's three lanes (Callbacks · Declined · Coming in)
+now scroll inside their own box: `.desk-lane-body` capped at `min(420px, 55vh)` with
+`overscroll-behavior: contain`; the "Recovered…" banner is sticky. CSS only — no JS, no DB, no
+migration. Fast-forward `bbe6203..e74136f`; www, board.* and apex `advisor-board.html`
+byte-identical to `git show e74136f:` (sha1 `0799eed4…`). Previous code ship: `1aeb2ee` (Desk four
+outcomes + undo, `20260920_calls_outcome_PROD.sql`). Any later commit on
 `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
