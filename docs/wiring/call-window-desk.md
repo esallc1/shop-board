@@ -1,7 +1,8 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-09-21 (3) — **new §6b (key drop box) + §6c (calendar 7 am–6 pm, same-time chips side by side).** **LIVE ON PROD at `83826ed`** (after `20260921_calls_dropoff_key_box_PROD.sql`, run by Cris), verified vs commit `83826ed`.
+> Last updated: 2026-09-22 — **new §6d: every Desk row gets a name** (link → "+Add" typed name → phone GUESS with a confirm box → number); Recently cleared gets its own lookup. On staging, not yet on prod.
+> Previously: 2026-09-21 (3) — **new §6b (key drop box) + §6c (calendar 7 am–6 pm, same-time chips side by side).** **LIVE ON PROD at `83826ed`** (after `20260921_calls_dropoff_key_box_PROD.sql`, run by Cris), verified vs commit `83826ed`.
 > Previously: 2026-09-21 (2) — **new §10: the appointment date + outcome show on the Call Log and the customer record** (no migration; manual "+Add" rows stay out of the Call Log by decision). **LIVE ON PROD at `6733056`**, verified vs commit `6733056`.
 > Previously: 2026-09-21 — **§6: each lane scrolls inside its own ~6-row box** so the calendar stays close (CSS only). **LIVE ON PROD at `e74136f`**, verified vs commit `e74136f`.
 > Previously: 2026-09-20 (2) — **new §9: the one destructive "Done" is gone.** Four real
@@ -288,6 +289,43 @@ because someone has to check it in the morning.
   narrower chip drops exactly where it did.
 - All-day chips never overlapped (they stack in a flex column) and are unchanged.
 
+## 6d. Who a Desk row is — `shared/desk-names.js`
+Until 2026-09-22 a lane named a row **only** through `calls.customer_id`, and Recently
+cleared never looked its customers up at all (the lookup took ids from the open rows only),
+so on prod all 12 linked cleared rows, every "+Add" walk-in and every unlinked caller showed a
+bare number. Now every lane, Recently cleared and the calendar chips use one resolver,
+`deskName(call, { byId, byPhone, phoneLabel })`:
+
+1. `customer_id` → that customer — **confirmed** (plain bold). Linked but not loaded → the
+   number, never a phone guess over a human's link.
+2. a **"+Add" row's typed name** (`cnam` on a row with a synthetic negative `ctm_call_id` —
+   `isManualCall`, the marker `api/desk-appointment.js` sets) — **confirmed**.
+3. the phone matches **exactly one** active customer → that name — **guess**.
+4. **2+** customers → "N customers on this number" — **guess**; never picks one.
+5. otherwise the formatted number (as before).
+
+- **CTM caller-ID `cnam` is ignored** — 14 of 46 on prod are a city ("FORT MYERS   FL").
+- **Archived / merged-away customers** (`CustomerArchive.isArchived`) are dropped from the
+  phone index, so they are never the guess and never counted in N.
+- A call a human marked **"not a customer"** (`not_a_customer_at`) is never guessed.
+- **The data:** `CALL_COLS` gains `cnam, not_a_customer_at`. `deskLoad` looks up customers for
+  `customerIdsToLoad(calls, cleared)` (open **and** cleared) and builds the phone index from
+  the shared paginated `cdFetchAllCustomers` (cached in `custIdx`; not cached if that fetch
+  isn't loaded yet) → `lastData.phoneIdx`.
+- **How a guess looks:** grey italic + a small "?" (`.desk-name-guess`, tooltip "Matched by
+  phone — not confirmed"), the number on the line under it; chips get `.is-guess` (italic
+  grey) and a trailing "?". Confirm dialogs and the edit modal use the same text.
+- **"Who is this?"** — tapping a guess (lanes and Recently cleared) opens `#deskGuess`:
+  one guess → **Yes, that's <name>** · **Someone else…** · **Open customer page**; "N
+  customers" → the N to pick from · **Someone else…**. Every link goes through the July 29
+  `performAttach` (anon UPDATE via `CallAttach.attachCallPatch`, the open-RO re-check, the
+  phone-learn plan) wrapped by `attachFromDesk`, which redraws the Desk from memory so the
+  row turns confirmed without a reload. **Someone else…** opens the existing attach picker
+  (`openAttach`, search all customers); **Open customer page** is `cdOpenCustomerById`
+  (navigation only). A confirmed name or a bare number keeps its old tap (open by phone).
+- The sticky "Recovered" banner (Coming-in only) gets `box-shadow:0 0 0 6px #E1F5EE` so an
+  overdue row's red edge no longer shows through its rounded corners while the lane scrolls.
+
 ## 7. Editing / re-routing a Desk item, and adding one by hand
 Nothing on the Desk depends on the live call popup any more — an item can be fixed or
 created directly. One modal (`#deskEdit`, `openDeskEdit(mode, opts)`) does both, with the
@@ -455,7 +493,13 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 - Pure, no DOM → `shared/call-appointment.test.js`, incl. board-wiring assertions that the
   customer-record path never reads `started_at` raw.
 
-## Known gaps & open questions (as of 2026-09-21)
+## Known gaps & open questions (as of 2026-09-22)
+- **"Someone else…" can't create a new customer** (§6d). The only create path is inside the
+  New-RO wizard, which goes on to a vehicle and never links a call; building a Desk create
+  would be a new customer-insert path, so it was left out. Today: search existing only.
+- After a Desk confirm to a customer who doesn't have that number, the "also save this
+  number?" question is only drawn in the **Call Log** (pendingLearn); the attach itself is
+  unconditional and done.
 - The four chips are one undifferentiated wrap row; "Quoted — will call back" and
   "Dropping off" are adjacent and easy to mis-tap. The echo now catches the *result*;
   visually separating "an appointment" from "a reminder" is a possible next step.
@@ -470,6 +514,11 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
   (a key-box drop-off covers "after hours").
 
 ## Where it lives in the code
+- **Desk names (§6d):** `shared/desk-names.js` (`deskName`, `buildPhoneIndex`,
+  `customerIdsToLoad`, `isGuess`, `textLabel`, `GUESS_TOOLTIP`, +`.test.js`), loaded as
+  `window.DeskNames`; `advisor-board.html` — `CALL_COLS`, `deskLoad` (lookup + `phoneIdx`),
+  `deskNameOf` / `deskNameHtml` / `customerLabel`, `chipFlags`, `#deskGuess` +
+  `openGuessBox` / `attachFromDesk`, `cdOpenCustomerById`, `.desk-name-guess` CSS.
 - **Key box + calendar layout (§6b/§6c):** `shared/desk-appointments.js` (`layoutTimedChips`,
   `isKeyBox`, `dropoffTimeChoice`, `withKeyBox`, `reschedulePatch`, `KEY_BOX_*`,
   `ANY_TIME_OPTION`, +`.test.js`); `advisor-board.html` — `DAY_START`/`DAY_END`,
@@ -524,6 +573,7 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- 2026-09-22 — **§6d added:** one name resolver for every lane, Recently cleared and the chips (link → "+Add" typed name → phone guess → number); Recently cleared gets its own customer lookup; guesses are grey italic "?" and open a "Who is this?" box that confirms via the July 29 attach path; red-sliver banner fix. No migration, no new endpoint.
 - 2026-09-21 — §6b/§6c shipped to prod at `83826ed` (fast-forward `28c49bd..83826ed`) after the PROD migration (0 rows set, 896 calls); the 3 changed front-end files byte-identical to git on www, board.* and apex. Sandbox test row id 293 (ZZ KEYBOX TEST) left in place on purpose.
 - 2026-09-21 — **§6b + §6c added:** key drop box (`calls.dropoff_key_box`, picker option, 🔑 on chip / Coming-in / §10 line, cleared on drag-to-timed); "Morning (no time)" → "Any time"; same-time chips side by side (`layoutTimedChips`); calendar view 7 am–6 pm via `DAY_START`/`DAY_END` on the unchanged 24 h grid. Sandbox migration run by Cris.
 - 2026-09-21 — §10 shipped to prod at `6733056` (fast-forward `57763fb..6733056`); the 3 changed files byte-identical to git on www, board.* and apex.

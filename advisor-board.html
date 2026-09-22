@@ -1388,6 +1388,14 @@
   import * as CallAppointment from './shared/call-appointment.js';
   window.CallAppointment = CallAppointment;
 </script>
+<!-- WHO a Desk row is (ESM -> window.DeskNames): customer link, "+Add" typed
+     name, then a phone-match GUESS. Read only at render time; absent -> the
+     lanes fall back to the old customer_id-or-phone label.
+     See call-window-desk.md §6d. -->
+<script type="module">
+  import * as DeskNames from './shared/desk-names.js';
+  window.DeskNames = DeskNames;
+</script>
 <!-- PER-RO photo buckets (ESM -> window.PhotoBuckets) and the photo downscaler
      (ESM -> window.PhotoCompress). Both are shared VERBATIM with
      my-numbers.html: the same grouping rules decide what "No bucket" means on
@@ -1864,6 +1872,17 @@
     .desk-row:hover { box-shadow:0 2px 8px rgba(20,30,60,0.12); }
     .desk-row-top { display:flex; align-items:baseline; gap:8px; }
     .desk-row-name { font-weight:700; font-size:0.86rem; color:var(--text); }
+    /* A name GUESSED from the phone (§6d): grey italic + "?", tap = "Who is this?". */
+    .desk-name-guess { background:none; border:0; padding:0; margin:0; font:inherit; font-style:italic; font-weight:600; font-size:0.86rem; color:var(--muted); cursor:pointer; text-align:left; }
+    .desk-name-guess:hover { color:var(--text); text-decoration:underline dotted; }
+    .desk-guess-q { display:inline-block; margin-left:5px; width:15px; height:15px; line-height:15px; border-radius:999px; background:#94a3b8; color:#fff; font-size:0.66rem; font-weight:800; font-style:normal; text-align:center; vertical-align:1px; }
+    .desk-row-phone { display:block; font-size:0.74rem; color:var(--muted); margin-top:1px; }
+    .desk-row-top:has(.desk-name-guess) { flex-direction:column; align-items:flex-start; gap:0; }
+    .desk-chip.is-guess .desk-chip-t { font-style:italic; color:var(--muted); }
+    .desk-guess { max-width:360px; }
+    .desk-guess-note { font-size:0.76rem; color:var(--muted); margin:2px 0 10px; }
+    .desk-guess-choices { display:flex; flex-direction:column; gap:8px; }
+    .desk-guess-choices .desk-btn { padding:8px 10px; font-size:0.8rem; }
     .desk-row-ro { font-weight:800; font-size:0.8rem; color:var(--muted); }
     .desk-row-note { font-size:0.78rem; color:var(--muted); margin-top:3px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
     .desk-row-veh { font-size:0.78rem; color:var(--muted); margin-top:2px; }
@@ -1885,7 +1904,7 @@
        anything the team did. Both the banner and the per-row tag expire on
        their own (shared/desk-appointments.js RECOVERED_UNTIL). It is the first
        child of the scrolling lane body, so it sticks to the top of the box. */
-    .desk-recovered-banner { position:sticky; top:0; z-index:1; flex-shrink:0; background:#FFF4E5; border:1px solid #F0B968; border-radius:9px;
+    .desk-recovered-banner { position:sticky; top:0; z-index:1; flex-shrink:0; background:#FFF4E5; border:1px solid #F0B968; border-radius:9px; box-shadow:0 0 0 6px #E1F5EE;
       padding:8px 10px; margin-bottom:8px; font-size:0.76rem; line-height:1.35; color:#6B4310; font-weight:600; }
     .desk-recovered-tag { display:block; margin-top:5px; font-size:0.7rem; line-height:1.3;
       color:#6B4310; background:#FFF4E5; border-radius:6px; padding:3px 6px; font-weight:600; }
@@ -2220,6 +2239,22 @@
       <div class="deskedit-foot">
         <button type="button" class="desk-btn" id="deskNotNowCancel">Cancel</button>
         <button type="button" class="deskedit-save" id="deskNotNowSave">Move to Callbacks</button>
+      </div>
+    </div>
+
+    <!-- "Who is this?" — a name the Desk GUESSED from the phone (§6d). Confirming
+         is the July 29 attach write (performAttach); nothing here is new. -->
+    <div class="deskedit-backdrop" id="deskGuessBackdrop"></div>
+    <div class="deskedit desk-guess" id="deskGuess" role="dialog" aria-modal="true" aria-hidden="true">
+      <div class="deskedit-head">
+        <span class="deskedit-title">Who is this?</span>
+        <button type="button" class="desk-log-x" id="deskGuessX" aria-label="Close">×</button>
+      </div>
+      <div class="deskedit-body">
+        <div class="deskedit-who-sub" id="deskGuessPhone"></div>
+        <div class="desk-guess-note">Matched by phone — not confirmed yet.</div>
+        <div class="desk-guess-choices" id="deskGuessChoices"></div>
+        <div class="deskedit-err" id="deskGuessErr"></div>
       </div>
     </div>
   </div>
@@ -11249,6 +11284,14 @@
     // Repoint the ONE phone entry point every call-log row / Desk row / chip
     // uses. Resolve phone → customer id (id beats phone). One match → the record;
     // otherwise the searchable list, seeded with what we know.
+    // Open ONE customer's record by id (the Desk's "Open customer page" on a
+    // guessed name). Navigation only — nothing is written.
+    window.cdOpenCustomerById = (id) => {
+      const backView = sessionStorage.getItem('advisorBoardActiveView') || 'desk';
+      const item = document.querySelector('.sidebar-item[data-view="customer"]'); if (item) item.click();
+      custBackTarget = { kind: 'view', viewKey: backView };
+      showCustomerRecord(id);
+    };
     window.cdOpenCustomerByPhone = async (phone) => {
       const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
       const backView = sessionStorage.getItem('advisorBoardActiveView') || 'desk';
@@ -11675,7 +11718,27 @@
     }
     // Lanes/calendar only need the display string; unchanged behavior (they pass
     // an id-keyed map with no byPhone, so this is pure customer_id resolution).
-    function customerLabel(call, custMap) { return resolveCaller(call, custMap).label; }
+    function customerLabel(call, custMap) { const r = deskNameOf(call, custMap); return r ? window.DeskNames.textLabel(r) : resolveCaller(call, custMap).label; }
+    // THE Desk name (§6d): link → "+Add" typed name → phone GUESS → number.
+    // null only when shared/desk-names.js hasn't loaded (old behavior then).
+    function deskNameOf(call, custMap) {
+      const DNm = window.DeskNames; if (!DNm) return null;
+      return DNm.deskName(call, {
+        byId: custMap || (lastData && lastData.custMap) || {},
+        byPhone: (lastData && lastData.phoneIdx) || null,
+        phoneLabel: numberLabel,
+        last10: window.cdLast10,
+      });
+    }
+    // A lane row's name. Confirmed / bare number → plain text (click = today's
+    // open-by-phone). A GUESS → grey italic + "?" that opens the confirm box,
+    // with the phone number still shown under it.
+    function deskNameHtml(call, custMap, cls) {
+      const r = deskNameOf(call, custMap);
+      if (!r || !window.DeskNames.isGuess(r)) return `<span class="${cls}">${esc(r ? r.label : customerLabel(call, custMap))}</span>`;
+      return `<button type="button" class="desk-name-guess ${cls}" data-guess-call="${esc(String(call.id))}" title="${esc(window.DeskNames.GUESS_TOOLTIP)}">${esc(r.label)}<span class="desk-guess-q" aria-hidden="true">?</span></button>`
+        + `<span class="desk-row-phone">${esc(numberLabel(call))}</span>`;
+    }
     function vehLabel(v) { return [v.year, v.make, v.model].filter(Boolean).join(' '); }
 
     // ── data load ──
@@ -11684,7 +11747,9 @@
     // fix — and it's the undated rows' sort key. Same migration as `next_step` /
     // `due_at` (20260728_calls_notes.sql), so it can't be missing on its own:
     // a pre-migration DB already falls into renderNeedsMigration via isMissingCol.
-    const CALL_COLS = 'id, ctm_call_id, caller_bare, caller_formatted, customer_id, ro_id, note, next_step, due_at, due_all_day, noted_at, resolved_at';
+    // cnam: the name typed in "+Add" (§6d). not_a_customer_at: a human's "not a
+    // customer" — the name resolver never guesses over it.
+    const CALL_COLS = 'id, ctm_call_id, caller_bare, caller_formatted, cnam, not_a_customer_at, customer_id, ro_id, note, next_step, due_at, due_all_day, noted_at, resolved_at';
     // Outcome tier — tried FIRST, falling back to CALL_COLS on 42703, the same
     // trick logLoad uses for the attach columns. This is what makes the deploy
     // order not matter: until `20260920_calls_outcome_*.sql` is run the board
@@ -11736,7 +11801,10 @@
 
       // 2. resolve customer names + (single) vehicles for the involved customers.
       //    Targeted .in() lookups — NOT a select-all (the 1000-row cap trap).
-      const custIds = [...new Set(calls.map(c => c.customer_id).filter(Boolean))];
+      // Open AND cleared rows — Recently cleared used to be left out, so every
+      // linked cleared row showed a bare number (§6d).
+      const DNm = window.DeskNames;
+      const custIds = DNm ? DNm.customerIdsToLoad(calls, cleared) : [...new Set(calls.map(c => c.customer_id).filter(Boolean))];
       const custMap = {}, vehMap = {};
       if (custIds.length) {
         const [cRes, vRes] = await Promise.all([
@@ -11758,7 +11826,14 @@
       if (dRes.error) { if (!isMissingCol(dRes.error)) console.error('[desk] declined load failed', dRes.error); }
       else declined = dRes.data || [];
 
-      lastData = { calls, custMap, vehMap, declined, cleared };
+      // Phone index for the name GUESS (steps 3–4). The shared paginated fetch,
+      // cached in custIdx; archived customers are dropped by DeskNames.
+      let phoneIdx = null;
+      if (DNm) {
+        try { const idx = await ensureCustIndex(); phoneIdx = DNm.buildPhoneIndex(Object.values(idx.byId || {})); }
+        catch (e) { console.warn('[desk] phone index failed — names fall back to link-or-number', e); }
+      }
+      lastData = { calls, custMap, vehMap, declined, cleared, phoneIdx };
       deskRender(lastData);
     }
     window.cdDeskReload = deskLoad;
@@ -11792,7 +11867,7 @@
         // move and not a delete.
         const why = DO() ? DO().callbackReason(c, (iso) => dueLabel(iso, true)) : '';
         return `<div class="desk-row" data-open-phone="${esc(c.caller_bare || '')}">
-          <div class="desk-row-top"><span class="desk-row-name">${esc(customerLabel(c, custMap))}</span></div>
+          <div class="desk-row-top">${deskNameHtml(c, custMap, 'desk-row-name')}</div>
           ${why ? `<div class="desk-row-why">${esc(why)}</div>` : ''}
           ${c.note ? `<div class="desk-row-note">${esc(c.note)}</div>` : ''}
           <div class="desk-row-meta">
@@ -11847,7 +11922,7 @@
             + `<button class="desk-btn hold" data-outcome="follow_up" data-id="${esc(String(c.id))}" title="Not now — stays a live lead, moves to Callbacks with a date">${esc(M.OUTCOME_SHORT.follow_up)}</button>`
           : `<button class="desk-btn" data-edit="${esc(String(c.id))}">Edit</button><button class="desk-btn done" data-done="${esc(String(c.id))}">Done</button>`;
         return `<div class="desk-row${cls}" data-open-phone="${esc(c.caller_bare || '')}">
-          <div class="desk-row-top"><span class="desk-row-name">${esc(customerLabel(c, custMap))}</span></div>
+          <div class="desk-row-top">${deskNameHtml(c, custMap, 'desk-row-name')}</div>
           ${veh ? `<div class="desk-row-veh">${esc(veh)}</div>` : ''}
           <div class="desk-row-meta">
             <span class="desk-row-due${overdue ? ' overdue' : ''}">${esc(dueLabel(c.due_at, c.due_all_day))}</span>
@@ -11957,8 +12032,9 @@
       const mod = DA();
       const past = isOverdue(c.due_at, c.due_all_day);
       const rec = !!mod && mod.recoveryNoticeVisible(new Date()) && mod.isRecovered(c);
+      const nm = deskNameOf(c);
       return {
-        cls: past ? ' is-past' : '',
+        cls: (past ? ' is-past' : '') + ((nm && window.DeskNames.isGuess(nm)) ? ' is-guess' : ''),
         title: rec ? ` title="${esc(mod.RECOVERED_TAG)}"` : '',
       };
     }
@@ -12091,7 +12167,7 @@
       $('deskClearedList').innerHTML = list.map(c => {
         const label = M.clearedLabel(c);
         const known = M.isOutcome(c.outcome);
-        const who = esc(customerLabel(c, custMap || {}));
+        const who = deskNameHtml(c, custMap || {}, 'desk-cleared-name');
         const by = c.resolved_by_name ? ` by ${c.resolved_by_name}` : '';
         // Say what it WAS as well as when it was cleared — the due date is what
         // makes "this shouldn't have gone" obvious at a glance.
@@ -12430,6 +12506,8 @@
       // Lane rows only — calendar chips open via their own pointer tap (so a
       // drag isn't also treated as an open). Scope to .desk-lane to exclude #deskCal.
       document.querySelectorAll('#view-desk .desk-lane [data-open-phone]').forEach(row => row.onclick = () => { const p = row.dataset.openPhone; if (p && window.cdOpenCustomerByPhone) window.cdOpenCustomerByPhone(p); });
+      // A guessed name opens the confirm box instead (lanes AND Recently cleared).
+      document.querySelectorAll('#view-desk [data-guess-call]').forEach(b => b.onclick = (e) => { e.stopPropagation(); openGuessBox(b.dataset.guessCall); });
     }
 
     // week nav
@@ -12487,7 +12565,8 @@
     async function ensureCustIndex() {
       if (custIdx) return custIdx;
       const byId = {}, byPhone = {};
-      const rows = window.cdFetchAllCustomers ? await window.cdFetchAllCustomers() : [];
+      if (!window.cdFetchAllCustomers) return { byId: {}, byPhone: {} };   // not loaded yet — don't cache an empty index
+      const rows = await window.cdFetchAllCustomers();
       const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
       for (const c of rows) {
         byId[c.id] = c;
@@ -12928,6 +13007,60 @@
       panel.classList.remove('open'); panel.setAttribute('aria-hidden', 'true');
       attachTarget = null;
     }
+
+    // ── "Who is this?" — confirm a GUESSED Desk name (§6d) ─────────────
+    // Every link goes through performAttach (the July 29 path: anon UPDATE via
+    // CallAttach.attachCallPatch + the open-RO re-check + the phone-learn plan).
+    // No new write, no endpoint.
+    const deskCallById = (id) => {
+      const d = lastData || {};
+      return (d.calls || []).concat(d.cleared || []).find(c => String(c.id) === String(id)) || null;
+    };
+    // Attach, then redraw the Desk from memory so the row turns confirmed now —
+    // performAttach mutates the SAME row object lastData holds.
+    async function attachFromDesk(call, cust) {
+      await performAttach(call, cust);
+      if (String(call.customer_id) !== String(cust.id)) return;   // the write failed (performAttach alerted)
+      if (lastData) { lastData.custMap = lastData.custMap || {}; lastData.custMap[cust.id] = cust; deskRender(lastData); }
+    }
+    function closeGuessBox() {
+      $('deskGuess').classList.remove('open'); $('deskGuess').setAttribute('aria-hidden', 'true');
+      $('deskGuessBackdrop').classList.remove('open');
+    }
+    function openGuessBox(callId) {
+      const call = deskCallById(callId);
+      const r = call && deskNameOf(call);
+      if (!r || !window.DeskNames.isGuess(r)) return;
+      const nm = (c) => window.DeskNames.custDisplayName(c);
+      const ph = (c) => (window.formatPhone ? formatPhone(c.phone_primary || c.phone_secondary) : (c.phone_primary || '')) || '';
+      $('deskGuessPhone').textContent = numberLabel(call);
+      $('deskGuessErr').textContent = '';
+      let html = '';
+      if (r.kind === 'guess') {
+        html += `<button type="button" class="deskedit-save desk-guess-yes" data-guess-pick="${esc(String(r.customer.id))}">Yes, that&rsquo;s ${esc(nm(r.customer))}</button>`;
+      } else {
+        html += `<div class="deskedit-label">${esc(r.label)} — which one?</div>`
+          + r.candidates.map(c => `<button type="button" class="desk-attach-item" data-guess-pick="${esc(String(c.id))}"><span class="desk-attach-name">${esc(nm(c))}</span><span class="desk-attach-phone">${esc(ph(c))}</span></button>`).join('');
+      }
+      html += `<button type="button" class="desk-btn" data-guess-else="1">Someone else…</button>`;
+      if (r.kind === 'guess') html += `<button type="button" class="desk-btn" data-guess-open="${esc(String(r.customer.id))}">Open customer page</button>`;
+      const box = $('deskGuessChoices');
+      box.innerHTML = html;
+      box.querySelectorAll('[data-guess-pick]').forEach(b => b.onclick = async () => {
+        const cust = r.candidates.find(c => String(c.id) === b.dataset.guessPick);
+        if (!cust) return;
+        b.disabled = true;
+        closeGuessBox();
+        await attachFromDesk(call, cust);
+      });
+      box.querySelector('[data-guess-else]').onclick = () => { closeGuessBox(); openAttach(call); };   // search all customers → performAttach
+      const op = box.querySelector('[data-guess-open]');
+      if (op) op.onclick = () => { closeGuessBox(); if (window.cdOpenCustomerById) window.cdOpenCustomerById(op.dataset.guessOpen); };   // nothing linked
+      $('deskGuessBackdrop').classList.add('open');
+      $('deskGuess').classList.add('open'); $('deskGuess').setAttribute('aria-hidden', 'false');
+    }
+    $('deskGuessX').addEventListener('click', closeGuessBox);
+    $('deskGuessBackdrop').addEventListener('click', closeGuessBox);
     function renderAttachList(q) {
       const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
       const query = (q || '').trim().toLowerCase();
@@ -12954,7 +13087,7 @@
       el.querySelectorAll('[data-cust-id]').forEach(b => b.onclick = () => {
         const cust = list.find(x => String(x.id) === b.dataset.custId);
         const call = attachTarget;
-        if (cust && call) { closeAttach(); performAttach(call, cust); }
+        if (cust && call) { closeAttach(); attachFromDesk(call, cust); }   // also redraws the Desk (a no-op for a Call Log row)
       });
     }
 
