@@ -1,7 +1,7 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-09-22 — **new §6d: every Desk row gets a name** (link → "+Add" typed name → phone GUESS with a confirm box → number); Recently cleared gets its own lookup. On staging, not yet on prod.
+> Last updated: 2026-09-22 — **new §6d: every Desk row gets a name** (link → "+Add" typed name → phone GUESS with a confirm box → number); Recently cleared gets its own lookup. **LIVE ON PROD at `62bbd73`**, verified vs commit `62bbd73`.
 > Previously: 2026-09-21 (3) — **new §6b (key drop box) + §6c (calendar 7 am–6 pm, same-time chips side by side).** **LIVE ON PROD at `83826ed`** (after `20260921_calls_dropoff_key_box_PROD.sql`, run by Cris), verified vs commit `83826ed`.
 > Previously: 2026-09-21 (2) — **new §10: the appointment date + outcome show on the Call Log and the customer record** (no migration; manual "+Add" rows stay out of the Call Log by decision). **LIVE ON PROD at `6733056`**, verified vs commit `6733056`.
 > Previously: 2026-09-21 — **§6: each lane scrolls inside its own ~6-row box** so the calendar stays close (CSS only). **LIVE ON PROD at `e74136f`**, verified vs commit `e74136f`.
@@ -573,6 +573,7 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- 2026-09-22 — §6d shipped to prod at `62bbd73` (fast-forward `d2ac603..62bbd73`, no migration); all 5 changed files byte-identical to git on www, board.* and apex.
 - 2026-09-22 — **§6d added:** one name resolver for every lane, Recently cleared and the chips (link → "+Add" typed name → phone guess → number); Recently cleared gets its own customer lookup; guesses are grey italic "?" and open a "Who is this?" box that confirms via the July 29 attach path; red-sliver banner fix. No migration, no new endpoint.
 - 2026-09-21 — §6b/§6c shipped to prod at `83826ed` (fast-forward `28c49bd..83826ed`) after the PROD migration (0 rows set, 896 calls); the 3 changed front-end files byte-identical to git on www, board.* and apex. Sandbox test row id 293 (ZZ KEYBOX TEST) left in place on purpose.
 - 2026-09-21 — **§6b + §6c added:** key drop box (`calls.dropoff_key_box`, picker option, 🔑 on chip / Coming-in / §10 line, cleared on drag-to-timed); "Morning (no time)" → "Any time"; same-time chips side by side (`layoutTimedChips`); calendar view 7 am–6 pm via `DAY_START`/`DAY_END` on the unchanged 24 h grid. Sandbox migration run by Cris.

@@ -12,15 +12,13 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `83826ed`** (2026-09-21 — Desk Group 4: same-time calendar chips sit side by side
-(`layoutTimedChips`; prod ids 31 + 35 no longer draw as one), the calendar opens on 7 am–6 pm via
-`DAY_START`/`DAY_END` on the unchanged 24 h grid, and the **key drop box**: `calls.dropoff_key_box`,
-picker choice "After hours · key drop box" (all-day + 🔑), "Morning (no time)" renamed "Any time".
-**Prod migration `20260921_calls_dropoff_key_box_PROD.sql` run by Cris FIRST** (1 boolean NOT NULL
-DEFAULT false; 0 rows set). Fast-forward `28c49bd..83826ed`; www, board.* and apex
-`advisor-board.html`, `shared/desk-appointments.js`, `shared/call-appointment.js` byte-identical to
-`git show 83826ed:`. Previous code ship: `6733056` (Desk Group 3). Any later commit on `main` up to
-the one that wrote this line is docs-only. Update this line on every code ship.
+**Prod code = `62bbd73`** (2026-09-22 — Desk names: every Desk lane, Recently cleared and the
+calendar chips name a row by customer link → "+Add" typed name → a phone-match GUESS (grey italic
+"?", opens "Who is this?" which confirms via the July 29 attach path) → the number; Recently cleared
+gets its own customer lookup; red-sliver banner fix. `shared/desk-names.js`. No migration, no new
+endpoint. Fast-forward `d2ac603..62bbd73`; www, board.* and apex byte-identical to `git show
+62bbd73:` for all 5 changed files. Prod Desk not eyeballed (no sign-in on www). Previous code ship:
+`83826ed` (Desk Group 4). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.
