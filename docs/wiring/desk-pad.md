@@ -2,7 +2,7 @@
 > Doc: `/docs/wiring/desk-pad.md`
 > Last updated: 2026-09-23 — created with the Desk pad (Front Desk redesign piece; design approved by Cris 2026-09-16,
 > "Advisor Front Desk" mockup step 8).
-> Verified vs commit: see the change log (staging first; `main` waits for Cris's OK on the screenshots).
+> Verified vs commit `bbe6832` (staging; `main` waits for Cris's OK on the screenshots).
 > Status: 🟡 **On staging** until Cris approves.
 > Related: [[messenger-tray]] (same mount pattern, shares the right edge), [[call-window-desk]] (untouched).
 
@@ -78,4 +78,5 @@ it out later. **Notes are not linked to anything** (Cris rejected "Add to RO").
 - `advisor-board.html` — the stylesheet `<link>` and the mount module before `</body>`.
 
 ## Session change log
+- **2026-09-23** — browser run on test.* (`bbe6832`, ZZ Test Advisor, 1100×720, Facebook tray open): N opened the pad on Approval Queue — page scrolled up exactly the pad's height (302 px), `.main-area` padding 314 px, pad 232→760 px = the tray's left edge; 3 notes added (saved as typed, stamped 12:34 ET), × deleted one, refresh kept 2 (pad starts closed); opened from the tab on **Desk** and with N on **RO Board** (notes follow); Esc from a note hid it and scrolled back to 0; real n/N keys in the Customers search typed "nN" and did NOT open the pad; Tear off → inline confirm → 0 notes on screen and in storage; tray tucked → pad 232→1100 px with the tray strip still visible. Fix during the run: the title wrapped to "Desk / pad" in the narrow pad → `white-space: nowrap` (`bbe6832`).
 - **2026-09-23** — created. Desk pad on the advisor board: tab at the bottom middle, lined pad that pushes the page up (≥900 px) or overlays, yellow stickies (× / + New note / Tear off with inline confirm / Hide), N and Esc, localStorage only. On staging.
