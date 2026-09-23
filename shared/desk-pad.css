@@ -1,0 +1,114 @@
+/* ============================================================
+   desk-pad.css — the Desk pad on the advisor board.
+   Wiring: docs/wiring/desk-pad.md.
+
+   z-index 2800: below the Messenger tray (2900), every modal (3000), the
+   call-log drawer (3300), the call card (4000), the mobile sidebar (4500),
+   the "Catch this moment" button (5000) and Team Chat (9999).
+
+   Docks at the bottom of the WORK AREA only: from the sidebar's right edge
+   (232px) to the window edge — or to the Facebook tray's left edge (340px)
+   while the tray is open. ≥900px it pushes .main-area up; below, it overlays.
+   ============================================================ */
+.dpad {
+  --dp-left: 232px;
+  --dp-right: 0px;
+  --pad: #fbfaf5; --pad-line: #ddd6c2; --pad-rule: #ece7d8; --pad-ink: #3b3524;
+  --sticky: #fff2a1; --sticky-ink: #453a00;
+}
+body.mtray-open .dpad { --dp-right: 340px; }
+
+/* Keep the bottom sliver free for the tab, so it never sits on the last card. */
+.main-area { padding-bottom: 44px; }
+
+.dpad-tab {
+  position: fixed; bottom: 8px; z-index: 2800;
+  left: calc(var(--dp-left) + (100vw - var(--dp-left) - var(--dp-right)) / 2);
+  transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 16px; border-radius: 9px; cursor: pointer;
+  border: 1px solid var(--pad-line); background: var(--pad); color: var(--pad-ink);
+  font: 700 13px/1.2 'Segoe UI', system-ui, sans-serif;
+  box-shadow: 0 2px 10px rgba(29,31,51,.12);
+}
+.dpad-tab:hover { background: #f5f1e3; }
+.dpad-tab:focus-visible { outline: 2px solid var(--accent, #5b5ef4); outline-offset: 2px; }
+.dpad-count {
+  min-width: 18px; padding: 0 6px; border-radius: 9px; background: #efe7c8; color: var(--pad-ink);
+  font-size: 11px; line-height: 18px; text-align: center;
+}
+.dpad-kbd {
+  font: 500 10.5px/1.4 ui-monospace, 'SF Mono', Menlo, monospace; color: #8c93a8;
+  border: 1px solid var(--pad-line); border-radius: 4px; padding: 0 4px;
+}
+body.dpad-open .dpad-tab { display: none; }
+
+.dpad-sheet {
+  position: fixed; bottom: 0; z-index: 2800;
+  left: var(--dp-left); right: var(--dp-right);
+  height: clamp(220px, 42vh, 380px);
+  display: flex; flex-direction: column;
+  background: var(--pad); border-top: 2px solid var(--pad-line);
+  box-shadow: 0 -6px 18px rgba(29,31,51,.10);
+  animation: dpadUp .2s ease-out;
+}
+.dpad-sheet[hidden] { display: none; }
+@keyframes dpadUp { from { transform: translateY(24px); opacity: .6; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .dpad-sheet { animation: none; } }
+
+/* ≥900px: the pad takes room instead of covering the bottom of the page. */
+@media (min-width: 900px) {
+  body.dpad-open .main-area { padding-bottom: calc(var(--dpad-h, 300px) + 12px); }
+}
+/* <900px (and the phone layout, where the sidebar is off-canvas): overlay, full width. */
+@media (max-width: 899px) {
+  .dpad, body.mtray-open .dpad { --dp-right: 0px; }   /* the tray overlays here too — no gap for it */
+}
+@media (max-width: 768px) {
+  .dpad, body.mtray-open .dpad { --dp-left: 0px; }    /* the sidebar is off-canvas */
+}
+
+.dpad-top {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 7px 12px; border-bottom: 2px solid var(--pad-line);
+}
+.dpad-ttl { display: flex; gap: 10px; align-items: baseline; min-width: 0; overflow: hidden; }
+.dpad-ttl b { color: var(--pad-ink); font-size: 14.5px; letter-spacing: .02em; }
+.dpad-ttl small { color: #666b85; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dpad-actions { display: flex; gap: 6px; flex-wrap: nowrap; }
+.dpad-btn {
+  border: 1px solid var(--pad-line); background: #fff; color: var(--pad-ink); border-radius: 7px;
+  padding: 5px 10px; font: 600 12px/1.2 'Segoe UI', system-ui, sans-serif; cursor: pointer; white-space: nowrap;
+}
+.dpad-btn:hover { background: #f5f1e3; }
+.dpad-btn.is-primary { background: var(--accent, #5b5ef4); border-color: var(--accent, #5b5ef4); color: #fff; }
+.dpad-btn.is-ghost { background: none; }
+.dpad-btn.is-danger { background: #fff1f1; border-color: #f3b4b4; color: #c62828; }
+.dpad-confirm {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 7px 12px; background: #fff8e1; border-bottom: 1px solid var(--pad-line);
+  color: var(--pad-ink); font-size: 13px; font-weight: 600;
+}
+.dpad-confirm[hidden] { display: none; }
+
+.dpad-body {
+  flex: 1; min-height: 0; overflow: auto; padding: 10px 12px;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; align-content: start;
+  background-image: repeating-linear-gradient(to bottom, transparent 0 27px, var(--pad-rule) 27px 28px);
+}
+.dpad-note {
+  background: var(--sticky); border-radius: 3px; box-shadow: 0 2px 6px rgba(0,0,0,.13);
+  padding: 6px 8px 8px; display: flex; flex-direction: column; gap: 2px; min-height: 112px;
+}
+.dpad-note-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--sticky-ink); opacity: .8; }
+.dpad-x { border: 0; background: none; font-size: 16px; line-height: 1; color: var(--sticky-ink); padding: 2px 5px; border-radius: 5px; cursor: pointer; }
+.dpad-x:hover { background: rgba(0,0,0,.08); }
+.dpad-text {
+  flex: 1; border: 0; background: transparent; resize: none; outline: none;
+  font: 14.5px/1.4 'Segoe UI', system-ui, sans-serif; color: var(--sticky-ink); min-height: 74px; padding: 2px;
+}
+.dpad-add {
+  border: 2px dashed var(--pad-line); background: none; border-radius: 6px; min-height: 112px;
+  color: #8c93a8; font: 600 13px/1.2 'Segoe UI', system-ui, sans-serif; cursor: pointer;
+}
+.dpad-add:hover { color: var(--pad-ink); border-color: #cfc5a6; }
