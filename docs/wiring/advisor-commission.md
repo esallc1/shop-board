@@ -157,6 +157,7 @@ realistic instead of systematically wrong, and it self-corrects as real costs ar
   bookkeeping board this card also lives on).
 
 ## Session change log
+- 2026-09-23 — disable **shipped to prod** in `99867a1` (with global search) after Cris's OK; verified on test.* (advisor sidebar without the tab even with the sandbox setting ON; owner Settings → Features with 3 switches). Sandbox `shop_settings` left as is (ON) on Cris's instruction.
 - 2026-09-23 — **DISABLED on the advisor board** (Cris): My Commission tab can never show; the Features switch removed from Settings; saved tab → RO Board. Code, tables and the setting row kept dormant; how to re-enable in the header. Rest of this doc not re-verified.
 - 2026-09-18 — `fetchInputs` reads `card_fee_on` + tax-exempt + line taxable/description for Profit by RO's live card fee ([[card-fee]]); GP math unchanged. Branch `feat/card-fee-live`.
 - 2026-08-08 — Created (Hours Engine **Part 2**). Built the advisor GP + commission engine

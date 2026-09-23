@@ -1,8 +1,8 @@
 # How the global search is wired
 > Doc: `/docs/wiring/global-search.md`
 > Last updated: 2026-09-23 — created with the top-bar search (Front Desk redesign; Cris's decisions 2026-09-23).
-> Verified vs commit `fa7acfb` (staging; `main` waits for Cris's OK).
-> Status: 🟡 **On staging** until Cris approves.
+> Verified vs commit `fa7acfb`; shipped to prod in `99867a1` (2026-09-23) after Cris's OK.
+> Status: 🟢 **LIVE on prod** (advisor board).
 > Related: [[customer-record]] (§7 list, `cdOpenCustomerAtCall`, the honest list cache), [[call-window-desk]]
 > (§6-log `cdDeskOpenLogAt`), [[intake-wizard]] (the New RO wizard), [[page-map]] (advisor tabs).
 
@@ -91,6 +91,7 @@ old call notes — and the one "+ New RO" button, right next to it.
 - `shared/cust-cache-guard.test.js` — also locks that the search reads the honest cache.
 
 ## Session change log
+- **2026-09-23** — **shipped to prod** as `99867a1` together with the My Commission disable, after Cris's OK (he tried "leak" → call notes attached + not attached, and New RO in the top bar). Fast-forward `d11600a..99867a1`; www / board. / apex byte-identical (16 served files).
 - **2026-09-23** — browser run on test.* (`fa7acfb`, ZZ Test Advisor, 1100×720 + 375 px): **name** "snooks" → Customers, Enter opened the record; **phone** "239 887 8557" → the customer; **plate** "XEE 683" → Vehicles only (after the fix) → opened the owner (ADMIER GONZALEZ); **VIN** "1FM5K7F88FGC13585" → the Ford Explorer; **RO#** "6026" → ROs first, Enter opened RO #6026; **old PO** "5473" → RO #5473 and prefix "547" → #5474 + #5473 (po match — in the sandbox every po equals its ro_number, so no "RO # · PO" pair exists to show); **call note with a customer** "vibrations shudder" → Fernando's record, the call highlighted in "needs filing"; **call note without** "sentra leaking" → call log on Wed Aug 12, row highlighted, no customer opened (no sandbox call exists whose number matches exactly one customer, so the "Attach to <name>" case wasn't shown live); **"/"** focused the box from the page and typed "/" inside a Desk-pad note; **↑/↓** walk + wrap, **Esc** closes; **+ New RO** from Desk and Customers → the same wizard at step 1, one button on the page; **Customers** tab: A–Z + list, no search box; **phone** 375 px: search on its own full-width row, no side-scroll. Only HTTP error: the pre-existing sandbox avatar sign URL.
 - **2026-09-23** — found in the browser run: a plate ("XEE 683") listed 5 customers by the "683" in their phones above the vehicle. Phone matching now only for number-only queries; plate-shaped queries lead with Vehicles. Also: a business's contact name isn't repeated when it equals the business name.
 - **2026-09-23** — created. Top-bar search (customers / vehicles / ROs incl. old PO / call notes) + the one "+ New RO"; Customers-tab search box removed (A–Z kept); results open the record (at a call), the RO, or the call log at a call. On staging.

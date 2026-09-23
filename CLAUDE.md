@@ -12,12 +12,14 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `b132e52`** (2026-09-23 — advisor sidebar cleanup: Parts, Payments and Customer Log
-removed from the advisor board (tabs, views and their code); Capture Invoice + the other 8 tabs kept;
-`parts_orders`, `ro_payments` and RO-detail payments untouched. A saved removed tab lands on its
-replacement (Payments/Parts → RO Board, Customer Log → Desk) via `shared/advisor-views.js`. Fast-forward
-`f349410..b132e52`; www/board/apex `/api/version` = `b132e52`, all 6 changed served files byte-identical.
-`page-map.md` §3. Previous code ship: `334868f` (Desk pad). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
+**Prod code = `99867a1`** (2026-09-23 — two shipped together: (1) GLOBAL SEARCH in the advisor top bar
+on every tab — customers (the board's own list cache), vehicles (plate/VIN → owner), ROs (ro_number or old
+po) and call notes (every word), opening the record / the RO / the record at a call / the call log at a
+call; "+ New RO" moved into the top bar (RO Board button removed); the Customers tab's own search box
+removed (A–Z kept). (2) My Commission DISABLED on the advisor board (never shows; Settings → Features
+switch removed; code/tables/setting kept dormant; prod setting OFF). Fast-forward `d11600a..99867a1`;
+www/board/apex `/api/version` = `99867a1`, all 16 changed served files byte-identical. `global-search.md`,
+`advisor-commission.md`. Previous code ship: `b132e52` (sidebar cleanup). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.
