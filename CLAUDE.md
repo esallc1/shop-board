@@ -12,13 +12,11 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `cf12564`** (2026-09-23 — Messenger step 2: `api/meta-webhook.js` now stores
-Messenger messages + echoes into `social_threads`/`social_messages` via `social_record_message`
-(service role); tables applied + verified on both DBs by Cris. Prod stores nothing yet — Meta fields
-unsubscribed. Staging has a made-up `META_APP_SECRET` (Preview · `staging` only) for
-`scripts/meta-sim.mjs`. Fast-forward `00db1c8..cf12564`; www/board/apex `/api/version` = `cf12564`,
-changed served docs byte-identical. `meta-webhook.md` §9–§10. Previous code ship: `23e5b7a` (public
-legal pages). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
+**Prod code = `49cd111`** (2026-09-23 — Messenger step 3: `api/messenger.js` reply / link / done,
+staff only via `requireUser`; replies answer 503 "not connected" on prod until
+`META_PAGE_ACCESS_TOKEN` exists; `META_SEND_MODE=dry-run` on Preview·staging only. Also `CLAUDE.md`
+now in `.vercelignore` — `/CLAUDE.md` is 404 on www/board/apex. Fast-forward `1bc5b04..49cd111`.
+`meta-webhook.md` §11. Previous code ship: `cf12564` (webhook storage). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.

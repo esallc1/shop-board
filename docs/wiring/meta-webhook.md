@@ -3,7 +3,7 @@
 > Doc: `/docs/wiring/meta-webhook.md`
 > Last updated: 2026-09-23 — **Messenger step 3: `api/messenger.js`** (reply / link / done, §11);
 > step 2 (the webhook STORES messages + echoes, §9) verified row-by-row in the sandbox (§10a).
-> Verified vs commit `cf12564` + the step-3 change (see the change log for the shipping SHA).
+> Verified vs commit `49cd111` (the commit that SHIPPED step 3 — prod + staging, 2026-09-23).
 > Status: 🟢 **LIVE ON PROD** (receive + verify proven against real Meta traffic, §8). Storage is
 > built and proven on the sandbox with signed fake deliveries (§10); **prod stores nothing yet**
 > because no Meta field is subscribed (§2a).
@@ -358,6 +358,7 @@ the thread back by being newer (`last_inbound_at > done_at`) — nothing clears 
 
 ## Session change log
 - **2026-09-23** — **Messenger step 3: `api/messenger.js`** (§11): staff-only reply (24h window checked server-side before Meta; Send API RESPONSE; failed sends stored as failed under `local:`; 190 → "connection expired"; no token → 503), link/unlink (archive rule), done — each writes only its own columns. `META_SEND_MODE=dry-run` set on Preview · `staging` only; refused on Production. §10a records Cris's sandbox verification of step 2.
+- **2026-09-23** — shipped as `49cd111` (staging, then fast-forward `main`). Live checks on test.*, www, board., apex: `/api/messenger` no-token/junk-token POST `401`, GET `405`; `/CLAUDE.md` `404` everywhere; `meta-webhook.md` byte-identical; unsigned webhook POST still `403`. A signed-in reply/link/done on test.* is Cris's check (no ZZ session available to Claude).
 - **2026-09-23** — **Messenger step 2: storage.** Step-1 tables applied + verified by Cris on SANDBOX then PROD (all 8 checks PASS, §9a). `parseMessagingEvents` + `storeRows` + one-time Graph name (token-gated, unset today) added; 200 on every signed delivery incl. DB errors; log carries counts only. `scripts/meta-sim.mjs` + a made-up staging-only `META_APP_SECRET` (Preview · `staging`) make storage testable on test.* (§10). Header, §0, §1, §2, §2a, §5, §6, §7, gaps and "where it lives" rewritten; 25 → 44 webhook tests.
 - **2026-09-23** — shipped as `cf12564` (staging, then fast-forward `main`). Sim on test.*: 5/5 PASS; the staging function log shows `inserted:1` ×3 then the re-delivery `inserted:0, duplicate:1`, unsigned `403`. Prod probes: unsigned POST `403`, POST signed with the STAGING secret `403`, wrong verify token `403`, unknown route `404`; zero prod webhook log lines in the prior 48h (fields unsubscribed).
 - **2026-09-23** — §2a corrected: business verification is done (2026-09-11), app attached to portfolio `152510169083601` (2026-09-15). Gaps: Messenger storage migration written (step 1), not applied; this endpoint unchanged.
