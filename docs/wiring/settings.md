@@ -123,12 +123,16 @@ a small, forward-compatible step toward the role-gated hub in PART B.
   `getShopSettings()`; `saveFeatureFlag(column, enabled)` writes the column on the single
   `shop_settings` row (same anon write path as every setting). Adding a future switch (e.g. the
   Phase 3 manager-approval toggle) is **one registry line + one additive boolean column** — no
-  schema redesign. **Four entries today:** `book_hours` → `feature_book_hours` (see
-  [[flat-rate-hours]] §9), `packages` → `feature_packages` (see [[packages]] / §4.2),
-  `advisor_commission` → `feature_advisor_commission` (see [[advisor-commission]] / §4.3), and
+  schema redesign. **Three entries today:** `book_hours` → `feature_book_hours` (see
+  [[flat-rate-hours]] §9), `packages` → `feature_packages` (see [[packages]] / §4.2), and
   `bk_ro_detail` → `feature_bk_ro_detail` (the Bookkeeping per-RO parts/profit drill-down; see
   [[financial-pulse]] §9). **New features no longer add a flag** — they ship via preview → prod
   (the standing rule set with the Cost & Profit relocation; see [[cost-profit]] §1 and §4.4).
+  ⛔ The **`advisor_commission`** switch (`feature_advisor_commission`) was **removed from the
+  registry 2026-09-23** (Cris: no commission pay plan — it must not be switched back on by
+  mistake). The column stays and is still read (owner / bookkeeping "Commission & Payout", this
+  file's §4.3 pane — all hidden while it's OFF, as it is on prod); the advisor board ignores it
+  outright. Re-enable steps: [[advisor-commission]] header.
 - **Owner-only gate:** the category's `visible` is `viewerRole === 'owner'`. `viewerRole` is a
   new module variable set by **`BoardSettings.refresh(employeeId, role)`** — each board now passes
   `who.role` from `captureSessionAndGreet()` (owner/gm/advisor/bookkeeping boards all updated). If
@@ -309,6 +313,7 @@ mechanism, in preference order:
   [[my-numbers]] (no viewer role today), [[announcements]] (a live service-role write path).
 
 ## Session change log
+- 2026-09-23 — Features: the Advisor Commission switch removed from the registry (3 entries now); column kept. See [[advisor-commission]].
 - 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-09-17 — §3 first two bullets rewritten: `crisdata.html` is the email door, the `?u=&p=` pass-through is deleted, boards resolve via `OfficeIdentity.resolve()`. Rest not re-verified.
 - 2026-08-09 — **Cost & Profit Step 2b: no settings change.** The shared parts library

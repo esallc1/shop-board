@@ -39,7 +39,7 @@ test('the three removed tabs are gone from the advisor sidebar — nav, view and
 });
 
 test('Capture Invoice and every other tab stay', () => {
-  for (const key of ['cdros', 'techboard', 'approval', 'mycommission', 'customer', 'capture', 'desk', 'todo', 'teamchat']) {
+  for (const key of ['cdros', 'techboard', 'approval', 'customer', 'capture', 'desk', 'todo', 'teamchat']) {
     assert.ok(LIVE.includes(key), `${key} missing from the sidebar`);
     assert.ok(board.includes(`id="view-${key}"`), `view-${key} missing`);
   }
@@ -80,4 +80,29 @@ test('the board loads the helper before its inline script and restores through i
   assert.ok(helperAt > 0 && helperAt < mainAt, 'helper must load before the board script');
   assert.match(board, /window\.cdResolveSavedView\(saved, keys\)/);
   assert.match(board, /if \(r\.clear\) \{ try \{ sessionStorage\.removeItem\(ACTIVE_VIEW_KEY\); \} catch \(e\) \{\} \}/);
+});
+
+/* ── My Commission — DISABLED 2026-09-23 (Cris: no commission pay plan) ─────── */
+test('My Commission never shows on the advisor board, whatever the stored setting says', () => {
+  assert.match(board, /const ADVISOR_COMMISSION_ENABLED = false;/);
+  const fn = board.slice(board.indexOf('function myCommissionOn()'));
+  const body = fn.slice(0, fn.indexOf('\n  }') + 4);
+  // the kill switch is checked FIRST, before the setting is even read
+  assert.ok(body.indexOf('if (!ADVISOR_COMMISSION_ENABLED) return false;') !== -1);
+  assert.ok(body.indexOf('if (!ADVISOR_COMMISSION_ENABLED) return false;') < body.indexOf('feature_advisor_commission'));
+  // refreshMyCommissionNav shows the tab ONLY through myCommissionOn(); the markup starts hidden
+  assert.match(board, /const on = myCommissionOn\(\);\s*const nav = document\.getElementById\('nav-mycommission'\);\s*if \(nav\) nav\.style\.display = on \? '' : 'none';/);
+  assert.match(board, /id="nav-mycommission" style="display:none"/);
+  // and it is not among the live advisor tabs a restore may land on
+  assert.deepEqual({ ...loadHelper()('mycommission', LIVE) }, { view: 'cdros', clear: true });
+});
+
+test('the Advisor Commission on/off switch is gone from Settings → Features (the column + readers stay)', () => {
+  const bs = readFileSync(join(here, 'board-settings.js'), 'utf8');
+  const reg = bs.slice(bs.indexOf('const FEATURE_FLAGS = ['), bs.indexOf('];', bs.indexOf('const FEATURE_FLAGS = [')));
+  const live = reg.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+  assert.doesNotMatch(live, /key: 'advisor_commission'/);
+  assert.doesNotMatch(live, /column: 'feature_advisor_commission'/);
+  for (const k of ['book_hours', 'packages', 'bk_ro_detail']) assert.match(live, new RegExp(`key: '${k}'`), k + ' switch lost');
+  assert.match(bs, /feature_advisor_commission: !!shopSettingsRow\.feature_advisor_commission/);   // still read (owner / bookkeeping)
 });

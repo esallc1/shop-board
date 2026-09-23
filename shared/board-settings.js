@@ -106,12 +106,14 @@ window.BoardSettings = (function () {
       label: 'Packages',
       desc: 'Turn on package unit prices (a "Rebuild Units & Prices" settings section) and the "Package" RO line type. Off = neither shows — the RO builder and settings look exactly like before.',
     },
-    {
-      key: 'advisor_commission',
-      column: 'feature_advisor_commission',
-      label: 'Advisor Commission',
-      desc: 'Show the advisor gross-profit + commission widgets (advisor "My Commission" card; owner & bookkeeping "Commission & Payout" card) and an "Advisor Commission" settings section for per-advisor base/%. Off = nothing shows — the boards look exactly like before.',
-    },
+    // ⛔ 'advisor_commission' (column feature_advisor_commission) was REMOVED from this
+    // switchboard 2026-09-23 (Cris: no commission pay plan any more — nobody should be
+    // able to switch it back on by mistake). The column and every reader stay; the
+    // advisor board ignores it outright (ADVISOR_COMMISSION_ENABLED in
+    // advisor-board.html). To re-enable, restore this entry:
+    //   { key: 'advisor_commission', column: 'feature_advisor_commission',
+    //     label: 'Advisor Commission', desc: '…' }
+    // — see docs/wiring/advisor-commission.md §0.
     {
       key: 'bk_ro_detail',
       column: 'feature_bk_ro_detail',

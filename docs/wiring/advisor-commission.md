@@ -1,6 +1,19 @@
 # How Advisor Commission (gross-profit rollup + payout widgets) is wired
 
 > Doc: `/docs/wiring/advisor-commission.md`
+> ⛔ **2026-09-23 — DISABLED on the advisor board (Cris: the shop no longer pays advisors on
+> commission).** The advisor's **"My Commission"** tab can **never** show, whatever
+> `shop_settings.feature_advisor_commission` says (`ADVISOR_COMMISSION_ENABLED = false` in
+> `advisor-board.html`, checked before the setting is read), and the **Advisor Commission on/off
+> switch is removed from Settings → Features** (`shared/board-settings.js` `FEATURE_FLAGS`) so
+> nobody can turn it back on by mistake. A saved My Commission tab lands on the RO Board
+> (`shared/advisor-views.js`). **Disabled, not deleted:** `commission-engine.js`,
+> `commission-cards.js`, the `employees.commission_*` columns, the setting row and the owner /
+> bookkeeping readers are all untouched and dormant. Prod has the setting **OFF** (so the owner &
+> bookkeeping "Commission & Payout" tabs stay hidden too); the sandbox has it ON.
+> **To re-enable:** set `ADVISOR_COMMISSION_ENABLED = true`, restore the `advisor_commission`
+> entry in `FEATURE_FLAGS` (the removed lines are quoted in a comment there), remove
+> `mycommission` from `REMOVED_ADVISOR_VIEWS`, and update `shared/advisor-views.test.js`.
 > Last updated: 2026-08-08 — verified vs commit `8c93cee` (merged to main)
 > Status: ✅ BUILT on `feat/book-hours` (Hours Engine **Part 2**), behind an owner
 > **Advisor Commission** switch (`feature_advisor_commission`, default OFF). Engine +
@@ -144,6 +157,7 @@ realistic instead of systematically wrong, and it self-corrects as real costs ar
   bookkeeping board this card also lives on).
 
 ## Session change log
+- 2026-09-23 — **DISABLED on the advisor board** (Cris): My Commission tab can never show; the Features switch removed from Settings; saved tab → RO Board. Code, tables and the setting row kept dormant; how to re-enable in the header. Rest of this doc not re-verified.
 - 2026-09-18 — `fetchInputs` reads `card_fee_on` + tax-exempt + line taxable/description for Profit by RO's live card fee ([[card-fee]]); GP math unchanged. Branch `feat/card-fee-live`.
 - 2026-08-08 — Created (Hours Engine **Part 2**). Built the advisor GP + commission engine
   (`shared/commission-engine.js` + 18 tests) and the two shared cards

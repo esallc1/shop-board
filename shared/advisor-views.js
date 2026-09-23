@@ -8,7 +8,8 @@
    with the stale value sitting there forever. This decides, in one place:
 
      • a removed tab   → its natural replacement (Payments / Parts → RO Board,
-                         Customer Log → Desk), and the stale key is cleared;
+                         Customer Log → Desk, My Commission — disabled
+                         2026-09-23 — → RO Board), and the stale key is cleared;
      • an unknown tab  → nothing to open (the board's default stays), key cleared;
      • a live tab      → reopen it.
 
@@ -16,7 +17,9 @@
    synchronously on load; tested under node via vm (advisor-views.test.js).
    ============================================================ */
 (function (global) {
-  var REMOVED_ADVISOR_VIEWS = { parts: 'cdros', payments: 'cdros', 'customer-log': 'desk' };
+  // mycommission: the tab still exists in the markup but is disabled for good
+  // (2026-09-23, no commission pay plan) — a saved one lands on the RO Board.
+  var REMOVED_ADVISOR_VIEWS = { parts: 'cdros', payments: 'cdros', 'customer-log': 'desk', mycommission: 'cdros' };
 
   /**
    * @param {string|null} saved      the value in sessionStorage (may be null)

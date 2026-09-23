@@ -64,8 +64,9 @@ front door when there is no session.
 Tabs are `<div class="view" id="view-…">` panes toggled by `display:none`, driven by
 `<div class="sidebar-item" data-view="…" data-label="…">`. Nothing reloads on a tab switch.
 
-- **Advisor:** RO Board · Tech Board · Approval Queue · My Commission · Customers · Capture Invoice ·
-  Desk · To-Do · Team Chat. **Parts, Payments and Customer Log were removed 2026-09-23** (Front Desk
+- **Advisor:** RO Board · Tech Board · Approval Queue · Customers · Capture Invoice · Desk · To-Do ·
+  Team Chat. (**My Commission** is still in the markup but **disabled for good 2026-09-23** — it can
+  never show; a saved one lands on the RO Board. [[advisor-commission]].) **Parts, Payments and Customer Log were removed 2026-09-23** (Front Desk
   redesign, decided by Cris 2026-09-16): Customer Log was demo data with no table; the Payments tab
   was a read-only `ro_payments` ledger (payments are still recorded and listed on each RO); the Parts
   tab read/wrote `parts_orders`, which **stays** (the bookkeeping board reads it). Capture Invoice
@@ -233,6 +234,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Tab shell: `.sidebar-item[data-view]` + `<div class="view" id="view-…">` in each board.
 
 ## Session change log
+- 2026-09-23 — §3: My Commission disabled on the advisor board (never shows; saved tab → RO Board).
 - 2026-09-23 — §3: advisor top bar = global search + the one "+ New RO" ([[global-search]]).
 - 2026-09-23 — advisor sidebar cleanup **shipped to prod** as `b132e52` after Cris's OK (fast-forward `f349410..b132e52`; www / board. / apex byte-identical, 6 served files).
 - 2026-09-23 — §3: advisor board 12 → 9 tabs (Parts, Payments, Customer Log removed; saved-tab fallback via `shared/advisor-views.js`). Other sections not re-verified.
