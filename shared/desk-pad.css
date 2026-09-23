@@ -73,7 +73,7 @@ body.dpad-open .dpad-tab { display: none; }
   padding: 7px 12px; border-bottom: 2px solid var(--pad-line);
 }
 .dpad-ttl { display: flex; gap: 10px; align-items: baseline; min-width: 0; overflow: hidden; }
-.dpad-ttl b { color: var(--pad-ink); font-size: 14.5px; letter-spacing: .02em; }
+.dpad-ttl b { color: var(--pad-ink); font-size: 14.5px; letter-spacing: .02em; white-space: nowrap; flex-shrink: 0; }
 .dpad-ttl small { color: #666b85; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dpad-actions { display: flex; gap: 6px; flex-wrap: nowrap; }
 .dpad-btn {
