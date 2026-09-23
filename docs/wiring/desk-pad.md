@@ -2,7 +2,7 @@
 > Doc: `/docs/wiring/desk-pad.md`
 > Last updated: 2026-09-23 — created with the Desk pad (Front Desk redesign piece; design approved by Cris 2026-09-16,
 > "Advisor Front Desk" mockup step 8).
-> Verified vs commit `bbe6832` (staging; `main` waits for Cris's OK on the screenshots).
+> Verified vs commit `189588d` (staging; `main` waits for Cris's OK on the screenshots).
 > Status: 🟡 **On staging** until Cris approves.
 > Related: [[messenger-tray]] (same mount pattern, shares the right edge), [[call-window-desk]] (untouched).
 
@@ -70,6 +70,10 @@ it out later. **Notes are not linked to anything** (Cris rejected "Add to RO").
   [[hosting-domains]] §4a).
 
 ## Known gaps & open questions (as of 2026-09-23)
+- **On a short window (under ~667 px tall) two full rows don't quite fit the 45 % cap** — two rows need
+  300 px (header 46 + 2 × 112 + gaps/padding); 45 % of a 640 px window is 288 px, so the second row is
+  shaved ~12 px and scrolls inside the pad. At 700 px+ two rows fit. Raise the cap or trim the sticky
+  height if Cris wants two clean rows on a short laptop.
 - **Not in this slice: "📌 Whiteboard"** on a sticky (post it to the shared Front Desk whiteboard) — needs
   the whiteboard and a notes table first.
 - The pad's open/closed state is not remembered across a refresh (it starts closed) — on purpose, so a
@@ -86,6 +90,7 @@ it out later. **Notes are not linked to anything** (Cris rejected "Add to RO").
 - `advisor-board.html` — the stylesheet `<link>` and the mount module before `</body>`.
 
 ## Session change log
+- **2026-09-23** — height re-verified on test.* (`189588d`, 1024×640, ZZ Test Advisor): **1 note** → 176 px (28 %, one row, 20 px of paper under the notes), page pushed 176; 2 notes still one row (3 across); **3rd note wrapped → 288 px = the 45 % cap** (2 rows need 300 → ~12 px scroll); **5 notes** → 288, notes scroll inside; **10 notes** → 288, 254 px of inner scroll, tab count 10; deleted to 2 → **176 px, page came back down by exactly 112**; Hide → scroll 0, padding 44 px, inline height cleared.
 - **2026-09-23** — height change requested by Cris after reviewing on a ~1000 px laptop: start with header + ONE row, grow a row at a time to fit, cap at 45 % of the window (then scroll inside), shrink back on delete; the push follows the real height. `padHeight` / `pushScrollTarget` + tests; notes grid wrapped in `.dpad-grid` so its natural height can be measured.
 - **2026-09-23** — browser run on test.* (`bbe6832`, ZZ Test Advisor, 1100×720, Facebook tray open): N opened the pad on Approval Queue — page scrolled up exactly the pad's height (302 px), `.main-area` padding 314 px, pad 232→760 px = the tray's left edge; 3 notes added (saved as typed, stamped 12:34 ET), × deleted one, refresh kept 2 (pad starts closed); opened from the tab on **Desk** and with N on **RO Board** (notes follow); Esc from a note hid it and scrolled back to 0; real n/N keys in the Customers search typed "nN" and did NOT open the pad; Tear off → inline confirm → 0 notes on screen and in storage; tray tucked → pad 232→1100 px with the tray strip still visible. Fix during the run: the title wrapped to "Desk / pad" in the narrow pad → `white-space: nowrap` (`bbe6832`).
 - **2026-09-23** — created. Desk pad on the advisor board: tab at the bottom middle, lined pad that pushes the page up (≥900 px) or overlays, yellow stickies (× / + New note / Tear off with inline confirm / Hide), N and Esc, localStorage only. On staging.
