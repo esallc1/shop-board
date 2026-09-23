@@ -12,12 +12,13 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `bc52dd2`** (2026-09-23 — Messenger sent-before-Done fix: the tray's "waiting" rule and
-auto-open use `social_threads.last_inbound_received_at` (arrival, stamped by `social_record_message`);
-the 24h window stays on `last_inbound_at`. Migration `20260923_social_inbound_received_*` applied +
-verified 9/9 on SANDBOX and PROD by Cris BEFORE this ship. Fast-forward `2ffed87..bc52dd2`;
-www/board/apex `/api/version` = `bc52dd2`, 6 changed served files byte-identical, migrations 404.
-`messenger-tray.md` §2. Previous code ship: `fb66aba` (tray actions). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
+**Prod code = `71a52bb`** (2026-09-23 — a 401 on any login-protected action now says "Your CrisData
+sign-in isn't active on this page — log out and sign in again.": one page-level notice from
+`cdAuthFetch` + `cdAuthErrorText` for screens with their own error line (`shared/auth-fetch.js`);
+invoice auto-detect now goes through `cdAuthFetch`. No server change. Cause seen live: sign-in is per
+address (Kevin on `board.*`); one-address redirect PARKED (hosting-domains §4a). Fast-forward
+`25e8769..71a52bb`; www/board/apex `/api/version` = `71a52bb`, all 12 changed served files
+byte-identical. Previous code ship: `bc52dd2` (sent-before-Done fix). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.
