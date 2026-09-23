@@ -38,16 +38,22 @@ export function classifyQuery(raw) {
   const hasLetters = /\p{L}/u.test(q);
   const numberOnly = q !== '' && /^[\s#()+\-.\d]*$/.test(q) && digits.length > 0;
   const vinLike = /^[A-HJ-NPR-Z0-9]{17}$/i.test(compact);
+  // Letters AND digits, 4–8 characters, no run of 5+ letters (a word) — a plate
+  // ("XEE 683", "KXR4471", "HZPE46"); "2016 chevy" is a year and a word, not a plate.
+  const plateLike = !vinLike && /[A-Za-z]/.test(compact) && /\d/.test(compact)
+    && compact.length >= 4 && compact.length <= 8 && !/[A-Za-z]{5,}/.test(compact);
   const out = {
-    q, digits, compact, words, hasLetters, numberOnly, vinLike,
+    q, digits, compact, words, hasLetters, numberOnly, vinLike, plateLike,
     customers: q.length >= 2,
-    phone: digits.length >= 3,                               // partial phone ok (Customers tab rule)
+    // A phone match only when what was typed IS a number: the "683" in plate
+    // "XEE 683" must not pull in every customer whose phone contains 683.
+    phone: numberOnly && digits.length >= 3,
     vehicles: compact.length >= 3,
     ros: numberOnly && digits.length >= 2 && digits.length <= 8,
     calls: hasLetters && words.join('').length >= 3,
     lead: 'customer',
   };
-  if (vinLike) out.lead = 'vehicle';
+  if (vinLike || plateLike) out.lead = 'vehicle';
   else if (out.ros && digits.length <= 5) out.lead = 'ro';   // 6012, 5473
   else if (numberOnly) out.lead = 'customer';               // 7–10 digits = a phone
   return out;

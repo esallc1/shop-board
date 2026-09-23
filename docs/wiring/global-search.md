@@ -28,12 +28,14 @@ old call notes — and the one "+ New RO" button, right next to it.
 ## 2. What it finds — and how
 | Group | Source | Match |
 |---|---|---|
-| **Customers** | the board's own list cache — `window.cdEnsureCustList` (= `ensureCustAllList`, archive-filtered, invalidated on every customer write, realtime-refreshed, stale-while-revalidate) | the old Customers-tab rule: name / business contains, or ≥ 3 digits in either phone's last 10. Ranked: exact phone > a word starts with > contains > phone contains; ties A–Z |
+| **Customers** | the board's own list cache — `window.cdEnsureCustList` (= `ensureCustAllList`, archive-filtered, invalidated on every customer write, realtime-refreshed, stale-while-revalidate) | name / business contains; or — **only when what was typed is a number** — ≥ 3 digits in either phone's last 10 (so the "683" in plate "XEE 683" doesn't pull in every phone with 683). Ranked: exact phone > a word starts with > contains > phone contains; ties A–Z |
 | **Vehicles** | `vehicles` (+ owner embed) | `plate` or `vin` contains — "KXR 4471" also finds "KXR4471" (pieces joined by `*`) |
 | **ROs** | `repair_orders` (+ customer, vehicle) | `ro_number` **equals** the digits, **or** `po` (old ALLDATA / 5xxx) **starts with** them. Shown as **"RO #6012 · PO 5473"** |
 | **Call notes** | `calls.note`, `calls.outcome_note` | **every word** must appear, in either column (one `.or()` per word, AND-ed) |
 
-- **Which groups run / lead** (`classifyQuery`): a VIN (17 chars) → Vehicles first; 2–5 digits →
+- **Which groups run / lead** (`classifyQuery`): a VIN (17 chars) or a **plate-shaped** query (letters
+  and digits, 4–8 characters, no run of 5+ letters — "XEE 683", "KXR4471"; not "2016 chevy") →
+  Vehicles first; 2–5 digits →
   ROs first; a 7–10-digit number → Customers first (phone); letters → Customers first, and call
   notes are searched. Group order otherwise Customers · Vehicles · ROs · Call notes; up to 5 each.
 - **Safe filters** (`safeWords`): anything that could break PostgREST's `or=(…)` syntax or act as a
@@ -89,4 +91,5 @@ old call notes — and the one "+ New RO" button, right next to it.
 - `shared/cust-cache-guard.test.js` — also locks that the search reads the honest cache.
 
 ## Session change log
+- **2026-09-23** — found in the browser run: a plate ("XEE 683") listed 5 customers by the "683" in their phones above the vehicle. Phone matching now only for number-only queries; plate-shaped queries lead with Vehicles. Also: a business's contact name isn't repeated when it equals the business name.
 - **2026-09-23** — created. Top-bar search (customers / vehicles / ROs incl. old PO / call notes) + the one "+ New RO"; Customers-tab search box removed (A–Z kept); results open the record (at a call), the RO, or the call log at a call. On staging.

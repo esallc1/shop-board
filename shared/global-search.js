@@ -134,7 +134,8 @@ export function mountGlobalSearch({ db }) {
   function lineFor(kind, x) {
     if (kind === 'customer') {
       const phone = x.phone_primary || x.phone_secondary;
-      return { title: custLabel(x), sub: [x.business_name && x.name ? x.name : '', phone ? fmtPhone(phone) : ''].filter(Boolean).join(' · ') };
+      const contact = x.business_name && x.name && x.name.trim() !== x.business_name.trim() ? x.name : '';
+      return { title: custLabel(x), sub: [contact, phone ? fmtPhone(phone) : ''].filter(Boolean).join(' · ') };
     }
     if (kind === 'vehicle') {
       const owner = x.owner ? custLabel(x.owner) : 'No owner on file';

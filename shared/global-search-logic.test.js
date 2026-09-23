@@ -38,6 +38,10 @@ test('classify: a name, a phone, an RO / PO number, a VIN, a plate, note words',
   assert.equal(vin.vinLike, true); assert.equal(vin.lead, 'vehicle');
   const plate = classifyQuery('KXR 4471');
   assert.equal(plate.vehicles, true); assert.equal(plate.compact, 'KXR4471');
+  assert.equal(plate.plateLike, true); assert.equal(plate.lead, 'vehicle');
+  assert.equal(plate.phone, false, 'the digits in a plate are not a phone');
+  assert.equal(classifyQuery('XEE 683').lead, 'vehicle');
+  assert.equal(classifyQuery('2016 chevy').plateLike, false);   // a year + a word is not a plate
   const note = classifyQuery('starter bolts');
   assert.deepEqual(note.words, ['starter', 'bolts']); assert.equal(note.calls, true);
   const tiny = classifyQuery('a');
@@ -49,6 +53,7 @@ test('group order: the likely kind first, then Customers / Vehicles / ROs / Call
   assert.deepEqual(groupOrder(classifyQuery('maria')), ['customer', 'vehicle', 'ro', 'call']);
   assert.deepEqual(groupOrder(classifyQuery('6012')), ['ro', 'customer', 'vehicle', 'call']);
   assert.deepEqual(groupOrder(classifyQuery('1FT7W2BT5EEB10442')), ['vehicle', 'customer', 'ro', 'call']);
+  assert.deepEqual(groupOrder(classifyQuery('XEE683')), ['vehicle', 'customer', 'ro', 'call']);
   assert.deepEqual(groupOrder(null), ['customer', 'vehicle', 'ro', 'call']);
 });
 
@@ -66,6 +71,8 @@ test('customers: the Customers-tab match rule, ranked; merged / archived dropped
   assert.deepEqual(searchCustomerList(list, classifyQuery('jdpr')).map((c) => c.id), [5]);         // business name
   assert.deepEqual(searchCustomerList(list, classifyQuery('7452132')).map((c) => c.id), [5]);      // second phone
   assert.ok(!searchCustomerList(list, classifyQuery('maria old')).some((c) => c.id === 4), 'merged customer shown');
+  // Letters + digits (a plate) never match customers by the digits in it.
+  assert.deepEqual(searchCustomerList(list, classifyQuery('XEE 555')).map((c) => c.id), []);
 });
 
 test('filters: RO number OR old PO; plate/VIN loose; every note word must appear', () => {
