@@ -53,9 +53,11 @@ Read this before concluding the integration is broken:
   store (§1). Subscribing is a decision for the slice that adds storage.
 - **The app is UNPUBLISHED.** Only webhook tests fired from the dashboard
   arrive. A real customer messaging the Page produces no delivery at all.
-- **No business portfolio is attached** — blocked on Meta's device-verification
-  wall. That matters later, not now: it is what gates **App Review**, and
-  therefore gates ever receiving live customer messages in production.
+- **Business verification is DONE** (corrected 2026-09-23 — this line used to
+  say the portfolio was blocked). EL SHADDAI AUTO LLC was verified by Meta on
+  2026-09-11, and the app was attached to that verified business portfolio
+  (`152510169083601`) on 2026-09-15. What still gates live customer messages
+  is **App Review** for `pages_messaging`, not verification.
 
 Taken together: today this endpoint can only be reached by Meta's own test
 button and by anyone who guesses the URL. The second is why §4 enforces.
@@ -200,9 +202,13 @@ test green and would be invisible from the success message alone.
 ## Known gaps & open questions (as of 2026-09-12)
 - **Nothing is durable.** A delivery is proven authentic, logged, and dropped.
   If Meta sends a lead today, it is gone tomorrow.
-- **The next slice needs schema decisions**: does a Messenger conversation
-  become a `calls` row, a new table, or a lead on the Desk? Where does a PSID
-  live, and what is the retention rule for it?
+- **Storage is designed, written, NOT applied** (2026-09-23). Messenger gets its
+  own tables, not `calls`: `social_threads` (one row per channel + Page + PSID)
+  and `social_messages` (unique `mid`), written only by the service-role function
+  `social_record_message`, read only by `is_staff()` sessions. Files:
+  `migrations/20260923_social_messaging_{SANDBOX,PROD}.sql`, locked by
+  `shared/social-messaging-migration.test.js`. This endpoint does not call it yet
+  — that is step 2, which rewrites §1 and this doc's header.
 - **No delivery log table.** Unlike CTM (`ctm_webhook_log`) there is no
   persisted record, so a rejected delivery leaves only a Vercel log line. If we
   need to debug a signature mismatch against real traffic, that's the first
@@ -231,6 +237,7 @@ test green and would be invisible from the success message alone.
   body parser) — but see §4 for where it intentionally diverges.
 
 ## Session change log
+- **2026-09-23** — §2a corrected: business verification is done (2026-09-11), app attached to portfolio `152510169083601` (2026-09-15). Gaps: Messenger storage migration written (step 1), not applied; this endpoint unchanged.
 - **2026-09-12** — created. `api/meta-webhook.js` + `api/meta-webhook.test.js`:
   GET handshake, enforced `X-Hub-Signature-256`, structured log line, 200-fast
   discipline. No DB, no UI, no migration. Test suite 490 → 515.
@@ -245,7 +252,7 @@ test green and would be invisible from the success message alone.
   App Secret and got `200`. §8a records **why that `200` only counts paired with
   the unsigned-POST `403`**, since a permissive endpoint would report the same
   success. Also documented the dashboard state (§2a): fields still
-  Unsubscribed, app unpublished, no business portfolio.
+  Unsubscribed, app unpublished, no business portfolio (since resolved — see the 2026-09-23 entry).
 - **2026-09-12** — doc corrected. It had shipped saying "🟡 skeleton on a branch
   + staging. Not on prod" while running on prod, and carried
   `Verified vs 42a5e94` — the tree the code was *written against*, not the

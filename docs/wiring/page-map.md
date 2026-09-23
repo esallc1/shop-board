@@ -195,6 +195,9 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
   (`extract-invoice`, `announcement`, `change-request`, `desk-appointment`, `recording-links`,
   `recording-assign`) via `api/_lib/require-user.js`, with `shared/auth-fetch.js` sending the
   session token from the boards. The cron pair fails closed on `CRON_SECRET`.
+  **Shared RLS staff check:** `public.is_staff()` (active employee by `auth.uid()`) is written in
+  `migrations/20260923_social_messaging_*.sql` for the Messenger tables — the Tier-A cutover should
+  reuse it, not add a second one ([[office-auth]] top note).
   **Still open: `api/send-push.js`** — it has an origin allow-list plus a shared secret that
   ships in page source, and it still uses the **anon** key for its `chat_members` /
   `push_subscriptions` reads and deletes. It must move to the service-role key (and this same
@@ -215,6 +218,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Tab shell: `.sidebar-item[data-view]` + `<div class="view" id="view-…">` in each board.
 
 ## Session change log
+- 2026-09-23 — Gaps: noted `public.is_staff()` (Messenger step-1 migration, not yet applied) as the shared staff check for Phase 3.
 - 2026-09-23 — §5a added: public `privacy.html` / `terms.html` / `data-deletion.html` for Meta App Review; must stay outside any auth-gate. §0 note added. Other sections not re-verified.
 - 2026-09-17 — Gaps updated: all six board endpoints now require a signed-in active employee; `send-push` is the one left (anon key + a secret that ships in page source).
 - 2026-09-17 — Gaps + §6a updated: `/api/extract-invoice` now requires a signed-in active employee (`api/_lib/require-user.js`); the other five board endpoints are still unauthenticated.

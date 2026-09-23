@@ -1,5 +1,16 @@
 # How office login could adopt Supabase Auth (investigation + lockout-safe plan)
 
+> ⚠ **2026-09-23 — `public.is_staff()` is WRITTEN (not yet applied) — security Phase 3: reuse it, don't
+> re-create it.** Defined in `migrations/20260923_social_messaging_{SANDBOX,PROD}.sql`:
+> `security definer`, `set search_path = public, pg_temp`, returns true when `auth.uid()` maps to an
+> `employees` row with `active is true`. EXECUTE: `authenticated` + `service_role`, revoked from
+> `public`/`anon`. First users: the `staff_read` SELECT policies on `social_threads` /
+> `social_messages` (Messenger tray). It deliberately checks **active employee**, not "has a
+> session" — KiKi shares prod's `auth.users`, so `to authenticated using (true)` would let a KiKi
+> login read CrisData rows. **If Phase 3 changes its definition (e.g. a role list), the social_*
+> tables change with it** — intended, but check them. Every active office role passes today
+> (advisor, manager, owner, bookkeeping — Cris, 2026-09-23); techs have no session, so they don't.
+
 > ⚠ **2026-09-17 — Security Phase 2 is LIVE: there is no `employees.pin` column any more.** PIN
 > hashes live in `employee_secrets` (no API access) and are checked only by the SECURITY DEFINER
 > function `login_with_pin`; the GM editor's PIN field is gone. Every "reads `pin`" claim below is
@@ -947,6 +958,7 @@ pin column; all board reads/greeting/roster still populate.
   identity-first, §8 enforcement), [[change-requests]] (§5 — a feature that deferred to this).
 
 ## Session change log
+- 2026-09-23 — Top note: `public.is_staff()` written in the Messenger step-1 migration (not yet applied); Phase 3 reuses it. Rest of doc not re-verified.
 - 2026-09-17 — Security Phase 2 went LIVE on both projects: top banner rewritten (the `pin` column is gone; the PIN-reading claims below are history), §1c staff-mgmt read note updated. Not otherwise re-verified.
 - 2026-09-17 — Security Phase 2 (branch): PIN value scrubbed from §1c table; staff-mgmt read note points at employee-roster §1c/§1d. Not otherwise re-verified.
 - 2026-09-17 — Deleted the `?u=&p=` URL login (readers in `my-numbers.html` + `shared/office-identity.js`, writer in `crisdata.html`) and `expectedRole`. Added a top banner; §8.3 item 2 rewritten; other `?u/p` mentions left as history. Not otherwise re-verified.
