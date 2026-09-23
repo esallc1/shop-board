@@ -1,14 +1,16 @@
 # How the Messenger inbox tray is wired
 > Doc: `/docs/wiring/messenger-tray.md`
-> Last updated: 2026-09-23 — created with step 4 (the tray, **read-only**).
-> Verified vs commit `c1bd923` (the commit that SHIPPED step 4 — prod + staging, 2026-09-23).
-> Status: 🟢 **LIVE on prod** (read-only: no reply, link or Done yet — step 5). Prod has no Messenger rows yet
-> (Meta fields unsubscribed), so signed-in staff see nothing there; a board with no CrisData session shows the "!" strip.
+> Last updated: 2026-09-23 — **step 5: reply, link / unlink and Done in the tray** (§3a), all through
+> `api/messenger.js`. Created the same day with step 4 (read-only).
+> Verified vs commit `84e1e78` (step 5 code, staging).
+> Status: 🟢 step 4 (read-only) **LIVE on prod** (`c1bd923`); 🟡 step 5 (actions) **on staging** until Cris
+> approves the screenshots. Prod has no Messenger rows yet (Meta fields unsubscribed).
 > Related: [[meta-webhook]] (§9 storage, §11 `api/messenger.js`), [[office-auth]] (`is_staff()`), [[call-window-desk]] (untouched).
 
 ## 0. In one line
 A panel on the right edge of the **advisor board** that lists the shop's Facebook Messenger
-conversations still waiting for someone, and shows a conversation's messages when you click it.
+conversations still waiting for someone; click one to read it, reply to it, link it to a customer,
+or mark it Done.
 
 ## 1. Where it lives on the page
 - Mounted **once** by `advisor-board.html` — a module just before `</body>` calls
@@ -48,15 +50,50 @@ the shop on the right. Under our messages: **"via Facebook app"** for a Business
 (`source page_inbox`), **"CrisData · <employee>"** for a CrisData reply (`sent_by` →
 `employees_visible` name), plus the time (shop time). A failed send is red with **"Not sent —
 <reason>"** (`send_error`). Attachments show as "📷 Photo — view" linking to Meta's URL (https
-only, new tab; the link expires). A footer says reply/link/Done come next.
+only, new tab; the link expires). The viewer's own replies are named from the board's identity
+(`viewer` getter → `CURRENT_EMPLOYEE_ID` / `CHAT_IDENTITY.name`, `bylineWithViewer`) because
+`employees_visible` hides `is_test` accounts — so a ZZ login still reads "CrisData · ZZ Test Advisor".
+
+## 3a. The actions (step 5) — all through `api/messenger.js`
+Every action is `cdAuthFetch(db, '/api/messenger', …)` — the viewer's session as a bearer token;
+the server checks it (`requireUser`) and writes with the service key. The tray never writes a row.
+
+- **Reply** — the box at the bottom of a conversation (`.mtray-compose`, **outside** the redrawn
+  area, so a realtime refresh never wipes a draft; drafts are kept per conversation). **Enter**
+  sends, **Shift+Enter** is a new line. While sending: button disabled ("Sending…"), text kept.
+  Success → box cleared, the reply appears as "CrisData · <employee>". Failure → text **stays**,
+  "Not sent — <reason>" above the box, and the stored failed message shows red in the
+  conversation. `token_expired` (Meta code 190) or `not_connected` (no Page token) → a red banner
+  under the tray header: **"Facebook isn't connected — tell Cris. …"** (cleared by the next good
+  send). A 401 says to sign in again. (`replyError`)
+- **Window closed** (`composeState`, same 24 h rule as the server) → the box and Send are
+  disabled with **"Facebook only lets us reply within 24 hours of their last message — call them
+  instead."**, plus a **📞 Call <number>** `tel:` link when the thread is linked to a customer with
+  a phone. The server re-checks anyway (409).
+- **Link to customer** — header button → an in-tray picker over the panel: the **same** full,
+  paginated, archive-filtered list the Desk's picker uses (`window.cdFetchAllCustomers`) and the
+  **same** search rules (`searchCustomers` = the Desk's `renderAttachList`: no query → 30 most
+  recently invoiced; name/business contains; ≥ 3 digits against the last 10 of either phone; max
+  60) and row styling (`.desk-attach-item`). *Not* the Desk's own picker instance: that one lives
+  inside the call-log drawer and is wired to attach a **call** (`performAttach` → `calls`).
+  Picking a customer → `link`; the header and list switch to the customer's name at once.
+- **Unlink** — small underlined link on a linked thread → inline "Unlink from <name>? Yes, unlink /
+  Cancel" (no blocking `confirm()`) → `link` with `customer_id: null`.
+- **✓ Done** — header button, no confirm → `done`; the conversation closes, the list redraws
+  without it; if nothing is left waiting the tray hides. A newer customer message brings it back
+  (§2) — nothing un-does Done.
+- Errors on link / unlink / done show in red under the header buttons.
 
 ## 4. Where the data comes from — the signed-in session, nothing else
 - Reads `social_threads` (200 most recent), `social_messages` (latest per waiting thread; the
   whole open conversation), `customers` (names of linked customers) and `employees_visible`
   (names), all with the **board's own client and the viewer's Supabase session**. The
   `staff_read` policy (`is_staff()`) decides what comes back.
-- **No anon fallback, no writes, no endpoint calls.** A test fails if `shared/messenger-tray.js`
-  ever contains `.insert/.update/.upsert/.delete`, `/api/messenger`, or a service key.
+- **No anon fallback and no direct writes.** The only write path is `cdAuthFetch` → `/api/messenger`
+  (§3a). A test fails if `shared/messenger-tray.js` ever contains `.insert/.update/.upsert/.delete`,
+  a service key, a bare `fetch('…')`, any other `/api/` path, more than one `cdAuthFetch(` call, or an
+  action other than reply / link / done.
+- `customers` reads now include `phone_primary, phone_secondary` (the header number + tap-to-call).
 - **No session** (a board opened on a stale phone/ID identity) → strip with "!", and the panel says
   **"Sign in from CrisData to see Facebook messages."** A session that isn't staff (`rpc('is_staff')`
   false — e.g. a KiKi login) → **"This sign-in can't see Facebook messages."** A load error with
@@ -71,7 +108,9 @@ only, new tab; the link expires). A footer says reply/link/Done come next.
 - Overlapping reloads collapse into one follow-up.
 
 ## Known gaps & open questions (as of 2026-09-23)
-- **Read-only.** Reply box, Link to customer and Done are step 5 (`api/messenger.js` is ready).
+- **No "un-done"** and no retry button for a failed send (retype and send).
+- **The picker's customer list is cached** for the page's life (like the Desk's); a customer created
+  after the first open won't appear until reload.
 - **Up to 200 threads / 500 messages** per read — fine for the shop's volume; paginate if that changes.
 - **No sound / push** for a new message (out of scope for this slice).
 - Attachment links are Meta's and expire; nothing is copied.
@@ -80,12 +119,17 @@ only, new tab; the link expires). A footer says reply/link/Done come next.
 - `shared/messenger-tray.js` — the DOM half: `mountMessengerTray({ db })`.
 - `shared/messenger-tray-logic.js` — pure rules: `isWaiting`, `waitingThreads`, `threadName`,
   `windowLabel`, `previewText`, `attachmentLabel`, `messageByline`, `timeLabel`, `newestInbound`,
-  `hasNewInbound`, `latestByThread`. Tested by `shared/messenger-tray-logic.test.js`.
+  `hasNewInbound`, `latestByThread`, and (step 5) `composeState`, `replyError`, `searchCustomers`,
+  `bylineWithViewer`, `WINDOW_CLOSED_TEXT`. Tested by `shared/messenger-tray-logic.test.js`.
+- `api/messenger.js` — the server half of every action ([[meta-webhook]] §11).
+- `scripts/meta-sim.mjs` — `META_SIM_AGE_HOURS` (closed-window thread) and `META_SIM_PSID` (a new
+  message into an existing thread) for testing on staging.
 - `shared/messenger-tray.css` — the look (z 2900, the 900 px breakpoint).
 - `advisor-board.html` — the stylesheet `<link>` in `<head>` and the mount module before `</body>`.
 - Tables: `social_threads`, `social_messages` (`migrations/20260923_social_messaging_*.sql`).
 
 ## Session change log
+- **2026-09-23** — **step 5: tray actions** (§3a), code `84e1e78`: reply box (Enter/Shift+Enter, draft-safe, closed-window reason + tap-to-call, failed → red, not-connected/190 → banner), Link (in-tray picker, Desk's list + search rules) / Unlink (inline confirm), ✓ Done. "Read-only" footer removed. On staging.
 - **2026-09-23** — shipped to prod as `c1bd923` after Cris's OK on the screenshots (fast-forward `54d3b0e..c1bd923`). www / board. / apex: `/api/version` = `c1bd923`; `advisor-board.html`, the three `shared/messenger-tray*` files, `file-cabinet.js` and both docs byte-identical. Prod not eyeballed signed-in (no prod sign-in; empty tables anyway). Browser checks on test.*: open (desktop pad + <900 overlay), conversation, tucked, auto-open via realtime in ~7 s.
 - **2026-09-23** — preview prefix "You:" → "Shop:" (a Business Suite reply isn't the viewer's).
 - **2026-09-23** — created. Step 4: read-only tray on the advisor board (list + conversation, hide/tuck/auto-open, staff session only, realtime + 60 s catch-up). On staging first; `main` waits for Cris's OK on the screenshots.
