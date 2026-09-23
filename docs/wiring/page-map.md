@@ -232,6 +232,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Tab shell: `.sidebar-item[data-view]` + `<div class="view" id="view-…">` in each board.
 
 ## Session change log
+- 2026-09-23 — advisor sidebar cleanup **shipped to prod** as `b132e52` after Cris's OK (fast-forward `f349410..b132e52`; www / board. / apex byte-identical, 6 served files).
 - 2026-09-23 — §3: advisor board 12 → 9 tabs (Parts, Payments, Customer Log removed; saved-tab fallback via `shared/advisor-views.js`). Other sections not re-verified.
 - 2026-09-23 — verified on test.* (`81069b0`, ZZ Test Advisor): sidebar shows the 9 tabs incl. Capture Invoice; saved `payments` / `parts` → RO Board, `customer-log` → Desk, stale key replaced; all 9 tabs clicked — right title, visible view, no script errors; RO #6029 (2 payments) Payments card intact (PAID IN FULL, both rows, totals, Record form). Only console errors: the pre-existing sandbox avatar sign URL (400).
 - 2026-09-23 — Gaps: a 401 on any login-protected action now shows "Your CrisData sign-in isn't active on this page — log out and sign in again." (`shared/auth-fetch.js`); the per-address sign-in cause recorded; one-address redirect PARKED ([[hosting-domains]] §4a). Other sections not re-verified.

@@ -12,12 +12,12 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `334868f`** (2026-09-23 — Desk pad on the advisor board: scratch sticky notes on every
-tab, this computer only (localStorage — no DB, no network). Tab at the bottom middle; opening pushes
-the page up (≥900px) or overlays; starts as one row, grows a row at a time to 45% of the window, then
-scrolls inside; N / Esc; Tear off with inline confirm. `shared/desk-pad*.{js,css}`, `desk-pad.md`.
-Fast-forward `5e688c8..334868f`; www/board/apex `/api/version` = `334868f`, all 7 changed served files
-byte-identical. Previous code ship: `71a52bb` (401 message). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
+**Prod code = `b132e52`** (2026-09-23 — advisor sidebar cleanup: Parts, Payments and Customer Log
+removed from the advisor board (tabs, views and their code); Capture Invoice + the other 8 tabs kept;
+`parts_orders`, `ro_payments` and RO-detail payments untouched. A saved removed tab lands on its
+replacement (Payments/Parts → RO Board, Customer Log → Desk) via `shared/advisor-views.js`. Fast-forward
+`f349410..b132e52`; www/board/apex `/api/version` = `b132e52`, all 6 changed served files byte-identical.
+`page-map.md` §3. Previous code ship: `334868f` (Desk pad). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.
