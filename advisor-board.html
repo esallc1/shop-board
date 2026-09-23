@@ -108,62 +108,15 @@
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: var(--bg); }
 
-  .received-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
-  .received-item {
-    display: flex; align-items: center; gap: 10px;
-    font-size: 0.85rem; color: var(--muted);
-  }
-  .received-item::before {
-    content: '✓'; color: var(--green);
-    font-weight: 700; font-size: 0.9rem; flex-shrink: 0;
-  }
-
-  /* ══════════════════════════════════
-     TAB 3 — PAYMENTS
-  ══════════════════════════════════ */
-  .payment-form {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
-    margin-bottom: 20px;
-  }
-  @media (max-width: 640px) { .payment-form { grid-template-columns: 1fr; } }
-  .form-group { display: flex; flex-direction: column; gap: 5px; }
-  .form-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
-  .form-group input, .form-group select { width: 100%; }
-  .payment-total {
-    text-align: right; padding: 12px 16px;
-    font-weight: 700; font-size: 0.95rem;
-    border-top: 2px solid var(--border);
-    color: var(--text);
-  }
-  .payment-total span { color: var(--green); font-size: 1.1rem; }
-
-  /* ══════════════════════════════════
-     TAB 4 — CUSTOMER LOG
-  ══════════════════════════════════ */
-  .log-list { list-style: none; display: flex; flex-direction: column; }
-  .log-entry {
-    display: flex; gap: 14px; padding: 13px 0;
-    border-bottom: 1px solid var(--border);
-    align-items: flex-start;
-  }
-  .log-entry:last-child { border-bottom: none; }
+  /* Shared with the Desk call log (.log-time there adds its own size/weight on top
+     of this font + width), so this rule stays although the Customer Log tab that
+     introduced it was removed (2026-09-23). */
   .log-time {
     font-size: 0.7rem; color: var(--muted);
     font-family: 'Courier New', monospace;
     white-space: nowrap; padding-top: 2px;
     min-width: 54px;
   }
-  .log-text { font-size: 0.88rem; line-height: 1.55; }
-  .log-author {
-    font-size: 0.7rem; color: var(--accent);
-    font-weight: 600; margin-top: 3px;
-  }
-  .add-note-row {
-    display: flex; gap: 10px; margin-top: 6px;
-  }
-  .add-note-row input { flex: 1; }
 
   /* ══════════════════════════════════
      CAPTURE INVOICE — ported from bookkeeping-board.html so Josh
@@ -1199,6 +1152,8 @@
 <script src="shared/supabase-config.js"></script>
 <!-- cdAuthFetch: calls the service-role office endpoints as the signed-in user (api/_lib/require-user.js). -->
 <script src="shared/auth-fetch.js"></script>
+<!-- Which tab to reopen after a refresh (Parts / Payments / Customer Log were removed 2026-09-23). -->
+<script src="shared/advisor-views.js"></script>
 <script src="shared/office-identity.js"></script>
 <script src="shared/board-settings.js"></script>
 <!-- cdRoTotalsReady(): wait for THE RO calculator (a deferred module) before any
@@ -1565,9 +1520,6 @@
         <div class="sidebar-item" data-view="techboard" data-label="Tech Board"><span class="icon">🔧</span>Tech Board</div>
         <div class="sidebar-item active" data-view="approval" data-label="Approval Queue"><span class="icon">📋</span>Approval Queue</div>
         <div class="sidebar-item" data-view="mycommission" data-label="My Commission" id="nav-mycommission" style="display:none"><span class="icon">💰</span>My Commission</div>
-        <div class="sidebar-item" data-view="parts" data-label="Parts"><span class="icon">🔩</span>Parts</div>
-        <div class="sidebar-item" data-view="payments" data-label="Payments"><span class="icon">💳</span>Payments</div>
-        <div class="sidebar-item" data-view="customer-log" data-label="Customer Log"><span class="icon">📇</span>Customer Log</div>
         <div class="sidebar-item" data-view="customer" data-label="Customers"><span class="icon">👤</span>Customers</div>
         <div class="sidebar-item" data-view="capture" data-label="Capture Invoice"><span class="icon">📸</span>Capture Invoice</div>
         <div class="sidebar-item" data-view="desk" data-label="Desk"><span class="icon">🗓️</span>Desk<span class="chat-nav-badge" id="desk-overdue-badge" style="display:none">0</span></div>
@@ -1606,119 +1558,9 @@
     <div id="myCommissionMount" style="max-width:640px"></div>
   </div>
 
-  <!-- ══ TAB 2: PARTS ══ -->
-  <div class="view" id="view-parts">
-    <div class="card">
-      <div class="card-title">
-        <div class="dot" style="background:var(--amber)"></div>Waiting for Parts
-        <button class="btn btn-green" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="orderPartBtn">+ Order Part</button>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>Vehicle / PO#</th>
-            <th>Part Needed</th>
-            <th>Ordered</th>
-            <th>Expected</th>
-            <th>Supplier</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="parts-waiting-tbody">
-          <tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">Loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="card">
-      <div class="card-title"><div class="dot" style="background:var(--green)"></div>Recently Received</div>
-      <ul class="received-list" id="parts-received-list">
-        <li class="received-item" style="color:var(--muted)">Loading…</li>
-      </ul>
-    </div>
-  </div>
-
-  <!-- ══ TAB 3: PAYMENTS — read-only ledger. Payments are RECORDED on the
-       RO (RO Board → open RO → Payments); this is the shop-wide view. ══ -->
-  <div class="view" id="view-payments">
-    <div class="card">
-      <div class="card-title"><div class="dot" style="background:var(--blue)"></div>Recent Payments</div>
-      <div style="font-size:0.8rem;color:var(--muted);margin-bottom:12px">
-        Payments are recorded on each RO — open an RO in the <strong>RO Board</strong> and use its Payments section.
-        This is a read-only ledger of the 50 most recent payments.
-      </div>
-      <table id="cdPayLedgerTable">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>RO #</th>
-            <th>Vehicle</th>
-            <th>Customer</th>
-            <th>Method</th>
-            <th style="text-align:right">Amount</th>
-          </tr>
-        </thead>
-        <tbody id="cdPayLedgerBody">
-          <tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">Loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ══ TAB 4: CUSTOMER LOG ══ -->
-  <div class="view" id="view-customer-log">
-    <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px 18px;margin-bottom:16px;font-size:0.83rem;color:#92400e;">
-      <strong>Not yet wired to live data</strong> — no <code>customer_log</code> (or equivalent) table exists in Supabase. Notes added here are not persisted. Dev must create the table before this tab can be wired.
-    </div>
-    <div class="card">
-      <div class="card-title"><div class="dot" style="background:var(--accent)"></div>Add Note</div>
-      <div class="add-note-row">
-        <input type="text" id="new-note-input" placeholder="e.g. Called J. Smith – left voicemail re: parts ETA" style="font-size:0.88rem" />
-        <button class="btn btn-primary" onclick="addNote()">Add Note</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-title"><div class="dot"></div>Customer Activity Log</div>
-      <ul class="log-list" id="log-list">
-        <li class="log-entry">
-          <div class="log-time">11:47 AM</div>
-          <div>
-            <div class="log-text">Called P. Gomez (Camry PO #1043) — confirmed CVT flush approved, parts on order. Told her 2–3 days out.</div>
-            <div class="log-author">Josh</div>
-          </div>
-        </li>
-        <li class="log-entry">
-          <div class="log-time">10:30 AM</div>
-          <div>
-            <div class="log-text">Left voicemail for J. Wicker (Silverado PO #1037) re: clutch kit approval. Needs callback before end of day.</div>
-            <div class="log-author">Josh</div>
-          </div>
-        </li>
-        <li class="log-entry">
-          <div class="log-time">9:58 AM</div>
-          <div>
-            <div class="log-text">D. Reyes called in — wants update on F-150. Told her still diagnosing, will call back by 2 PM with full quote.</div>
-            <div class="log-author">Josh</div>
-          </div>
-        </li>
-        <li class="log-entry">
-          <div class="log-time">9:12 AM</div>
-          <div>
-            <div class="log-text">C. Mendoza approved Accord rebuild — $2,800 flagged hours. Authorized via phone, note added to RO.</div>
-            <div class="log-author">Josh</div>
-          </div>
-        </li>
-        <li class="log-entry">
-          <div class="log-time">8:35 AM</div>
-          <div>
-            <div class="log-text">A. Williams picked up Dodge RAM PO #1028 — paid in full ($1,875 card). Satisfaction: happy, mentioned timing was fast.</div>
-            <div class="log-author">Josh</div>
-          </div>
-        </li>
-      </ul>
-    </div>
-  </div>
+  <!-- Parts, Payments and Customer Log tabs were REMOVED from the advisor board
+       (Front Desk redesign, Cris 2026-09-16). parts_orders stays (the bookkeeping
+       board reads it); payments are recorded and shown on each RO. -->
 
   <!-- ══ CUSTOMERS — the first screen for a PERSON. Two panels, swapped:
        LIST (search all customers) and RECORD (one customer: top strip, vehicle
@@ -2662,40 +2504,6 @@
   </main>
 </div>
 
-<div class="modal-overlay" id="orderPartModal" style="display:none">
-  <div class="modal-box">
-    <button class="modal-close" id="closeOrderPartModal">&times;</button>
-    <h3>Order Part</h3>
-    <div class="intake-field">
-      <label>PO / RO Number</label>
-      <input type="text" id="opPoInput" placeholder="e.g. 1041">
-    </div>
-    <div class="intake-field">
-      <label>Vehicle</label>
-      <input type="text" id="opVehicleInput" placeholder="Year / Make / Model">
-    </div>
-    <div class="intake-field">
-      <label>Part Needed</label>
-      <input type="text" id="opPartInput" placeholder="e.g. Rebuilt torque converter">
-    </div>
-    <div class="intake-field">
-      <label>Supplier / Vendor</label>
-      <input type="text" id="opVendorInput" placeholder="e.g. Trans-Works">
-    </div>
-    <div class="intake-field">
-      <label>Date Ordered</label>
-      <input type="date" id="opOrderedInput">
-    </div>
-    <div class="intake-field">
-      <label>Expected Date</label>
-      <input type="date" id="opExpectedInput">
-    </div>
-    <div class="intake-form-error" id="opFormError"></div>
-    <button class="modal-btn" id="opSaveBtn">Order Part</button>
-    <button class="modal-btn sec" id="opCancelBtn">Cancel</button>
-  </div>
-</div>
-
 <!-- Quick diag-fee receipt — a separate paid record for a declined estimate -->
 <div class="modal-overlay" id="quickReceiptModal" style="display:none">
   <div class="modal-box">
@@ -3409,181 +3217,9 @@
   document.getElementById('mobileNavToggle').addEventListener('click', openMobileNav);
   document.getElementById('sidebarBackdrop').addEventListener('click', closeMobileNav);
 
-  // ── Parts — load from Supabase
-  function formatShortDate(d) {
-    if (!d) return '—';
-    return new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }
-
-  async function loadAndRenderParts() {
-    const { data, error } = await db.from('parts_orders').select('*').order('expected_date', { ascending: true, nullsFirst: false });
-    const waitingTbody = document.getElementById('parts-waiting-tbody');
-    const receivedList = document.getElementById('parts-received-list');
-
-    if (error) {
-      console.error('[Parts] Load failed', error);
-      waitingTbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);text-align:center;padding:24px">Failed to load: ${esc(error.message)}</td></tr>`;
-      receivedList.innerHTML = '';
-      return;
-    }
-
-    const all = data || [];
-    const waiting = all.filter(r => !r.received);
-    const received = all.filter(r => r.received)
-      .sort((a, b) => new Date(b.received_at || b.created_at) - new Date(a.received_at || a.created_at))
-      .slice(0, 10);
-
-    if (waiting.length === 0) {
-      waitingTbody.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">No parts on order.</td></tr>';
-    } else {
-      const today = new Date().toISOString().slice(0, 10);
-      waitingTbody.innerHTML = waiting.map(r => {
-        let expectedStyle = '';
-        if (r.expected_date) {
-          expectedStyle = r.expected_date < today ? 'color:var(--red)' : 'color:var(--amber)';
-        }
-        return `
-        <tr data-id="${esc(r.id)}">
-          <td><strong>${esc(r.vehicle || '—')}</strong><br><span style="color:var(--muted);font-size:0.78rem">PO #${esc(r.po)}</span></td>
-          <td>${esc(r.part_needed)}</td>
-          <td>${formatShortDate(r.date_ordered)}</td>
-          <td><strong style="${expectedStyle}">${formatShortDate(r.expected_date)}</strong></td>
-          <td>${esc(r.vendor || '—')}</td>
-          <td><button class="btn btn-green" style="font-size:0.75rem;padding:5px 12px" onclick="markReceived(this)">✓ Received</button></td>
-        </tr>`;
-      }).join('');
-    }
-
-    if (received.length === 0) {
-      receivedList.innerHTML = '<li class="received-item" style="color:var(--muted)">Nothing received yet.</li>';
-    } else {
-      receivedList.innerHTML = received.map(r => {
-        const when = r.received_at ? formatShortDate(r.received_at.slice(0, 10)) : '—';
-        return `<li class="received-item">${esc(r.part_needed)} — ${esc(r.vehicle || '—')} PO #${esc(r.po)} · Received ${when}</li>`;
-      }).join('');
-    }
-  }
-
-  async function markReceived(btn) {
-    const row = btn.closest('tr');
-    const id = row.dataset.id;
-    btn.disabled = true;
-    btn.textContent = 'Saving…';
-
-    const { error } = await db.from('parts_orders').update({
-      received: true,
-      received_at: new Date().toISOString(),
-    }).eq('id', id);
-
-    if (error) {
-      console.error('[Parts] Mark received failed', error);
-      btn.disabled = false;
-      btn.textContent = '✓ Received';
-      alert('Save failed: ' + error.message);
-      return;
-    }
-
-    loadAndRenderParts();
-  }
-
-  let partsChannel = null;
-  function partsSubscribeRealtime() {
-    if (partsChannel) db.removeChannel(partsChannel);
-    partsChannel = db.channel('advisor-board-parts-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'parts_orders' }, loadAndRenderParts)
-      .subscribe();
-  }
-  partsSubscribeRealtime();
-
-  loadAndRenderParts();
-  VIEW_REFRESH.parts = {
-    refetch: loadAndRenderParts,
-    getChannel: () => partsChannel,
-    resubscribe: partsSubscribeRealtime,
-  };
-
-  function openOrderPartModal() {
-    document.getElementById('opPoInput').value = '';
-    document.getElementById('opVehicleInput').value = '';
-    document.getElementById('opPartInput').value = '';
-    document.getElementById('opVendorInput').value = '';
-    document.getElementById('opOrderedInput').value = new Date().toISOString().slice(0, 10);
-    document.getElementById('opExpectedInput').value = '';
-    document.getElementById('opFormError').textContent = '';
-    document.getElementById('orderPartModal').style.display = 'flex';
-  }
-
-  function closeOrderPartModal() {
-    document.getElementById('orderPartModal').style.display = 'none';
-  }
-
-  async function saveOrderPart() {
-    const po = document.getElementById('opPoInput').value.trim();
-    const vehicle = document.getElementById('opVehicleInput').value.trim();
-    const part_needed = document.getElementById('opPartInput').value.trim();
-    const vendor = document.getElementById('opVendorInput').value.trim();
-    const date_ordered = document.getElementById('opOrderedInput').value || null;
-    const expected_date = document.getElementById('opExpectedInput').value || null;
-    const errEl = document.getElementById('opFormError');
-    errEl.textContent = '';
-
-    if (!po || !part_needed) {
-      errEl.textContent = 'PO/RO number and Part Needed are required.';
-      return;
-    }
-
-    const saveBtn = document.getElementById('opSaveBtn');
-    saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving…';
-
-    try {
-      const { error } = await db.from('parts_orders').insert({
-        po, vehicle, part_needed, vendor, date_ordered, expected_date,
-        created_by_name: CHAT_IDENTITY.name || null,
-      });
-      if (error) throw error;
-
-      closeOrderPartModal();
-      loadAndRenderParts();
-    } catch (err) {
-      console.error('[Parts] Save failed', err);
-      errEl.textContent = 'Save failed: ' + (err.message || 'unknown error');
-    } finally {
-      saveBtn.disabled = false;
-      saveBtn.textContent = 'Order Part';
-    }
-  }
-
-  document.getElementById('orderPartBtn').addEventListener('click', openOrderPartModal);
-  document.getElementById('closeOrderPartModal').addEventListener('click', closeOrderPartModal);
-  document.getElementById('opCancelBtn').addEventListener('click', closeOrderPartModal);
-  document.getElementById('opSaveBtn').addEventListener('click', saveOrderPart);
-
-  // (Payments tab is now a real read-only ledger — see loadPayLedger in the
-  //  RO Board IIFE. The old local-only logPayment stub was removed; payments
-  //  are recorded on the RO.)
-
-  // ── Add Customer Log Note (local only — no customer_log table)
-  function addNote() {
-    const input = document.getElementById('new-note-input');
-    const text = input.value.trim();
-    if (!text) return;
-    const now = new Date().toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'});
-    const li = document.createElement('li');
-    li.className = 'log-entry';
-    li.innerHTML = `
-      <div class="log-time">${now}</div>
-      <div>
-        <div class="log-text">${esc(text)}</div>
-        <div class="log-author">Josh</div>
-      </div>`;
-    document.getElementById('log-list').prepend(li);
-    input.value = '';
-  }
-
-  document.getElementById('new-note-input').addEventListener('keydown', e => {
-    if (e.key === 'Enter') addNote();
-  });
+  // Parts (parts_orders list + Order Part) and Customer Log (demo notes) were
+  // REMOVED from the advisor board with their tabs (Front Desk redesign, Cris
+  // 2026-09-16). parts_orders itself stays — the bookkeeping board reads it.
 
   // ── Job-linked notes (local only)
   function addJobNote(btn) {
@@ -7078,38 +6714,6 @@
       renderPayments();
     }
 
-    // ── Payments TAB — shop-wide read-only ledger (50 most recent) ──
-    async function loadPayLedger() {
-      const tb = $('cdPayLedgerBody');
-      if (!tb) return;
-      const { data, error } = await db.from('ro_payments')
-        .select('id, amount, method, paid_at, po, repair_orders(ro_number, customers(name), vehicles(year, make, model))')
-        .order('paid_at', { ascending: false }).limit(50);
-      if (error) {
-        tb.innerHTML = `<tr><td colspan="6" style="color:var(--red);text-align:center;padding:20px">Failed to load: ${esc(error.message)}</td></tr>`;
-        return;
-      }
-      const rows = data || [];
-      if (rows.length === 0) {
-        tb.innerHTML = '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">No payments recorded yet.</td></tr>';
-        return;
-      }
-      tb.innerHTML = rows.map(p => {
-        const ro = p.repair_orders || {}, c = ro.customers || {}, v = ro.vehicles || {};
-        const veh = [v.year, v.make, v.model].filter(Boolean).join(' ') || '—';
-        const dt = p.paid_at ? new Date(p.paid_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—';
-        return `
-        <tr>
-          <td style="color:var(--muted);font-size:0.8rem">${esc(dt)}</td>
-          <td><strong>#${esc(p.po || ro.ro_number || '—')}</strong></td>
-          <td>${esc(veh)}</td>
-          <td>${esc(c.name || '—')}</td>
-          <td>${esc(methodLabel(p.method))}</td>
-          <td style="text-align:right;font-weight:700;font-variant-numeric:tabular-nums">${money(p.amount)}</td>
-        </tr>`;
-      }).join('');
-    }
-
     // ══════════════════════════════════════════════════════════
     // ADD / EDIT LINE pop-up — replaces inline row editing. Pick a
     // type; the fields adapt. Storage mapping (math unchanged):
@@ -7894,11 +7498,8 @@
     populateMethodPicker();
     $('cdPayRecordBtn').addEventListener('click', recordPayment);
     $('cdPayAmount').addEventListener('keydown', (e) => { if (e.key === 'Enter') recordPayment(); });
-    // Payments TAB ledger — load now, refresh whenever the tab is opened.
-    const payNav = document.querySelector('.sidebar-item[data-view="payments"]');
-    if (payNav) payNav.addEventListener('click', loadPayLedger);
-    loadPayLedger();
-    if (typeof VIEW_REFRESH !== 'undefined') VIEW_REFRESH.payments = { refetch: loadPayLedger };
+    // (The shop-wide Payments TAB ledger was removed with the tab — Front Desk
+    //  redesign, 2026-09-16. Payments are recorded and listed on each RO, above.)
     // Stage selector — free movement; setStage reverts on failure so a
     // rejected move (e.g. 'closed' pre-migration) snaps back visibly.
     $('cdRoStage').addEventListener('change', async () => {
@@ -11555,10 +11156,17 @@
   // plus Team Chat's own unlock/mark-read listener) runs exactly as it
   // would for a manual click — no separate restoration codepath to
   // keep in sync as tabs gain their own click side effects.
+  // A saved tab that no longer exists (Parts / Payments / Customer Log were
+  // removed 2026-09-23) lands on its replacement and the stale key is cleared —
+  // never a blank view (shared/advisor-views.js).
   (function restoreActiveView() {
-    const saved = sessionStorage.getItem(ACTIVE_VIEW_KEY);
-    if (!saved || saved === currentViewKey) return;
-    const item = document.querySelector(`.sidebar-item[data-view="${saved}"]`);
+    let saved = null;
+    try { saved = sessionStorage.getItem(ACTIVE_VIEW_KEY); } catch (e) {}
+    const keys = [...document.querySelectorAll('.sidebar-item[data-view]')].map(i => i.dataset.view);
+    const r = window.cdResolveSavedView ? window.cdResolveSavedView(saved, keys) : { view: saved, clear: false };
+    if (r.clear) { try { sessionStorage.removeItem(ACTIVE_VIEW_KEY); } catch (e) {} }
+    if (!r.view || r.view === currentViewKey) return;
+    const item = document.querySelector(`.sidebar-item[data-view="${r.view}"]`);
     if (item) item.click();
   })();
 

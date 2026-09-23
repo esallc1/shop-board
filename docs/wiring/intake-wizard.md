@@ -139,7 +139,7 @@ rollup queries on small tables. Ranked by what breaks when the table passes 1,00
 | `shopboard_*`, `tech_whiteboard` (many sites) | floor tables | 2–12 | no | — |
 | `gm-board.html:1630`, `bookkeeping:3088` | `core_charges` | 1 | unlikely | — |
 | `gm-board.html:4047` | `transmissions` | 7 | no | — |
-| `advisor-board.html:2449`, `bookkeeping:2684` | `parts_orders` | 1 | eventually | Parts list truncates |
+| `bookkeeping:2684` (the advisor board's Parts tab was removed 2026-09-23) | `parts_orders` | 1 | eventually | Parts list truncates |
 
 **Already safe, worth knowing why:**
 - `vehicles` (3,251 — over the cap) is **never** read unbounded; every site is
@@ -210,6 +210,7 @@ Full reasoning — including why it is not a second write inside `mintRo` — is
   one field-level update on an existing `vehicle_id`.
 
 ## Session change log
+- 2026-09-23 — Unbounded-reads table: the advisor board no longer reads `parts_orders` (its Parts tab was removed); only the bookkeeping board does. Not otherwise re-verified.
 - 2026-08-18 — **FIXED the phone lookup's 1,000-row blindness** (§4) and **audited every
   unbounded read** (§5). `lookupPhone` now filters server-side with an end-anchored ilike pattern
   over both phone columns, re-checked on exact last-10 in the client — no dependency on the

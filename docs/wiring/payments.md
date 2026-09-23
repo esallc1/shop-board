@@ -66,11 +66,14 @@ RO total minus the sum of its rows, and it's "paid in full" when that reaches $0
   (editable list via `shared/board-settings.js`).
 - **Record / list / balance:** `advisor-board.html` — `recordPayment`, `loadPayments`,
   `renderPayments`, `renderPaymentsSummary`, `paymentStatusFor`, `paidSum`, `deletePayment`,
-  `populateMethodPicker` / `activePaymentMethods`; the shop-wide read-only ledger `loadPayLedger`.
+  `populateMethodPicker` / `activePaymentMethods`. (The advisor board's shop-wide read-only
+  **Payments tab** ledger, `loadPayLedger`, was **removed 2026-09-23** with the tab — Front Desk
+  redesign. Payments are still recorded, listed and totalled on each RO; the table is unchanged.)
 - **Consumers:** [[financial-pulse]] (income + per-RO detail), [[ro-invoice]] (PAID state).
 - **Related docs:** [[ro-invoice]], [[financial-pulse]], [[settings]] (`payment_methods`).
 
 ## Session change log
+- 2026-09-23 — The advisor board's **Payments tab** (the 50-most-recent read-only ledger, `loadPayLedger`) was removed with the tab. RO-detail payments, `ro_payments`, the bookkeeping readers and the invoice PAID state are untouched. "Where it lives" updated; rest not re-verified.
 - 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-08-09 — Created. Documented the `ro_payments` per-payment ledger (record-only, anon
   RLS), the **split/deposit = multiple rows** model (no separate combined-entry form), the

@@ -55,7 +55,7 @@ front door when there is no session.
 
 | Page | Title | Tabs |
 |---|---|---|
-| `advisor-board.html` | Service Advisor Board | 12 |
+| `advisor-board.html` | Service Advisor Board | 9 |
 | `gm-board.html` | **Manager Board** | 12 |
 | `owner-board.html` | Owner Board | 11 |
 | `bookkeeping-board.html` | Bookkeeping Board | 10 |
@@ -64,8 +64,16 @@ front door when there is no session.
 Tabs are `<div class="view" id="view-…">` panes toggled by `display:none`, driven by
 `<div class="sidebar-item" data-view="…" data-label="…">`. Nothing reloads on a tab switch.
 
-- **Advisor:** RO Board · Tech Board · Approval Queue · My Commission · Parts · Payments ·
-  Customer Log · Customers · Capture Invoice · Desk · To-Do · Team Chat
+- **Advisor:** RO Board · Tech Board · Approval Queue · My Commission · Customers · Capture Invoice ·
+  Desk · To-Do · Team Chat. **Parts, Payments and Customer Log were removed 2026-09-23** (Front Desk
+  redesign, decided by Cris 2026-09-16): Customer Log was demo data with no table; the Payments tab
+  was a read-only `ro_payments` ledger (payments are still recorded and listed on each RO); the Parts
+  tab read/wrote `parts_orders`, which **stays** (the bookkeeping board reads it). Capture Invoice
+  stays — it's how invoices reach bookkeeping. A browser that had a removed tab saved as its last tab
+  (`sessionStorage['advisorBoardActiveView']`) lands on its replacement — Payments / Parts → RO Board,
+  Customer Log → Desk — and the stale key is cleared (`shared/advisor-views.js`,
+  `cdResolveSavedView`; tested by `shared/advisor-views.test.js`). The advisor board also carries two
+  non-tab panels on every tab: the Facebook tray ([[messenger-tray]]) and the Desk pad ([[desk-pad]]).
 - **Manager:** Overview · Shop Floor · Tech Status · My Numbers · Teardown · Comebacks ·
   Reports · To-Do · Technicians · Cash Flow · Team Chat · Employees
 - **Owner:** To-Do · Marketing Content · Team Chat · Team Comms · Roadmap · Planner ·
@@ -224,6 +232,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Tab shell: `.sidebar-item[data-view]` + `<div class="view" id="view-…">` in each board.
 
 ## Session change log
+- 2026-09-23 — §3: advisor board 12 → 9 tabs (Parts, Payments, Customer Log removed; saved-tab fallback via `shared/advisor-views.js`). Other sections not re-verified.
 - 2026-09-23 — Gaps: a 401 on any login-protected action now shows "Your CrisData sign-in isn't active on this page — log out and sign in again." (`shared/auth-fetch.js`); the per-address sign-in cause recorded; one-address redirect PARKED ([[hosting-domains]] §4a). Other sections not re-verified.
 - 2026-09-23 — Gaps: noted `public.is_staff()` (Messenger step-1 migration, not yet applied) as the shared staff check for Phase 3.
 - 2026-09-23 — §5a added: public `privacy.html` / `terms.html` / `data-deletion.html` for Meta App Review; must stay outside any auth-gate. §0 note added. Other sections not re-verified.
