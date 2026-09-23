@@ -29,10 +29,16 @@ or mark it Done.
 | **open** | something waiting (first load, or a NEW customer message), or the strip was clicked | 340 px panel: list, or one conversation |
 | **tucked** | "Hide »" was clicked while something waits; or a sign-in/permission/load problem | thin strip on the right edge: blue **f** badge + a red count (or an amber **!**) |
 
-- **A thread waits** (`isWaiting`) when `done_at` is null **or** `last_inbound_at > done_at`.
-  Only a newer **customer** message brings a Done thread back — our replies never do.
-- **Auto-open:** after the first load, a refresh whose newest waiting `last_inbound_at` is newer
-  than before (`hasNewInbound`) opens the panel. The first load opens it too if anything waits —
+- **A thread waits** (`isWaiting`) when `done_at` is null **or** a customer message **arrived** after
+  it: `last_inbound_received_at > done_at` (`inboundArrivedMs`; a row without the column falls
+  back to `last_inbound_at`). **Arrival, not Meta's send time** — a message sent 10:00:00, Done at
+  10:00:05, delivered 10:00:06 brings the thread back. `last_inbound_received_at` is stamped with
+  `now()` by `social_record_message` only for a NEW inbound message
+  (`migrations/20260923_social_inbound_received_*.sql`). Our replies never bring a thread back.
+  The **24 h reply window still runs on `last_inbound_at`** (Meta's rule, Meta's clock).
+- **Auto-open:** after the first load, a refresh whose newest waiting **arrival** time is newer
+  than before (`newestInbound` / `hasNewInbound`) opens the panel — so a late delivery with an older
+  Meta timestamp still opens it. The first load opens it too if anything waits —
   **unless** the viewer tucked it and nothing newer has arrived since (`localStorage
   cdMtrayTuckedAt` = the newest inbound when they tucked; per browser, a convenience only).
 - If nothing waits, it hides — except while a conversation is open on screen.
@@ -109,11 +115,9 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 
 ## Known gaps & open questions (as of 2026-09-23)
 - **No "un-done"** and no retry button for a failed send (retype and send).
-- **A message sent just BEFORE Done but delivered just AFTER it won't bring the thread back.** The
-  waiting rule compares `last_inbound_at` (Meta's timestamp — when the customer sent it) with
-  `done_at` (when someone clicked Done). Meta normally delivers within seconds, so the gap is small,
-  but it is real. The fix is a DB change: compare with when the message *arrived* (e.g. a
-  `last_inbound_received_at` set by `social_record_message`). Not built — say the word.
+- ~~A message sent just before Done but delivered just after didn't bring the thread back~~ —
+  fixed 2026-09-23 with `last_inbound_received_at` (§2). Needs its migration on each DB before the
+  code that reads it.
 - **The picker's customer list is cached** for the page's life (like the Desk's); a customer created
   after the first open won't appear until reload.
 - **Up to 200 threads / 500 messages** per read — fine for the shop's volume; paginate if that changes.
@@ -134,6 +138,7 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 - Tables: `social_threads`, `social_messages` (`migrations/20260923_social_messaging_*.sql`).
 
 ## Session change log
+- **2026-09-23** — sent-before-Done fix: the waiting rule and auto-open now use **arrival** (`last_inbound_received_at`, stamped by `social_record_message`); the 24 h window stays on `last_inbound_at`. Migration `20260923_social_inbound_received_*` (commit `cba86f0`); tray code held until the SANDBOX migration is applied.
 - **2026-09-23** — step 5 shipped to prod as `fb66aba` after Cris's OK (fast-forward `c5fe657..fb66aba`); www / board. / apex byte-identical for all 6 changed served files.
 - **2026-09-23** — browser run on test.* (ZZ Test Advisor): reply (dry-run), Shift+Enter, link, unlink (inline confirm), relink, closed-window box + tap-to-call, Done, a new message bringing the thread back (auto-open) — all PASS. `meta-sim` now stamps messages into a REUSED thread 1 s apart ending now (a 60 s backdate put them before the Done). Gap recorded: sent-before-Done / delivered-after.
 - **2026-09-23** — **step 5: tray actions** (§3a), code `84e1e78`: reply box (Enter/Shift+Enter, draft-safe, closed-window reason + tap-to-call, failed → red, not-connected/190 → banner), Link (in-tray picker, Desk's list + search rules) / Unlink (inline confirm), ✓ Done. "Read-only" footer removed. On staging.

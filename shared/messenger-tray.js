@@ -309,7 +309,7 @@ export function mountMessengerTray({ db, viewer }) {
         }
 
         const tr = await db.from('social_threads')
-          .select('id, channel, psid, display_name, customer_id, last_inbound_at, last_message_at, done_at')
+          .select('id, channel, psid, display_name, customer_id, last_inbound_at, last_inbound_received_at, last_message_at, done_at')
           .order('last_message_at', { ascending: false, nullsFirst: false })
           .limit(200);
         if (tr.error) throw tr.error;

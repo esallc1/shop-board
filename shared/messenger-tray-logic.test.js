@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path';
 import {
   isWaiting, waitingThreads, threadName, windowLabel, previewText, attachmentLabel,
   messageByline, newestInbound, hasNewInbound, latestByThread, timeLabel, WINDOW_MS,
-  composeState, replyError, searchCustomers, bylineWithViewer, WINDOW_CLOSED_TEXT,
+  composeState, replyError, searchCustomers, bylineWithViewer, WINDOW_CLOSED_TEXT, inboundArrivedMs,
 } from './messenger-tray-logic.js';
 
 const NOW = Date.parse('2026-09-23T15:00:00Z');
@@ -183,4 +183,36 @@ test('bylineWithViewer: the viewer names their own reply when the roster view hi
   assert.equal(bylineWithViewer({ ...mine, sent_by: 'OTHER' }, {}, viewer), 'CrisData');
   assert.equal(bylineWithViewer({ direction: 'out', source: 'page_inbox' }, {}, viewer), 'via Facebook app');
   assert.equal(bylineWithViewer(mine, {}, null), 'CrisData');
+});
+
+test('THE sent-before-Done case: sent 10:00:00, Done 10:00:05, delivered 10:00:06 → the thread comes back', () => {
+  const t = {
+    last_inbound_at: '2026-09-23T14:00:00Z',            // Meta: when the customer SENT it
+    done_at: '2026-09-23T14:00:05Z',                    // someone clicked Done
+    last_inbound_received_at: '2026-09-23T14:00:06Z',   // when it ARRIVED here
+  };
+  assert.equal(isWaiting(t), true);
+  // the reply window still runs on Meta's clock, not arrival
+  assert.equal(windowLabel(t.last_inbound_at, Date.parse('2026-09-24T13:59:00Z')).open, true);
+  assert.equal(windowLabel(t.last_inbound_at, Date.parse('2026-09-24T14:00:01Z')).open, false);
+});
+
+test('arrival rules: arrived before Done → stays done; our reply after Done never counts; old rows fall back to last_inbound_at', () => {
+  assert.equal(isWaiting({ last_inbound_at: ago(3), last_inbound_received_at: ago(3), done_at: ago(2) }), false);
+  assert.equal(isWaiting({ last_inbound_at: ago(3), last_inbound_received_at: ago(3), done_at: ago(2), last_message_at: ago(1) }), false);
+  assert.equal(isWaiting({ last_inbound_at: ago(1), last_inbound_received_at: null, done_at: ago(2) }), true);    // pre-column row
+  assert.equal(isWaiting({ last_inbound_at: ago(3), last_inbound_received_at: null, done_at: ago(2) }), false);
+  assert.equal(inboundArrivedMs({ last_inbound_at: ago(5), last_inbound_received_at: ago(1) }), NOW - 3600000);
+  assert.equal(inboundArrivedMs(null), null);
+});
+
+test('auto-open follows ARRIVAL: a late delivery with an older Meta timestamp still counts as new', () => {
+  const before = [{ done_at: null, last_inbound_at: ago(1), last_inbound_received_at: ago(1) }];
+  const after = [...before, { done_at: null, last_inbound_at: ago(2), last_inbound_received_at: ago(0) }];
+  assert.equal(hasNewInbound(newestInbound(before), newestInbound(after)), true);
+});
+
+test('the tray reads last_inbound_received_at', () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'messenger-tray.js'), 'utf8');
+  assert.match(src, /last_inbound_received_at/);
 });

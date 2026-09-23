@@ -10,15 +10,25 @@ export const WINDOW_MS = 24 * 60 * 60 * 1000;   // same rule as api/messenger.js
 
 const ms = (iso) => { const t = iso ? Date.parse(iso) : NaN; return Number.isFinite(t) ? t : null; };
 
+// When the newest CUSTOMER message ARRIVED at CrisData. last_inbound_received_at is
+// stamped by social_record_message on arrival; a row that predates that column (or
+// was never stamped) falls back to Meta's send time, last_inbound_at.
+export function inboundArrivedMs(thread) {
+  if (!thread) return null;
+  const r = ms(thread.last_inbound_received_at);
+  return r !== null ? r : ms(thread.last_inbound_at);
+}
+
 // A thread WAITS (belongs in the tray) when nobody marked it done, or a customer
-// wrote again after it was marked done. The only thing that brings a Done thread
-// back is a newer CUSTOMER message — our own replies never do.
+// message ARRIVED after it was marked done. Arrival, not Meta's send time: a message
+// sent just before someone clicked Done but delivered just after must bring it back.
+// Our own replies never do (they don't stamp the arrival).
 export function isWaiting(thread) {
   if (!thread) return false;
   const done = ms(thread.done_at);
   if (done === null) return true;
-  const inbound = ms(thread.last_inbound_at);
-  return inbound !== null && inbound > done;
+  const arrived = inboundArrivedMs(thread);
+  return arrived !== null && arrived > done;
 }
 
 // Waiting threads, newest activity first. Input never mutated.
@@ -100,12 +110,12 @@ export function timeLabel(iso, nowMs = Date.now()) {
 }
 
 // Did a refresh bring a NEW customer message? (→ the tray opens itself.) Compares
-// the newest waiting last_inbound_at against what we saw before. The first load
+// the newest waiting ARRIVAL time against what we saw before. The first load
 // (prev null) is never "new" — opening on page load is a separate rule.
 export function newestInbound(threads) {
   let best = null;
   for (const t of waitingThreads(threads)) {
-    const v = ms(t.last_inbound_at);
+    const v = inboundArrivedMs(t);   // arrival — a late delivery still auto-opens
     if (v !== null && (best === null || v > best)) best = v;
   }
   return best;

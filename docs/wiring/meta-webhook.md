@@ -228,6 +228,12 @@ both tables in `supabase_realtime`; both empty.
   insert-message ON CONFLICT (mid) DO NOTHING, clocks only move forward, fills
   `sent_by`/`send_status`/`display_name` only when empty, never writes `done_*`/`customer_id`.
   Locked by `shared/social-messaging-migration.test.js`.
+- **`last_inbound_received_at`** (added by `migrations/20260923_social_inbound_received_*.sql`):
+  `social_record_message` stamps it `= greatest(it, now())` for every NEW inbound message — even a
+  late delivery whose Meta timestamp is older — and never for a re-delivery, an echo or our send.
+  Backfilled from `last_inbound_at`. The tray's waiting rule uses it ([[messenger-tray]] §2);
+  `last_inbound_at` still drives the 24 h window. Locked by
+  `shared/social-inbound-received-migration.test.js`.
 
 ### 9b. What becomes a row — `parseMessagingEvents(body, pageId)`
 Pure; returns `{ rows, skipped }` in delivery order. Requires `object === 'page'`.
@@ -366,6 +372,7 @@ link to JDPR Construction `200` (only `customer_id`/`linked_at`/`linked_by` chan
   §4 for where it intentionally diverges.
 
 ## Session change log
+- **2026-09-23** — §9a: `last_inbound_received_at` (arrival time) added to the writer via `20260923_social_inbound_received_*` — the sent-before-Done fix. Webhook code unchanged.
 - **2026-09-23** — §11f: step 3 verified signed-in on test.* (read / dry-run reply / link / done all PASS, only-own-columns confirmed). The tray that consumes these tables now has its own doc: [[messenger-tray]].
 - **2026-09-23** — **Messenger step 3: `api/messenger.js`** (§11): staff-only reply (24h window checked server-side before Meta; Send API RESPONSE; failed sends stored as failed under `local:`; 190 → "connection expired"; no token → 503), link/unlink (archive rule), done — each writes only its own columns. `META_SEND_MODE=dry-run` set on Preview · `staging` only; refused on Production. §10a records Cris's sandbox verification of step 2.
 - **2026-09-23** — shipped as `49cd111` (staging, then fast-forward `main`). Live checks on test.*, www, board., apex: `/api/messenger` no-token/junk-token POST `401`, GET `405`; `/CLAUDE.md` `404` everywhere; `meta-webhook.md` byte-identical; unsigned webhook POST still `403`. A signed-in reply/link/done on test.* is Cris's check (no ZZ session available to Claude).
