@@ -4,7 +4,8 @@
 > `api/messenger.js`. Created the same day with step 4 (read-only).
 > Verified vs commit `bc52dd2` (the commit that SHIPPED the sent-before-Done fix — prod + staging, 2026-09-23).
 > Status: 🟢 **LIVE on prod** — read + reply / link / unlink / Done. Prod has no Messenger rows yet (Meta fields
-> unsubscribed) and no Page token, so a reply there would answer "Facebook isn't connected — tell Cris".
+> unsubscribed). The Page token is set on Production (2026-09-23), so a prod reply would really send — not yet
+> exercised; the first real test is Cris's own Facebook account.
 > Related: [[meta-webhook]] (§9 storage, §11 `api/messenger.js`), [[office-auth]] (`is_staff()`), [[call-window-desk]] (untouched).
 
 ## 0. In one line

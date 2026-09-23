@@ -144,7 +144,7 @@ the log line rather than raised.
 |---|---|---|
 | `META_APP_SECRET` | the real Meta App Secret (set 2026-09-12) | a **made-up** staging secret (set 2026-09-23) — Meta can't sign for it; `scripts/meta-sim.mjs` does (§10) |
 | `META_VERIFY_TOKEN` | the random handshake token Cris picked | **unset** — staging's GET handshake 403s, on purpose |
-| `META_PAGE_ACCESS_TOKEN` | **unset** (step 6) → replies answer 503 "not connected" | unset |
+| `META_PAGE_ACCESS_TOKEN` | **set 2026-09-23** by Cris — type Secret, Production only; a never-expiring **Page** token for Page `821690607890680` (Meta Access Token Debugger: Type = Page, Expires = Never). Used by the Send API (§11b) and the name lookup (§9d). | **unset** — staging stays `dry-run` and never looks up names |
 | `META_SEND_MODE` | **must stay unset** (a `dry-run` here is refused, §11c) | `dry-run` (set 2026-09-23) — replies are stored, never sent |
 | `META_PAGE_ID` | unset → `821690607890680` | unset |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | prod (URL falls back to prod) | the sandbox ([[staging-db]]) |
@@ -259,7 +259,9 @@ After a **new inbound** row, if `META_PAGE_ACCESS_TOKEN` is set: read the thread
 `display_name`; if empty, `GET graph.facebook.com/v26.0/<psid>?fields=first_name,last_name`
 with the token in the **Authorization header** (never the URL), 4 s timeout; then
 `PATCH social_threads?id=eq.<id>&display_name=is.null` — fill-if-empty, never replace. No token
-(today, everywhere) → skipped quietly, no name; the tray will show "Facebook user" until linked.
+(staging) → skipped quietly, no name; the tray shows "Facebook user" until linked. Prod has the
+token since 2026-09-23, so a real first message will be named (not yet seen live — no field is
+subscribed).
 A Graph refusal is counted (`nameErrors`) and simply retried on the thread's next new message.
 
 ## 10. Testing it on staging — `scripts/meta-sim.mjs`
@@ -348,8 +350,10 @@ link to JDPR Construction `200` (only `customer_id`/`linked_at`/`linked_by` chan
   with Meta's dashboard sample; §10 proves storage with our own fakes. The first real message
   arrives only after Cris subscribes the fields and the Page (step 6).
 - **Attachment links expire** (Meta CDN). Only metadata is kept; copying files is a later slice.
-- **`META_PAGE_ACCESS_TOKEN` is unset**, so no names are looked up yet (§9d) and prod replies
-  answer `503 not_connected` (§11b) — expected until step 6.
+- **`META_PAGE_ACCESS_TOKEN` is set on Production (2026-09-23) but not yet proven live.** Nothing
+  has exercised it: no Meta field is subscribed (so no names looked up, §9d) and no real reply has
+  been sent (§11b). The first real proof is the end-to-end test with Cris's own Facebook account. A
+  dead token would show as code 190 → "Facebook connection expired — tell Cris".
 - **No "un-done".** Done can only be undone by a new customer message. Add an action if the tray
   needs one.
 - **A failed send stays in the thread** (as failed) and moves `last_message_at`. No retry
@@ -373,6 +377,7 @@ link to JDPR Construction `200` (only `customer_id`/`linked_at`/`linked_by` chan
   §4 for where it intentionally diverges.
 
 ## Session change log
+- **2026-09-23** — §6: `META_PAGE_ACCESS_TOKEN` set by Cris on Production only (Secret; never-expiring Page token for `821690607890680`, verified in Meta's Access Token Debugger). This docs commit is the fresh Production build that bakes it in. Not yet exercised (fields unsubscribed; no real reply).
 - **2026-09-23** — `20260923_social_inbound_received_*` applied + verified 9/9 on SANDBOX then PROD (Cris). Prod code `bc52dd2`.
 - **2026-09-23** — §9a: `last_inbound_received_at` (arrival time) added to the writer via `20260923_social_inbound_received_*` — the sent-before-Done fix. Webhook code unchanged.
 - **2026-09-23** — §11f: step 3 verified signed-in on test.* (read / dry-run reply / link / done all PASS, only-own-columns confirmed). The tray that consumes these tables now has its own doc: [[messenger-tray]].
