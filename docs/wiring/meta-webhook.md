@@ -324,6 +324,15 @@ Unlink sets those three to null. No other column.
 `PATCH` **exactly** `done_at = now`, `done_by = the employee`. A newer customer message brings
 the thread back by being newer (`last_inbound_at > done_at`) — nothing clears `done_at`.
 
+### 11f. Proven signed-in on staging — 2026-09-23
+Cris signed in on test.* as **ZZ Test Advisor** in Claude's browser pane; Claude ran the actions
+from the advisor board's console with `cdAuthFetch` against thread `SIM_1790158332828`. All
+**PASS**: staff read of the thread (1 row — proves `staff_read` works for a real session); dry-run
+reply `200` (`dryrun:` mid, `send_status sent`, `sent_by` = the ZZ employee, source `crisdata`);
+link to JDPR Construction `200` (only `customer_id`/`linked_at`/`linked_by` changed); done `200`
+(only `done_at`/`done_by`). Afterwards: 4 messages on the thread, `last_inbound_at` unchanged
+(message 2), `last_message_at` moved to the reply.
+
 ## Known gaps & open questions (as of 2026-09-23)
 - **A delivery that fails to store is lost.** We 200 to keep the subscription alive, so Meta
   won't resend; only the log line's `errors` count shows it. A `meta_webhook_log` table (like
@@ -357,6 +366,7 @@ the thread back by being newer (`last_inbound_at > done_at`) — nothing clears 
   §4 for where it intentionally diverges.
 
 ## Session change log
+- **2026-09-23** — §11f: step 3 verified signed-in on test.* (read / dry-run reply / link / done all PASS, only-own-columns confirmed). The tray that consumes these tables now has its own doc: [[messenger-tray]].
 - **2026-09-23** — **Messenger step 3: `api/messenger.js`** (§11): staff-only reply (24h window checked server-side before Meta; Send API RESPONSE; failed sends stored as failed under `local:`; 190 → "connection expired"; no token → 503), link/unlink (archive rule), done — each writes only its own columns. `META_SEND_MODE=dry-run` set on Preview · `staging` only; refused on Production. §10a records Cris's sandbox verification of step 2.
 - **2026-09-23** — shipped as `49cd111` (staging, then fast-forward `main`). Live checks on test.*, www, board., apex: `/api/messenger` no-token/junk-token POST `401`, GET `405`; `/CLAUDE.md` `404` everywhere; `meta-webhook.md` byte-identical; unsigned webhook POST still `403`. A signed-in reply/link/done on test.* is Cris's check (no ZZ session available to Claude).
 - **2026-09-23** — **Messenger step 2: storage.** Step-1 tables applied + verified by Cris on SANDBOX then PROD (all 8 checks PASS, §9a). `parseMessagingEvents` + `storeRows` + one-time Graph name (token-gated, unset today) added; 200 on every signed delivery incl. DB errors; log carries counts only. `scripts/meta-sim.mjs` + a made-up staging-only `META_APP_SECRET` (Preview · `staging`) make storage testable on test.* (§10). Header, §0, §1, §2, §2a, §5, §6, §7, gaps and "where it lives" rewritten; 25 → 44 webhook tests.

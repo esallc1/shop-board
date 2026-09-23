@@ -17,6 +17,7 @@
 <script src="/shared/version-check.js"></script>
 <link rel="stylesheet" href="shared/board-shell.css">
 <link rel="stylesheet" href="shared/new-badge.css">
+<link rel="stylesheet" href="shared/messenger-tray.css">
 <style>
   /* ── CONTENT — .content padding is intentionally NOT in the shared
      shell (gm-board.html uses a different value from advisor/
@@ -13821,6 +13822,15 @@
     window.cdResubscribeCalls = subscribeCalls;
     window.cdBackfillCalls = backfillRecentCalls;
   })();
+</script>
+<!-- Facebook Messenger inbox tray — READ-ONLY (step 4). Mounted once on <body>,
+     outside every view, so it shows on every advisor tab. Reads social_threads /
+     social_messages with the signed-in session only (staff RLS); writes nothing.
+     z 2900: below every modal, the call-log drawer, the call card and Team Chat.
+     See docs/wiring/messenger-tray.md. -->
+<script type="module">
+  import { mountMessengerTray } from './shared/messenger-tray.js';
+  mountMessengerTray({ db });
 </script>
 </body>
 </html>

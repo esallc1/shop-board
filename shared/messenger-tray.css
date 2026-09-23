@@ -1,0 +1,97 @@
+/* ============================================================
+   messenger-tray.css — the Advisor inbox tray (Facebook Messenger).
+   Wiring: docs/wiring/messenger-tray.md.
+
+   z-index 2900 on purpose: BELOW every modal (3000), the call-log drawer
+   (3300), the call card (4000), the mobile sidebar (4500) and Team Chat toasts
+   (9999). The tray must never paint over any of them.
+   ============================================================ */
+.mtray-strip {
+  position: fixed; right: 0; top: 38%; z-index: 2900;
+  display: none; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 6px; min-width: 34px;
+  background: var(--surface, #fff); color: var(--text, #1a1f36);
+  border: 1px solid var(--border, #e2e5ee); border-right: none;
+  border-radius: 10px 0 0 10px; box-shadow: -4px 4px 16px rgba(20,22,40,0.10);
+  cursor: pointer; font: inherit;
+}
+.mtray-strip:hover { background: #f3f6ff; }
+.mtray-strip:focus-visible { outline: 2px solid var(--accent, #5b5ef4); outline-offset: 2px; }
+.mtray-fb {
+  width: 22px; height: 22px; border-radius: 50%; background: #1877f2; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font: 700 13px/1 Helvetica, Arial, sans-serif;
+}
+.mtray-count {
+  min-width: 20px; padding: 2px 5px; border-radius: 10px; background: var(--red, #ef4444);
+  color: #fff; font-size: 11px; font-weight: 700; text-align: center;
+}
+.mtray-count.is-note { background: var(--amber, #f59e0b); }
+
+.mtray-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 340px; max-width: 92vw; z-index: 2900;
+  display: none; flex-direction: column;
+  background: var(--surface, #fff); color: var(--text, #1a1f36);
+  border-left: 1px solid var(--border, #e2e5ee); box-shadow: -6px 0 22px rgba(20,22,40,0.08);
+}
+.mtray.is-open .mtray-panel { display: flex; }
+.mtray.is-tucked .mtray-strip { display: flex; }
+
+/* Desktop: the open tray takes room instead of covering the lanes. */
+@media (min-width: 900px) {
+  body.mtray-open .main-area { padding-right: 340px; }
+}
+
+.mtray-head {
+  display: flex; align-items: center; gap: 8px; padding: 12px 12px 10px 14px;
+  border-bottom: 1px solid var(--border, #e2e5ee);
+}
+.mtray-title { flex: 1; min-width: 0; font-weight: 700; font-size: 14px; }
+.mtray-title small { font-weight: 500; color: var(--muted, #8c93a8); margin-left: 4px; }
+.mtray-iconbtn {
+  border: 1px solid var(--border, #e2e5ee); background: var(--surface, #fff); color: var(--text, #1a1f36);
+  border-radius: 8px; padding: 4px 9px; cursor: pointer; font: inherit; font-size: 13px;
+}
+.mtray-iconbtn:hover { background: #f3f6ff; }
+
+.mtray-body { flex: 1; min-height: 0; overflow-y: auto; }
+.mtray-note { padding: 18px 16px; color: var(--muted, #8c93a8); font-size: 13px; line-height: 1.5; }
+.mtray-note strong { color: var(--text, #1a1f36); display: block; margin-bottom: 4px; font-size: 14px; }
+.mtray-warn { margin: 8px 12px 0; padding: 7px 10px; border-radius: 8px; background: #fff7e6; color: #8a5a00; font-size: 12px; }
+
+.mtray-row {
+  display: block; width: 100%; text-align: left; border: none; background: none; font: inherit;
+  color: inherit; padding: 11px 14px; border-bottom: 1px solid #eef0f6; cursor: pointer;
+}
+.mtray-row:hover { background: #f6f8ff; }
+.mtray-row-top { display: flex; align-items: baseline; gap: 8px; }
+.mtray-name { flex: 1; min-width: 0; font-weight: 700; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mtray-name.is-fb { font-weight: 600; }
+.mtray-time { color: var(--muted, #8c93a8); font-size: 11.5px; flex: none; }
+.mtray-preview { color: #4a5068; font-size: 12.5px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mtray-win { display: inline-block; margin-top: 5px; font-size: 11px; padding: 1px 7px; border-radius: 9px; background: #e8f7f0; color: #0b7a55; }
+.mtray-win.is-urgent { background: #fff4e0; color: #9a5b00; }
+.mtray-win.is-closed { background: #f1f2f6; color: #6b7189; }
+
+.mtray-thread-head { padding: 10px 14px; border-bottom: 1px solid var(--border, #e2e5ee); }
+.mtray-thread-name { font-weight: 700; font-size: 14px; }
+.mtray-msgs { padding: 12px 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.mtray-msg { max-width: 84%; display: flex; flex-direction: column; }
+.mtray-msg.is-in { align-self: flex-start; }
+.mtray-msg.is-out { align-self: flex-end; align-items: flex-end; }
+.mtray-bubble {
+  padding: 7px 11px; border-radius: 14px; font-size: 13px; line-height: 1.4;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.mtray-msg.is-in .mtray-bubble { background: #f0f2f7; border-bottom-left-radius: 4px; }
+.mtray-msg.is-out .mtray-bubble { background: #e3ecff; border-bottom-right-radius: 4px; }
+.mtray-msg.is-inbox .mtray-bubble { background: #eaf3ff; }
+.mtray-msg.is-failed .mtray-bubble { background: #fff1f1; border: 1px solid #f3b4b4; }
+.mtray-att { display: block; margin-top: 2px; }
+.mtray-att a { color: #1a5fd0; }
+.mtray-meta { font-size: 10.5px; color: var(--muted, #8c93a8); margin-top: 2px; padding: 0 4px; }
+.mtray-failed { font-size: 11px; color: #c62828; margin-top: 2px; padding: 0 4px; font-weight: 600; }
+.mtray-foot {
+  padding: 10px 14px; border-top: 1px solid var(--border, #e2e5ee);
+  font-size: 12px; color: var(--muted, #8c93a8); background: #fafbfd;
+}
