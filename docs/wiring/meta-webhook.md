@@ -1,9 +1,9 @@
 # How the Meta / Facebook webhook is wired
 
 > Doc: `/docs/wiring/meta-webhook.md`
-> Last updated: 2026-09-23 — **Messenger step 2: the webhook now STORES messages + echoes**
-> (§9) into the step-1 tables, which Cris applied and verified on both projects (§9a).
-> Verified vs commit `cf12564` (the commit that SHIPPED step 2 — prod + staging, 2026-09-23).
+> Last updated: 2026-09-23 — **Messenger step 3: `api/messenger.js`** (reply / link / done, §11);
+> step 2 (the webhook STORES messages + echoes, §9) verified row-by-row in the sandbox (§10a).
+> Verified vs commit `cf12564` + the step-3 change (see the change log for the shipping SHA).
 > Status: 🟢 **LIVE ON PROD** (receive + verify proven against real Meta traffic, §8). Storage is
 > built and proven on the sandbox with signed fake deliveries (§10); **prod stores nothing yet**
 > because no Meta field is subscribed (§2a).
@@ -21,9 +21,11 @@ inbox tray that later steps build.
 then `parseMessagingEvents` → `storeRows` → `social_record_message` (§9), one structured log
 line (§7), `200`.
 
+**Also exists (step 3):** `api/messenger.js` — the tray's server half: reply (Send API),
+link / unlink a customer, done (§11). Staff only.
+
 **Does not exist yet, on purpose (later steps of the Messenger → Advisor tray):**
-- no reply sending (`api/messenger.js`, step 3) and no Link / Done
-- no UI — no board reads these tables yet (tray = steps 4–5)
+- no UI — no board reads these tables or calls `api/messenger.js` yet (tray = steps 4–5)
 - no after-hours auto-reply, no Instagram, no Lead Ads, no push/sound
 - no attachment FILES — only their metadata and Meta's (expiring) link
 - phone calls are not touched: `calls`, the call card, the Desk are unchanged
@@ -142,7 +144,8 @@ the log line rather than raised.
 |---|---|---|
 | `META_APP_SECRET` | the real Meta App Secret (set 2026-09-12) | a **made-up** staging secret (set 2026-09-23) — Meta can't sign for it; `scripts/meta-sim.mjs` does (§10) |
 | `META_VERIFY_TOKEN` | the random handshake token Cris picked | **unset** — staging's GET handshake 403s, on purpose |
-| `META_PAGE_ACCESS_TOKEN` | **unset** (step 6) | unset |
+| `META_PAGE_ACCESS_TOKEN` | **unset** (step 6) → replies answer 503 "not connected" | unset |
+| `META_SEND_MODE` | **must stay unset** (a `dry-run` here is refused, §11c) | `dry-run` (set 2026-09-23) — replies are stored, never sent |
 | `META_PAGE_ID` | unset → `821690607890680` | unset |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | prod (URL falls back to prod) | the sandbox ([[staging-db]]) |
 
@@ -267,6 +270,60 @@ the SQL to look the rows up in the sandbox. It refuses to run against the prod h
 staging secret lives only in Vercel (Preview · `staging`) and in the operator's shell — never
 in the repo.
 
+### 10a. Proven on the sandbox — 2026-09-23 (Cris, by SQL)
+Sim run PSID `SIM_1790157796920` against test.* at `cf12564` → **1 thread, 3 rows**:
+`m_sim_…_1` in/customer, `m_sim_…_2` in/customer, `m_sim_…_3` out / `is_echo` / **page_inbox**
+(`app_id` `263902037430900`). `last_inbound_at` = message 2's time (**the echo did not move it**),
+`last_message_at` = the echo's time; `display_name`, `done_at`, `customer_id` all null. The
+re-delivery of #1 added nothing (function log: `inserted:0, duplicate:1`); the unsigned copy 403'd.
+
+## 11. The tray's actions — `api/messenger.js` (step 3)
+`POST { action, thread_id, … }`, one endpoint. **No board calls it yet** (steps 4–5).
+
+### 11a. Who — `requireUser(req)` first
+The bearer token is checked by Supabase (`GET /auth/v1/user`, never parsed here), then must map to
+**exactly one ACTIVE `employees` row** (`api/_lib/require-user.js`). No token, junk, a KiKi login
+(valid session, no employees row), an inactive employee → flat `401`, before the body is read and
+before any `social_*` / `customers` read. Any active office role passes (Cris, 2026-09-23). Then
+every read and write uses the service-role key.
+
+### 11b. `reply` — `{ text }` (trimmed, 1–2000 chars)
+1. Load the thread; `404` if missing.
+2. **Window** (`replyWindow`): open only if `now < last_inbound_at + 24h`. Closed (or no customer
+   message at all) → `409 window_closed` with a plain-English reason — **before Meta is called,
+   nothing stored**.
+3. Send: `POST graph.facebook.com/v26.0/<page_id>/messages`, `{recipient:{id:psid},
+   messaging_type:'RESPONSE', message:{text}}`, Page token in the **Authorization header**, 8 s
+   timeout. No token → `503 not_connected` ("Facebook isn't connected to CrisData yet … Nothing
+   was sent"), nothing stored.
+4. Sent → stored via `social_record_message` with Meta's `message_id` as the mid, `source
+   crisdata`, `app_id` CrisData, `sent_by` = the employee, `send_status sent`. If Meta's echo
+   landed first, the writer only fills `sent_by`/`send_status` (§9a). If the store fails after a
+   good send → `200` + a warning; the echo will add the row (without `sent_by`).
+5. Refused → stored as **`send_status failed`** + the advisor-facing message in `send_error`,
+   under a **`local:<uuid>`** mid; `502 send_failed` (or `token_expired` for **code 190**:
+   "Facebook connection expired … Tell Cris to reconnect Facebook"). Code 10/2018278 (outside the
+   window) and 551 (person unavailable) get their own wording (`metaErrorMessage`). Network
+   failure → failed, worded "may not have been sent — check Messenger". **No automatic retry.**
+6. The thread row is never touched by a reply.
+
+### 11c. Dry run — staging only
+`META_SEND_MODE=dry-run` (Preview · `staging`): steps 1–2 and the write run for real, with a fake
+`dryrun:<uuid>` mid and `send_status sent`; **Meta is never called, even if a token is set**.
+On a Production deployment (`VERCEL_ENV=production`) a dry-run setting is refused with `500
+misconfigured` and nothing is stored — a stray env var can't make prod pretend to send.
+
+### 11d. `link` — `{ customer_id }` (uuid, or `null` to unlink)
+The customer must exist (`404`) and must not be archived / merged (`409 customer_archived` with
+`merged_into` = the survivor) — `isArchived` / `mergedIntoId` from `shared/customer-archive.js`,
+the same rule the board's pickers use; a project without the merge columns (42703) falls back to
+`id,name`. Then `PATCH social_threads` with **exactly** `customer_id`, `linked_at`, `linked_by`.
+Unlink sets those three to null. No other column.
+
+### 11e. `done`
+`PATCH` **exactly** `done_at = now`, `done_by = the employee`. A newer customer message brings
+the thread back by being newer (`last_inbound_at > done_at`) — nothing clears `done_at`.
+
 ## Known gaps & open questions (as of 2026-09-23)
 - **A delivery that fails to store is lost.** We 200 to keep the subscription alive, so Meta
   won't resend; only the log line's `errors` count shows it. A `meta_webhook_log` table (like
@@ -275,7 +332,12 @@ in the repo.
   with Meta's dashboard sample; §10 proves storage with our own fakes. The first real message
   arrives only after Cris subscribes the fields and the Page (step 6).
 - **Attachment links expire** (Meta CDN). Only metadata is kept; copying files is a later slice.
-- **`META_PAGE_ACCESS_TOKEN` is unset**, so no names are looked up yet (§9d).
+- **`META_PAGE_ACCESS_TOKEN` is unset**, so no names are looked up yet (§9d) and prod replies
+  answer `503 not_connected` (§11b) — expected until step 6.
+- **No "un-done".** Done can only be undone by a new customer message. Add an action if the tray
+  needs one.
+- **A failed send stays in the thread** (as failed) and moves `last_message_at`. No retry
+  button yet — the advisor retypes.
 - **Test files under `api/` deploy as functions** (`/api/meta-webhook.test` answers 500 on prod)
   — pre-existing for all `api/*.test.js`, flagged separately; not specific to this endpoint.
 
@@ -286,6 +348,8 @@ in the repo.
 - `api/meta-webhook.test.js` (25 tests — handshake + signature) and
   `api/meta-webhook-store.test.js` (19 tests — parse, store, name, handler end to end). Run with
   `npm test`, i.e. `node --test 'api/*.test.js' 'api/_lib/*.test.js' 'shared/*.test.js'`.
+- `api/messenger.js` (+ `api/messenger.test.js`, 22 tests) — reply / link / done (§11). Exports
+  `default handler`, `replyWindow`, `parseBody`, `metaErrorMessage`, `WINDOW_MS`, `MAX_TEXT`.
 - `migrations/20260923_social_messaging_{SANDBOX,PROD}.sql` (+ `shared/social-messaging-migration.test.js`).
 - `scripts/meta-sim.mjs` — the signed-delivery simulator (§10). `scripts/` is in `.vercelignore`.
 - Route: Vercel maps `api/*.js` by filename; `vercel.json` has no rewrite over `/api/*`.
@@ -293,6 +357,7 @@ in the repo.
   §4 for where it intentionally diverges.
 
 ## Session change log
+- **2026-09-23** — **Messenger step 3: `api/messenger.js`** (§11): staff-only reply (24h window checked server-side before Meta; Send API RESPONSE; failed sends stored as failed under `local:`; 190 → "connection expired"; no token → 503), link/unlink (archive rule), done — each writes only its own columns. `META_SEND_MODE=dry-run` set on Preview · `staging` only; refused on Production. §10a records Cris's sandbox verification of step 2.
 - **2026-09-23** — **Messenger step 2: storage.** Step-1 tables applied + verified by Cris on SANDBOX then PROD (all 8 checks PASS, §9a). `parseMessagingEvents` + `storeRows` + one-time Graph name (token-gated, unset today) added; 200 on every signed delivery incl. DB errors; log carries counts only. `scripts/meta-sim.mjs` + a made-up staging-only `META_APP_SECRET` (Preview · `staging`) make storage testable on test.* (§10). Header, §0, §1, §2, §2a, §5, §6, §7, gaps and "where it lives" rewritten; 25 → 44 webhook tests.
 - **2026-09-23** — shipped as `cf12564` (staging, then fast-forward `main`). Sim on test.*: 5/5 PASS; the staging function log shows `inserted:1` ×3 then the re-delivery `inserted:0, duplicate:1`, unsigned `403`. Prod probes: unsigned POST `403`, POST signed with the STAGING secret `403`, wrong verify token `403`, unknown route `404`; zero prod webhook log lines in the prior 48h (fields unsubscribed).
 - **2026-09-23** — §2a corrected: business verification is done (2026-09-11), app attached to portfolio `152510169083601` (2026-09-15). Gaps: Messenger storage migration written (step 1), not applied; this endpoint unchanged.

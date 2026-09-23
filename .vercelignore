@@ -51,3 +51,8 @@ docs/wiring/office-auth.md
 # scripts/ — operator tools run from a laptop (scripts/meta-sim.mjs signs fake Meta
 # deliveries for test.*). Not app content; nothing served reads them. (2026-09-23)
 scripts
+
+# CLAUDE.md — the Claude Code project instructions. Internal (project ids, deploy
+# process, security design); it was publicly readable at /CLAUDE.md until
+# 2026-09-23. Stays in git; nothing served reads it. (Cris, 2026-09-23)
+CLAUDE.md
