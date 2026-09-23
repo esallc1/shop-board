@@ -40,6 +40,11 @@ endpoint. Fast-forward `d2ac603..62bbd73`; www, board.* and apex byte-identical 
 - It stamps `/api/version` from whatever local HEAD happens to be, so the version an installed
   PWA sees may match no reviewed commit — and a deploy from a dirty tree would stamp a lie.
 
+## Public pages — never gate these
+
+**privacy.html, terms.html, data-deletion.html must stay public — exclude from auth-gate (Meta App Review).**
+Static, no `<script>`; locked by `shared/legal-pages.test.js`. See `page-map.md` §5a.
+
 ## File Cabinet — living wiring docs (READ THIS)
 
 CrisData keeps **one living doc per subsystem** under `/docs/wiring/`. These are the
@@ -123,7 +128,7 @@ Every file under `/docs/wiring/` follows this shape:
 | File Cabinet tab | `file-cabinet.md` | `shared/file-cabinet.js`, `owner-board.html` |
 | RO photos **and video** (**per-RO** buckets · capture · move · archive · lightbox) | `ro-photos.md` (§1a = a bucket belongs to ONE RO; §1c = born-with-buckets trigger; **§1d = why a video is a `ro_photo` row and NOT an `ro_video` enum value — read before touching `kind`**; §1e = no media element in any grid; §5f = the list+index lightbox) | `photo_buckets` (`ro_id` NOT NULL, `archived_by`), `photo_bucket_templates`, `trg_repair_orders_photo_buckets`, `attachments` (`ro_photo`, `bucket_id`, `uploaded_by`, `deleted_at`), `shared/photo-buckets.js` (+`.test.js`), `shared/ro-media.js` (+`.test.js`), `shared/photo-compress.js`, `my-numbers.html`, `advisor-board.html` (`#view-customer` + RO detail) |
 | Tech findings (diagnosis handoff · append-not-overwrite) | `tech-findings.md` (§2a = why the `␞` delimiter can't collide; §3b = the Edit lock) | `shared/tech-findings.js` (+`.test.js`), `my-numbers.html` (`submitDiagnosis`, `roFindingsHtml`), `advisor-board.html` (`renderRoFindings`, `loadRoFindings`, the queue card's `tfNewest`), `repair_orders.diagnosis_recommendation`/`_submitted_at`/`_reviewed_at`, `ro_diagnostic_codes` |
-| Page map (pages · routing · legacy doors) | `page-map.md` | `crisdata.html` (`ROLE_DEST`), `vercel.json`, the 9 root `*.html`, `shared/office-identity.js`, `shared/supabase-config.js` |
+| Page map (pages · routing · legacy doors · **public legal pages**) | `page-map.md` (**§5a = privacy/terms/data-deletion — must stay public, never auth-gated**) | `crisdata.html` (`ROLE_DEST`), `vercel.json`, the 9 root `*.html`, `privacy.html`/`terms.html`/`data-deletion.html` (+`shared/legal-pages.test.js`), `shared/office-identity.js`, `shared/supabase-config.js` |
 | Hosting & domains | `hosting-domains.md` | `vercel.json`, `api/send-push.js`, Vercel projects (shop-board/kiki), Namecheap DNS, Supabase `hygemiszxwmyrkmhbjub` |
 | Employee roster (hire · retire · test accounts · assignment-vs-role) | `employee-roster.md` (§7a = the assignee write-safety rule) | `employees` + `employees_visible` (`is_test`), `employee_secrets` + `login_with_pin` (§1c — PIN hashes, no API access; `migrations/20260917_pin_off_public_*`, applied to both projects 2026-09-17), `shared/assignee-picker.js` (+`.test.js`), `shared/office-identity.js`, `my-numbers.html` (login), `gm-board.html` (employee CRUD), the 19 roster readers |
 | Staging database (isolated test.* DB) · **env guard `app_env`** | `staging-db.md` (§8 = which DB am I on) | `shared/supabase-config.js` (hostname→creds switch), `api/*` (`SUPABASE_URL`/`_ANON_KEY` env-with-prod-fallback), `staging/staging-schema.sql`, `public.app_env`, the 12 boards |

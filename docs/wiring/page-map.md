@@ -1,15 +1,17 @@
 # How the page map is wired
 
 > Doc: `/docs/wiring/page-map.md`
-> Last updated: 2026-09-17 — the three legacy v1 doors (`shop-board.html`, `teardown.html`,
+> Last updated: 2026-09-23 — §5a added: three public legal pages (`privacy.html`, `terms.html`,
+> `data-deletion.html`) for Meta App Review; §0/§1 counts updated. Previously 2026-09-17 — the three legacy v1 doors (`shop-board.html`, `teardown.html`,
 > `tech-board.html`) were **deleted** along with their two `vercel.json` routes; §0, §1, §6, §8
 > rewritten. Originally created 2026-08-19 vs `c17db7e`.
-> Status: ⚠ Needs review — §0, §1, §6, §8 and "Where it lives" re-checked vs `9447b68` + this change; §§2–5, 7 last full check vs `c17db7e`.
+> Status: ⚠ Needs review — §0, §1, §6, §8 and "Where it lives" re-checked vs `9447b68` + this change; §§2–5, 7 last full check vs `c17db7e`. §5a verified vs `2b52d85` + this change (2026-09-23).
 
 ## 0. In one line
 Nine HTML pages deploy; **one** is the front door, **five** are role destinations, **two** are
 also embedded inside other boards, and **one** is direct-URL only — and **all nine** resolve their
-database by hostname. (The three legacy v1 doors were deleted 2026-09-17 — §6.)
+database by hostname. (The three legacy v1 doors were deleted 2026-09-17 — §6.) Separately, three
+**static public legal pages** (§5a) deploy alongside them — no script, no database, no login.
 
 ## 1. The count that keeps getting misread
 There are **9** `*.html` files at the repo root, all git-tracked, all deployed (12 until
@@ -99,6 +101,23 @@ noting that the floor *deep-links each car back into the advisor board* — i.e.
 floor → advisor, never advisor → floor. It is reached by typing/bookmarking the URL, which
 suits a wall-mounted screen. It carries **no auth guard**.
 
+## 5a. Public legal pages — `privacy.html`, `terms.html`, `data-deletion.html` (added 2026-09-23)
+The Privacy Policy, Terms of Service and Data Deletion instructions that the Meta app
+"Lee Transmission CrisData" (see [[meta-webhook]]) needs for App Review. Served as-is at
+`/privacy.html`, `/terms.html`, `/data-deletion.html` on `www`, `board.*` and the apex (plus `test.*`).
+
+- **Plain static HTML, inline CSS only.** No `<script>`, no external request, no
+  `shared/supabase-config.js` — so they are **not** among the "nine" counted in §1/§8 and never
+  touch a database. Each links to the other two in its footer.
+- **They must stay PUBLIC forever — exclude them from any auth-gate.** Meta's reviewers and
+  crawler fetch them with no login. Today nothing can gate them: the office guard is per-page
+  client JS (`shared/office-identity.js`) and these pages load none; `vercel.json` has no
+  middleware/headers and `.vercelignore` does not list them. Any future server-side gate
+  (middleware, Vercel auth, a catch-all rewrite) must allow-list these three paths.
+- `shared/legal-pages.test.js` locks: the three files exist, name the business, and contain no
+  `<script`.
+- The wording is Cris's, word for word — do not edit the legal text without Cris.
+
 ## 6. Legacy v1 doors — DELETED 2026-09-17
 Three pages were the original "v1" shop tools. The current system **ported** their behaviour into
 Manager Board tabs (it did not embed or redirect to them), so the files were deleted outright,
@@ -186,6 +205,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
   other three is a console line, not a redirect.
 
 ## Where it lives in the code
+- Public legal pages (§5a): `privacy.html`, `terms.html`, `data-deletion.html`; test `shared/legal-pages.test.js`.
 - Front door + role routing: `crisdata.html` (`ROLE_DEST` at `:175`, `boardFor()`, `bootDoor()`).
 - Route rewrites: `vercel.json` — `/` → `crisdata.html` (the only rewrite).
 - Auth guard: `shared/office-identity.js` (`OfficeIdentity.resolve`, 120-min idle logout).
@@ -195,6 +215,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Tab shell: `.sidebar-item[data-view]` + `<div class="view" id="view-…">` in each board.
 
 ## Session change log
+- 2026-09-23 — §5a added: public `privacy.html` / `terms.html` / `data-deletion.html` for Meta App Review; must stay outside any auth-gate. §0 note added. Other sections not re-verified.
 - 2026-09-17 — Gaps updated: all six board endpoints now require a signed-in active employee; `send-push` is the one left (anon key + a secret that ships in page source).
 - 2026-09-17 — Gaps + §6a updated: `/api/extract-invoice` now requires a signed-in active employee (`api/_lib/require-user.js`); the other five board endpoints are still unauthenticated.
 - 2026-09-17 — **§6a added: the Ask-Kiki chat bot is DELETED** (`api/chat.js` + the widget on advisor/gm/bookkeeping + the shared `#ai-*` CSS). It was an unauthenticated Anthropic proxy nobody used. Gaps: recorded that `api/extract-invoice.js` and the other board endpoints still take no auth.
