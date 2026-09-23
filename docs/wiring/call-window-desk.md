@@ -209,7 +209,7 @@ top-bar search opens a **call-note result whose call has no customer** ([[global
 switches to the Desk tab, turns the log's "unattached only" filter off (so the call can't be hidden),
 sets the log's day to that call's day (local midnight of `started_at`) and opens the log (or re-loads
 it if already open). After that day's `logRender`, the row with `data-log-call="<id>"` is scrolled to
-the centre and highlighted (`.log-row-hl`, ~4 s) — `logHighlightCallId` is one-shot. Nothing is
+the centre and highlighted (`.log-row-hl`, ~6 s) — `logHighlightCallId` is one-shot. Nothing is
 attached: the row's own **"Attach to <name>"** suggestion (a single live phone match, §2c) is what
 offers the guess, and it still takes an explicit tap.
 

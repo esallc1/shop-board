@@ -9190,7 +9190,7 @@
         const el = document.querySelector(`#view-customer [data-cust-call="${CSS.escape(String(callId))}"]`);
         if (!el) return;
         el.scrollIntoView({ block: 'center' });
-        if (final) { el.classList.add('cust-tl-hl'); setTimeout(() => el.classList.remove('cust-tl-hl'), 4000); }
+        if (final) { el.classList.add('cust-tl-hl'); setTimeout(() => el.classList.remove('cust-tl-hl'), 6000); }
       };
       attempt(false);
       setTimeout(() => attempt(false), 120);
@@ -12266,7 +12266,7 @@
         if (row) {
           row.scrollIntoView({ block: 'center' });
           row.classList.add('log-row-hl');
-          setTimeout(() => row.classList.remove('log-row-hl'), 4000);
+          setTimeout(() => row.classList.remove('log-row-hl'), 6000);
         }
       }
     }

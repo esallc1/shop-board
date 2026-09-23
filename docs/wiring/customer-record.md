@@ -523,7 +523,7 @@ not-loaded case, then renders:
   call-note result): `custPendingFocus = { customerId, callId }` → `loadCustomerRecord` opens the
   RO (and its vehicle) or the vehicle that call is filed under — an unfiled call is already in
   "needs filing" — then `scrollCallIntoView` centres the entry (`data-cust-call`) and highlights it
-  (`.cust-tl-hl`, ~4 s). One-shot, like the RO focus.
+  (`.cust-tl-hl`, ~6 s). One-shot, like the RO focus.
 - **Clicks delegated** on `#custSearchList` → `showCustomerRecord`; the A–Z bar has its own
   delegated listener. Additive, reads-only.
   ⚠ Multi-word surnames (e.g. "De La Cruz") key off the **last token** only.
