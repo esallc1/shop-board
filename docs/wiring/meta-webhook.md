@@ -231,7 +231,8 @@ both tables in `supabase_realtime`; both empty.
 - **`last_inbound_received_at`** (added by `migrations/20260923_social_inbound_received_*.sql`):
   `social_record_message` stamps it `= greatest(it, now())` for every NEW inbound message — even a
   late delivery whose Meta timestamp is older — and never for a re-delivery, an echo or our send.
-  Backfilled from `last_inbound_at`. The tray's waiting rule uses it ([[messenger-tray]] §2);
+  Backfilled from `last_inbound_at`. **Applied + verified 9/9 on SANDBOX and PROD (Cris, 2026-09-23).**
+  The tray's waiting rule uses it ([[messenger-tray]] §2);
   `last_inbound_at` still drives the 24 h window. Locked by
   `shared/social-inbound-received-migration.test.js`.
 
@@ -372,6 +373,7 @@ link to JDPR Construction `200` (only `customer_id`/`linked_at`/`linked_by` chan
   §4 for where it intentionally diverges.
 
 ## Session change log
+- **2026-09-23** — `20260923_social_inbound_received_*` applied + verified 9/9 on SANDBOX then PROD (Cris). Prod code `bc52dd2`.
 - **2026-09-23** — §9a: `last_inbound_received_at` (arrival time) added to the writer via `20260923_social_inbound_received_*` — the sent-before-Done fix. Webhook code unchanged.
 - **2026-09-23** — §11f: step 3 verified signed-in on test.* (read / dry-run reply / link / done all PASS, only-own-columns confirmed). The tray that consumes these tables now has its own doc: [[messenger-tray]].
 - **2026-09-23** — **Messenger step 3: `api/messenger.js`** (§11): staff-only reply (24h window checked server-side before Meta; Send API RESPONSE; failed sends stored as failed under `local:`; 190 → "connection expired"; no token → 503), link/unlink (archive rule), done — each writes only its own columns. `META_SEND_MODE=dry-run` set on Preview · `staging` only; refused on Production. §10a records Cris's sandbox verification of step 2.

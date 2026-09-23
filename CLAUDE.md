@@ -12,11 +12,12 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `fb66aba`** (2026-09-23 — Messenger step 5: reply / link / unlink / Done in the advisor
-tray, all via `/api/messenger` (`cdAuthFetch`); the tray still never writes a row. Prod replies answer
-"Facebook isn't connected" until the Page token exists. Fast-forward `c5fe657..fb66aba`; www/board/apex
-`/api/version` = `fb66aba`, all 6 changed served files byte-identical (`scripts/` 404).
-`messenger-tray.md` §3a. Previous code ship: `c1bd923` (read-only tray). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
+**Prod code = `bc52dd2`** (2026-09-23 — Messenger sent-before-Done fix: the tray's "waiting" rule and
+auto-open use `social_threads.last_inbound_received_at` (arrival, stamped by `social_record_message`);
+the 24h window stays on `last_inbound_at`. Migration `20260923_social_inbound_received_*` applied +
+verified 9/9 on SANDBOX and PROD by Cris BEFORE this ship. Fast-forward `2ffed87..bc52dd2`;
+www/board/apex `/api/version` = `bc52dd2`, 6 changed served files byte-identical, migrations 404.
+`messenger-tray.md` §2. Previous code ship: `fb66aba` (tray actions). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.

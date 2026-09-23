@@ -2,7 +2,7 @@
 > Doc: `/docs/wiring/messenger-tray.md`
 > Last updated: 2026-09-23 — **step 5: reply, link / unlink and Done in the tray** (§3a), all through
 > `api/messenger.js`. Created the same day with step 4 (read-only).
-> Verified vs commit `fb66aba` (the commit that SHIPPED step 5 — prod + staging, 2026-09-23).
+> Verified vs commit `bc52dd2` (the commit that SHIPPED the sent-before-Done fix — prod + staging, 2026-09-23).
 > Status: 🟢 **LIVE on prod** — read + reply / link / unlink / Done. Prod has no Messenger rows yet (Meta fields
 > unsubscribed) and no Page token, so a reply there would answer "Facebook isn't connected — tell Cris".
 > Related: [[meta-webhook]] (§9 storage, §11 `api/messenger.js`), [[office-auth]] (`is_staff()`), [[call-window-desk]] (untouched).
@@ -34,7 +34,8 @@ or mark it Done.
   back to `last_inbound_at`). **Arrival, not Meta's send time** — a message sent 10:00:00, Done at
   10:00:05, delivered 10:00:06 brings the thread back. `last_inbound_received_at` is stamped with
   `now()` by `social_record_message` only for a NEW inbound message
-  (`migrations/20260923_social_inbound_received_*.sql`). Our replies never bring a thread back.
+  (`migrations/20260923_social_inbound_received_*.sql` — **applied + verified 9/9 on SANDBOX and PROD,
+  2026-09-23**). Our replies never bring a thread back.
   The **24 h reply window still runs on `last_inbound_at`** (Meta's rule, Meta's clock).
 - **Auto-open:** after the first load, a refresh whose newest waiting **arrival** time is newer
   than before (`newestInbound` / `hasNewInbound`) opens the panel — so a late delivery with an older
@@ -116,8 +117,8 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 ## Known gaps & open questions (as of 2026-09-23)
 - **No "un-done"** and no retry button for a failed send (retype and send).
 - ~~A message sent just before Done but delivered just after didn't bring the thread back~~ —
-  fixed 2026-09-23 with `last_inbound_received_at` (§2). Needs its migration on each DB before the
-  code that reads it.
+  fixed 2026-09-23 with `last_inbound_received_at` (§2); migration applied on both DBs, code live
+  (`bc52dd2`).
 - **The picker's customer list is cached** for the page's life (like the Desk's); a customer created
   after the first open won't appear until reload.
 - **Up to 200 threads / 500 messages** per read — fine for the shop's volume; paginate if that changes.
@@ -138,6 +139,7 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 - Tables: `social_threads`, `social_messages` (`migrations/20260923_social_messaging_*.sql`).
 
 ## Session change log
+- **2026-09-23** — PROD migration `20260923_social_inbound_received_PROD.sql` run by Cris: Success, verify **9/9 ok** (env "PROD — KiKi hygemiszxwmyrkmhbjub"; column timestamptz; backfill 0 missing; function stamps arrival; definer + pinned path; anon/auth no execute, service_role yes; one function; anon no table access; authenticated select-only). Then `main` fast-forwarded `2ffed87..bc52dd2`; www / board. / apex byte-identical (6 served files; migrations 404).
 - **2026-09-23** — sent-before-Done fix **proven on test.*** (`59b05eb`; SANDBOX migration applied + 9/9 verify by Cris). Thread `SIM_1790159820077`: Done at 11:01:33.409Z → a re-delivered inbound mid and a NEW page-inbox echo left it Done (`last_inbound_received_at` unchanged at 10:39:23; the echo only moved `last_message_at`) → customer messages stamped 11:00:57/58 (**before** Done) delivered 11:02:03 (**after**) → back in the tray, `last_inbound_at` 11:00:58 < `done_at` < `last_inbound_received_at` 11:02:03.956Z; the window chip still counts from 11:00:58. PROD migration + `main` still pending.
 - **2026-09-23** — sent-before-Done fix: the waiting rule and auto-open now use **arrival** (`last_inbound_received_at`, stamped by `social_record_message`); the 24 h window stays on `last_inbound_at`. Migration `20260923_social_inbound_received_*` (commit `cba86f0`); tray code held until the SANDBOX migration is applied.
 - **2026-09-23** — step 5 shipped to prod as `fb66aba` after Cris's OK (fast-forward `c5fe657..fb66aba`); www / board. / apex byte-identical for all 6 changed served files.

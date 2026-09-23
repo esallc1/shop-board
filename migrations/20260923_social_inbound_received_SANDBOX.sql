@@ -4,6 +4,11 @@
 -- -- Prod has its own file: 20260923_social_inbound_received_PROD.sql (identical except the inverted guard).
 -- Needs 20260923_social_messaging_*.sql applied first. Wiring: docs/wiring/messenger-tray.md §2.
 --
+-- ── APPLIED + VERIFIED 2026-09-23 (Cris, by hand) ───────────────────────────
+--   SANDBOX ("SANDBOX — efhmefpaijjncwgbvwki") → Success, verify 9/9 ok = true.
+--   PROD    ("PROD — KiKi hygemiszxwmyrkmhbjub") → Success, verify 9/9 ok = true.
+--   Record: docs/wiring/messenger-tray.md §2 + change log.
+--
 -- THE GAP. The tray's "waiting" rule was  done_at is null OR last_inbound_at > done_at.
 -- last_inbound_at is META'S timestamp — when the customer SENT it. A message sent at
 -- 10:00:00, Done clicked at 10:00:05, delivered at 10:00:06 → 10:00:00 < 10:00:05 → the
