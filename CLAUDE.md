@@ -12,13 +12,12 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `71a52bb`** (2026-09-23 — a 401 on any login-protected action now says "Your CrisData
-sign-in isn't active on this page — log out and sign in again.": one page-level notice from
-`cdAuthFetch` + `cdAuthErrorText` for screens with their own error line (`shared/auth-fetch.js`);
-invoice auto-detect now goes through `cdAuthFetch`. No server change. Cause seen live: sign-in is per
-address (Kevin on `board.*`); one-address redirect PARKED (hosting-domains §4a). Fast-forward
-`25e8769..71a52bb`; www/board/apex `/api/version` = `71a52bb`, all 12 changed served files
-byte-identical. Previous code ship: `bc52dd2` (sent-before-Done fix). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
+**Prod code = `334868f`** (2026-09-23 — Desk pad on the advisor board: scratch sticky notes on every
+tab, this computer only (localStorage — no DB, no network). Tab at the bottom middle; opening pushes
+the page up (≥900px) or overlays; starts as one row, grows a row at a time to 45% of the window, then
+scrolls inside; N / Esc; Tear off with inline confirm. `shared/desk-pad*.{js,css}`, `desk-pad.md`.
+Fast-forward `5e688c8..334868f`; www/board/apex `/api/version` = `334868f`, all 7 changed served files
+byte-identical. Previous code ship: `71a52bb` (401 message). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.
