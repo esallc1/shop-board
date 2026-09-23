@@ -2,9 +2,9 @@
 > Doc: `/docs/wiring/messenger-tray.md`
 > Last updated: 2026-09-23 — **step 5: reply, link / unlink and Done in the tray** (§3a), all through
 > `api/messenger.js`. Created the same day with step 4 (read-only).
-> Verified vs commit `84e1e78` (step 5 code, staging).
-> Status: 🟢 step 4 (read-only) **LIVE on prod** (`c1bd923`); 🟡 step 5 (actions) **on staging** until Cris
-> approves the screenshots. Prod has no Messenger rows yet (Meta fields unsubscribed).
+> Verified vs commit `fb66aba` (the commit that SHIPPED step 5 — prod + staging, 2026-09-23).
+> Status: 🟢 **LIVE on prod** — read + reply / link / unlink / Done. Prod has no Messenger rows yet (Meta fields
+> unsubscribed) and no Page token, so a reply there would answer "Facebook isn't connected — tell Cris".
 > Related: [[meta-webhook]] (§9 storage, §11 `api/messenger.js`), [[office-auth]] (`is_staff()`), [[call-window-desk]] (untouched).
 
 ## 0. In one line
@@ -134,6 +134,7 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 - Tables: `social_threads`, `social_messages` (`migrations/20260923_social_messaging_*.sql`).
 
 ## Session change log
+- **2026-09-23** — step 5 shipped to prod as `fb66aba` after Cris's OK (fast-forward `c5fe657..fb66aba`); www / board. / apex byte-identical for all 6 changed served files.
 - **2026-09-23** — browser run on test.* (ZZ Test Advisor): reply (dry-run), Shift+Enter, link, unlink (inline confirm), relink, closed-window box + tap-to-call, Done, a new message bringing the thread back (auto-open) — all PASS. `meta-sim` now stamps messages into a REUSED thread 1 s apart ending now (a 60 s backdate put them before the Done). Gap recorded: sent-before-Done / delivered-after.
 - **2026-09-23** — **step 5: tray actions** (§3a), code `84e1e78`: reply box (Enter/Shift+Enter, draft-safe, closed-window reason + tap-to-call, failed → red, not-connected/190 → banner), Link (in-tray picker, Desk's list + search rules) / Unlink (inline confirm), ✓ Done. "Read-only" footer removed. On staging.
 - **2026-09-23** — shipped to prod as `c1bd923` after Cris's OK on the screenshots (fast-forward `54d3b0e..c1bd923`). www / board. / apex: `/api/version` = `c1bd923`; `advisor-board.html`, the three `shared/messenger-tray*` files, `file-cabinet.js` and both docs byte-identical. Prod not eyeballed signed-in (no prod sign-in; empty tables anyway). Browser checks on test.*: open (desktop pad + <900 overlay), conversation, tucked, auto-open via realtime in ~7 s.
