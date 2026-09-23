@@ -5,6 +5,12 @@
 -- -- Sandbox has its own file: 20260923_social_messaging_SANDBOX.sql — RUN THAT ONE FIRST.
 -- Wiring: docs/wiring/meta-webhook.md (storage lands with step 2), office-auth.md (is_staff).
 --
+-- ── APPLIED + VERIFIED 2026-09-23 (Cris, by hand) ───────────────────────────
+--   SANDBOX ("SANDBOX — efhmefpaijjncwgbvwki") → Success, 8/8 checks PASS.
+--   PROD    ("PROD — KiKi hygemiszxwmyrkmhbjub") → Success, 8/8 checks PASS.
+--   Do NOT re-run to "make sure" — it is idempotent, but there is nothing to do.
+--   Record: docs/wiring/meta-webhook.md §9a.
+--
 -- WHAT.
 --   social_threads  — one row per Facebook person per Page (channel + page_id + psid).
 --                     channel already allows 'instagram'; nothing uses it yet.

@@ -47,3 +47,7 @@ migrations
 # manifest (shared/file-cabinet.js) — pulling it from the manifest alone would
 # NOT remove its URL. No runtime code fetches it (only comments name it).
 docs/wiring/office-auth.md
+
+# scripts/ — operator tools run from a laptop (scripts/meta-sim.mjs signs fake Meta
+# deliveries for test.*). Not app content; nothing served reads them. (2026-09-23)
+scripts
