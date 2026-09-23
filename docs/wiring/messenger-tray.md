@@ -3,9 +3,9 @@
 > Last updated: 2026-09-23 — **step 5: reply, link / unlink and Done in the tray** (§3a), all through
 > `api/messenger.js`. Created the same day with step 4 (read-only).
 > Verified vs commit `bc52dd2` (the commit that SHIPPED the sent-before-Done fix — prod + staging, 2026-09-23).
-> Status: 🟢 **LIVE on prod** — read + reply / link / unlink / Done. Prod has no Messenger rows yet (Meta fields
-> unsubscribed). The Page token is set on Production (2026-09-23), so a prod reply would really send — not yet
-> exercised; the first real test is Cris's own Facebook account.
+> Status: 🟢 **LIVE on prod with real Messenger traffic** — proven end to end 2026-09-23 with Cris's personal
+> account ([[meta-webhook]] §8b): auto-open, real name, a reply delivered to Messenger, a Business Suite echo.
+> Real customers only after App Review (role-holders only until then).
 > Related: [[meta-webhook]] (§9 storage, §11 `api/messenger.js`), [[office-auth]] (`is_staff()`), [[call-window-desk]] (untouched).
 
 ## 0. In one line
@@ -140,6 +140,7 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 - Tables: `social_threads`, `social_messages` (`migrations/20260923_social_messaging_*.sql`).
 
 ## Session change log
+- **2026-09-23** — **live on prod, proven with real traffic** (~8:03–8:10am, build `0e644cc`, Cris's personal Facebook account → Page `821690607890680`): "Test 1 from Cris" → the tray **auto-opened**, named **"Cristian Mendez"**, chip "23h left to reply"; a reply typed in the tray arrived in his Messenger and shows as **"CrisData · Cristian"**; a Business Suite reply appeared as **"via Facebook app"**. See [[meta-webhook]] §8b.
 - **2026-09-23** — PROD migration `20260923_social_inbound_received_PROD.sql` run by Cris: Success, verify **9/9 ok** (env "PROD — KiKi hygemiszxwmyrkmhbjub"; column timestamptz; backfill 0 missing; function stamps arrival; definer + pinned path; anon/auth no execute, service_role yes; one function; anon no table access; authenticated select-only). Then `main` fast-forwarded `2ffed87..bc52dd2`; www / board. / apex byte-identical (6 served files; migrations 404).
 - **2026-09-23** — sent-before-Done fix **proven on test.*** (`59b05eb`; SANDBOX migration applied + 9/9 verify by Cris). Thread `SIM_1790159820077`: Done at 11:01:33.409Z → a re-delivered inbound mid and a NEW page-inbox echo left it Done (`last_inbound_received_at` unchanged at 10:39:23; the echo only moved `last_message_at`) → customer messages stamped 11:00:57/58 (**before** Done) delivered 11:02:03 (**after**) → back in the tray, `last_inbound_at` 11:00:58 < `done_at` < `last_inbound_received_at` 11:02:03.956Z; the window chip still counts from 11:00:58. PROD migration + `main` still pending.
 - **2026-09-23** — sent-before-Done fix: the waiting rule and auto-open now use **arrival** (`last_inbound_received_at`, stamped by `social_record_message`); the 24 h window stays on `last_inbound_at`. Migration `20260923_social_inbound_received_*` (commit `cba86f0`); tray code held until the SANDBOX migration is applied.

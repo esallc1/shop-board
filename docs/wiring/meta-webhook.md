@@ -1,12 +1,12 @@
 # How the Meta / Facebook webhook is wired
 
 > Doc: `/docs/wiring/meta-webhook.md`
-> Last updated: 2026-09-23 — **Messenger step 3: `api/messenger.js`** (reply / link / done, §11);
-> step 2 (the webhook STORES messages + echoes, §9) verified row-by-row in the sandbox (§10a).
-> Verified vs commit `49cd111` (the commit that SHIPPED step 3 — prod + staging, 2026-09-23).
-> Status: 🟢 **LIVE ON PROD** (receive + verify proven against real Meta traffic, §8). Storage is
-> built and proven on the sandbox with signed fake deliveries (§10); **prod stores nothing yet**
-> because no Meta field is subscribed (§2a).
+> Last updated: 2026-09-23 — **LIVE END-TO-END TEST PASSED on prod** (§8b): a real Messenger message
+> from Cris's personal account was stored, named, answered from the tray and delivered; a Business
+> Suite reply came back as an echo. App switched to **Live** mode; Page + fields subscribed (§2a).
+> Verified vs commit `0e644cc` (prod build running during the live test, 2026-09-23).
+> Status: 🟢 **LIVE ON PROD, receiving and sending real Messenger traffic** — for people with a role on
+> the app only, until App Review approves `pages_messaging` (§2a).
 > Related: [[office-auth]] (`is_staff()`), [[staging-db]] (which DB a function writes to),
 > [[hosting-domains]] (env vars, domains), [[call-window-desk]] (phone calls — untouched by this).
 
@@ -35,7 +35,7 @@ link / unlink a customer, done (§11). Staff only.
 |---|---|
 | App name | Lee Transmission CrisData |
 | App ID | `1075837401512965` |
-| Mode | Development |
+| Mode | **Live** (since 2026-09-23 — Development mode gets no real webhooks at all, §2a) |
 | Page | `821690607890680` (`SHOP_PAGE_ID`; `META_PAGE_ID` env overrides) |
 | Business portfolio | `152510169083601` — business verified 2026-09-11, app attached 2026-09-15 |
 | Prod callback URL | `https://www.leetransmissionshop.com/api/meta-webhook` |
@@ -43,26 +43,28 @@ link / unlink a customer, done (§11). Staff only.
 The app itself is configured by hand in Meta's dashboard — there is no code in
 this repo that creates or changes it.
 
-### 2a. Its dashboard state as of 2026-09-23 — what looks like a fault and is not
-Read this before concluding the integration is broken:
+### 2a. Its dashboard state as of 2026-09-23 — what is on, and what still gates real customers
+Set up by Cris on 2026-09-23, just before the live test (§8b):
 
-- **Field subscriptions are deliberately still Unsubscribed.** The callback URL
-  is verified and the `messages` field has been test-fired, but no field is
-  actually subscribed — so Meta sends **nothing** on its own and prod stores
-  nothing, even though the storage code is live. Subscribing `messages` +
-  `message_echoes` (and subscribing the **Page** to the app) is a Cris step for
-  after the tray exists.
-- **The app is UNPUBLISHED.** Only webhook tests fired from the dashboard
-  arrive. A real customer messaging the Page produces no delivery at all.
+- **The Page is subscribed to the app:** `POST /821690607890680/subscribed_apps` with
+  `subscribed_fields=messages,message_echoes` → success. Without this, field subscriptions alone
+  deliver nothing.
+- **Webhook fields `messages` + `message_echoes` are Subscribed** on the Page object.
+- **App Mode = Live.** ⚠ Correction of an earlier assumption (in this doc's plan and in chat): a
+  **Development-mode app gets NO production webhooks — not even for admins or testers.** Meta's
+  dashboard says so, and it held in practice. Live mode was required for the first real message.
+- **Live mode with unapproved permissions = role-holders only.** `pages_messaging` has not been
+  through App Review, so Meta delivers (and lets us reply to) only people with a role on the app
+  (Cris). **A real customer messaging the Page still produces no delivery** until App Review
+  approves `pages_messaging` (Advanced Access). That, not our code, is the remaining gate.
 - **Business verification is DONE** (corrected 2026-09-23 — this line used to
   say the portfolio was blocked). EL SHADDAI AUTO LLC was verified by Meta on
   2026-09-11, and the app was attached to that verified business portfolio
-  (`152510169083601`) on 2026-09-15. What still gates live customer messages
-  is **App Review** for `pages_messaging`, not verification.
+  (`152510169083601`) on 2026-09-15.
 
-Taken together: today this endpoint can only be reached by Meta's own test
-button and by anyone who guesses the URL. The second is why §4 enforces — and
-since step 2 an unsigned POST would otherwise be a way to write rows.
+Taken together: today this endpoint receives real Messenger traffic from role-holders, Meta's
+dashboard tests, and anyone who guesses the URL. The last is why §4 enforces — an unsigned POST
+would otherwise be a way to write rows.
 
 **Unrelated, and easy to confuse:** `advisor-board.html`'s `TRACKING_SOURCE`
 maps `'2399320855' → 'Facebook'`. That is a **CallTrackingMetrics tracking
@@ -144,7 +146,7 @@ the log line rather than raised.
 |---|---|---|
 | `META_APP_SECRET` | the real Meta App Secret (set 2026-09-12) | a **made-up** staging secret (set 2026-09-23) — Meta can't sign for it; `scripts/meta-sim.mjs` does (§10) |
 | `META_VERIFY_TOKEN` | the random handshake token Cris picked | **unset** — staging's GET handshake 403s, on purpose |
-| `META_PAGE_ACCESS_TOKEN` | **set 2026-09-23** by Cris — type Secret, Production only; a never-expiring **Page** token for Page `821690607890680` (Meta Access Token Debugger: Type = Page, Expires = Never). Used by the Send API (§11b) and the name lookup (§9d). ⚠ **Corrected the same day:** the first value saved was Cris's personal **user** token by mistake (baked into build `84c3710`); he edited it to the Page token and the next Production build replaced it. If replies ever fail with code 190 or "(#200)"-type permission errors, first check the token's **Type** in the Access Token Debugger. | **unset** — staging stays `dry-run` and never looks up names |
+| `META_PAGE_ACCESS_TOKEN` | **set 2026-09-23** by Cris — **proven live** the same day (§8b: name lookup + a delivered reply) — type Secret, Production only; a never-expiring **Page** token for Page `821690607890680` (Meta Access Token Debugger: Type = Page, Expires = Never). Used by the Send API (§11b) and the name lookup (§9d). ⚠ **Corrected the same day:** the first value saved was Cris's personal **user** token by mistake (baked into build `84c3710`); he edited it to the Page token and the next Production build replaced it. If replies ever fail with code 190 or "(#200)"-type permission errors, first check the token's **Type** in the Access Token Debugger. | **unset** — staging stays `dry-run` and never looks up names |
 | `META_SEND_MODE` | **must stay unset** (a `dry-run` here is refused, §11c) | `dry-run` (set 2026-09-23) — replies are stored, never sent |
 | `META_PAGE_ID` | unset → `821690607890680` | unset |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | prod (URL falls back to prod) | the sandbox ([[staging-db]]) |
@@ -173,6 +175,19 @@ at `8e9f250`:
 |---|---|---|
 | GET handshake | "Verify and save" on the Page object, callback `https://www.leetransmissionshop.com/api/meta-webhook` | **succeeded** — Meta accepted the echoed challenge |
 | POST + signature | Webhook fields → `messages` → Test → "Send to server v26.0", 8:00am | **"Successfully tested the messages v26.0 webhook field"** — Meta signed a real sample payload with the live App Secret and got `200` |
+
+### 8b. The live end-to-end test — 2026-09-23, ~8:03–8:10am, prod build `0e644cc`
+Cris's **personal Facebook account** (a role-holder) → Page `821690607890680`, app in **Live** mode,
+Page + `messages` / `message_echoes` subscribed (§2a). All three **PASS**:
+
+| # | What Cris did | What CrisData did | Proves |
+|---|---|---|---|
+| 1 | Sent "Test 1 from Cris" in Messenger | The advisor tray **auto-opened**; the thread was named **"Cristian Mendez"**; the chip read "23h left to reply" | a real signed delivery is accepted and stored (§4, §9); the one-time Graph name lookup works — i.e. the **Page token works** (§9d); realtime auto-open (tray) |
+| 2 | Replied from the tray: "Hi Cris, this is CrisData replying" | It **arrived in his Messenger from the Page**; the tray shows it as **"CrisData · Cristian"** | `api/messenger.js` → Send API with the Page token, `messaging_type RESPONSE` inside the 24 h window (§11b) |
+| 3 | Replied in **Business Suite**: "Reply from Business Suite" | It appeared in the tray marked **"via Facebook app"** | `message_echoes` delivery → `source page_inbox` (§9b) |
+
+No token value or message text was logged or recorded. The earlier user-token mix-up (§6) was
+already corrected by then (build `0e644cc`).
 
 ### 8a. Why the 200 is only meaningful as one half of a PAIR
 **A success message on its own proves nothing here.** An endpoint that returned
@@ -259,9 +274,8 @@ After a **new inbound** row, if `META_PAGE_ACCESS_TOKEN` is set: read the thread
 `display_name`; if empty, `GET graph.facebook.com/v26.0/<psid>?fields=first_name,last_name`
 with the token in the **Authorization header** (never the URL), 4 s timeout; then
 `PATCH social_threads?id=eq.<id>&display_name=is.null` — fill-if-empty, never replace. No token
-(staging) → skipped quietly, no name; the tray shows "Facebook user" until linked. Prod has the
-token since 2026-09-23, so a real first message will be named (not yet seen live — no field is
-subscribed).
+(staging) → skipped quietly, no name; the tray shows "Facebook user" until linked. **Proven on prod
+2026-09-23 (§8b):** Cris's first real message named the thread "Cristian Mendez".
 A Graph refusal is counted (`nameErrors`) and simply retried on the thread's next new message.
 
 ## 10. Testing it on staging — `scripts/meta-sim.mjs`
@@ -346,14 +360,16 @@ link to JDPR Construction `200` (only `customer_id`/`linked_at`/`linked_by` chan
 - **A delivery that fails to store is lost.** We 200 to keep the subscription alive, so Meta
   won't resend; only the log line's `errors` count shows it. A `meta_webhook_log` table (like
   CTM's) is the fix if this ever bites.
-- **No real end-user delivery has ever reached this endpoint.** §8 proves the signing rule
-  with Meta's dashboard sample; §10 proves storage with our own fakes. The first real message
-  arrives only after Cris subscribes the fields and the Page (step 6).
+- **Real customers can't reach it yet — App Review.** Live mode + unapproved `pages_messaging` =
+  role-holders only (§2a). Until App Review approves it, a customer's message to the Page is never
+  delivered, and we can't reply to them. The recording for App Review can be made now (§8b is that
+  flow).
 - **Attachment links expire** (Meta CDN). Only metadata is kept; copying files is a later slice.
-- **`META_PAGE_ACCESS_TOKEN` is set on Production (2026-09-23) but not yet proven live.** Nothing
-  has exercised it: no Meta field is subscribed (so no names looked up, §9d) and no real reply has
-  been sent (§11b). The first real proof is the end-to-end test with Cris's own Facebook account. A
-  dead token would show as code 190 → "Facebook connection expired — tell Cris".
+- **If the Page token ever dies** (password change, permission removed), replies fail with code
+  190 → "Facebook connection expired — tell Cris", and new threads stop getting names. Check the
+  token's Type/Expiry in Meta's Access Token Debugger first (§6).
+- **Prod now holds real rows** — Cris's own test conversation. Delete it by hand if it shouldn't
+  stay (deleting the `social_threads` row cascades to its messages).
 - **No "un-done".** Done can only be undone by a new customer message. Add an action if the tray
   needs one.
 - **A failed send stays in the thread** (as failed) and moves `last_message_at`. No retry
@@ -377,6 +393,7 @@ link to JDPR Construction `200` (only `customer_id`/`linked_at`/`linked_by` chan
   §4 for where it intentionally diverges.
 
 ## Session change log
+- **2026-09-23** — **§8b LIVE END-TO-END TEST PASSED** (~8:03–8:10am, prod `0e644cc`, Cris's personal account): inbound stored + auto-open + named "Cristian Mendez" (Page token works); tray reply delivered to his Messenger ("CrisData · Cristian"); Business Suite reply → "via Facebook app" (echoes work). §2/§2a: Page subscribed (`subscribed_apps` messages,message_echoes), fields Subscribed, **App Mode Live**; corrected the assumption that dev mode delivers to role-holders — it delivers nothing. Remaining gate: App Review for `pages_messaging`. §6 token proven; gaps updated.
 - **2026-09-23** — §6 correction: the first `META_PAGE_ACCESS_TOKEN` value was a personal **user** token (in build `84c3710`); Cris edited it to the verified **Page** token (Production only). This docs commit is the fresh Production build that bakes in the corrected value. No value recorded anywhere.
 - **2026-09-23** — §6: `META_PAGE_ACCESS_TOKEN` set by Cris on Production only (Secret; never-expiring Page token for `821690607890680`, verified in Meta's Access Token Debugger). This docs commit is the fresh Production build that bakes it in. Not yet exercised (fields unsubscribed; no real reply).
 - **2026-09-23** — `20260923_social_inbound_received_*` applied + verified 9/9 on SANDBOX then PROD (Cris). Prod code `bc52dd2`.
