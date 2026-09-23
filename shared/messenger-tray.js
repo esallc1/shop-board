@@ -25,7 +25,7 @@
 import {
   waitingThreads, threadName, windowLabel, previewText, attachmentLabel,
   timeLabel, newestInbound, hasNewInbound, latestByThread,
-  composeState, replyError, searchCustomers, bylineWithViewer,
+  composeState, replyError, searchCustomers, bylineWithViewer, matchPhoneToCustomer,
 } from './messenger-tray-logic.js';
 
 const TUCK_KEY = 'cdMtrayTuckedAt';   // newest inbound (ms) when the viewer tucked it
@@ -219,10 +219,13 @@ export function mountMessengerTray({ db, viewer }) {
       const text = typeof m.text === 'string' && m.text ? esc(m.text) : '';
       const byline = bylineWithViewer(m, st.employees || {}, viewer);
       const when = m.sent_at ? new Date(m.sent_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }) : '';
-      return `<div class="${cls}">
+      // The after-hours auto-reply gets a small "auto" label — the advisor can see
+      // exactly what the customer was already told (meta-webhook.md §12).
+      const autoTag = m.auto ? '<span class="mtray-auto" title="Sent automatically after hours">auto</span> ' : '';
+      return `<div class="${cls}${m.auto ? ' is-auto' : ''}">
         <div class="mtray-bubble">${text}${atts}</div>
         ${failed ? `<div class="mtray-failed">Not sent — ${esc(m.send_error || 'Facebook refused it')}</div>` : ''}
-        <div class="mtray-meta">${esc([byline, when].filter(Boolean).join(' · '))}</div>
+        <div class="mtray-meta">${autoTag}${esc([byline, when].filter(Boolean).join(' · '))}</div>
       </div>`;
     }).join('');
 
@@ -234,13 +237,40 @@ export function mountMessengerTray({ db, viewer }) {
       <div class="mtray-thread-head">
         <button type="button" class="mtray-iconbtn" data-act="back">‹ All messages</button>
         <div class="mtray-thread-name">${esc(who.name)}${cust && (cust.phone_primary || cust.phone_secondary) ? ` <span class="mtray-thread-phone">${esc(fmtPhone(cust.phone_primary || cust.phone_secondary))}</span>` : ''}</div>
+        ${t.detected_phone && !(cust && (cust.phone_primary || cust.phone_secondary)) ? `<div class="mtray-typed-phone">📞 ${esc(fmtPhone(t.detected_phone))} <small>from their message</small></div>` : ''}
         <span class="mtray-win ${winCls}">${esc(w.text)}</span>
+        ${suggestHtml(t)}
         ${actions}
         ${st.headErr ? `<div class="mtray-head-err">${esc(st.headErr)}</div>` : ''}
       </div>
       <div class="mtray-msgs">${msgs || '<div class="mtray-note">Loading…</div>'}</div>`;
     if (!wasThread || atBottom) body.scrollTop = body.scrollHeight;
     drawCompose(t, cust);
+  }
+
+  // A phone the customer TYPED that matches exactly one customer → the same
+  // one-tap suggestion the call log offers ("Attach to <name>"). Never automatic:
+  // the tap runs the tray's normal Link (api/messenger → link). Same customer
+  // list the Link picker uses (window.cdFetchAllCustomers — archived excluded).
+  function suggestHtml(t) {
+    if (!t || t.customer_id || !t.detected_phone || st.busy) return '';
+    if (!st.allCustomers) { loadMatchList(); return ''; }
+    const c = matchPhoneToCustomer(st.allCustomers, t.detected_phone);
+    if (!c) return '';
+    st.suggest = { threadId: t.id, customer: c };
+    const nm = esc(c.business_name || c.name || 'customer');
+    return `<div class="mtray-suggest">This number belongs to <b>${nm}</b>.
+      <button type="button" class="mtray-iconbtn" data-act="attach-suggest">Attach to ${nm}</button></div>`;
+  }
+  let matchLoading = false;
+  async function loadMatchList() {
+    if (matchLoading || typeof window.cdFetchAllCustomers !== 'function') return;
+    matchLoading = true;
+    try {
+      const rows = await window.cdFetchAllCustomers();
+      if (Array.isArray(rows) && rows.length && !st.allCustomers) { st.allCustomers = rows; draw(); }
+    } catch (e) { console.warn('[MessengerTray] customer list for phone match failed', e); }
+    matchLoading = false;
   }
 
   // The reply box: never re-created, only toggled — so a refresh can't eat a draft.
@@ -309,7 +339,7 @@ export function mountMessengerTray({ db, viewer }) {
         }
 
         const tr = await db.from('social_threads')
-          .select('id, channel, psid, display_name, customer_id, last_inbound_at, last_inbound_received_at, last_message_at, done_at')
+          .select('id, channel, psid, display_name, customer_id, last_inbound_at, last_inbound_received_at, last_message_at, done_at, detected_phone')
           .order('last_message_at', { ascending: false, nullsFirst: false })
           .limit(200);
         if (tr.error) throw tr.error;
@@ -325,7 +355,7 @@ export function mountMessengerTray({ db, viewer }) {
 
         if (ids.length) {
           const mr = await db.from('social_messages')
-            .select('id, thread_id, direction, source, text, attachments, send_status, sent_at')
+            .select('id, thread_id, direction, source, text, attachments, send_status, sent_at, auto')
             .in('thread_id', ids).order('sent_at', { ascending: false }).limit(500);
           if (mr.error) throw mr.error;
           st.latest = latestByThread(mr.data);
@@ -362,7 +392,7 @@ export function mountMessengerTray({ db, viewer }) {
   async function loadThread(id) {
     await loadEmployees();
     const r = await db.from('social_messages')
-      .select('id, thread_id, direction, source, text, attachments, send_status, send_error, sent_by, sent_at')
+      .select('id, thread_id, direction, source, text, attachments, send_status, send_error, sent_by, sent_at, auto')
       .eq('thread_id', id).order('sent_at', { ascending: true }).limit(500);
     if (r.error) throw r.error;
     if (st.openThreadId === id) st.threadMsgs = r.data || [];
@@ -513,6 +543,11 @@ export function mountMessengerTray({ db, viewer }) {
         case 'unlink': st.confirmUnlink = true; draw(); return;
         case 'unlink-no': st.confirmUnlink = false; draw(); return;
         case 'unlink-yes': doUnlink(); return;
+        case 'attach-suggest': {
+          const t = openThread();
+          if (t && st.suggest && st.suggest.threadId === t.id) doLink(st.suggest.customer);
+          return;
+        }
         default: return;
       }
     }

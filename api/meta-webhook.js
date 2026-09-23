@@ -30,6 +30,8 @@
    ============================================================ */
 
 import crypto from 'node:crypto';
+import { graphSendText } from './_lib/meta-send.js';
+import { shouldAutoReply, autoReplyText, findUsPhone, AUTO_METADATA } from '../shared/fb-auto-reply.js';
 
 // Vercel's default body parser consumes and re-serializes the request, which
 // destroys the exact bytes the HMAC is computed over. Turn it off and read the
@@ -246,6 +248,9 @@ export function parseMessagingEvents(body, pageId = SHOP_PAGE_ID, appId = CRISDA
         text: typeof m.text === 'string' ? m.text : null,
         attachments: attachmentMeta(m.attachments),
         sent_at: isoFromMs(ev.timestamp, entry.time),
+        // The echo of OUR after-hours auto-reply carries the metadata we sent
+        // with it (§12) — flag it so it's never taken for a staff reply.
+        ...(echo && m.metadata === AUTO_METADATA ? { auto: true } : {}),
       });
     }
   }
@@ -267,7 +272,7 @@ export async function storeRows(rows, deps = {}) {
   const env = deps.env || process.env;
   const base = env.SUPABASE_URL || SUPABASE_URL;
   const key = env.SUPABASE_SERVICE_ROLE_KEY;
-  const out = { inserted: 0, duplicate: 0, errors: 0, named: 0, nameErrors: 0 };
+  const out = { inserted: 0, duplicate: 0, errors: 0, named: 0, nameErrors: 0, phones: 0, autoSent: 0, autoFailed: 0, autoSkipped: {} };
   if (!rows.length) return out;
   if (!key) {
     console.error('[meta-webhook] SUPABASE_SERVICE_ROLE_KEY is not set — cannot store', rows.length, 'message(s).');
@@ -307,8 +312,155 @@ export async function storeRows(rows, deps = {}) {
       const named = await fillNameIfMissing(result.thread_id, r.psid, { doFetch, base, headers, token });
       if (named === true) out.named++; else if (named === false) out.nameErrors++;
     }
+
+    const ctx = { doFetch, base, headers, env, token, settings: settingsOnce };
+    // Our own auto-reply's echo → auto = true (whether it inserted or was the duplicate).
+    if (r.auto && result) await markAuto(r.mid, ctx);
+    if (result && result.inserted && r.direction === 'in' && result.thread_id) {
+      if (await savePhoneIfAny(result.thread_id, r.text, ctx)) out.phones++;
+      const a = await maybeAutoReply(result.thread_id, r, ctx);
+      if (a.sent) out.autoSent++;
+      else if (a.failed) out.autoFailed++;
+      else out.autoSkipped[a.reason] = (out.autoSkipped[a.reason] || 0) + 1;
+    }
   }
   return out;
+
+  // shop_settings is read at most once per delivery (only when a new inbound needs it).
+  async function settingsOnce() {
+    if (settingsOnce.v) return settingsOnce.v;
+    settingsOnce.v = readAutoReplySettings({ doFetch, base, headers });
+    return settingsOnce.v;
+  }
+}
+
+/* ── §12 The after-hours auto-reply ─────────────────────────────────────────
+   On a NEW inbound customer message only (never an echo, never a re-delivery):
+   send ONE reply per thread per closed stretch, unless the switch is off, the
+   shop is open (by the message's own timestamp), or staff already answered in
+   this stretch. The reply is recorded as an outgoing message with auto = true;
+   it never touches last_inbound_received_at, so the thread stays WAITING for a
+   human. Never throws and never slows the 200 beyond one send; a failure is
+   logged (counts only) and recorded as a failed auto message.
+   ──────────────────────────────────────────────────────────────────────── */
+async function readAutoReplySettings({ doFetch, base, headers }) {
+  try {
+    const r = await doFetch(`${base}/rest/v1/shop_settings?select=fb_auto_reply_on,fb_auto_reply_text,shop_closed_on&limit=1`, { headers });
+    if (!r.ok) { console.warn('[meta-webhook] auto-reply settings unreadable · HTTP', r.status); return { ok: false }; }
+    const rows = await r.json();
+    const row = Array.isArray(rows) ? rows[0] : null;
+    if (!row) return { ok: false };
+    return { ok: true, on: row.fb_auto_reply_on !== false, text: autoReplyText(row.fb_auto_reply_text), closedYmd: row.shop_closed_on || null };
+  } catch (e) {
+    console.warn('[meta-webhook] auto-reply settings threw:', String((e && e.message) || e));
+    return { ok: false };
+  }
+}
+
+async function markAuto(mid, { doFetch, base, headers }) {
+  try {
+    const r = await doFetch(`${base}/rest/v1/social_messages?mid=eq.${encodeURIComponent(mid)}&auto=is.false`, {
+      method: 'PATCH', headers: { ...headers, Prefer: 'return=minimal' }, body: JSON.stringify({ auto: true }),
+    });
+    if (!r.ok) console.warn('[meta-webhook] mark auto failed · HTTP', r.status);
+  } catch (e) { console.warn('[meta-webhook] mark auto threw:', String((e && e.message) || e)); }
+}
+
+// A US phone number in the customer's message → social_threads.detected_phone
+// (10 digits; the newest one wins). The tray shows it and offers the link.
+async function savePhoneIfAny(threadId, text, { doFetch, base, headers }) {
+  const phone = findUsPhone(text);
+  if (!phone) return false;
+  try {
+    const r = await doFetch(`${base}/rest/v1/social_threads?id=eq.${encodeURIComponent(threadId)}`, {
+      method: 'PATCH', headers: { ...headers, Prefer: 'return=minimal' }, body: JSON.stringify({ detected_phone: phone }),
+    });
+    if (!r.ok) { console.warn('[meta-webhook] save phone failed · HTTP', r.status); return false; }
+    return true;
+  } catch (e) { console.warn('[meta-webhook] save phone threw:', String((e && e.message) || e)); return false; }
+}
+
+async function releaseClaim(threadId, { doFetch, base, headers }) {
+  try {
+    await doFetch(`${base}/rest/v1/social_threads?id=eq.${encodeURIComponent(threadId)}`, {
+      method: 'PATCH', headers: { ...headers, Prefer: 'return=minimal' }, body: JSON.stringify({ last_auto_reply_at: null }),
+    });
+  } catch (e) { /* the next inbound simply tries again */ }
+}
+
+export async function maybeAutoReply(threadId, r, ctx) {
+  const { doFetch, base, headers, env, token } = ctx;
+  try {
+    const s = await ctx.settings();
+    if (!s.ok) return { reason: 'settings-unavailable' };
+    if (!s.on) return { reason: 'switched-off' };
+    const now = Date.now();
+    const atMs = Math.min(Date.parse(r.sent_at), now);
+    if (!Number.isFinite(atMs)) return { reason: 'no-time' };
+    if (now - atMs >= 24 * 3600 * 1000) return { reason: 'reply-window-closed' };   // Meta's 24 h rule
+
+    // What this thread already got: the last auto-reply, and the newest STAFF reply
+    // (any outgoing message that is not an auto-reply — the tray or Business Suite).
+    const tq = await doFetch(`${base}/rest/v1/social_threads?id=eq.${encodeURIComponent(threadId)}&select=last_auto_reply_at`, { headers });
+    const mq = await doFetch(`${base}/rest/v1/social_messages?thread_id=eq.${encodeURIComponent(threadId)}&direction=eq.out&auto=is.false&select=sent_at&order=sent_at.desc&limit=1`, { headers });
+    if (!tq.ok || !mq.ok) return { reason: 'lookup-failed' };
+    const t = (await tq.json())[0] || {};
+    const m = (await mq.json())[0] || {};
+    const d = shouldAutoReply({ enabled: s.on, atMs, closedYmd: s.closedYmd, lastAutoReplyAt: t.last_auto_reply_at, lastStaffReplyAt: m.sent_at });
+    if (!d.send) return { reason: d.reason };
+
+    // Claim the stretch atomically — two deliveries at once can't both send.
+    const stretchIso = new Date(d.stretchStart).toISOString();
+    const orf = encodeURIComponent(`(last_auto_reply_at.is.null,last_auto_reply_at.lt."${stretchIso}")`);
+    const claim = await doFetch(`${base}/rest/v1/social_threads?id=eq.${encodeURIComponent(threadId)}&or=${orf}&select=id`, {
+      method: 'PATCH', headers: { ...headers, Prefer: 'return=representation' }, body: JSON.stringify({ last_auto_reply_at: new Date(atMs).toISOString() }),
+    });
+    if (!claim.ok) return { reason: 'claim-failed' };
+    const claimed = await claim.json();
+    if (!Array.isArray(claimed) || !claimed.length) return { reason: 'already-replied-this-stretch' };
+
+    // Send (or pretend to, on staging).
+    const text = s.text;
+    const dry = env.META_SEND_MODE === 'dry-run';
+    let mid, status = 'sent', error = null;
+    if (dry) {
+      if (env.VERCEL_ENV === 'production') {
+        console.error('[meta-webhook] META_SEND_MODE=dry-run on PRODUCTION — auto-reply not sent.');
+        await releaseClaim(threadId, ctx);
+        return { reason: 'misconfigured' };
+      }
+      mid = `dryrun:${crypto.randomUUID()}`;
+    } else if (!token) {
+      await releaseClaim(threadId, ctx);
+      return { reason: 'no-token' };
+    } else {
+      const sent = await graphSendText({ pageId: r.page_id, psid: r.psid, text, token, metadata: AUTO_METADATA, fetchImpl: doFetch });
+      if (sent.mid) mid = sent.mid;
+      else {
+        mid = `local:${crypto.randomUUID()}`; status = 'failed'; error = sent.failure ? sent.failure.message : 'send failed';
+        console.warn('[meta-webhook] auto-reply refused · code', sent.failure ? sent.failure.code : null);
+        await releaseClaim(threadId, ctx);   // the next customer message tries again
+      }
+    }
+
+    // Record it — outgoing, flagged auto. If Meta's echo landed first, the RPC
+    // inserts nothing and the echo row is already auto (its metadata).
+    const rec = await doFetch(`${base}/rest/v1/rpc/social_record_message`, {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        p_channel: r.channel || 'facebook', p_page_id: r.page_id, p_psid: r.psid, p_mid: mid,
+        p_direction: 'out', p_is_echo: false, p_source: 'crisdata', p_app_id: CRISDATA_APP_ID,
+        p_text: text, p_attachments: [], p_sent_at: new Date().toISOString(),
+        p_send_status: status, p_send_error: error,
+      }),
+    });
+    if (!rec.ok) console.error('[meta-webhook] auto-reply record failed · HTTP', rec.status);
+    await markAuto(mid, ctx);
+    return status === 'sent' ? { sent: true, dryRun: dry } : { failed: true };
+  } catch (e) {
+    console.warn('[meta-webhook] auto-reply threw:', String((e && e.message) || e));
+    return { reason: 'error' };
+  }
 }
 
 // true = name stored · null = nothing to do (already named / Graph had no name)

@@ -163,7 +163,8 @@ test('store: each row is one RPC with the service key; a re-delivered mid is a d
   const db = fakeDb();
   const { rows } = parseMessagingEvents(body(inbound('PSID_1', 'm_1', 'hi'), inbound('PSID_1', 'm_2', 'again')));
   const first = await storeRows(rows, { fetchImpl: db.fetchImpl, env: ENV });
-  assert.deepEqual(first, { inserted: 2, duplicate: 0, errors: 0, named: 0, nameErrors: 0 });
+  const five = (o) => ({ inserted: o.inserted, duplicate: o.duplicate, errors: o.errors, named: o.named, nameErrors: o.nameErrors });
+  assert.deepEqual(five(first), { inserted: 2, duplicate: 0, errors: 0, named: 0, nameErrors: 0 });
   const rpc = db.calls.filter((c) => c.url.endsWith('/rest/v1/rpc/social_record_message'));
   assert.equal(rpc.length, 2);
   assert.equal(rpc[0].url, 'https://sandbox.example.supabase.co/rest/v1/rpc/social_record_message');
@@ -171,7 +172,7 @@ test('store: each row is one RPC with the service key; a re-delivered mid is a d
   assert.equal(JSON.parse(rpc[0].opts.body).p_mid, 'm_1');
 
   const again = await storeRows(rows, { fetchImpl: db.fetchImpl, env: ENV });
-  assert.deepEqual(again, { inserted: 0, duplicate: 2, errors: 0, named: 0, nameErrors: 0 });
+  assert.deepEqual(five(again), { inserted: 0, duplicate: 2, errors: 0, named: 0, nameErrors: 0 });
   assert.equal(db.mids.size, 2);
   assert.equal(db.threads.size, 1);
 });

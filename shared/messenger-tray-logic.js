@@ -68,7 +68,7 @@ export function previewText(msg) {
   let body = text;
   if (!body && atts.length) body = attachmentLabel(atts[0]);
   if (!body) body = '(no text)';
-  if (msg.direction === 'out') body = (msg.send_status === 'failed' ? 'Not sent: ' : 'Shop: ') + body;
+  if (msg.direction === 'out') body = (msg.send_status === 'failed' ? 'Not sent: ' : msg.auto ? 'Auto: ' : 'Shop: ') + body;
   return body.length > 90 ? body.slice(0, 89) + '…' : body;
 }
 
@@ -90,6 +90,7 @@ export function attachmentLabel(att) {
 export function messageByline(msg, employeesById) {
   if (!msg) return '';
   if (msg.direction !== 'out') return '';
+  if (msg.auto) return 'Auto-reply';   // the after-hours auto-reply (meta-webhook.md §12)
   if (msg.source === 'page_inbox') return 'via Facebook app';
   const e = msg.sent_by && employeesById ? employeesById[msg.sent_by] : null;
   const who = e && e.name ? String(e.name).trim() : '';
@@ -194,4 +195,16 @@ export function bylineWithViewer(msg, employeesById, viewer) {
     return `CrisData · ${viewer.name}`;
   }
   return messageByline(msg, employeesById);
+}
+
+// The customer a phone number belongs to — ONLY when exactly one active
+// (not merged/archived) customer has it on either number. Two or more, or none
+// → null: the tray never guesses between people. `phone` = 10 digits.
+export function matchPhoneToCustomer(list, phone) {
+  const key = String(phone == null ? '' : phone).replace(/\D/g, '').slice(-10);
+  if (key.length !== 10) return null;
+  const l10 = (s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10);
+  const hits = (Array.isArray(list) ? list : []).filter((c) => c && c.archived_at == null
+    && (l10(c.phone_primary) === key || l10(c.phone_secondary) === key));
+  return hits.length === 1 ? hits[0] : null;
 }

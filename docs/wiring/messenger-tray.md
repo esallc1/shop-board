@@ -62,6 +62,21 @@ only, new tab; the link expires). The viewer's own replies are named from the bo
 (`viewer` getter → `CURRENT_EMPLOYEE_ID` / `CHAT_IDENTITY.name`, `bylineWithViewer`) because
 `employees_visible` hides `is_test` accounts — so a ZZ login still reads "CrisData · ZZ Test Advisor".
 
+## 3b. The after-hours auto-reply and a typed phone ([[meta-webhook]] §12)
+- **"auto" label**: a message with `social_messages.auto = true` gets a small yellow **AUTO** tag
+  and the byline **"Auto-reply"** (`messageByline` checks `auto` before the source), a slightly
+  greyed bubble, and "Auto: …" as the list preview. It is shown so the advisor sees what the
+  customer was already told. It does **not** change the waiting state — the thread stays in the
+  tray until a person replies or marks Done (`last_inbound_received_at` is untouched).
+- **Typed phone**: `social_threads.detected_phone` (set by the webhook from the customer's text)
+  shows under the name as "📞 (239) 887-8557 *from their message*" — only while the thread has no
+  linked customer with a phone of their own (then the customer's phone shows, as before).
+- **"Attach to <name>" suggestion**: on an UNLINKED thread with a typed phone, if exactly ONE
+  customer in the Link picker's list (`window.cdFetchAllCustomers`, archived excluded) has it as
+  primary or secondary number (`matchPhoneToCustomer`, last-10 digits), a blue box offers
+  **Attach to <name>**. The tap runs the tray's ordinary Link (`doLink` → `api/messenger` `link`).
+  Two or more matches, or none → no suggestion. **Never automatic.**
+
 ## 3a. The actions (step 5) — all through `api/messenger.js`
 Every action is `cdAuthFetch(db, '/api/messenger', …)` — the viewer's session as a bearer token;
 the server checks it (`requireUser`) and writes with the service key. The tray never writes a row.
@@ -131,7 +146,7 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 - `shared/messenger-tray-logic.js` — pure rules: `isWaiting`, `waitingThreads`, `threadName`,
   `windowLabel`, `previewText`, `attachmentLabel`, `messageByline`, `timeLabel`, `newestInbound`,
   `hasNewInbound`, `latestByThread`, and (step 5) `composeState`, `replyError`, `searchCustomers`,
-  `bylineWithViewer`, `WINDOW_CLOSED_TEXT`. Tested by `shared/messenger-tray-logic.test.js`.
+  `bylineWithViewer`, `WINDOW_CLOSED_TEXT`, and (auto-reply) `matchPhoneToCustomer`. Tested by `shared/messenger-tray-logic.test.js`.
 - `api/messenger.js` — the server half of every action ([[meta-webhook]] §11).
 - `scripts/meta-sim.mjs` — `META_SIM_AGE_HOURS` (closed-window thread) and `META_SIM_PSID` (a new
   message into an existing thread) for testing on staging.
@@ -140,6 +155,7 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 - Tables: `social_threads`, `social_messages` (`migrations/20260923_social_messaging_*.sql`).
 
 ## Session change log
+- **2026-09-23** — §3b (on staging): AUTO label + "Auto-reply" byline for `auto` messages, the customer's typed phone in the header, and a one-tap "Attach to <name>" suggestion that runs the normal Link. Selects gained `detected_phone` / `auto` (need migration `20260923_social_auto_reply_*`).
 - **2026-09-23** — a 401 on reply / link / done now shows the shared sentence "Your CrisData sign-in isn't active on this page — log out and sign in again." (was "…has expired…").
 - **2026-09-23** — **live on prod, proven with real traffic** (~8:03–8:10am, build `0e644cc`, Cris's personal Facebook account → Page `821690607890680`): "Test 1 from Cris" → the tray **auto-opened**, named **"Cristian Mendez"**, chip "23h left to reply"; a reply typed in the tray arrived in his Messenger and shows as **"CrisData · Cristian"**; a Business Suite reply appeared as **"via Facebook app"**. See [[meta-webhook]] §8b.
 - **2026-09-23** — PROD migration `20260923_social_inbound_received_PROD.sql` run by Cris: Success, verify **9/9 ok** (env "PROD — KiKi hygemiszxwmyrkmhbjub"; column timestamptz; backfill 0 missing; function stamps arrival; definer + pinned path; anon/auth no execute, service_role yes; one function; anon no table access; authenticated select-only). Then `main` fast-forwarded `2ffed87..bc52dd2`; www / board. / apex byte-identical (6 served files; migrations 404).

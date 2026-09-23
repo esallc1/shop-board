@@ -166,6 +166,12 @@ window.BoardSettings = (function () {
       feature_packages: !!shopSettingsRow.feature_packages,
       feature_advisor_commission: !!shopSettingsRow.feature_advisor_commission,
       feature_bk_ro_detail: !!shopSettingsRow.feature_bk_ro_detail,
+      // Facebook after-hours auto-reply (meta-webhook.md §12). Default ON once the
+      // migration adds the column; text null → the webhook sends the default.
+      fb_auto_reply_on: shopSettingsRow.fb_auto_reply_on !== false,
+      fb_auto_reply_text: typeof shopSettingsRow.fb_auto_reply_text === 'string' ? shopSettingsRow.fb_auto_reply_text : null,
+      shop_closed_on: shopSettingsRow.shop_closed_on || null,
+      _hasFbAutoReply: ('fb_auto_reply_on' in shopSettingsRow),
       // Assumed-margin fallbacks (fractions) for the commission engine. Present
       // only post-migration; null → the engine uses its code default.
       parts_margin_pct: shopSettingsRow.parts_margin_pct != null ? Number(shopSettingsRow.parts_margin_pct) : null,
@@ -290,6 +296,7 @@ window.BoardSettings = (function () {
     receipt: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v18l2-1 2 1 2-1 2 1 2-1 2 1V3z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',
     grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
     card: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>',
+    chat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg>',
     toggle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="7" width="22" height="10" rx="5"/><circle cx="16" cy="12" r="3"/></svg>',
   };
 
@@ -533,6 +540,9 @@ window.BoardSettings = (function () {
       // Features — owner-only master switchboard (default-OFF flags on
       // shop_settings). Gated on the viewer's role, not the board, so a
       // manager/advisor never sees it even on a board with money rights.
+      // Facebook — the Messenger after-hours auto-reply. Operational, so the same
+      // roles that edit the shop's operational settings (advisor / GM / owner boards).
+      { id: 'facebook',    label: 'Facebook',      icon: ICONS.chat,    visible: canEditShopOps, render: renderFacebookPane },
       { id: 'features',    label: 'Features',      icon: ICONS.toggle,  visible: viewerRole === 'owner', render: renderFeaturesPane },
     ];
     if (typeof onOpenExtra === 'function') {
@@ -1413,6 +1423,97 @@ window.BoardSettings = (function () {
       return;
     }
     await loadShopSettings();   // refresh cache (+ fires onShopSettingsChanged)
+  }
+
+  // ── Pane: Facebook — after-hours auto-reply (meta-webhook.md §12) ─────────
+  // The webhook reads these three columns on every inbound Messenger message:
+  //   fb_auto_reply_on   master switch (default ON)
+  //   fb_auto_reply_text what to send — saved EXACTLY as typed; empty → default
+  //   shop_closed_on     "Shop closed today": today's ET date, or null. Only in
+  //                      force while it equals today, so it lapses at midnight ET.
+  // FB_DEFAULT_TEXT is a copy of DEFAULT_AUTO_REPLY_TEXT in shared/fb-auto-reply.js
+  // (this is a classic script and can't import it); a test keeps them identical.
+  const FB_DEFAULT_TEXT =
+    "Thanks for messaging Lee Transmission! We're closed right now (Mon–Fri, 8am–5pm). Reply with your name, phone number, and your vehicle + what's going on, and we'll call you as soon as we open.\n" +
+    '5583 Lee St, Unit 12, Lehigh Acres, FL 33971 — 24/7 key drop box at the front door.\n' +
+    '\n' +
+    '¡Gracias por escribir a Lee Transmission! En este momento estamos cerrados (lunes a viernes, 8am–5pm). Responda con su nombre, número de teléfono, y su vehículo + el problema, y le llamaremos en cuanto abramos.\n' +
+    '5583 Lee St, Unit 12, Lehigh Acres, FL 33971 — buzón para llaves 24/7 en la puerta principal.';
+  const FB_MAX_CHARS = 2000;
+  // Today's date in shop time (America/New_York), "YYYY-MM-DD".
+  function shopTodayYmd() {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  }
+
+  function renderFacebookPane(content) {
+    const head = catHeader('Facebook', 'The automatic Messenger reply customers get when they write while the shop is closed (Mon–Fri 8am–5pm is open). One reply per conversation per closed stretch; never after someone from the shop has answered.');
+    const s = getShopSettings();
+    if (!s._exists || !s._hasFbAutoReply) {
+      content.innerHTML = head + migrationPlaceholder();
+      return;
+    }
+    const text = s.fb_auto_reply_text != null && s.fb_auto_reply_text.trim() ? s.fb_auto_reply_text : FB_DEFAULT_TEXT;
+    const closedToday = s.shop_closed_on === shopTodayYmd();
+    const sw = (id, on) => `<label class="stgfeat-switch" style="flex:0 0 auto;margin-top:2px">
+        <input type="checkbox" id="${id}"${on ? ' checked' : ''}><span class="stgfeat-switch-slider"></span></label>`;
+    content.innerHTML = head + `
+      <div class="stgfeat-section" style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
+        <div style="flex:1 1 auto">
+          <div style="font-weight:700;margin-bottom:2px">Facebook auto-reply</div>
+          <div style="font-size:0.75rem;color:var(--muted)">Off = no automatic replies at all.</div>
+        </div>${sw('stgFbOn', s.fb_auto_reply_on)}
+      </div>
+      <div class="stgfeat-section">
+        <div style="font-weight:700;margin-bottom:6px">Message</div>
+        <textarea id="stgFbText" maxlength="${FB_MAX_CHARS}" rows="11" style="width:100%;box-sizing:border-box;font:inherit;font-size:0.85rem;padding:8px 10px;border:1px solid #d8dce6;border-radius:8px;resize:vertical">${esc(text)}</textarea>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
+          <span id="stgFbCount" style="font-size:0.75rem;color:var(--muted)"></span>
+          <span style="flex:1"></span>
+          <button type="button" class="stgfeat-btn sec" id="stgFbDefault">Use default text</button>
+          <button type="button" class="stgfeat-btn" id="stgFbSave">Save message</button>
+        </div>
+      </div>
+      <div class="stgfeat-section" style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px">
+        <div style="flex:1 1 auto">
+          <div style="font-weight:700;margin-bottom:2px">Shop closed today</div>
+          <div style="font-size:0.75rem;color:var(--muted)">Auto-reply runs all day today. Turns off by itself at midnight.</div>
+        </div>${sw('stgFbClosed', closedToday)}
+      </div>
+      <div class="stgfeat-error" id="stgFbError"></div>
+      <div id="stgFbSaved" style="font-size:0.78rem;color:#1a7f4b;min-height:1em"></div>`;
+    const ta = content.querySelector('#stgFbText');
+    const count = content.querySelector('#stgFbCount');
+    const upd = () => { count.textContent = ta.value.length + ' / ' + FB_MAX_CHARS + ' characters'; };
+    ta.addEventListener('input', upd); upd();
+    content.querySelector('#stgFbDefault').addEventListener('click', () => { ta.value = FB_DEFAULT_TEXT; upd(); });
+    content.querySelector('#stgFbSave').addEventListener('click', () => {
+      // Exactly what's typed — no trimming, no re-encoding. Blank → null (= default).
+      const v = ta.value;
+      saveFacebookSetting({ fb_auto_reply_text: v.trim() ? v : null }, null, 'Message saved.');
+    });
+    const on = content.querySelector('#stgFbOn');
+    on.addEventListener('change', () => saveFacebookSetting({ fb_auto_reply_on: on.checked }, () => { on.checked = !on.checked; },
+      on.checked ? 'Auto-reply is ON.' : 'Auto-reply is OFF.'));
+    const cl = content.querySelector('#stgFbClosed');
+    cl.addEventListener('change', () => saveFacebookSetting({ shop_closed_on: cl.checked ? shopTodayYmd() : null }, () => { cl.checked = !cl.checked; },
+      cl.checked ? 'Closed today — auto-reply runs until midnight.' : 'Back to normal hours.'));
+  }
+
+  async function saveFacebookSetting(patch, revert, okMsg) {
+    const err = modalEl && modalEl.querySelector('#stgFbError');
+    const ok = modalEl && modalEl.querySelector('#stgFbSaved');
+    if (err) err.textContent = '';
+    if (ok) ok.textContent = '';
+    const id = (shopSettingsRow && shopSettingsRow.id) || SHOP_SETTINGS_ID;
+    const { error } = await db.from('shop_settings').update(patch).eq('id', id);
+    if (error) {
+      if (typeof revert === 'function') revert();
+      if (err) err.textContent = 'Could not save: ' + (error.message || error);
+      return;
+    }
+    Object.assign(shopSettingsRow || {}, patch);   // keep the pane honest without a re-render (keeps the draft)
+    if (ok) ok.textContent = okMsg || 'Saved.';
+    loadShopSettings();
   }
 
   function mountTrigger(mountSelector) {

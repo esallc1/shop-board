@@ -26,7 +26,7 @@ link / unlink a customer, done (§11). Staff only.
 
 **Does not exist yet, on purpose (later steps of the Messenger → Advisor tray):**
 - no UI — no board reads these tables or calls `api/messenger.js` yet (tray = steps 4–5)
-- no after-hours auto-reply, no Instagram, no Lead Ads, no push/sound
+- no Instagram, no Lead Ads, no push/sound (the after-hours auto-reply now exists — §12)
 - no attachment FILES — only their metadata and Meta's (expiring) link
 - phone calls are not touched: `calls`, the call card, the Desk are unchanged
 
@@ -356,7 +356,77 @@ link to JDPR Construction `200` (only `customer_id`/`linked_at`/`linked_by` chan
 (only `done_at`/`done_by`). Afterwards: 4 messages on the thread, `last_inbound_at` unchanged
 (message 2), `last_message_at` moved to the reply.
 
+## 12. The after-hours auto-reply (built 2026-09-23 — on staging, not prod yet)
+One automatic Messenger reply when a customer writes while the shop is closed, so nobody waits
+all weekend in silence. Decided in `storeRows`, for a **new inbound customer row only** (never an
+echo, never a re-delivered `mid`).
+
+### 12a. Open / closed — `shared/shop-hours.js` (pure, no clock of its own)
+- **Open = Mon–Fri 8:00am–5:00pm America/New_York**, DST-correct (`Intl` + a two-pass
+  wall-clock→UTC). Everything else is closed, weekends included.
+- **"Shop closed today"** = `shop_settings.shop_closed_on` (a `date`). Closes that whole ET date,
+  and only while it IS today → lapses on its own at midnight ET. After midnight the closed day
+  stays history (Wed-closed → Thu 1am is still the stretch that began Tue 5pm).
+- **The closed stretch** = since the shop was last open: `closedStretchStart(ms, closedYmd)`
+  walks back day by day to the newest open window that has begun; inside it → `null` (open);
+  after it → that day's 5pm. Fri 5pm → Mon 8am is ONE stretch.
+
+### 12b. When it sends — `shouldAutoReply` in `shared/fb-auto-reply.js`
+All of: `fb_auto_reply_on` is true · the shop is closed **at the message's own Meta timestamp**
+(clamped to now; older than 24 h → `reply-window-closed`) · `social_threads.last_auto_reply_at`
+is before this stretch · no **staff** reply in this stretch. Staff = the newest
+`social_messages` row with `direction = out` **and `auto = false`** (tray or Business Suite).
+Skip reasons are counted in the log line's `autoSkipped` (`switched-off`, `shop-open`,
+`already-replied-this-stretch`, `staff-replied-this-stretch`, `settings-unavailable`, …).
+Settings unreadable → **no send** (fail-safe).
+
+### 12c. How it sends — `maybeAutoReply` in `api/meta-webhook.js`
+1. **Atomic claim**: `PATCH social_threads?id=eq.X&or=(last_auto_reply_at.is.null,last_auto_reply_at.lt."<stretch start>")`
+   sets `last_auto_reply_at`; zero rows back = someone else already claimed → no send. Two
+   deliveries at once can't both reply.
+2. **Send** through `api/_lib/meta-send.js` `graphSendText` — the SAME function `api/messenger.js`
+   uses for tray replies (same Page token, `messaging_type: RESPONSE`, 8 s timeout, never throws),
+   plus `message.metadata = "crisdata:auto"`. Text = `shop_settings.fb_auto_reply_text` exactly as
+   saved, or `DEFAULT_AUTO_REPLY_TEXT` when empty.
+   - `META_SEND_MODE=dry-run` (Preview · `staging` only) → no Graph call, mid `dryrun:<uuid>`;
+     refused on Production (claim released, nothing recorded).
+   - No `META_PAGE_ACCESS_TOKEN` → skip, claim released.
+   - Meta refuses / network → recorded as `failed` under a `local:` mid, claim **released** (the
+     customer's next message tries again).
+3. **Record** via `social_record_message` (out · `crisdata` · our app id · `send_status`), then
+   `PATCH social_messages?mid=eq.X&auto=is.false {auto:true}`.
+4. **The waiting clock is untouched**: an out row never moves `last_inbound_received_at`, so the
+   tray still shows the thread as waiting for a human.
+
+### 12d. The echo of our own auto-reply
+Meta echoes it back with `app_id` = ours and `metadata: "crisdata:auto"`. `parseMessagingEvents`
+tags that row `auto: true`; `storeRows` then marks the `mid` auto whether the echo inserted (it
+beat our record) or was the duplicate. Either order → **one row, `auto = true`, never staff**.
+A tray reply carries no metadata, so its echo stays `auto = false` = staff.
+
+### 12e. The phone a customer types
+`findUsPhone` (10 digits, optional +1, `(239) 555-1234` / `239-555-1234` / `239.555.1234` /
+`2395551234`; area code and exchange 2–9; never inside a longer digit run like a VIN) → saved on
+`social_threads.detected_phone` (newest wins). The tray shows it and may suggest a customer —
+never an automatic link ([[messenger-tray]] §3b).
+
+### 12f. The columns — `migrations/20260923_social_auto_reply_{SANDBOX,PROD}.sql`
+`social_messages.auto` (bool, default false) · `social_threads.last_auto_reply_at`,
+`detected_phone` · `shop_settings.fb_auto_reply_on` (default **true**), `fb_auto_reply_text`
+(null = default), `shop_closed_on` (date). app_env guard, one transaction, one PASS/FAIL verify
+query. The text is NOT in the migration. Edited in Settings → Facebook ([[settings]] §4.5).
+
+### 12g. Testing — `scripts/meta-sim.mjs` `META_SIM_SCENARIO=autoreply | closedtoday | autoecho`
+The sim picks a closed minute (±2 h closed) and an open minute from the last 20 h, so it works at
+any time of day; the webhook judges by the message's time. Tests: `shared/fb-auto-reply.test.js`
+(hours incl. both DST weekends, the decision, the phone parser, Settings' default-text copy) and
+`api/meta-webhook-autoreply.test.js` (fake PostgREST + Graph).
+
 ## Known gaps & open questions (as of 2026-09-23)
+- **Auto-reply is not on prod yet** (§12) — staging only until Cris's OK; the PROD migration must
+  run before that ship.
+- **Holidays aren't known** — only Mon–Fri hours + the one-day "Shop closed today" switch. A
+  holiday list is a later slice if needed.
 - **A delivery that fails to store is lost.** We 200 to keep the subscription alive, so Meta
   won't resend; only the log line's `errors` count shows it. A `meta_webhook_log` table (like
   CTM's) is the fix if this ever bites.
@@ -387,12 +457,16 @@ link to JDPR Construction `200` (only `customer_id`/`linked_at`/`linked_by` chan
 - `api/messenger.js` (+ `api/messenger.test.js`, 22 tests) — reply / link / done (§11). Exports
   `default handler`, `replyWindow`, `parseBody`, `metaErrorMessage`, `WINDOW_MS`, `MAX_TEXT`.
 - `migrations/20260923_social_messaging_{SANDBOX,PROD}.sql` (+ `shared/social-messaging-migration.test.js`).
-- `scripts/meta-sim.mjs` — the signed-delivery simulator (§10). `scripts/` is in `.vercelignore`.
+- §12 auto-reply: `shared/shop-hours.js`, `shared/fb-auto-reply.js` (+ `shared/fb-auto-reply.test.js`),
+  `api/_lib/meta-send.js` (the one Send API call, shared with `api/messenger.js`),
+  `api/meta-webhook-autoreply.test.js`, `migrations/20260923_social_auto_reply_{SANDBOX,PROD}.sql`.
+- `scripts/meta-sim.mjs` — the signed-delivery simulator (§10, §12g). `scripts/` is in `.vercelignore`.
 - Route: Vercel maps `api/*.js` by filename; `vercel.json` has no rewrite over `/api/*`.
 - Template it was built from: `api/ctm-webhook.js` (raw body + disabled body parser) — but see
   §4 for where it intentionally diverges.
 
 ## Session change log
+- **2026-09-23** — **§12 after-hours auto-reply built (staging only)**: shop hours (DST-correct, closed-today date), one reply per thread per closed stretch (atomic claim), never after a staff reply, `metadata crisdata:auto` so the echo is marked auto and not staff, dry-run on staging, failures recorded + claim released, typed US phone → `detected_phone`. Send code moved to `api/_lib/meta-send.js` (tray replies byte-identical). New migration `20260923_social_auto_reply_*`.
 - **2026-09-23** — **§8b LIVE END-TO-END TEST PASSED** (~8:03–8:10am, prod `0e644cc`, Cris's personal account): inbound stored + auto-open + named "Cristian Mendez" (Page token works); tray reply delivered to his Messenger ("CrisData · Cristian"); Business Suite reply → "via Facebook app" (echoes work). §2/§2a: Page subscribed (`subscribed_apps` messages,message_echoes), fields Subscribed, **App Mode Live**; corrected the assumption that dev mode delivers to role-holders — it delivers nothing. Remaining gate: App Review for `pages_messaging`. §6 token proven; gaps updated.
 - **2026-09-23** — §6 correction: the first `META_PAGE_ACCESS_TOKEN` value was a personal **user** token (in build `84c3710`); Cris edited it to the verified **Page** token (Production only). This docs commit is the fresh Production build that bakes in the corrected value. No value recorded anywhere.
 - **2026-09-23** — §6: `META_PAGE_ACCESS_TOKEN` set by Cris on Production only (Secret; never-expiring Page token for `821690607890680`, verified in Meta's Access Token Debugger). This docs commit is the fresh Production build that bakes it in. Not yet exercised (fields unsubscribed; no real reply).

@@ -186,6 +186,24 @@ column). Two wiring notes that live in this doc:
   Build Sheet) keeps the classic inline editor — verified in-browser. Full wiring of the group /
   Build Sheet / Cockpit lives in [[cost-profit]].
 
+## 4.5 The "Facebook" category — the Messenger after-hours auto-reply (BUILT 2026-09-23, staging)
+Visible where `canEditShopOps` is true — the **advisor, GM and owner boards** (the same roles that
+edit the operational shop settings; bookkeeping has no ops rights). Three controls, each saved on
+its own straight to the single `shop_settings` row (same client write path as every other setting,
+§4):
+- **Facebook auto-reply** switch → `fb_auto_reply_on` (default **ON** from the migration).
+- **Message** textarea (max 2000, live "N / 2000 characters") → `fb_auto_reply_text`, saved
+  **exactly as typed** (no trim, UTF-8 — accents survive). Blank → `null` = the webhook sends the
+  default. Prefilled with the saved text, or the default. **"Use default text"** refills the box
+  (not saved until **Save message**). The default lives in `shared/fb-auto-reply.js`
+  (`DEFAULT_AUTO_REPLY_TEXT`); `board-settings.js` keeps a copy (`FB_DEFAULT_TEXT`, it's a
+  classic script) and `shared/fb-auto-reply.test.js` fails if the two ever differ.
+- **Shop closed today** switch → `shop_closed_on` = today's **America/New_York** date, or `null`
+  when turned off. Hint: "Auto-reply runs all day today. Turns off by itself at midnight." Shown ON
+  only while the stored date equals today, so tomorrow it reads OFF with nothing to clear.
+Missing columns (migration not run) → the migration placeholder. What the webhook does with these:
+[[meta-webhook]] §12.
+
 ---
 
 # PART B — PROPOSED architecture (NOT built — approve first)
@@ -300,6 +318,10 @@ mechanism, in preference order:
   `BoardSettings.renderRebuildUnits`, + `setGroupPrice`,
   `addPackageUnit`/`savePackageUnit`/`deletePackageUnit`, `loadPackageUnits`/`getPackageUnits`;
   `package_units` (`migrations/20260807_packages.sql`). See [[packages]], [[cost-profit]].
+- **Facebook category (§4.5):** `shared/board-settings.js` — `renderFacebookPane`,
+  `saveFacebookSetting`, `FB_DEFAULT_TEXT`, `shopTodayYmd`; `getShopSettings` exposes
+  `fb_auto_reply_on`/`fb_auto_reply_text`/`shop_closed_on`/`_hasFbAutoReply`;
+  `migrations/20260923_social_auto_reply_{SANDBOX,PROD}.sql`.
 - Board wiring: `BoardSettings.init(...)` in `owner-board.html`, `gm-board.html`,
   `advisor-board.html`, `bookkeeping-board.html`; `BoardSettings.refresh(emp.id, role)` after
   `captureSessionAndGreet()` (now passes the viewer role).
@@ -313,6 +335,7 @@ mechanism, in preference order:
   [[my-numbers]] (no viewer role today), [[announcements]] (a live service-role write path).
 
 ## Session change log
+- 2026-09-23 — §4.5 Facebook category (after-hours auto-reply switch, message, Shop closed today) on the advisor / GM / owner boards. On staging.
 - 2026-09-23 — Features: the Advisor Commission switch removed from the registry (3 entries now); column kept. See [[advisor-commission]].
 - 2026-09-18 — Card fee became a live per-RO switch; RO totals here now come from `shared/ro-totals.js` (see [[card-fee]]). Branch `feat/card-fee-live`, unmerged.
 - 2026-09-17 — §3 first two bullets rewritten: `crisdata.html` is the email door, the `?u=&p=` pass-through is deleted, boards resolve via `OfficeIdentity.resolve()`. Rest not re-verified.

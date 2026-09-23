@@ -216,3 +216,43 @@ test('the tray reads last_inbound_received_at', () => {
   const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'messenger-tray.js'), 'utf8');
   assert.match(src, /last_inbound_received_at/);
 });
+
+/* ── After-hours auto-reply in the tray (meta-webhook.md §12) ─────────────── */
+import { matchPhoneToCustomer as _match, messageByline as _byline } from './messenger-tray-logic.js';
+import { readFileSync as _read } from 'node:fs';
+
+test('an auto-reply is labelled "Auto-reply", never as a person or the Facebook app', () => {
+  assert.equal(_byline({ direction: 'out', source: 'crisdata', auto: true, sent_by: null }, {}), 'Auto-reply');
+  assert.equal(_byline({ direction: 'out', source: 'page_inbox', auto: true }, {}), 'Auto-reply');
+  assert.notEqual(_byline({ direction: 'out', source: 'page_inbox', auto: false }, {}), 'Auto-reply');
+});
+
+test('a typed phone suggests a customer ONLY when exactly one active customer has it', () => {
+  const list = [
+    { id: 'c1', name: 'Snooks Services', phone_primary: '(239) 887-8557', archived_at: null },
+    { id: 'c2', name: 'Ana', phone_primary: '2395550000', phone_secondary: '+1 239-555-1111', archived_at: null },
+    { id: 'c3', name: 'Twin A', phone_primary: '2395552222', archived_at: null },
+    { id: 'c4', name: 'Twin B', phone_secondary: '239.555.2222', archived_at: null },
+    { id: 'c5', name: 'Old', phone_primary: '2395553333', archived_at: '2026-01-01' },
+  ];
+  assert.equal(_match(list, '2398878557').id, 'c1');
+  assert.equal(_match(list, '2395551111').id, 'c2');   // second number counts too
+  assert.equal(_match(list, '2395552222'), null);        // two people → never guess
+  assert.equal(_match(list, '2395553333'), null);        // archived → no
+  assert.equal(_match(list, '2395559999'), null);
+  assert.equal(_match(list, null), null);
+  assert.equal(_match(null, '2398878557'), null);
+});
+
+test('tray: reads auto + detected_phone, shows the auto label, and Attach runs the normal Link (never automatic)', () => {
+  const src = _read(new URL('./messenger-tray.js', import.meta.url), 'utf8');
+  assert.match(src, /last_message_at, done_at, detected_phone'\)/);
+  assert.equal((src.match(/send_status, (send_error, sent_by, )?sent_at, auto'\)/g) || []).length, 2);
+  assert.match(src, /class="mtray-auto"/);
+  assert.match(src, /case 'attach-suggest': \{[\s\S]*?doLink\(st\.suggest\.customer\)/);
+  // the suggestion only for an UNLINKED thread with a typed phone
+  assert.match(src, /if \(!t \|\| t\.customer_id \|\| !t\.detected_phone \|\| st\.busy\) return '';/);
+  // doLink is only ever called from a tap, never from a render/load path
+  const calls = [...src.matchAll(/doLink\(/g)].length;
+  assert.equal(calls, 3, 'doLink: its definition + the picker tap + the suggestion tap');
+});

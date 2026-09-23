@@ -42,9 +42,14 @@
 import crypto from 'node:crypto';
 import { requireUser } from './_lib/require-user.js';
 import { isArchived, mergedIntoId } from '../shared/customer-archive.js';
+import { graphSendText, metaErrorMessage } from './_lib/meta-send.js';
+
+// The Graph call + Meta's error wording live in api/_lib/meta-send.js (shared
+// with the webhook's after-hours auto-reply). Re-exported so existing callers
+// and tests keep importing it from here.
+export { metaErrorMessage };
 
 const PROD_SUPABASE = 'https://hygemiszxwmyrkmhbjub.supabase.co';
-const GRAPH = 'https://graph.facebook.com/v26.0';
 export const CRISDATA_APP_ID = '1075837401512965';
 export const WINDOW_MS = 24 * 60 * 60 * 1000;
 export const MAX_TEXT = 2000;          // Messenger's text limit
@@ -89,24 +94,6 @@ export function parseBody(body) {
     return { ok: true, action, threadId, customerId };
   }
   return { ok: true, action, threadId };
-}
-
-// Meta's error body → the message the advisor sees. Never throws.
-export function metaErrorMessage(err) {
-  const e = (err && err.error) || err || {};
-  const code = Number(e.code);
-  const sub = Number(e.error_subcode);
-  if (code === 190) {
-    return { code, message: 'Facebook connection expired — the Page token no longer works. Tell Cris to reconnect Facebook. Nothing was sent.' };
-  }
-  if (code === 10 && sub === 2018278) {
-    return { code, message: "Facebook refused: it's been more than 24 hours since the customer's last message. Call them instead." };
-  }
-  if (code === 551 || sub === 1545041) {
-    return { code, message: "Facebook refused: this person isn't available on Messenger right now. Nothing was sent." };
-  }
-  const raw = typeof e.message === 'string' && e.message.trim() ? e.message.trim() : 'Facebook refused the message.';
-  return { code: Number.isFinite(code) ? code : null, message: `Facebook refused the message: ${raw.slice(0, 300)}` };
 }
 
 /* ── The handler ─────────────────────────────────────────────────────────── */
@@ -255,23 +242,11 @@ async function doReply(res, db, thread, employee, text, env) {
     return res.status(503).json({ error: 'not_connected', message: "Facebook isn't connected to CrisData yet, so replies can't be sent from here. Reply from the Facebook app for now. Nothing was sent." });
   }
 
-  // Send. Anything but a 2xx with a message_id is a refusal.
-  let metaMid = null;
-  let failure = null;
-  try {
-    const r = await fetch(`${GRAPH}/${encodeURIComponent(thread.page_id)}/messages`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recipient: { id: thread.psid }, messaging_type: 'RESPONSE', message: { text } }),
-      signal: AbortSignal.timeout(8000),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (r.ok && j && typeof j.message_id === 'string' && j.message_id) metaMid = j.message_id;
-    else failure = metaErrorMessage(j);
-  } catch (e) {
-    failure = { code: null, message: "Couldn't reach Facebook, so the message may not have been sent. Check Messenger before trying again." };
-    console.error('[messenger] Send API threw:', String((e && e.message) || e));
-  }
+  // Send. Anything but a 2xx with a message_id is a refusal (api/_lib/meta-send.js).
+  const sent = await graphSendText({ pageId: thread.page_id, psid: thread.psid, text, token });
+  const metaMid = sent.mid || null;
+  const failure = sent.failure || null;
+  if (sent.thrown) console.error('[messenger] Send API threw:', sent.thrown);
 
   if (failure) {
     console.warn('[messenger] Send API refused · code', failure.code);
