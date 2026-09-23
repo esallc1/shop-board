@@ -12,11 +12,12 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `49cd111`** (2026-09-23 — Messenger step 3: `api/messenger.js` reply / link / done,
-staff only via `requireUser`; replies answer 503 "not connected" on prod until
-`META_PAGE_ACCESS_TOKEN` exists; `META_SEND_MODE=dry-run` on Preview·staging only. Also `CLAUDE.md`
-now in `.vercelignore` — `/CLAUDE.md` is 404 on www/board/apex. Fast-forward `1bc5b04..49cd111`.
-`meta-webhook.md` §11. Previous code ship: `cf12564` (webhook storage). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
+**Prod code = `c1bd923`** (2026-09-23 — Messenger step 4: the READ-ONLY inbox tray on the advisor
+board — `shared/messenger-tray.js` (+`-logic.js`, `.css`), mounted once before `</body>`; reads
+`social_*` with the signed-in session only, z 2900. Prod tables are empty (Meta fields unsubscribed),
+so staff see nothing yet. Fast-forward `54d3b0e..c1bd923`; www/board/apex `/api/version` = `c1bd923`,
+all 8 changed served files byte-identical, `/CLAUDE.md` 404. `messenger-tray.md`. Previous code
+ship: `49cd111` (`api/messenger.js`). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.

@@ -1,8 +1,9 @@
 # How the Messenger inbox tray is wired
 > Doc: `/docs/wiring/messenger-tray.md`
 > Last updated: 2026-09-23 — created with step 4 (the tray, **read-only**).
-> Verified vs commit: see the change log (the step-4 staging commit; main ships after Cris's OK).
-> Status: 🟡 **On staging only** until Cris approves the screenshots. Read-only: no reply, link or Done yet (step 5).
+> Verified vs commit `c1bd923` (the commit that SHIPPED step 4 — prod + staging, 2026-09-23).
+> Status: 🟢 **LIVE on prod** (read-only: no reply, link or Done yet — step 5). Prod has no Messenger rows yet
+> (Meta fields unsubscribed), so signed-in staff see nothing there; a board with no CrisData session shows the "!" strip.
 > Related: [[meta-webhook]] (§9 storage, §11 `api/messenger.js`), [[office-auth]] (`is_staff()`), [[call-window-desk]] (untouched).
 
 ## 0. In one line
@@ -85,4 +86,6 @@ only, new tab; the link expires). A footer says reply/link/Done come next.
 - Tables: `social_threads`, `social_messages` (`migrations/20260923_social_messaging_*.sql`).
 
 ## Session change log
+- **2026-09-23** — shipped to prod as `c1bd923` after Cris's OK on the screenshots (fast-forward `54d3b0e..c1bd923`). www / board. / apex: `/api/version` = `c1bd923`; `advisor-board.html`, the three `shared/messenger-tray*` files, `file-cabinet.js` and both docs byte-identical. Prod not eyeballed signed-in (no prod sign-in; empty tables anyway). Browser checks on test.*: open (desktop pad + <900 overlay), conversation, tucked, auto-open via realtime in ~7 s.
+- **2026-09-23** — preview prefix "You:" → "Shop:" (a Business Suite reply isn't the viewer's).
 - **2026-09-23** — created. Step 4: read-only tray on the advisor board (list + conversation, hide/tuck/auto-open, staff session only, realtime + 60 s catch-up). On staging first; `main` waits for Cris's OK on the screenshots.
