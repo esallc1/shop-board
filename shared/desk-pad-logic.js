@@ -119,3 +119,24 @@ export function isPadToggleKey(ev, activeEl) {
   if (isTypingTarget(activeEl) || isTypingTarget(ev.target)) return false;
   return true;
 }
+
+/* ── Height: start short, grow as needed (Cris, 2026-09-23) ────────────── */
+// The pad is its header ("chrome": the top bar + the tear-off confirm when shown)
+// plus the notes' natural height — one row to start — capped at CAP_RATIO of the
+// window; beyond the cap the notes scroll inside the pad. It never goes below
+// the header + one row of notes, even on a very short window.
+export const CAP_RATIO = 0.45;
+export const ONE_ROW_MIN = 132;   // a sticky (112) + the grid's padding (2 × 10)
+
+export function padHeight(chromeH, contentH, viewportH, capRatio = CAP_RATIO) {
+  const chrome = Math.max(0, Math.round(Number(chromeH) || 0));
+  const content = Math.max(ONE_ROW_MIN, Math.round(Number(contentH) || 0));
+  const cap = Math.max(chrome + ONE_ROW_MIN, Math.round((Number(viewportH) || 0) * capRatio));
+  return Math.min(chrome + content, cap);
+}
+
+// Where the page should scroll when the pad's height changes from `prevH` to
+// `nextH` while it pushes: by the same amount, never above the top.
+export function pushScrollTarget(scrollY, prevH, nextH) {
+  return Math.max(0, Math.round((Number(scrollY) || 0) + (Number(nextH) || 0) - (Number(prevH) || 0)));
+}

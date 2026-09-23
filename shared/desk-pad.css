@@ -46,7 +46,9 @@ body.dpad-open .dpad-tab { display: none; }
 .dpad-sheet {
   position: fixed; bottom: 0; z-index: 2800;
   left: var(--dp-left); right: var(--dp-right);
-  height: clamp(220px, 42vh, 380px);
+  /* Height is set by shared/desk-pad.js (padHeight): header + the notes' rows,
+     capped at 45vh. This is only the first-paint fallback. */
+  height: auto; max-height: 45vh;
   display: flex; flex-direction: column;
   background: var(--pad); border-top: 2px solid var(--pad-line);
   box-shadow: 0 -6px 18px rgba(29,31,51,.10);
@@ -58,7 +60,7 @@ body.dpad-open .dpad-tab { display: none; }
 
 /* ≥900px: the pad takes room instead of covering the bottom of the page. */
 @media (min-width: 900px) {
-  body.dpad-open .main-area { padding-bottom: calc(var(--dpad-h, 300px) + 12px); }
+  body.dpad-open .main-area { padding-bottom: calc(var(--dpad-h, 180px) + 12px); }
 }
 /* <900px (and the phone layout, where the sidebar is off-canvas): overlay, full width. */
 @media (max-width: 899px) {
@@ -93,8 +95,11 @@ body.dpad-open .dpad-tab { display: none; }
 
 .dpad-body {
   flex: 1; min-height: 0; overflow: auto; padding: 10px 12px;
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; align-content: start;
   background-image: repeating-linear-gradient(to bottom, transparent 0 27px, var(--pad-rule) 27px 28px);
+  background-attachment: local;
+}
+.dpad-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; align-content: start;
 }
 .dpad-note {
   background: var(--sticky); border-radius: 3px; box-shadow: 0 2px 6px rgba(0,0,0,.13);

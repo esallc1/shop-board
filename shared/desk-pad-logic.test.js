@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path';
 import {
   STORAGE_KEY, MAX_NOTES, addNote, deleteNote, updateNoteText, tearOff, cleanNotes,
   loadNotes, saveNotes, isTypingTarget, isPadToggleKey, noteTime,
+  padHeight, pushScrollTarget, CAP_RATIO, ONE_ROW_MIN,
 } from './desk-pad-logic.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -123,4 +124,36 @@ test('static: the desk pad touches no database and no network', () => {
   const board = readFileSync(join(here, '..', 'advisor-board.html'), 'utf8');
   assert.equal((board.match(/mountDeskPad\(\)/g) || []).length, 1, 'mounted exactly once');
   assert.equal((board.match(/shared\/desk-pad\.css/g) || []).length, 1);
+});
+
+/* ── Height: start short, grow as needed (Cris, 2026-09-23) ─────────────── */
+const CHROME = 46;          // the pad's top bar
+const ROW1 = 132, ROW2 = 254, ROW3 = 376;   // 1, 2, 3 rows of stickies (+ grid padding)
+
+test('height: ONE row to start — header + one row, about a quarter of a laptop window', () => {
+  assert.equal(padHeight(CHROME, ROW1, 720), CHROME + ROW1);        // 178 px
+  assert.ok(padHeight(CHROME, ROW1, 720) / 720 < 0.26);
+  assert.equal(padHeight(CHROME, 0, 720), CHROME + ONE_ROW_MIN);     // empty pad still shows a row (the + New note tile)
+});
+
+test('height: grows to fit a 2nd row, then stops at 45% of the window (notes scroll inside)', () => {
+  assert.equal(padHeight(CHROME, ROW2, 720), CHROME + ROW2);        // 300 ≤ 324 → fits
+  assert.equal(padHeight(CHROME, ROW3, 720), Math.round(720 * CAP_RATIO));   // 422 > 324 → capped
+  assert.equal(padHeight(CHROME, 5000, 900), Math.round(900 * 0.45));
+  assert.equal(CAP_RATIO, 0.45);
+});
+
+test('height: shrinks back as rows empty; never below header + one row, even on a short window', () => {
+  const grown = padHeight(CHROME, ROW2, 720);
+  const shrunk = padHeight(CHROME, ROW1, 720);
+  assert.ok(shrunk < grown);
+  assert.equal(padHeight(CHROME, ROW3, 300), CHROME + ONE_ROW_MIN); // 45% of 300 = 135 < header + a row
+  assert.equal(padHeight('junk', null, undefined), ONE_ROW_MIN);
+});
+
+test('push follows the real height: the page moves by exactly the change, never above the top', () => {
+  assert.equal(pushScrollTarget(0, 0, 178), 178);        // open: up by the pad height
+  assert.equal(pushScrollTarget(178, 178, 300), 300);    // a 2nd row: up by the extra 122
+  assert.equal(pushScrollTarget(300, 300, 178), 178);    // a note deleted: back down by 122
+  assert.equal(pushScrollTarget(50, 300, 178), 0);       // clamped at the top
 });

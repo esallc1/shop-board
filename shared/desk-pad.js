@@ -10,6 +10,13 @@
    stays visible just above the pad. Hide scrolls it back down. Below 900px it
    overlays instead (no push).
 
+   HEIGHT (Cris, 2026-09-23): start short, grow as needed — the header plus ONE
+   row of notes, growing a row at a time as notes wrap, capped at 45% of the
+   window (then the notes scroll inside the pad). `padHeight` decides; a
+   ResizeObserver re-applies it whenever the notes change size, and the push
+   follows the real height (deleting notes shrinks the pad and the page comes
+   back down by the same amount).
+
    Yellow sticky notes: × deletes, "+ New note", several at once, "Tear off
    page" clears them all (one inline confirm), "Hide ▾". N toggles the pad —
    never while typing. Esc hides it when focus is inside the pad.
@@ -20,6 +27,7 @@
    ============================================================ */
 import {
   loadNotes, saveNotes, addNote, deleteNote, updateNoteText, tearOff, isPadToggleKey,
+  padHeight, pushScrollTarget,
 } from './desk-pad-logic.js';
 
 const TEAR_TEXT = 'Tear off this page? All notes will be removed.';
@@ -36,7 +44,8 @@ export function mountDeskPad() {
   let notes = loadNotes(getStorage);
   let open = false;
   let confirming = false;
-  let pushedBy = 0;        // px the window was scrolled when the pad opened (to undo on hide)
+  let pushedBy = 0;        // px the window has been scrolled by the pad (to undo on hide)
+  let shownH = 0;          // the pad's height as last applied
 
   const root = document.createElement('div');
   root.id = 'dpad';
@@ -59,13 +68,15 @@ export function mountDeskPad() {
         <button type="button" class="dpad-btn is-danger" data-dp="tear-yes">Tear off</button>
         <button type="button" class="dpad-btn" data-dp="tear-no">Cancel</button>
       </div>
-      <div class="dpad-body"></div>
+      <div class="dpad-body"><div class="dpad-grid"></div></div>
     </section>`;
   document.body.appendChild(root);
   const tab = root.querySelector('.dpad-tab');
   const count = root.querySelector('.dpad-count');
   const sheet = root.querySelector('.dpad-sheet');
-  const body = root.querySelector('.dpad-body');
+  const scroller = root.querySelector('.dpad-body');
+  const body = root.querySelector('.dpad-grid');
+  const top = root.querySelector('.dpad-top');
   const confirmBar = root.querySelector('.dpad-confirm');
 
   function save() { saveNotes(getStorage, notes); }
@@ -84,11 +95,33 @@ export function mountDeskPad() {
       </div>`).join('') +
       `<button type="button" class="dpad-add" data-dp="new">+ New note</button>`;
     drawCount();
+    fitHeight();
   }
 
-  function drawConfirm() { confirmBar.hidden = !confirming; }
+  function drawConfirm() { confirmBar.hidden = !confirming; if (open) fitHeight(); }
 
   const pushes = () => window.innerWidth >= PUSH_MIN_WIDTH;
+
+  // Size the pad to its notes (padHeight), then move the page by the change so
+  // the push always equals the pad's real height.
+  function fitHeight() {
+    if (!open) return;
+    const cs = getComputedStyle(scroller);
+    const chrome = top.offsetHeight + (confirmBar.hidden ? 0 : confirmBar.offsetHeight) + (parseFloat(getComputedStyle(sheet).borderTopWidth) || 0);
+    const content = body.offsetHeight + (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    const h = padHeight(chrome, content, window.innerHeight);
+    if (h === shownH) return;
+    // Read the scroll BEFORE the padding changes: shrinking the padding can make the
+    // browser pull the page back on its own, and the undo-amount must count that too.
+    const before = window.scrollY;
+    sheet.style.height = h + 'px';
+    document.documentElement.style.setProperty('--dpad-h', h + 'px');
+    if (pushes()) {
+      window.scrollTo(0, pushScrollTarget(before, shownH, h));
+      pushedBy += window.scrollY - before;
+    }
+    shownH = h;
+  }
 
   function setOpen(next) {
     if (next === open) return;
@@ -97,21 +130,14 @@ export function mountDeskPad() {
     if (open) {
       sheet.hidden = false;
       document.body.classList.add('dpad-open');
-      const h = sheet.offsetHeight || 0;
-      document.documentElement.style.setProperty('--dpad-h', h + 'px');
-      if (pushes() && h) {
-        // Push the page up by the pad's height so nothing that was on screen goes under it.
-        const before = window.scrollY;
-        window.scrollBy(0, h);
-        pushedBy = window.scrollY - before;
-      } else {
-        pushedBy = 0;
-      }
+      shownH = 0; pushedBy = 0;
+      fitHeight();
     } else {
-      confirming = false; drawConfirm();
+      confirming = false; confirmBar.hidden = true;
       if (pushedBy) window.scrollBy(0, -pushedBy);
-      pushedBy = 0;
+      pushedBy = 0; shownH = 0;
       sheet.hidden = true;
+      sheet.style.height = '';
       document.body.classList.remove('dpad-open');
       document.documentElement.style.removeProperty('--dpad-h');
     }
@@ -170,12 +196,15 @@ export function mountDeskPad() {
     notes = loadNotes(getStorage); drawNotes();
   });
 
-  // Width crossing 900px while open: keep the push in step (overlay below 900 → undo the push).
+  // Notes wrapping to a new row / a row emptying → refit (the push follows).
+  if (typeof ResizeObserver === 'function') new ResizeObserver(() => fitHeight()).observe(body);
+
+  // Window resize: refit (the cap is a share of the window height); crossing below
+  // 900px undoes the push (overlay there).
   window.addEventListener('resize', () => {
     if (!open) return;
-    const h = sheet.offsetHeight || 0;
-    document.documentElement.style.setProperty('--dpad-h', h + 'px');
     if (!pushes() && pushedBy) { window.scrollBy(0, -pushedBy); pushedBy = 0; }
+    fitHeight();
   });
 
   drawNotes();

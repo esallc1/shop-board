@@ -21,7 +21,14 @@ it out later. **Notes are not linked to anything** (Cris rejected "Add to RO").
 - **Closed:** a small **"📝 Desk pad"** tab at the **bottom middle of the work area** (between the
   sidebar and the window edge — or the Facebook tray's edge while it's open), with a note count and an
   **N** key hint. `.main-area` always keeps 44 px at the bottom so the tab never sits on the last card.
-- **Open:** a lined pad (`height: clamp(220px, 42vh, 380px)`) docked at the bottom of the work area:
+- **Height — start short, grow as needed (Cris, 2026-09-23).** The pad is its header + **one row** of
+  stickies to start (≈ ¼ of a laptop window, very little empty paper). When notes wrap to a second row it
+  grows to fit, a row at a time, up to **45 % of the window**; past that the notes scroll inside the
+  pad. Deleting notes shrinks it back. It never goes below header + one row, even on a short window.
+  Rule: `padHeight(chrome, content, viewportH)` in the logic module (chrome = top bar + the tear-off
+  confirm when shown; content = the notes grid's natural height + its padding). A `ResizeObserver` on
+  the grid re-applies it whenever the notes change size; window resizes re-apply it too.
+- **Open:** a lined pad (height per the rule above) docked at the bottom of the work area:
   left = the sidebar's right edge (232 px), right = the window edge, or **340 px while the Messenger
   tray is open** (`body.mtray-open`) so the two never overlap.
 - **It pushes, it doesn't cover (≥ 900 px wide).** The page scrolls as a whole (the sidebar is
@@ -72,11 +79,13 @@ it out later. **Notes are not linked to anything** (Cris rejected "Add to RO").
 ## Where it lives in the code
 - `shared/desk-pad.js` — the DOM half: `mountDeskPad()`.
 - `shared/desk-pad-logic.js` — pure rules: `addNote`, `deleteNote`, `updateNoteText`, `tearOff`,
-  `cleanNotes`, `loadNotes`, `saveNotes`, `isTypingTarget`, `isPadToggleKey`, `noteTime`, `STORAGE_KEY`.
+  `cleanNotes`, `loadNotes`, `saveNotes`, `isTypingTarget`, `isPadToggleKey`, `noteTime`, `STORAGE_KEY`,
+  and the height rule `padHeight` / `pushScrollTarget` (`CAP_RATIO` 0.45, `ONE_ROW_MIN` 132).
   Tested by `shared/desk-pad-logic.test.js`.
 - `shared/desk-pad.css` — the look (z 2800, the 900 px push/overlay switch, the tray-aware right edge).
 - `advisor-board.html` — the stylesheet `<link>` and the mount module before `</body>`.
 
 ## Session change log
+- **2026-09-23** — height change requested by Cris after reviewing on a ~1000 px laptop: start with header + ONE row, grow a row at a time to fit, cap at 45 % of the window (then scroll inside), shrink back on delete; the push follows the real height. `padHeight` / `pushScrollTarget` + tests; notes grid wrapped in `.dpad-grid` so its natural height can be measured.
 - **2026-09-23** — browser run on test.* (`bbe6832`, ZZ Test Advisor, 1100×720, Facebook tray open): N opened the pad on Approval Queue — page scrolled up exactly the pad's height (302 px), `.main-area` padding 314 px, pad 232→760 px = the tray's left edge; 3 notes added (saved as typed, stamped 12:34 ET), × deleted one, refresh kept 2 (pad starts closed); opened from the tab on **Desk** and with N on **RO Board** (notes follow); Esc from a note hid it and scrolled back to 0; real n/N keys in the Customers search typed "nN" and did NOT open the pad; Tear off → inline confirm → 0 notes on screen and in storage; tray tucked → pad 232→1100 px with the tray strip still visible. Fix during the run: the title wrapped to "Desk / pad" in the narrow pad → `white-space: nowrap` (`bbe6832`).
 - **2026-09-23** — created. Desk pad on the advisor board: tab at the bottom middle, lined pad that pushes the page up (≥900 px) or overlays, yellow stickies (× / + New note / Tear off with inline confirm / Hide), N and Esc, localStorage only. On staging.
