@@ -109,6 +109,11 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 
 ## Known gaps & open questions (as of 2026-09-23)
 - **No "un-done"** and no retry button for a failed send (retype and send).
+- **A message sent just BEFORE Done but delivered just AFTER it won't bring the thread back.** The
+  waiting rule compares `last_inbound_at` (Meta's timestamp — when the customer sent it) with
+  `done_at` (when someone clicked Done). Meta normally delivers within seconds, so the gap is small,
+  but it is real. The fix is a DB change: compare with when the message *arrived* (e.g. a
+  `last_inbound_received_at` set by `social_record_message`). Not built — say the word.
 - **The picker's customer list is cached** for the page's life (like the Desk's); a customer created
   after the first open won't appear until reload.
 - **Up to 200 threads / 500 messages** per read — fine for the shop's volume; paginate if that changes.
@@ -129,6 +134,7 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 - Tables: `social_threads`, `social_messages` (`migrations/20260923_social_messaging_*.sql`).
 
 ## Session change log
+- **2026-09-23** — browser run on test.* (ZZ Test Advisor): reply (dry-run), Shift+Enter, link, unlink (inline confirm), relink, closed-window box + tap-to-call, Done, a new message bringing the thread back (auto-open) — all PASS. `meta-sim` now stamps messages into a REUSED thread 1 s apart ending now (a 60 s backdate put them before the Done). Gap recorded: sent-before-Done / delivered-after.
 - **2026-09-23** — **step 5: tray actions** (§3a), code `84e1e78`: reply box (Enter/Shift+Enter, draft-safe, closed-window reason + tap-to-call, failed → red, not-connected/190 → banner), Link (in-tray picker, Desk's list + search rules) / Unlink (inline confirm), ✓ Done. "Read-only" footer removed. On staging.
 - **2026-09-23** — shipped to prod as `c1bd923` after Cris's OK on the screenshots (fast-forward `54d3b0e..c1bd923`). www / board. / apex: `/api/version` = `c1bd923`; `advisor-board.html`, the three `shared/messenger-tray*` files, `file-cabinet.js` and both docs byte-identical. Prod not eyeballed signed-in (no prod sign-in; empty tables anyway). Browser checks on test.*: open (desktop pad + <900 overlay), conversation, tucked, auto-open via realtime in ~7 s.
 - **2026-09-23** — preview prefix "You:" → "Shop:" (a Business Suite reply isn't the viewer's).

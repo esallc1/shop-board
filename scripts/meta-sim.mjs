@@ -47,9 +47,14 @@ if (/\/\/(www\.|board\.)?leetransmissionshop\.com\b/.test(url)) {
 }
 
 const run = Date.now();
-const psid = /^SIM_\d+$/.test(process.env.META_SIM_PSID || '') ? process.env.META_SIM_PSID : `SIM_${run}`;
+const reuse = /^SIM_\d+$/.test(process.env.META_SIM_PSID || '');
+const psid = reuse ? process.env.META_SIM_PSID : `SIM_${run}`;
 const ageMs = Math.max(0, Number(process.env.META_SIM_AGE_HOURS) || 0) * 3600_000;
-const t0 = run - ageMs - 60_000;
+// Messages are 20 s apart and end ~now. Into an EXISTING thread they are 1 s apart,
+// so they land AFTER anything done to it moments ago (e.g. Done) — a 60 s backdate
+// would stamp them before the Done and (correctly) not bring the thread back.
+const step = reuse ? 1_000 : 20_000;
+const t0 = run - ageMs - 3 * step;
 const mid = (n) => `m_sim_${run}_${n}`;
 
 const envelope = (messaging) => JSON.stringify({ object: 'page', entry: [{ id: PAGE, time: Date.now(), messaging: [messaging] }] });
@@ -71,8 +76,8 @@ async function send(label, raw, { signed = true, expect = 200 } = {}) {
 const first = inbound(1, 'SIM: Hi, is my Silverado ready?', t0);
 const results = [
   await send('1. new customer, first message', first),
-  await send('2. same customer, second message', inbound(2, 'SIM: I can come at 4', t0 + 20_000)),
-  await send('3. page-inbox echo (Business Suite reply)', inboxEcho(3, 'SIM: Yes, ready at 4 — Daiana', t0 + 40_000)),
+  await send('2. same customer, second message', inbound(2, 'SIM: I can come at 4', t0 + step)),
+  await send('3. page-inbox echo (Business Suite reply)', inboxEcho(3, 'SIM: Yes, ready at 4 — Daiana', t0 + 2 * step)),
   await send('4. re-delivery of #1 (same bytes)', first),
   await send('5. UNSIGNED copy of #1', first, { signed: false, expect: 403 }),
 ];
