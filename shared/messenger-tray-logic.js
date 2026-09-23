@@ -138,6 +138,8 @@ export function latestByThread(messages) {
 /* ── Step 5: the tray's actions (reply / link / done) ──────────────────── */
 
 export const WINDOW_CLOSED_TEXT = 'Facebook only lets us reply within 24 hours of their last message — call them instead.';
+// Same words as CD_SIGNIN_LOST in shared/auth-fetch.js (a test keeps them identical).
+export const SIGNIN_LOST_TEXT = "Your CrisData sign-in isn't active on this page — log out and sign in again.";
 
 // Can the viewer reply here, and if not, why (and is there a number to call)?
 // `customer` = the linked customer ({ name, phone_primary, phone_secondary }) or null.
@@ -155,7 +157,7 @@ export function composeState(thread, customer, nowMs = Date.now()) {
 // "Facebook isn't connected — tell Cris" bar (token dead / never set).
 export function replyError(status, body) {
   const b = body && typeof body === 'object' ? body : {};
-  if (status === 401) return { banner: false, message: 'Your CrisData sign-in has expired — sign in again from CrisData, then resend.' };
+  if (status === 401) return { banner: false, message: SIGNIN_LOST_TEXT };
   if (b.error === 'not_connected' || b.error === 'token_expired') {
     return { banner: true, message: typeof b.message === 'string' && b.message ? b.message : "Facebook isn't connected — tell Cris." };
   }

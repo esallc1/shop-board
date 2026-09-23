@@ -226,6 +226,7 @@ window.AnnouncementBanner = (function () {
       try {
         const resp = await cdAuthFetch(db, endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'create', message: msg, style, expires_at, audience, posted_by_name: getName() || null }) });
+        if (resp.status === 401) { setStatus(cdAuthErrorText(401), 'err'); return; }   // typed message stays
         if (!resp.ok) { let m = 'HTTP ' + resp.status; try { const j = await resp.json(); if (j && j.error) m = j.error; } catch (_) {} throw new Error(m); }
         manageEl.querySelector('.anc-input').value = ''; manageEl.querySelector('.anc-expires').value = '';
         setStatus('Posted ✓', 'ok');
@@ -240,6 +241,7 @@ window.AnnouncementBanner = (function () {
       try {
         const resp = await cdAuthFetch(db, endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'remove', id: current.id }) });
+        if (resp.status === 401) { setStatus(cdAuthErrorText(401), 'err'); return; }
         if (!resp.ok) { let m = 'HTTP ' + resp.status; try { const j = await resp.json(); if (j && j.error) m = j.error; } catch (_) {} throw new Error(m); }
         setStatus('Removed ✓', 'ok');
         await refetch();

@@ -2566,18 +2566,18 @@
     let result = null;
     try {
       // The endpoint is employees-only (Security Phase 3): it needs THIS board's
-      // signed-in Supabase session, which it maps to an active employees row.
-      // No session → 401 and no pre-fill, which is the same outcome as any other
-      // auto-detect failure: the fields just stay empty and Daiana types them.
-      const { data: { session } } = await db.auth.getSession();
-      const headers = { 'Content-Type': 'application/json' };
-      if (session && session.access_token) headers.Authorization = 'Bearer ' + session.access_token;
-      const resp = await fetch('/api/extract-invoice', {
+      // signed-in Supabase session (cdAuthFetch sends it). Any failure leaves the
+      // fields empty for Daiana to type — but a 401 now SAYS why (no sign-in on
+      // this page) instead of silently doing nothing.
+      const resp = await cdAuthFetch(db, '/api/extract-invoice', {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageUrl }),
       });
-      if (!resp.ok) console.warn('[AutoDetect] request rejected — HTTP ' + resp.status);
+      if (resp.status === 401) {
+        if (detailInvoice && String(detailInvoice.id) === String(invoiceId)) statusEl.textContent = cdAuthErrorText(401);
+        return;
+      }
       if (resp.ok) result = await resp.json();
     } catch (err) {
       console.error('[AutoDetect] request failed', err);

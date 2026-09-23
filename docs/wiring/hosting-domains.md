@@ -247,6 +247,22 @@ Do it in this order so KiKi is never orphaned:
 - Full step-by-step + rollback is in the migration section of this session's investigation;
   see also [[office-auth]] for the office-side auth URLs.
 
+## 4a. PARKED — one address, one sign-in: send `board.*` and the apex to `www` (Cris, 2026-09-23)
+**Why it came up.** The browser keeps a Supabase sign-in **per origin**. `www`, `board.*` and the
+apex are three origins on the same prod build and DB, so signing in on one does nothing for the
+others — and a board opened on an address without a sign-in can still greet the person from an old
+phone/ID identity. Kevin hit it on `board.*` (Report a change → 401, 2026-09-23).
+
+**The idea.** A host-based redirect (`vercel.json` `redirects` with a `has: host` match) from
+`board.leetransmissionshop.com/*` and the apex to `https://www.leetransmissionshop.com/*`, so there
+is one origin and one sign-in.
+
+**Why parked, not built.** It touches domains and push: `api/send-push.js`'s origin allow-list
+(§2a) names `board.*`, installed PWAs / bookmarks point at `board.*`, and the apex already 308s
+to `www` at the DNS/Vercel level (confirmed 2026-09-23) so only `board.*` would actually change.
+Needs its own slice with a push re-test. Meanwhile the client says what to do on any 401
+(`shared/auth-fetch.js`, [[page-map]] Known gaps).
+
 ## 5. Supabase — TWO projects since the sandbox split (prod + staging)
 **Prod** is `hygemiszxwmyrkmhbjub` (`https://hygemiszxwmyrkmhbjub.supabase.co`) — the real
 customer database, shared by the boards, `/api/*`, and kiki. **Staging** is
@@ -374,6 +390,7 @@ bucket layout should now come from `migrations/20260819_storage_buckets.sql`, no
 - Client-side idle logout: `shared/office-identity.js` (`armIdleLogout`) — see [[office-auth]] §8.8.
 
 ## Session change log
+- 2026-09-23 — §4a added: PARKED decision to redirect `board.*` (and the apex) to `www` — one origin, one sign-in (the per-origin session is why Kevin's Report a change 401'd on `board.*`). Not built.
 - 2026-09-20 (~08:20 ET) — Prod = `1aeb2ee` (Desk outcomes + undo); fast-forward push of `main`
   alone (2eb77b1..1aeb2ee) after Cris ran `20260920_calls_outcome_PROD.sql`, domains auto-assigned,
   no Promote. **DB-before-code on purpose**: the migration only ADDS columns, so running it early

@@ -767,6 +767,8 @@ window.ReportChange = (function () {
           user_agent: navigator.userAgent || null,
         };
         const resp = await cdAuthFetch(db, endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        // 401 = no CrisData sign-in on this page: say what to do. Nothing typed is cleared.
+        if (resp.status === 401) { setStatus(cdAuthErrorText(401), 'err'); return; }
         if (!resp.ok) { let m = 'HTTP ' + resp.status; try { const j = await resp.json(); if (j && j.error) m = j.error; } catch (_) {} throw new Error(m); }
 
         setStatus('Sent ✓ Thanks — the owner will see it.', 'ok');

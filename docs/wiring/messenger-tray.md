@@ -73,7 +73,7 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
   "Not sent — <reason>" above the box, and the stored failed message shows red in the
   conversation. `token_expired` (Meta code 190) or `not_connected` (no Page token) → a red banner
   under the tray header: **"Facebook isn't connected — tell Cris. …"** (cleared by the next good
-  send). A 401 says to sign in again. (`replyError`)
+  send). A 401 shows **"Your CrisData sign-in isn't active on this page — log out and sign in again."** (`replyError` → `SIGNIN_LOST_TEXT`, the same words as `shared/auth-fetch.js`, which also shows its page-level notice).
 - **Window closed** (`composeState`, same 24 h rule as the server) → the box and Send are
   disabled with **"Facebook only lets us reply within 24 hours of their last message — call them
   instead."**, plus a **📞 Call <number>** `tel:` link when the thread is linked to a customer with
@@ -140,6 +140,7 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 - Tables: `social_threads`, `social_messages` (`migrations/20260923_social_messaging_*.sql`).
 
 ## Session change log
+- **2026-09-23** — a 401 on reply / link / done now shows the shared sentence "Your CrisData sign-in isn't active on this page — log out and sign in again." (was "…has expired…").
 - **2026-09-23** — **live on prod, proven with real traffic** (~8:03–8:10am, build `0e644cc`, Cris's personal Facebook account → Page `821690607890680`): "Test 1 from Cris" → the tray **auto-opened**, named **"Cristian Mendez"**, chip "23h left to reply"; a reply typed in the tray arrived in his Messenger and shows as **"CrisData · Cristian"**; a Business Suite reply appeared as **"via Facebook app"**. See [[meta-webhook]] §8b.
 - **2026-09-23** — PROD migration `20260923_social_inbound_received_PROD.sql` run by Cris: Success, verify **9/9 ok** (env "PROD — KiKi hygemiszxwmyrkmhbjub"; column timestamptz; backfill 0 missing; function stamps arrival; definer + pinned path; anon/auth no execute, service_role yes; one function; anon no table access; authenticated select-only). Then `main` fast-forwarded `2ffed87..bc52dd2`; www / board. / apex byte-identical (6 served files; migrations 404).
 - **2026-09-23** — sent-before-Done fix **proven on test.*** (`59b05eb`; SANDBOX migration applied + 9/9 verify by Cris). Thread `SIM_1790159820077`: Done at 11:01:33.409Z → a re-delivered inbound mid and a NEW page-inbox echo left it Done (`last_inbound_received_at` unchanged at 10:39:23; the echo only moved `last_message_at`) → customer messages stamped 11:00:57/58 (**before** Done) delivered 11:02:03 (**after**) → back in the tray, `last_inbound_at` 11:00:58 < `done_at` < `last_inbound_received_at` 11:02:03.956Z; the window chip still counts from 11:00:58. PROD migration + `main` still pending.

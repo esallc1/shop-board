@@ -203,9 +203,15 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
   `push_subscriptions` reads and deletes. It must move to the service-role key (and this same
   caller check) before the Tier-A RLS cutover, or pushes will silently stop.
 - **A board opened without a session loses these buttons**, by design: Report-a-change, Post
-  announcement, Desk manual-add and recording playback now answer 401 there. Only the
-  bookkeeping board currently *has* a gate, so until the auth-gate item lands the symptom on the
-  other three is a console line, not a redirect.
+  announcement, Desk manual-add, recording playback, invoice auto-detect and the Messenger tray
+  answer 401 there. **Since 2026-09-23 a 401 says what to do**: `cdAuthFetch` shows one page-level
+  notice — *"Your CrisData sign-in isn't active on this page — log out and sign in again."* — and
+  screens that print their own error use `cdAuthErrorText` for the same sentence (typed text is
+  kept). Root cause seen live (Kevin, Report a change, 2026-09-23): the sign-in is kept **per
+  address** — a session on `www` does nothing for `board.*` — while the board can still greet from
+  an old phone/ID identity. Fix for the person: log out + sign in on the address they use.
+- **PARKED — one address, one sign-in** ([[hosting-domains]] §4a): redirect `board.*` and the apex
+  to `www` so a person can't be signed in on one and not the other. Not built.
 
 ## Where it lives in the code
 - Public legal pages (§5a): `privacy.html`, `terms.html`, `data-deletion.html`; test `shared/legal-pages.test.js`.
@@ -218,6 +224,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Tab shell: `.sidebar-item[data-view]` + `<div class="view" id="view-…">` in each board.
 
 ## Session change log
+- 2026-09-23 — Gaps: a 401 on any login-protected action now shows "Your CrisData sign-in isn't active on this page — log out and sign in again." (`shared/auth-fetch.js`); the per-address sign-in cause recorded; one-address redirect PARKED ([[hosting-domains]] §4a). Other sections not re-verified.
 - 2026-09-23 — Gaps: noted `public.is_staff()` (Messenger step-1 migration, not yet applied) as the shared staff check for Phase 3.
 - 2026-09-23 — §5a added: public `privacy.html` / `terms.html` / `data-deletion.html` for Meta App Review; must stay outside any auth-gate. §0 note added. Other sections not re-verified.
 - 2026-09-17 — Gaps updated: all six board endpoints now require a signed-in active employee; `send-push` is the one left (anon key + a secret that ships in page source).

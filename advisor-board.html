@@ -11229,7 +11229,7 @@
           body: JSON.stringify({ call_id: Number(callId), vehicle_id: vehicleId || null }),
         });
         const j = await r.json().catch(() => ({}));
-        if (!r.ok) { alert('Could not assign vehicle: ' + (j.error || ('HTTP ' + r.status))); rerenderCustBody(); return; }
+        if (!r.ok) { alert(cdAuthErrorText(r.status, 'Could not assign vehicle: ' + (j.error || ('HTTP ' + r.status)))); rerenderCustBody(); return; }
         custRecAssigned[String(callId)] = (j.vehicle_id != null ? String(j.vehicle_id) : null);
         rerenderCustBody();
       } catch (e) { console.error('[cust] assign vehicle failed', e); alert('Could not assign vehicle: ' + e.message); rerenderCustBody(); }
@@ -12469,6 +12469,7 @@
           let resp;
           try { resp = await cdAuthFetch(db, '/api/desk-appointment', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
           catch (e) { err.textContent = 'Could not add (network): ' + (e.message || e); return; }
+          if (resp.status === 401) { err.textContent = cdAuthErrorText(401); return; }   // the form stays filled in
           if (!resp.ok) { let m = 'HTTP ' + resp.status; try { const j = await resp.json(); if (j && j.error) m = j.error; } catch (_) {} err.textContent = 'Could not add: ' + m; return; }
           closeDeskEdit(); deskLoad();
         }

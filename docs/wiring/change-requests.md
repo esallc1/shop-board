@@ -206,6 +206,18 @@ mean. Two ways in, one annotator, flattened on submit — all in `shared/report-
   SVG layer** instead — zero third-party annotation dependency, matches the prototype
   (`crisdata-annotate-report.html`, not in the repo) exactly, and best fits the offline/PWA posture.
 
+## 9. Captured by hand — requests that never made it into the table
+Ideas someone tried to submit but that did not land in `change_requests` (so the triage view
+doesn't show them). Recorded here until someone re-submits them through 🚩 Report a change.
+
+| Date | Who | Type | The request (their words) | Belongs with |
+|---|---|---|---|---|
+| 2026-09-23 | Kevin (manager) | Idea | "need a search bar that lets you search previous notes from calls" | the **Front Desk redesign** — global search / History |
+
+Why it didn't land: his board on `board.leetransmissionshop.com` had no CrisData sign-in, so the
+endpoint answered 401 ([[page-map]] Known gaps). A 401 now says "Your CrisData sign-in isn't active
+on this page — log out and sign in again." (`shared/auth-fetch.js`), and the typed text stays in the box.
+
 ## Known gaps & open questions (as of 2026-07-31)
 - **Migration applied** — `20260731_change_requests.sql` is run; the feature is live. (The UI
   still degrades gracefully with a "Run the migration" message if the table is ever absent.)
@@ -251,6 +263,7 @@ mean. Two ways in, one annotator, flattened on submit — all in `shared/report-
   Related: [[todo-list]], [[settings]], [[file-cabinet]].
 
 ## Session change log
+- 2026-09-23 — §9 added: Kevin's idea (search previous call notes → Front Desk redesign / global search) captured by hand after his submit 401'd on `board.*`. Submit now shows the exact "sign-in isn't active on this page" sentence on a 401 (§3 unchanged otherwise).
 - 2026-09-18 — Priority pill + row edge moved to the shared priority look ([[todo-list]] §3);
   the module's own edge rules deleted. Branch `feat/priority-look`. Verified on `test.*` at
   `94c12b1`: My requests (ZZ Test Bookkeeping) and the owner inbox (ZZ Test Owner, 27 rows) show
