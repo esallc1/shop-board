@@ -124,3 +124,62 @@ export function latestByThread(messages) {
   }
   return out;
 }
+
+/* ── Step 5: the tray's actions (reply / link / done) ──────────────────── */
+
+export const WINDOW_CLOSED_TEXT = 'Facebook only lets us reply within 24 hours of their last message — call them instead.';
+
+// Can the viewer reply here, and if not, why (and is there a number to call)?
+// `customer` = the linked customer ({ name, phone_primary, phone_secondary }) or null.
+export function composeState(thread, customer, nowMs = Date.now()) {
+  const w = windowLabel(thread && thread.last_inbound_at, nowMs);
+  const phone = customer ? (customer.phone_primary || customer.phone_secondary || '') : '';
+  const digits = String(phone).replace(/\D/g, '').slice(-10);
+  const tel = digits.length === 10 ? `tel:+1${digits}` : null;
+  if (w.open) return { canReply: true, reason: '', tel };
+  return { canReply: false, reason: WINDOW_CLOSED_TEXT, tel };
+}
+
+// What a failed api/messenger call means for the tray. `status` = HTTP status,
+// `body` = the JSON (or null). Returns { banner, message }: banner = show the
+// "Facebook isn't connected — tell Cris" bar (token dead / never set).
+export function replyError(status, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  if (status === 401) return { banner: false, message: 'Your CrisData sign-in has expired — sign in again from CrisData, then resend.' };
+  if (b.error === 'not_connected' || b.error === 'token_expired') {
+    return { banner: true, message: typeof b.message === 'string' && b.message ? b.message : "Facebook isn't connected — tell Cris." };
+  }
+  if (b.error === 'window_closed') return { banner: false, message: WINDOW_CLOSED_TEXT };
+  if (typeof b.message === 'string' && b.message) return { banner: false, message: b.message };
+  if (typeof b.error === 'string' && b.error) return { banner: false, message: `Couldn't do that (${b.error}).` };
+  return { banner: false, message: `Couldn't reach CrisData (HTTP ${status || '—'}). Try again.` };
+}
+
+// The Desk attach picker's search, same rules (advisor-board renderAttachList):
+// no query → 30 most recently invoiced; else name/business contains the query,
+// or ≥3 digits matching the last-10 of either phone; at most 60.
+export function searchCustomers(list, q) {
+  const l10 = (s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10);
+  const all = Array.isArray(list) ? list : [];
+  const query = String(q || '').trim().toLowerCase();
+  if (!query) {
+    return [...all].sort((a, b) => String(b.last_invoiced || '').localeCompare(String(a.last_invoiced || ''))).slice(0, 30);
+  }
+  const qDigits = query.replace(/\D/g, '');
+  return all.filter((c) => {
+    const name = ((c.business_name || '') + ' ' + (c.name || '')).toLowerCase();
+    if (name.includes(query)) return true;
+    if (qDigits.length >= 3) return l10(c.phone_primary).includes(qDigits) || l10(c.phone_secondary).includes(qDigits);
+    return false;
+  }).slice(0, 60);
+}
+
+// "CrisData · <name>" for our replies — the viewer's own name wins when the roster
+// view doesn't carry them (employees_visible hides is_test accounts).
+export function bylineWithViewer(msg, employeesById, viewer) {
+  if (msg && msg.direction === 'out' && msg.source !== 'page_inbox' && viewer && viewer.id && viewer.name
+      && msg.sent_by === viewer.id && !(employeesById && employeesById[viewer.id])) {
+    return `CrisData · ${viewer.name}`;
+  }
+  return messageByline(msg, employeesById);
+}

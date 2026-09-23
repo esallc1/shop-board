@@ -20,6 +20,11 @@
      4. delivery #1 AGAIN, byte for byte (Meta re-delivery → must insert nothing)
      5. an UNSIGNED copy of #1 (must be 403)
    and prints each status plus the PSID / mids to look up in the sandbox.
+
+   META_SIM_AGE_HOURS=30 shifts the fake messages that many hours into the past —
+   e.g. to get a thread whose 24-hour reply window is already closed.
+   META_SIM_PSID=SIM_… reuses an existing fake PSID instead of a fresh one — e.g.
+   to send a new customer message into a thread that was marked Done.
    ============================================================ */
 import crypto from 'node:crypto';
 
@@ -42,8 +47,9 @@ if (/\/\/(www\.|board\.)?leetransmissionshop\.com\b/.test(url)) {
 }
 
 const run = Date.now();
-const psid = `SIM_${run}`;
-const t0 = run - 60_000;
+const psid = /^SIM_\d+$/.test(process.env.META_SIM_PSID || '') ? process.env.META_SIM_PSID : `SIM_${run}`;
+const ageMs = Math.max(0, Number(process.env.META_SIM_AGE_HOURS) || 0) * 3600_000;
+const t0 = run - ageMs - 60_000;
 const mid = (n) => `m_sim_${run}_${n}`;
 
 const envelope = (messaging) => JSON.stringify({ object: 'page', entry: [{ id: PAGE, time: Date.now(), messaging: [messaging] }] });

@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import {
   isWaiting, waitingThreads, threadName, windowLabel, previewText, attachmentLabel,
   messageByline, newestInbound, hasNewInbound, latestByThread, timeLabel, WINDOW_MS,
+  composeState, replyError, searchCustomers, bylineWithViewer, WINDOW_CLOSED_TEXT,
 } from './messenger-tray-logic.js';
 
 const NOW = Date.parse('2026-09-23T15:00:00Z');
@@ -112,17 +113,74 @@ test('latestByThread + timeLabel', () => {
   assert.equal(timeLabel(null, NOW), '');
 });
 
-test('the tray module never writes and never uses an anon/service path', () => {
+test('the tray never writes social_* itself — its only write path is cdAuthFetch → /api/messenger', () => {
   const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'messenger-tray.js'), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    .replace(/\/\*[\s\S]*?\*\//g, '');
   assert.doesNotMatch(src, /\.(insert|update|upsert|delete)\s*\(/);
-  assert.doesNotMatch(src, /\/api\/messenger/);
   assert.doesNotMatch(src, /service_role|SERVICE_ROLE/);
   assert.match(src, /db\.auth\.getSession\(\)/);
+  // exactly one network write: cdAuthFetch to the one endpoint
+  assert.match(src, /const API = '\/api\/messenger';/);
+  assert.equal((src.match(/cdAuthFetch\(/g) || []).length, 1);
+  assert.doesNotMatch(src, /[^.]fetch\(\s*['"`]/);          // no bare fetch('…') anywhere
+  assert.doesNotMatch(src, /\/api\/(?!messenger)[a-z-]+/);    // no other endpoint
+  // the tray's actions are exactly reply / link / done
+  const actions = [...src.matchAll(/action: '([a-z]+)'/g)].map((m) => m[1]).sort();
+  assert.deepEqual([...new Set(actions)], ['done', 'link', 'reply']);
 });
 
 test('advisor-board mounts the tray exactly once, on body, with its stylesheet', () => {
   const html = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'advisor-board.html'), 'utf8');
-  assert.equal((html.match(/mountMessengerTray\(\{ db \}\)/g) || []).length, 1);
+  assert.equal((html.match(/mountMessengerTray\(\{ db, viewer: /g) || []).length, 1);
   assert.equal((html.match(/shared\/messenger-tray\.css/g) || []).length, 1);
+});
+
+test('composeState: open window → can reply; closed → the plain reason, plus tel: when the linked customer has a phone', () => {
+  const open = composeState({ last_inbound_at: ago(2) }, null, NOW);
+  assert.deepEqual(open, { canReply: true, reason: '', tel: null });
+  const closed = composeState({ last_inbound_at: ago(30) }, { name: 'Maria', phone_primary: '(239) 555-0142' }, NOW);
+  assert.equal(closed.canReply, false);
+  assert.equal(closed.reason, WINDOW_CLOSED_TEXT);
+  assert.match(closed.reason, /within 24 hours of their last message — call them instead/);
+  assert.equal(closed.tel, 'tel:+12395550142');
+  assert.equal(composeState({ last_inbound_at: ago(30) }, { name: 'X', phone_primary: '', phone_secondary: '12395550199' }, NOW).tel, 'tel:+12395550199');
+  assert.equal(composeState({ last_inbound_at: ago(30) }, null, NOW).tel, null);
+  assert.equal(composeState({ last_inbound_at: null }, null, NOW).canReply, false);
+});
+
+test('replyError: 190 / not connected → banner; window closed; 401; Meta refusal; network', () => {
+  assert.equal(replyError(502, { error: 'token_expired', message: 'Facebook connection expired — …' }).banner, true);
+  assert.equal(replyError(503, { error: 'not_connected', message: "Facebook isn't connected to CrisData yet…" }).banner, true);
+  assert.deepEqual(replyError(409, { error: 'window_closed', message: 'x' }), { banner: false, message: WINDOW_CLOSED_TEXT });
+  assert.match(replyError(401, { error: 'unauthorized' }).message, /sign in again/);
+  assert.deepEqual(replyError(502, { error: 'send_failed', message: 'Facebook refused the message: bad' }), { banner: false, message: 'Facebook refused the message: bad' });
+  assert.match(replyError(0, null).message, /Couldn't reach CrisData/);
+  assert.match(replyError(400, { error: 'thread_id must be a uuid' }).message, /thread_id/);
+});
+
+test('searchCustomers: the Desk picker rules — recent 30 with no query, name/business or ≥3 phone digits, cap 60', () => {
+  const list = [
+    { id: 1, name: 'Maria Lopez', phone_primary: '(239) 555-0142', last_invoiced: '2026-09-01' },
+    { id: 2, name: 'Juan Perez', business_name: 'JDPR Construction', phone_primary: '239-555-0199', last_invoiced: '2026-09-20' },
+    { id: 3, name: 'Ann Lee', phone_secondary: '+1 (941) 222-3333' },
+  ];
+  assert.deepEqual(searchCustomers(list, '').map((c) => c.id), [2, 1, 3]);
+  assert.deepEqual(searchCustomers(list, 'jdpr').map((c) => c.id), [2]);
+  assert.deepEqual(searchCustomers(list, 'maria').map((c) => c.id), [1]);
+  assert.deepEqual(searchCustomers(list, '0142').map((c) => c.id), [1]);
+  assert.deepEqual(searchCustomers(list, '222').map((c) => c.id), [3]);
+  assert.deepEqual(searchCustomers(list, '55').map((c) => c.id), []);          // <3 digits: no phone match
+  assert.equal(searchCustomers(Array.from({ length: 100 }, (_, i) => ({ id: i, name: 'Bob ' + i })), 'bob').length, 60);
+  assert.equal(searchCustomers(Array.from({ length: 100 }, (_, i) => ({ id: i, name: 'B' })), '').length, 30);
+  assert.deepEqual(searchCustomers(null, 'x'), []);
+});
+
+test('bylineWithViewer: the viewer names their own reply when the roster view hides them', () => {
+  const viewer = { id: 'ZZ', name: 'ZZ Test Advisor' };
+  const mine = { direction: 'out', source: 'crisdata', sent_by: 'ZZ' };
+  assert.equal(bylineWithViewer(mine, {}, viewer), 'CrisData · ZZ Test Advisor');
+  assert.equal(bylineWithViewer(mine, { ZZ: { name: 'Roster Name' } }, viewer), 'CrisData · Roster Name');
+  assert.equal(bylineWithViewer({ ...mine, sent_by: 'OTHER' }, {}, viewer), 'CrisData');
+  assert.equal(bylineWithViewer({ direction: 'out', source: 'page_inbox' }, {}, viewer), 'via Facebook app');
+  assert.equal(bylineWithViewer(mine, {}, null), 'CrisData');
 });

@@ -13823,14 +13823,16 @@
     window.cdBackfillCalls = backfillRecentCalls;
   })();
 </script>
-<!-- Facebook Messenger inbox tray — READ-ONLY (step 4). Mounted once on <body>,
-     outside every view, so it shows on every advisor tab. Reads social_threads /
-     social_messages with the signed-in session only (staff RLS); writes nothing.
+<!-- Facebook Messenger inbox tray. Mounted once on <body>, outside every view, so
+     it shows on every advisor tab. Reads social_threads / social_messages with the
+     signed-in session only (staff RLS); reply / link / done go through
+     /api/messenger (cdAuthFetch) — never a direct write. `viewer` names the
+     viewer's own replies (employees_visible hides test accounts).
      z 2900: below every modal, the call-log drawer, the call card and Team Chat.
      See docs/wiring/messenger-tray.md. -->
 <script type="module">
   import { mountMessengerTray } from './shared/messenger-tray.js';
-  mountMessengerTray({ db });
+  mountMessengerTray({ db, viewer: () => ({ id: CURRENT_EMPLOYEE_ID, name: CHAT_IDENTITY && CHAT_IDENTITY.name }) });
 </script>
 </body>
 </html>
