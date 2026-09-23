@@ -12,13 +12,10 @@
 
 Both are automatic and both are live (verified 2026-08-19).
 
-**Prod code = `62bbd73`** (2026-09-22 — Desk names: every Desk lane, Recently cleared and the
-calendar chips name a row by customer link → "+Add" typed name → a phone-match GUESS (grey italic
-"?", opens "Who is this?" which confirms via the July 29 attach path) → the number; Recently cleared
-gets its own customer lookup; red-sliver banner fix. `shared/desk-names.js`. No migration, no new
-endpoint. Fast-forward `d2ac603..62bbd73`; www, board.* and apex byte-identical to `git show
-62bbd73:` for all 5 changed files. Prod Desk not eyeballed (no sign-in on www). Previous code ship:
-`83826ed` (Desk Group 4). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
+**Prod code = `23e5b7a`** (2026-09-23 — public legal pages for Meta App Review: `privacy.html`,
+`terms.html`, `data-deletion.html` — static, no script, must never be auth-gated; `page-map.md` §5a,
+`shared/legal-pages.test.js`. No migration, no endpoint. Fast-forward `2b52d85..23e5b7a`; all 3 files
+byte-identical to `git show 23e5b7a:` on www, board.* and apex (apex 308s to www) and on test.*. Previous code ship: `62bbd73` (Desk names). Any later commit on `main` up to the one that wrote this line is docs-only. Update this line on every code ship.
 
 1. **Anything pushed to `main` goes live.** There is no "push now, ship later". If work must not
    ship yet, it goes on a **feature branch** — do not push it to `main` and plan to hold it.
