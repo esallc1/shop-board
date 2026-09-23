@@ -233,6 +233,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 
 ## Session change log
 - 2026-09-23 — §3: advisor board 12 → 9 tabs (Parts, Payments, Customer Log removed; saved-tab fallback via `shared/advisor-views.js`). Other sections not re-verified.
+- 2026-09-23 — verified on test.* (`81069b0`, ZZ Test Advisor): sidebar shows the 9 tabs incl. Capture Invoice; saved `payments` / `parts` → RO Board, `customer-log` → Desk, stale key replaced; all 9 tabs clicked — right title, visible view, no script errors; RO #6029 (2 payments) Payments card intact (PAID IN FULL, both rows, totals, Record form). Only console errors: the pre-existing sandbox avatar sign URL (400).
 - 2026-09-23 — Gaps: a 401 on any login-protected action now shows "Your CrisData sign-in isn't active on this page — log out and sign in again." (`shared/auth-fetch.js`); the per-address sign-in cause recorded; one-address redirect PARKED ([[hosting-domains]] §4a). Other sections not re-verified.
 - 2026-09-23 — Gaps: noted `public.is_staff()` (Messenger step-1 migration, not yet applied) as the shared staff check for Phase 3.
 - 2026-09-23 — §5a added: public `privacy.html` / `terms.html` / `data-deletion.html` for Meta App Review; must stay outside any auth-gate. §0 note added. Other sections not re-verified.
