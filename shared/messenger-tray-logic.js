@@ -58,7 +58,7 @@ export function previewText(msg) {
   let body = text;
   if (!body && atts.length) body = attachmentLabel(atts[0]);
   if (!body) body = '(no text)';
-  if (msg.direction === 'out') body = (msg.send_status === 'failed' ? 'Not sent: ' : 'You: ') + body;
+  if (msg.direction === 'out') body = (msg.send_status === 'failed' ? 'Not sent: ' : 'Shop: ') + body;
   return body.length > 90 ? body.slice(0, 89) + '…' : body;
 }
 

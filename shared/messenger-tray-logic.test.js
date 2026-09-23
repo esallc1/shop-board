@@ -79,7 +79,7 @@ test('newestInbound / hasNewInbound: only a later customer message on a waiting 
 test('previewText: text, attachment-only, our reply, a failed send, truncation', () => {
   assert.equal(previewText({ direction: 'in', text: 'is my  truck\nready?' }), 'is my truck ready?');
   assert.equal(previewText({ direction: 'in', text: null, attachments: [{ type: 'image' }] }), '📷 Photo');
-  assert.equal(previewText({ direction: 'out', text: 'Ready at 4', send_status: 'sent' }), 'You: Ready at 4');
+  assert.equal(previewText({ direction: 'out', text: 'Ready at 4', send_status: 'sent' }), 'Shop: Ready at 4');
   assert.equal(previewText({ direction: 'out', text: 'Ready', send_status: 'failed' }), 'Not sent: Ready');
   assert.equal(previewText({ direction: 'in', text: 'x'.repeat(200) }).length, 90);
   assert.equal(previewText(undefined), '');

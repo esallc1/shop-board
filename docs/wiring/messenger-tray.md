@@ -37,7 +37,7 @@ conversations still waiting for someone, and shows a conversation's messages whe
 ## 3. What it shows
 **List** (waiting only, newest activity first): the name (`threadName`: linked customer's name >
 Facebook `display_name` > **"Facebook user"**), a short time, the last message's preview
-(`previewText` — "You: …" for ours, "Not sent: …" for a failed send, "📷 Photo" for an
+(`previewText` — "Shop: …" for any shop reply, "Not sent: …" for a failed send, "📷 Photo" for an
 attachment-only message), and the reply-window chip (`windowLabel`: "Nh left to reply", "Nm
 left" in amber under an hour, grey "Reply window closed" after 24 h — the same 24 h rule
 `api/messenger.js` enforces).
