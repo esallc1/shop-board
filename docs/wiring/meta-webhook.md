@@ -144,7 +144,7 @@ the log line rather than raised.
 |---|---|---|
 | `META_APP_SECRET` | the real Meta App Secret (set 2026-09-12) | a **made-up** staging secret (set 2026-09-23) — Meta can't sign for it; `scripts/meta-sim.mjs` does (§10) |
 | `META_VERIFY_TOKEN` | the random handshake token Cris picked | **unset** — staging's GET handshake 403s, on purpose |
-| `META_PAGE_ACCESS_TOKEN` | **set 2026-09-23** by Cris — type Secret, Production only; a never-expiring **Page** token for Page `821690607890680` (Meta Access Token Debugger: Type = Page, Expires = Never). Used by the Send API (§11b) and the name lookup (§9d). | **unset** — staging stays `dry-run` and never looks up names |
+| `META_PAGE_ACCESS_TOKEN` | **set 2026-09-23** by Cris — type Secret, Production only; a never-expiring **Page** token for Page `821690607890680` (Meta Access Token Debugger: Type = Page, Expires = Never). Used by the Send API (§11b) and the name lookup (§9d). ⚠ **Corrected the same day:** the first value saved was Cris's personal **user** token by mistake (baked into build `84c3710`); he edited it to the Page token and the next Production build replaced it. If replies ever fail with code 190 or "(#200)"-type permission errors, first check the token's **Type** in the Access Token Debugger. | **unset** — staging stays `dry-run` and never looks up names |
 | `META_SEND_MODE` | **must stay unset** (a `dry-run` here is refused, §11c) | `dry-run` (set 2026-09-23) — replies are stored, never sent |
 | `META_PAGE_ID` | unset → `821690607890680` | unset |
 | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` | prod (URL falls back to prod) | the sandbox ([[staging-db]]) |
@@ -377,6 +377,7 @@ link to JDPR Construction `200` (only `customer_id`/`linked_at`/`linked_by` chan
   §4 for where it intentionally diverges.
 
 ## Session change log
+- **2026-09-23** — §6 correction: the first `META_PAGE_ACCESS_TOKEN` value was a personal **user** token (in build `84c3710`); Cris edited it to the verified **Page** token (Production only). This docs commit is the fresh Production build that bakes in the corrected value. No value recorded anywhere.
 - **2026-09-23** — §6: `META_PAGE_ACCESS_TOKEN` set by Cris on Production only (Secret; never-expiring Page token for `821690607890680`, verified in Meta's Access Token Debugger). This docs commit is the fresh Production build that bakes it in. Not yet exercised (fields unsubscribed; no real reply).
 - **2026-09-23** — `20260923_social_inbound_received_*` applied + verified 9/9 on SANDBOX then PROD (Cris). Prod code `bc52dd2`.
 - **2026-09-23** — §9a: `last_inbound_received_at` (arrival time) added to the writer via `20260923_social_inbound_received_*` — the sent-before-Done fix. Webhook code unchanged.
