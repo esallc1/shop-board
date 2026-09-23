@@ -56,6 +56,7 @@ window.FileCabinet = (function () {
     { id: 'metahook',  file: 'meta-webhook.md',     icon: '📨', title: 'Meta / Facebook webhook (receive + verify + store)' },
     { id: 'mtray',     file: 'messenger-tray.md',   icon: '💬', title: 'Messenger inbox tray (advisor board)' },
     { id: 'dpad',      file: 'desk-pad.md',         icon: '📝', title: 'Desk pad (advisor board scratch notes)' },
+    { id: 'gsearch',   file: 'global-search.md',    icon: '🔍', title: 'Global search + New RO (advisor top bar)' },
     { id: 'todo',     file: 'todo-list.md',         icon: '✅', title: 'To-Do list' },
     { id: 'requests', file: 'change-requests.md',   icon: '🚩', title: 'Requests & Feedback intake' },
     { id: 'cabinet',  file: 'file-cabinet.md',      icon: '🗄️', title: 'File Cabinet tab (this screen)' },

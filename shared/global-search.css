@@ -1,0 +1,56 @@
+/* ============================================================
+   global-search.css — the advisor board's top-bar search + "+ New RO".
+   Wiring: docs/wiring/global-search.md.
+
+   Lives inside .view-topbar (a flex row): [☰] [Title] [search] [+ New RO] [🚩].
+   The results dropdown is z 2950 — above the desk pad (2800) and the Facebook
+   tray (2900, which never overlaps the work area anyway), below every modal
+   (3000), the call-log drawer (3300), the call card (4000) and Team Chat.
+   Phone layout (≤768px): the search takes its own full-width row.
+   ============================================================ */
+.gsearch { position: relative; flex: 1 1 320px; max-width: 560px; min-width: 0; margin-left: 6px; }
+.gsearch-box { position: relative; display: flex; align-items: center; }
+.gsearch-icon { position: absolute; left: 11px; font-size: 13px; opacity: .55; pointer-events: none; }
+.gsearch-box input {
+  width: 100%; box-sizing: border-box;
+  border: 1px solid var(--border, #e2e5ee); background: #f6f7fb; color: var(--text, #1a1f36);
+  border-radius: 10px; padding: 8px 34px 8px 32px; font: inherit; font-size: 0.86rem;
+}
+.gsearch-box input:focus { outline: 2px solid #c7d2fe; border-color: var(--accent, #5b5ef4); background: #fff; }
+.gsearch-box input::-webkit-search-cancel-button { cursor: pointer; }
+.gsearch-kbd {
+  position: absolute; right: 9px; font: 500 11px/1.4 ui-monospace, 'SF Mono', Menlo, monospace; color: #9aa0b4;
+  border: 1px solid var(--border, #e2e5ee); border-radius: 5px; padding: 0 5px; background: #fff; pointer-events: none;
+}
+.gsearch-box input:focus ~ .gsearch-kbd { display: none; }
+
+.gsearch-new { flex: 0 0 auto; margin-left: auto; font-size: 0.78rem; padding: 7px 14px; white-space: nowrap; }
+/* The report button (shared/report-change.js) used margin-left:auto to hug the
+   right edge; with the search filling the middle it just sits after "+ New RO". */
+.view-topbar .gsearch ~ .rc-launch { margin-left: 0; }
+
+.gsearch-list {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 2950;
+  max-height: min(70vh, 520px); overflow-y: auto;
+  background: #fff; border: 1px solid var(--border, #e2e5ee); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(20,22,40,.16); padding: 6px;
+}
+.gsearch-list[hidden] { display: none; }
+.gsearch-group {
+  font-size: 0.66rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  color: #9aa0b4; padding: 8px 10px 3px;
+}
+.gsearch-item {
+  display: flex; flex-direction: column; gap: 1px; width: 100%; text-align: left;
+  border: 0; background: none; border-radius: 8px; padding: 7px 10px; cursor: pointer; font: inherit; color: inherit;
+}
+.gsearch-item:hover, .gsearch-item.is-sel { background: #eef0fe; }
+.gsearch-t { font-weight: 700; font-size: 0.86rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gsearch-s { color: #6b7189; font-size: 0.76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gsearch-note { color: #6b7189; font-size: 0.82rem; padding: 10px; }
+
+@media (max-width: 768px) {
+  .view-topbar { flex-wrap: wrap; row-gap: 10px; }
+  .gsearch { order: 10; flex: 1 1 100%; max-width: none; margin-left: 0; }
+  .gsearch-kbd { display: none; }
+}

@@ -203,6 +203,16 @@ writes `resolved_at` **nowhere** — locked by a test.
   Callbacks. The old one-click `data-done` → `resolveCall` survives only as the
   pre-migration fallback.
 
+### 6-log. Opening the call log AT one call (top-bar search, 2026-09-23)
+`window.cdDeskOpenLogAt(when, callId)` (desk IIFE, next to `openLog` / `setLogDay`) is how the
+top-bar search opens a **call-note result whose call has no customer** ([[global-search]]): it
+switches to the Desk tab, turns the log's "unattached only" filter off (so the call can't be hidden),
+sets the log's day to that call's day (local midnight of `started_at`) and opens the log (or re-loads
+it if already open). After that day's `logRender`, the row with `data-log-call="<id>"` is scrolled to
+the centre and highlighted (`.log-row-hl`, ~4 s) — `logHighlightCallId` is one-shot. Nothing is
+attached: the row's own **"Attach to <name>"** suggestion (a single live phone match, §2c) is what
+offers the guess, and it still takes an explicit tap.
+
 ## 6a. What Coming-in and the calendar may SHOW — `shared/desk-appointments.js`
 Until 2026-09-20 the Desk only modelled the future, and four separate filters threw work
 away. A read-only audit of prod on 2026-09-20 found **16 unresolved past-due drop-offs and
@@ -573,6 +583,7 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- 2026-09-23 — §6-log added: `window.cdDeskOpenLogAt(when, callId)` + `data-log-call` on log rows + `.log-row-hl`, for the top-bar search's unattached call-note results. Nothing else in the call log changed.
 - 2026-09-22 — §6d shipped to prod at `62bbd73` (fast-forward `d2ac603..62bbd73`, no migration); all 5 changed files byte-identical to git on www, board.* and apex.
 - 2026-09-22 — **§6d added:** one name resolver for every lane, Recently cleared and the chips (link → "+Add" typed name → phone guess → number); Recently cleared gets its own customer lookup; guesses are grey italic "?" and open a "Who is this?" box that confirms via the July 29 attach path; red-sliver banner fix. No migration, no new endpoint.
 - 2026-09-21 — §6b/§6c shipped to prod at `83826ed` (fast-forward `28c49bd..83826ed`) after the PROD migration (0 rows set, 896 calls); the 3 changed front-end files byte-identical to git on www, board.* and apex. Sandbox test row id 293 (ZZ KEYBOX TEST) left in place on purpose.

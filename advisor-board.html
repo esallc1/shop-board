@@ -19,6 +19,7 @@
 <link rel="stylesheet" href="shared/new-badge.css">
 <link rel="stylesheet" href="shared/messenger-tray.css">
 <link rel="stylesheet" href="shared/desk-pad.css">
+<link rel="stylesheet" href="shared/global-search.css">
 <style>
   /* ── CONTENT — .content padding is intentionally NOT in the shared
      shell (gm-board.html uses a different value from advisor/
@@ -779,6 +780,8 @@
   .cust-rec-veh { font-size:0.74rem; color:var(--muted); }
   .cust-rec-unconf { font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.4px; color:#92400e; background:#fffaf0; border:1px solid var(--amber); border-radius:999px; padding:1px 7px; }
   .cust-rec-note { font-size:0.82rem; color:var(--text); margin-top:4px; }
+  /* A call opened from the top-bar search (global-search.md) — a brief highlight. */
+  .cust-tl-entry.cust-tl-hl { background:#fff6d6; box-shadow:0 0 0 2px #f5c542; border-radius:8px; transition:background .6s, box-shadow .6s; }
   .cust-rec-vehsel { font-size:0.74rem; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:2px 6px; background:#fff; max-width:60%; cursor:pointer; }
   .cust-rec-vehsel:focus { outline:none; border-color:var(--accent); }
   .cust-rec-hint { font-size:0.7rem; font-style:italic; color:var(--muted); margin-top:3px; }
@@ -1571,7 +1574,8 @@
     <div id="custListPanel">
       <div class="card">
         <div class="card-title"><div class="dot" style="background:var(--accent)"></div>Customers</div>
-        <div class="cust-search"><input type="text" id="custSearchInput" placeholder="Search by name, business, or phone…" autocomplete="off"></div>
+        <!-- The list's own search box was REPLACED by the top-bar search (Cris, 2026-09-23).
+             The A–Z letters and the full list stay for browsing. -->
         <div id="custAzBar" class="cust-az-bar" aria-label="Jump to letter"></div>
         <div id="custSearchList" class="cust-search-list"></div>
       </div>
@@ -1845,6 +1849,8 @@
     .log-row:hover { border-color:var(--accent); background:var(--surface-2); }
     /* THE POINT OF THE FEATURE: a call nobody wrote anything about stands out. */
     .log-row.untouched { border-left:4px solid var(--amber); background:#fffaf0; }
+    /* A call opened from the top-bar search (global-search.md) — a brief highlight. */
+    .log-row.log-row-hl { box-shadow:0 0 0 2px #f5c542; background:#fff6d6; }
     .log-row-top { display:flex; align-items:baseline; gap:8px; }
     .log-time { font-size:0.74rem; font-weight:700; color:var(--muted); white-space:nowrap; }
     .log-name { font-size:0.88rem; font-weight:700; color:var(--text); }
@@ -2115,7 +2121,7 @@
           <div class="dot" style="background:var(--accent)"></div>Repair Orders
           <!-- The "📞 Callbacks" toggle moved to the Desk tab's Declined lane
                (slice 3b). Do not re-add a second way in. -->
-          <button class="btn btn-primary" style="margin-left:auto;font-size:0.75rem;padding:5px 12px" id="cdRoNewBtn">+ New RO</button>
+          <!-- "+ New RO" moved to the top bar, next to the search (one button, every tab — global-search.js). -->
         </div>
         <!-- Book-hours notice host. Inline and non-blocking; replaces the
              browser alert() the gate used to raise. Stays until dismissed or
@@ -4526,7 +4532,7 @@
 
     // ── wiring ────────────────────────────────────────────────
     // Shared open handle for the New RO wizard. The sidebar "New RO" tab was
-    // retired; the RO Board "+ New RO" button (cdRoNewBtn) calls this directly.
+    // retired; the top bar's "+ New RO" (shared/global-search.js, every tab) calls this directly.
     window.cdOpenNewRo = openModal;
     // Open the wizard for a customer we ALREADY HAVE THE ROW FOR, landing
     // straight on their vehicles. Takes the row, not a phone: the caller knows
@@ -7491,7 +7497,6 @@
     $('cdLineCloseBtn').addEventListener('click', closeLineModal);
     $('cdLineCancelBtn').addEventListener('click', closeLineModal);
     $('cdLineModal').addEventListener('click', (e) => { if (e.target === $('cdLineModal')) closeLineModal(); });
-    $('cdRoNewBtn').addEventListener('click', () => window.cdOpenNewRo());
     $('cdPrintBtn').addEventListener('click', printRo);
     // Payments (Phase 5): seed the method dropdown (refreshed on each RO open
     // by loadPayments → populateMethodPicker) + wire Record.
@@ -8608,8 +8613,7 @@
     }
     function rerenderCustListIfOpen() {
       if (!custListPanelOpen()) return;
-      const box = $('custSearchInput');
-      renderCustSearch(box ? box.value : '');
+      renderCustSearch('');
     }
 
     // Mark stale. NEVER drops the rows we already have — the only case that
@@ -8627,6 +8631,11 @@
       }
     }
     window.cdInvalidateCustList = invalidateCustAllList;
+    // The top-bar search (shared/global-search.js) reads customers through THIS
+    // cache — invalidated on every write, realtime-refreshed, stale-while-revalidate
+    // — so a customer created a minute ago is findable there too (never a private,
+    // staler copy: that is how "no matches" → duplicate customer files happened).
+    window.cdEnsureCustList = ensureCustAllList;
 
     // Background re-read. Serves nobody directly: it replaces the cache and
     // re-renders. A failed refresh keeps the OLD list (stale beats empty).
@@ -8672,7 +8681,7 @@
       $('custRecordPanel').style.display = 'none';
       $('custListPanel').style.display = 'block';
       ensureCustAllList().then(() => {
-        renderCustSearch($('custSearchInput').value || '');
+        renderCustSearch('');
         /* Put him back where he was in the A–Z list. #custSearchList is its own
            scroll box, and the active letter is a SCROLL-SPY (currentTopLetter),
            so restoring this one offset restores the letter highlight too —
@@ -8851,7 +8860,7 @@
         const rb = document.getElementById('custRetryBtn');
         if (rb) rb.addEventListener('click', () => {
           custAllList = null; custAllLoaded = false; window.cdCustFetchError = null;
-          ensureCustAllList().then(() => renderCustSearch($('custSearchInput').value || ''));
+          ensureCustAllList().then(() => renderCustSearch(''));
         });
         renderCustAzBar(null); return;
       }
@@ -8876,37 +8885,20 @@
       setActiveAzLetter(currentTopLetter());   // highlight the first group on (re)render
     }
 
-    function renderCustSearch(q) {
-      const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
-      const query = (q || '').trim().toLowerCase();
-      const list = custAllList || [];
+    // The Customers tab's LIST: the A–Z browse (letters + full list). Its own search
+    // box was replaced by the top-bar search (Cris, 2026-09-23); the name is kept
+    // because every caller still says renderCustSearch(''). The argument is ignored.
+    function renderCustSearch() {
       const el = $('custSearchList');
       /* A STALE LIST IS STILL SERVED (see the cache block above) — but a list
-         that never loaded must never be filtered, or every search reads "No
-         matches." on a shop with 2700 customers. Revalidate a stale one behind
-         the render; wait for a missing one. */
+         that never loaded must never be shown as empty. Revalidate a stale one
+         behind the render; wait for a missing one. */
       if (custAllStale) refreshCustAllList();
       if (!custAllLoaded || !custAllList) {
-        if (!custFetchError()) {
-          if (query) { el.classList.remove('cust-browse'); renderCustAzBar(null); el.innerHTML = `<div class="cust-search-empty">Loading customers…</div>`; }
-          ensureCustAllList().then(rerenderCustListIfOpen);
-          if (query) return;
-        }
+        if (!custFetchError()) ensureCustAllList().then(rerenderCustListIfOpen);
       }
-      if (!query) { renderCustBrowse(); return; }   // browse mode: sorted A–Z with the jump bar
-      // Search mode: existing behavior, unchanged — flat filtered list, no groups.
-      el.classList.remove('cust-browse');
-      renderCustAzBar(null);                          // hide the jump bar while searching
-      const qd = query.replace(/\D/g, '');
-      const rows = list.filter(c => {
-        const name = ((c.business_name || '') + ' ' + (c.name || '')).toLowerCase();
-        if (name.includes(query)) return true;
-        if (qd.length >= 3) return l10(c.phone_primary).includes(qd) || l10(c.phone_secondary).includes(qd);
-        return false;
-      }).slice(0, 60);
-      el.innerHTML = rows.length ? rows.map(custItemHtml).join('') : `<div class="cust-search-empty">No matches.</div>`;
+      renderCustBrowse();   // sorted A–Z with the jump bar (handles loading / error states)
     }
-
     // ── RECORD panel ──
     function showCustomerRecord(id) {
       // Remember the list position BEFORE hiding it — a hidden element reports
@@ -9134,18 +9126,35 @@
       const focus = custPendingFocus;
       custPendingFocus = null;
       let focusRoId = null;
-      if (focus && String(focus.customerId) === String(id)) {
+      let focusCallId = null;
+      if (focus && String(focus.customerId) === String(id) && focus.roId != null) {
         const fr = custRoById[String(focus.roId)];
         if (fr) { focusRoId = String(focus.roId); custOpenVeh = String(fr.vehicle_id); custOpenRo = focusRoId; }
       }
+      /* Arriving from the top-bar search on ONE call (global-search.md): open
+         whatever that call is filed under — its RO (and the RO's vehicle), or its
+         vehicle — so the call is on screen; an unfiled call is already visible in
+         "needs filing". Then scroll to it and highlight it. One-shot, like roId. */
+      if (focus && String(focus.customerId) === String(id) && focus.callId != null) {
+        const cid = String(focus.callId);
+        const g = custCallGroups || { byRo: {}, byVehNoRo: {}, unfiled: [] };
+        const has = (arr) => (arr || []).some(c => String(c.id) === cid);
+        const roKey = Object.keys(g.byRo).find(k => has(g.byRo[k]));
+        const vehKey = roKey ? null : Object.keys(g.byVehNoRo).find(k => has(g.byVehNoRo[k]));
+        if (roKey && custRoById[roKey]) { custOpenVeh = String(custRoById[roKey].vehicle_id); custOpenRo = roKey; focusCallId = cid; }
+        else if (vehKey) { custOpenVeh = vehKey; focusCallId = cid; }
+        else if (has(g.unfiled)) { focusCallId = cid; }
+      }
 
       // Keep what he had open; only auto-pick when arriving fresh.
-      if (!focusRoId) custOpenVeh = keepOpenVeh || pickAutoOpenVeh();
+      if (!focusRoId && !focusCallId) custOpenVeh = keepOpenVeh || pickAutoOpenVeh();
       renderCustVehicles();
       renderCustUnfiled();
 
       if (focusRoId) {
         scrollRoRowIntoView(focusRoId);
+      } else if (focusCallId) {
+        scrollCallIntoView(focusCallId);
       } else if (sameCustomer && keepScroll) {
         /* Put the page back exactly where it was. Synchronously (the render
            above already forced layout), plus one re-assert for late growth.
@@ -9175,6 +9184,19 @@
        first paint as photo signed-URLs resolve and images take their height.
        Each attempt re-measures relative to the CURRENT scrollTop, so repeating
        it converges rather than compounding. */
+    // Scroll a call entry into view and highlight it for a few seconds (global search).
+    function scrollCallIntoView(callId) {
+      const attempt = (final) => {
+        const el = document.querySelector(`#view-customer [data-cust-call="${CSS.escape(String(callId))}"]`);
+        if (!el) return;
+        el.scrollIntoView({ block: 'center' });
+        if (final) { el.classList.add('cust-tl-hl'); setTimeout(() => el.classList.remove('cust-tl-hl'), 4000); }
+      };
+      attempt(false);
+      setTimeout(() => attempt(false), 120);
+      setTimeout(() => attempt(true), 450);
+    }
+
     function scrollRoRowIntoView(roId) {
       const attempt = () => {
         const host = $('custVehicles');
@@ -10737,7 +10759,7 @@
           .join('');
         fileRo = `<select class="cust-ro-filesel" data-file-call="${esc(c.id)}" aria-label="File this call to a repair order">${opts}</select>`;
       }
-      return `<div class="cust-tl-entry${c.confirmed ? '' : ' unconfirmed'}">
+      return `<div class="cust-tl-entry${c.confirmed ? '' : ' unconfirmed'}" data-cust-call="${esc(String(c.id))}">
         <div class="cust-tl-top"><span class="cust-tl-when">${esc(custFmtWhen(cdCallWhen(c)))}</span>${who ? `<span class="cust-tl-who">${esc(who)}</span>` : ''}${disp ? `<span class="cust-tl-disp">${esc(disp)}</span>` : ''}${manual}${unconf}${autoChip}</div>
         ${appt}
         ${note}
@@ -10895,6 +10917,15 @@
       custBackTarget = { kind: 'view', viewKey: backView };
       showCustomerRecord(id);
     };
+    // Open a customer's record ON one call — the top-bar search's call-note result
+    // (global-search.md). Navigation only; nothing is written.
+    window.cdOpenCustomerAtCall = (id, callId) => {
+      const backView = sessionStorage.getItem('advisorBoardActiveView') || 'desk';
+      const item = document.querySelector('.sidebar-item[data-view="customer"]'); if (item) item.click();
+      custBackTarget = { kind: 'view', viewKey: backView };
+      custPendingFocus = { customerId: String(id), callId: String(callId) };
+      showCustomerRecord(id);
+    };
     window.cdOpenCustomerByPhone = async (phone) => {
       const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
       const backView = sessionStorage.getItem('advisorBoardActiveView') || 'desk';
@@ -10904,8 +10935,10 @@
       const all = await ensureCustAllList();
       const hits = (key && key.length >= 10) ? all.filter(c => l10(c.phone_primary) === key || l10(c.phone_secondary) === key) : [];
       if (hits.length === 1) { showCustomerRecord(hits[0].id); return; }
+      // No single match (none, or several on this number): the list, plus the top-bar
+      // search opened with the number so the matches are right there.
       showCustomerList();
-      if ($('custSearchInput')) { $('custSearchInput').value = phone || ''; renderCustSearch(phone || ''); }
+      if (window.cdGlobalSearch) window.cdGlobalSearch.open(phone || '');
     };
 
     // ── Edit (top strip) — docs/wiring/customer-record.md §4f ──
@@ -11021,7 +11054,6 @@
 
     // ── wiring ──
     $('custBackBtn').addEventListener('click', custBack);
-    $('custSearchInput').addEventListener('input', () => renderCustSearch($('custSearchInput').value));
     // Delegated clicks — one handler survives the (up to ~2700-row) re-renders.
     (function wireCustListDelegation() {
       const el = $('custSearchList');
@@ -11104,8 +11136,6 @@
       // listeners — which is also what keeps focus and the caret alive while
       // the accordion below it re-renders on every keystroke.
       const vehSearch = $('custVehSearch'), vehClear = $('custVehClear');
-      const custSearchEl = $('custSearchInput');
-      if (custSearchEl) custSearchEl.addEventListener('input', () => { custListScroll = 0; });
       if (vehSearch) vehSearch.addEventListener('input', () => {
         custVehQuery = vehSearch.value;
         renderCustVehicles();
@@ -12151,6 +12181,7 @@
     const LOG_COLS_KEYBOX = LOG_COLS_OUTCOME + ', dropoff_key_box';
     let attachColsAvailable = true;
     let logOpen = false;
+    let logHighlightCallId = null;   // one-shot: the call to highlight after the next render (top-bar search)
     let logDay = startOfToday();
     let unattachedOnly = false;
     let logCallsById = {};      // id → call, for the row action buttons
@@ -12229,6 +12260,15 @@
         calls = calls.filter(c => window.CallAttach.isUnattached(c));
       }
       logRender(calls, idx);
+      if (logHighlightCallId != null) {
+        const cid = logHighlightCallId; logHighlightCallId = null;
+        const row = list.querySelector(`.log-row[data-log-call="${CSS.escape(String(cid))}"]`);
+        if (row) {
+          row.scrollIntoView({ block: 'center' });
+          row.classList.add('log-row-hl');
+          setTimeout(() => row.classList.remove('log-row-hl'), 4000);
+        }
+      }
     }
     // test hook: render the log from injected data. Accepts a {byId, byPhone}
     // index, or a plain id-map (then no phone matching, like a bare custMap).
@@ -12314,7 +12354,7 @@
           </div>`;
         }
 
-        return `<div class="log-row${untouched ? ' untouched' : ''}" data-open-phone="${esc(c.caller_bare || '')}">
+        return `<div class="log-row${untouched ? ' untouched' : ''}" data-open-phone="${esc(c.caller_bare || '')}" data-log-call="${esc(String(c.id))}">
           <div class="log-row-top">
             <span class="log-time">${esc(t)}</span>
             <span class="log-${isNew ? 'num' : 'name'}">${esc(label)}</span>
@@ -12703,6 +12743,19 @@
     }
 
     function setLogDay(day) { logDay = day; $('deskLogDate').textContent = logDayLabel(day); logLoad(); }
+    // Open the call log on the day of one call and highlight it — the top-bar
+    // search's result for a call note with no customer (global-search.md). The
+    // log's own suggestion ("Attach to <name>" on a single phone match) is what
+    // offers the guess; nothing is attached or opened automatically.
+    window.cdDeskOpenLogAt = (when, callId) => {
+      const nav = document.querySelector('.sidebar-item[data-view="desk"]'); if (nav) nav.click();
+      const d = new Date(when);
+      const day = Number.isNaN(d.getTime()) ? startOfToday() : (d.setHours(0, 0, 0, 0), d);
+      logHighlightCallId = callId == null ? null : String(callId);
+      if (unattachedOnly) { unattachedOnly = false; const t = $('deskLogUnattached'); if (t) t.checked = false; }
+      if (logOpen) setLogDay(day);
+      else { logDay = day; openLog(); }
+    };
     function openLog() { logOpen = true; $('deskLog').classList.add('open'); $('deskLog').setAttribute('aria-hidden', 'false'); $('deskLogBackdrop').classList.add('open'); setLogDay(logDay); }
     function closeLog() { closeAttach(); const a = $('deskRecAudio'); if (a && !a.paused) a.pause(); logOpen = false; $('deskLog').classList.remove('open'); $('deskLog').setAttribute('aria-hidden', 'true'); $('deskLogBackdrop').classList.remove('open'); }
 
@@ -13440,6 +13493,13 @@
      viewer's own replies (employees_visible hides test accounts).
      z 2900: below every modal, the call-log drawer, the call card and Team Chat.
      See docs/wiring/messenger-tray.md. -->
+<!-- Global search + "+ New RO" in the top bar (every advisor tab). Reads only, with the
+     viewer's session; results open through the board's own functions.
+     See docs/wiring/global-search.md. -->
+<script type="module">
+  import { mountGlobalSearch } from './shared/global-search.js';
+  mountGlobalSearch({ db });
+</script>
 <!-- Desk pad — scratch sticky notes on every advisor tab (Front Desk redesign). Mounted
      once on <body>, outside the views. This computer only (localStorage) — no database,
      no network. z 2800: under the Facebook tray, modals, the call card and Team Chat.

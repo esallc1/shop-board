@@ -1,6 +1,10 @@
 # How the customer record is wired
 
 > Doc: `/docs/wiring/customer-record.md`
+> **2026-09-23 — the Customers LIST lost its own search box** (the top-bar search replaced it —
+> [[global-search]]); §7 rewritten: browse-only (A–Z + full list). The record gained
+> `window.cdOpenCustomerAtCall` (open ON one call, highlighted) and exposes its honest list cache as
+> `window.cdEnsureCustList` for the top-bar search. Verified vs the global-search staging commit.
 > **2026-09-21 — timeline entries carry the Desk appointment + outcome line; call time falls back to `created_at` (§ Timeline entry, [[call-window-desk]] §10).** **LIVE ON PROD at `6733056`**, verified vs commit `6733056`.
 > **2026-09-18 — Edit moved from the top strip into the profile card's name row (§4, §4f).**
 > Verified vs commit `6c22499` (branch `fix/cust-edit-in-person-card` off `main` `2960da9`, on
@@ -491,12 +495,16 @@ information, not a warning — but present so the crew can see a machine's guess
 Everything outside the needs-filing section and the photo buckets (§4b) is **read-only
 display**.
 
-## 7. The Customers LIST panel (`#custListPanel`) — browse + search
-The Customers tab opens a list panel with a search box, an **A–Z index bar** (`#custAzBar`),
-and the list (`#custSearchList`). `ensureCustAllList()` loads **every** customer once via the
-paginated `window.cdFetchAllCustomers` (past the 1000-row API cap — ~2700 rows). `renderCustSearch(q)`
-then branches on whether the search box has text:
-- **Empty box → browse mode (`renderCustBrowse`).** The full list, **sorted alphabetically** by
+## 7. The Customers LIST panel (`#custListPanel`) — browse (search lives in the top bar)
+The Customers tab opens a list panel with an **A–Z index bar** (`#custAzBar`) and the list
+(`#custSearchList`). **Its own search box ("Search by name, business, or phone…") was removed
+2026-09-23** — the top-bar search finds customers (same match rule), plus vehicles, ROs and call
+notes ([[global-search]]). `ensureCustAllList()` loads **every** customer via the paginated
+`window.cdFetchAllCustomers` (past the 1000-row API cap — ~2700 rows) and is exposed as
+`window.cdEnsureCustList` so the top-bar search reads the **same honest cache** (§4c/§4e) — never a
+private, staler copy. `renderCustSearch()` (name kept; the argument is ignored) guards the
+not-loaded case, then renders:
+- **Browse (`renderCustBrowse`).** The full list, **sorted alphabetically** by
   the **sort key `custSortName`** (case-insensitive `localeCompare`, `sensitivity: 'base'`):
   a **business** sorts by its **business name**; a **person** sorts by **LAST NAME** (last token
   of `name` moved to the front, skipping a trailing **Jr/Sr/II/III/IV/V** suffix). **Row display
@@ -507,9 +515,15 @@ then branches on whether the search box has text:
 - **A–Z bar (`renderCustAzBar`).** One button per letter A–Z + "#"; a letter with customers
   **jumps** the scroll box so that group's header sits at the top (`custJumpToLetter` — measures
   the non-sticky `.cust-group` wrapper), empty letters render **dimmed + non-clickable**. The
-  current group's letter is **active** (scroll-spy `custAzScrollSpy`). Hidden while searching.
-- **Non-empty box → search mode.** A flat filtered list (name/business substring, or last-10
-  phone when ≥3 digits), capped at 60, no group headers.
+  current group's letter is **active** (scroll-spy `custAzScrollSpy`).
+- **A phone that matches none / several customers** (`window.cdOpenCustomerByPhone`, the Desk
+  and call-log row tap): the list opens and the **top-bar search opens with that number**
+  (`window.cdGlobalSearch.open`) — its Customers group shows the matches the old box used to.
+- **Open on one call** — `window.cdOpenCustomerAtCall(customerId, callId)` (the top-bar search's
+  call-note result): `custPendingFocus = { customerId, callId }` → `loadCustomerRecord` opens the
+  RO (and its vehicle) or the vehicle that call is filed under — an unfiled call is already in
+  "needs filing" — then `scrollCallIntoView` centres the entry (`data-cust-call`) and highlights it
+  (`.cust-tl-hl`, ~4 s). One-shot, like the RO focus.
 - **Clicks delegated** on `#custSearchList` → `showCustomerRecord`; the A–Z bar has its own
   delegated listener. Additive, reads-only.
   ⚠ Multi-word surnames (e.g. "De La Cruz") key off the **last token** only.
@@ -592,6 +606,7 @@ then branches on whether the search box has text:
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
+- 2026-09-23 — §7 rewritten: the list's own search box is gone (top-bar search replaces it); browse-only list; ambiguous phone → top-bar search with the number; `cdOpenCustomerAtCall` (focus on one call, highlight); `cdEnsureCustList` exposed. `shared/cust-cache-guard.test.js` updated in place to the new shape.
 - 2026-09-21 — Shipped to prod at `6733056`; `shared/customer-record.js` + `advisor-board.html` byte-identical to git on www, board.*, apex.
 - 2026-09-21 — Timeline entries show the Desk appointment + outcome line and an "Added on the Desk" tag; every call time/sort on the record uses `started_at` → `created_at` (`cdCallWhen` / `compareCallWhen`). See [[call-window-desk]] §10.
 - 2026-09-18 — **Edit moved into the profile card**, top-right on the name row, NEW corner tag

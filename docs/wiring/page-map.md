@@ -73,7 +73,8 @@ Tabs are `<div class="view" id="view-…">` panes toggled by `display:none`, dri
   (`sessionStorage['advisorBoardActiveView']`) lands on its replacement — Payments / Parts → RO Board,
   Customer Log → Desk — and the stale key is cleared (`shared/advisor-views.js`,
   `cdResolveSavedView`; tested by `shared/advisor-views.test.js`). The advisor board also carries two
-  non-tab panels on every tab: the Facebook tray ([[messenger-tray]]) and the Desk pad ([[desk-pad]]).
+  non-tab panels on every tab: the Facebook tray ([[messenger-tray]]) and the Desk pad ([[desk-pad]]),
+  and its top bar holds the global search + the one "+ New RO" ([[global-search]], 2026-09-23).
 - **Manager:** Overview · Shop Floor · Tech Status · My Numbers · Teardown · Comebacks ·
   Reports · To-Do · Technicians · Cash Flow · Team Chat · Employees
 - **Owner:** To-Do · Marketing Content · Team Chat · Team Comms · Roadmap · Planner ·
@@ -232,6 +233,7 @@ the production database. Deleting them (§6) closed that. See [[staging-db]] for
 - Tab shell: `.sidebar-item[data-view]` + `<div class="view" id="view-…">` in each board.
 
 ## Session change log
+- 2026-09-23 — §3: advisor top bar = global search + the one "+ New RO" ([[global-search]]).
 - 2026-09-23 — advisor sidebar cleanup **shipped to prod** as `b132e52` after Cris's OK (fast-forward `f349410..b132e52`; www / board. / apex byte-identical, 6 served files).
 - 2026-09-23 — §3: advisor board 12 → 9 tabs (Parts, Payments, Customer Log removed; saved-tab fallback via `shared/advisor-views.js`). Other sections not re-verified.
 - 2026-09-23 — verified on test.* (`81069b0`, ZZ Test Advisor): sidebar shows the 9 tabs incl. Capture Invoice; saved `payments` / `parts` → RO Board, `customer-log` → Desk, stale key replaced; all 9 tabs clicked — right title, visible view, no script errors; RO #6029 (2 payments) Payments card intact (PAID IN FULL, both rows, totals, Record form). Only console errors: the pre-existing sandbox avatar sign URL (400).

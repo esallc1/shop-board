@@ -80,17 +80,27 @@ test('a stale list keeps being served while a fresh one is fetched', () => {
 });
 
 test('AN EMPTY CACHE IS NEVER RENDERED AS "no matches" (the b0ef5fc regression)', () => {
-  const search = SRC.slice(SRC.indexOf('function renderCustSearch(q)'));
+  // The Customers tab's own search box was replaced by the top-bar search
+  // (2026-09-23); the list path is browse-only now and must still guard the
+  // not-loaded case BEFORE it renders anything.
+  const search = SRC.slice(SRC.indexOf('function renderCustSearch()'));
   const body = search.slice(0, search.indexOf('\n    }') + 6);
-  // not-loaded → loading + fetch + bail, BEFORE any filtering
   assert.match(body, /if \(!custAllLoaded \|\| !custAllList\) \{/);
-  assert.match(body, /Loading customers…/);
-  assert.ok(body.indexOf('!custAllLoaded') < body.indexOf('list.filter('),
-    'the not-loaded guard must come before the filter');
+  assert.ok(body.indexOf('!custAllLoaded') < body.indexOf('renderCustBrowse()'),
+    'the not-loaded guard must come before the render');
+  assert.ok(!body.includes('.filter('), 'the list path no longer filters — searching lives in the top bar');
   const browse = SRC.slice(SRC.indexOf('function renderCustBrowse()'));
   const bbody = browse.slice(0, browse.indexOf('\n    }') + 6);
   assert.match(bbody, /!custAllLoaded[\s\S]*Loading customers…/);
   assert.match(bbody, /if \(!ferr && !custAllLoaded\) ensureCustAllList\(\)\.then\(rerenderCustListIfOpen\);/);
+});
+
+test('the top-bar search reads customers through THIS cache, and a failed load is never "No matches"', () => {
+  assert.match(SRC, /window\.cdEnsureCustList = ensureCustAllList;/);
+  const gs = readFileSync(new URL('./global-search.js', import.meta.url), 'utf8');
+  assert.match(gs, /rows = await window\.cdEnsureCustList\(\)/);
+  assert.match(gs, /throw new Error\('customer list not loaded'/);
+  assert.doesNotMatch(gs, /CUST_TTL|custAt\b/, 'no private, staler copy of the customer list');
 });
 
 test('a realtime subscription on customers exists, in the board’s own idiom', () => {
@@ -110,10 +120,9 @@ test('the cache itself is NOT removed — a fresh cached list is served with no 
   const fn = SRC.slice(SRC.indexOf('async function ensureCustAllList()'));
   const body = fn.slice(0, fn.indexOf('\n    }') + 6);
   assert.match(body, /if \(custAllLoaded && custAllList\) \{/);
-  assert.match(SRC, /const list = custAllList \|\| \[\];/);
   // The ONLY fetch trigger inside the render path is a STALE or MISSING list —
-  // never an unconditional one (that would be a fetch per keystroke).
-  const search = SRC.slice(SRC.indexOf('function renderCustSearch(q)'));
+  // never an unconditional one (that would be a fetch per render).
+  const search = SRC.slice(SRC.indexOf('function renderCustSearch()'));
   const sbody = search.slice(0, search.indexOf('\n    }') + 6);
   const slines = sbody.split('\n');
   slines.forEach((line, i) => {
