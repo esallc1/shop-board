@@ -3,7 +3,7 @@
 > Doc: `/docs/wiring/meta-webhook.md`
 > Last updated: 2026-09-23 — **Messenger step 2: the webhook now STORES messages + echoes**
 > (§9) into the step-1 tables, which Cris applied and verified on both projects (§9a).
-> Verified vs commit `ec5f8e7` + the step-2 change (see the change log for the shipping SHA).
+> Verified vs commit `cf12564` (the commit that SHIPPED step 2 — prod + staging, 2026-09-23).
 > Status: 🟢 **LIVE ON PROD** (receive + verify proven against real Meta traffic, §8). Storage is
 > built and proven on the sandbox with signed fake deliveries (§10); **prod stores nothing yet**
 > because no Meta field is subscribed (§2a).
@@ -294,6 +294,7 @@ in the repo.
 
 ## Session change log
 - **2026-09-23** — **Messenger step 2: storage.** Step-1 tables applied + verified by Cris on SANDBOX then PROD (all 8 checks PASS, §9a). `parseMessagingEvents` + `storeRows` + one-time Graph name (token-gated, unset today) added; 200 on every signed delivery incl. DB errors; log carries counts only. `scripts/meta-sim.mjs` + a made-up staging-only `META_APP_SECRET` (Preview · `staging`) make storage testable on test.* (§10). Header, §0, §1, §2, §2a, §5, §6, §7, gaps and "where it lives" rewritten; 25 → 44 webhook tests.
+- **2026-09-23** — shipped as `cf12564` (staging, then fast-forward `main`). Sim on test.*: 5/5 PASS; the staging function log shows `inserted:1` ×3 then the re-delivery `inserted:0, duplicate:1`, unsigned `403`. Prod probes: unsigned POST `403`, POST signed with the STAGING secret `403`, wrong verify token `403`, unknown route `404`; zero prod webhook log lines in the prior 48h (fields unsubscribed).
 - **2026-09-23** — §2a corrected: business verification is done (2026-09-11), app attached to portfolio `152510169083601` (2026-09-15). Gaps: Messenger storage migration written (step 1), not applied; this endpoint unchanged.
 - **2026-09-12** — created. `api/meta-webhook.js` + `api/meta-webhook.test.js`:
   GET handshake, enforced `X-Hub-Signature-256`, structured log line, 200-fast
