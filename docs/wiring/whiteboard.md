@@ -1,8 +1,8 @@
 # How the Whiteboard is wired
 > Doc: `/docs/wiring/whiteboard.md`
 > Last updated: 2026-09-24 — created with slices 1 + 2 (design approved by Cris 2026-09-24).
-> Verified vs commit `d158b6a` (slices 1 + 2, on `staging` only; driven on test.* 2026-09-24).
-> Status: 🟡 **staging only** (test.*) — Cris reviews on test.* before `main`.
+> Verified vs commit `968d376` (slices 1 + 2; driven on test.* and read-only on prod 2026-09-24).
+> Status: 🟢 **LIVE on prod** since `968d376` (2026-09-24, after Cris's OK on test.*).
 > Related: [[desk-pad]] (the other tab of the same drawer; §2 there = the drawer frame),
 > [[ro-checkin-tech]] §8 (the close path that sets `status = 'closed'`), [[messenger-tray]] (shares the right edge),
 > [[call-window-desk]] (the Desk tab — **untouched**; the Whiteboard only holds what the Desk doesn't).
@@ -89,6 +89,7 @@ Laid out side by side (`repeat(auto-fit, minmax(230px, 1fr))`), wrapping on a na
 - `advisor-board.html` — the three stylesheet links and the mount module before `</body>`.
 
 ## Session change log
+- **2026-09-24** — **shipped to prod** as `968d376` (fast-forward `7dbaff0..968d376`, Cris's OK). www / board. / apex `/api/version` = `968d376`; the 14 changed served files byte-identical on all three; migration record + CLAUDE.md 404. Prod read-only (no RO opened, no status moved): W opened the Whiteboard (324 px, page pushed 324), N switched to the pad, Esc hid it (scroll 0); "Ready → call for pickup" = #6013 SEAN DOHERTY, #6065 TODD FIRMSTONE, #6078 INTELIGENT SOLUTIONS, #6092 TONY KRUG, #6098 TC AUTOMOTIVE — matches a direct status='invoice' query; realtime channel joined.
 - **2026-09-24** — realtime proven on test.* after Cris added `repair_orders` to the sandbox's `supabase_realtime` (prod already had it): Whiteboard in 0.7 s / out 1.1 s, RO Board 0.4 s / 0.7 s (RO #6033 `ro`→`invoice`→`ro`, left at `ro`). §5 + Known gaps rewritten.
 - **2026-09-24** — driven on test.* at `d158b6a` (ZZ Test Owner, sandbox DB): served files byte-identical (13); 1100 px + tray open → drawer 232→760, 324 px (45 % cap, zones wrap), page pushed 324; tray tucked → 232→1100, 228 px, page pushed 228; real keys: N switched to the pad, Esc hid it (scroll 0, padding 44), W opened, W again hid, **w typed in the search box did not open it**; 800 px → overlay (no push), tray open covers the right of the drawer (z 2900, same as before); 2 real invoice ROs (#6009, #6026); click #6009 → RO Board + that RO open, drawer stays. **RO #6033 round trip** (`ro` → `invoice` → `closed` → `invoice` → `ro`): appeared, disappeared on close, came back on reopen, left on restore — each via the 60 s catch-up, because realtime delivered no `repair_orders` events (see §5). Side effect: closing #6033 on the sandbox stamped its `closed_at` (kept on reopen, by design).
 - **2026-09-24** — created (slices 1 + 2, staging only): the Desk pad became the bottom drawer's first tab and the Whiteboard its second (W); "Ready → call for pickup" = status `'invoice'`, read-only, live; Waiting on parts / Don't forget shown as "Coming next".

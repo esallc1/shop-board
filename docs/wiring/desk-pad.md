@@ -2,8 +2,8 @@
 > Doc: `/docs/wiring/desk-pad.md`
 > Last updated: 2026-09-24 — **the pad is now the first tab of a two-tab bottom drawer** (📝 Desk pad · 📋 Whiteboard);
 > §2 + §3 + Where-it-lives rewritten. Created 2026-09-23 (Front Desk redesign; design approved by Cris 2026-09-16).
-> Verified vs commit `d158b6a` (on `staging`; driven on test.* 2026-09-24). Prod still runs the stand-alone pad (`334868f`).
-> Status: 🟡 **drawer on staging (test.*)**; 🟢 the pad itself LIVE on prod since `334868f`.
+> Verified vs commit `968d376` (driven on test.* and read-only on prod 2026-09-24).
+> Status: 🟢 **LIVE on prod** — the pad since `334868f`; the two-tab drawer since `968d376` (2026-09-24).
 > Related: [[whiteboard]] (the drawer's second tab), [[messenger-tray]] (same mount pattern, shares the right edge),
 > [[call-window-desk]] (untouched).
 
@@ -109,6 +109,7 @@ is the frame; each tab is a **panel** built by its own module: **📝 Desk pad**
 - `advisor-board.html` — the stylesheet `<link>`s and the mount module before `</body>`.
 
 ## Session change log
+- **2026-09-24** — the two-tab drawer **shipped to prod** as `968d376` (www / board. / apex byte-identical; N / W / Esc checked read-only on prod) — see [[whiteboard]].
 - **2026-09-24** — drawer driven on test.* at `d158b6a` (1100 px tray open/tucked, 800 px overlay; real N / W / Esc; W typed in the search box did not open it) — see [[whiteboard]]'s change log for the numbers.
 - **2026-09-24** — the pad became the first tab of a two-tab bottom drawer (📝 Desk pad N · 📋 Whiteboard W): frame moved to `shared/bottom-drawer.js`/`.css`, pad now `createDeskPadPanel`, mounted via `mountFrontDeskDrawer({ db })`; `isBoardToggleKey` added; notes behave as before. Staging only.
 - **2026-09-23** — **shipped to prod** as `334868f` after Cris's OK in full Chrome on his laptop (1 note = one short row; 6 notes = two clean rows, nothing cut off; cap and sticky height unchanged). Fast-forward `5e688c8..334868f`; www / board. / apex byte-identical (7 served files; `/CLAUDE.md` 404).
