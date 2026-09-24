@@ -1,8 +1,8 @@
 # How the Whiteboard is wired
 > Doc: `/docs/wiring/whiteboard.md`
 > Last updated: 2026-09-24 — **slices 3 + 4 (staging): "Called ✓" (§3a), Don't forget (§6), storage (§7), `api/whiteboard.js` (§8)**; §4/§5 rewritten. Earlier the same day: §2 restyled to the approved mockup; slices 1 + 2 created.
-> Verified vs commit `a489f36` (slices 3 + 4 driven on test.* with two signed-in tabs, 2026-09-24); slices 1 + 2 also read-only on prod at `968d376`.
-> Status: 🟢 slices 1 + 2 **LIVE on prod** since `968d376`; 🟡 the restyle + slices 3 + 4 are on **staging only** (test.*). The tables exist on the SANDBOX only (applied by Cris 2026-09-24, 8/8 PASS) — **the PROD migration must run before this goes to `main`**.
+> Verified vs commit `8014f95` (slices 3 + 4 driven on test.* incl. a two-person check; read-only on prod 2026-09-24).
+> Status: 🟢 **LIVE on prod** — slices 1 + 2 since `968d376`; the office-whiteboard look + slices 3 + 4 (Called ✓, Don't forget) since `8014f95` (2026-09-24). Tables on SANDBOX + PROD (both 8/8 PASS).
 > Related: [[desk-pad]] (the other tab of the same drawer; §2 there = the drawer frame),
 > [[ro-checkin-tech]] §8 (the close path that sets `status = 'closed'`), [[messenger-tray]] (shares the right edge),
 > [[call-window-desk]] (the Desk tab — **untouched**; the Whiteboard only holds what the Desk doesn't).
@@ -122,7 +122,7 @@ All with the board's own signed-in Supabase client (passed in as `db`):
 ## 7. Storage — `whiteboard_items` + `whiteboard_pickup_calls`
 Migration `migrations/20260924_whiteboard_{SANDBOX,PROD}.sql` (self-guarding on `app_env`, one
 transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/whiteboard-migration.test.js`).
-**SANDBOX applied by Cris 2026-09-24 (8/8 PASS). PROD not yet run.**
+**Applied by Cris 2026-09-24 — SANDBOX then PROD, 8/8 PASS on each.**
 - **`whiteboard_items`** — `id`, `kind` (`parts` | `note`), `text` (1–500 after trim, CHECK), `ro_id`
   (optional → `repair_orders`), `created_by` (→ employees), `created_by_name`, `created_at`,
   `cleared_at`, `cleared_by`, `cleared_by_name`, `cleared_reason` (`arrived` | `erased`). CHECKs:
@@ -152,8 +152,6 @@ transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/wh
   server-side stamps, own columns only, the 404/409 rules, never writes `repair_orders`, never DELETE).
 
 ## Known gaps & open questions (as of 2026-09-24)
-- **PROD migration not run** — `migrations/20260924_whiteboard_PROD.sql` must be applied (and verified
-  8/8) **before** this reaches `main`, or prod's Called ✓ / Don't forget would read missing tables.
 - Slices 5–7 not built: Waiting on parts (RO picker + note + "Arrived ✓" — the table and endpoint
   already take `kind: 'parts'` and `reason: 'arrived'`), "📌 Whiteboard" on a Desk pad sticky (shows as
   a yellow sticky, `li.stk`), other boards.
@@ -173,6 +171,7 @@ transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/wh
 - `advisor-board.html` — the three stylesheet links and the mount module before `</body>` (`cdAuthFetch` is already loaded there).
 
 ## Session change log
+- **2026-09-24** — **shipped to prod** as `8014f95` (fast-forward `b713d50..8014f95`, Cris's OK; PROD migration applied first, 8/8 PASS). www / board. / apex `/api/version` = `8014f95`; the 11 changed served files byte-identical on all three; migrations + CLAUDE.md 404; `POST /api/whiteboard` without a token → 401 (www, board.; the apex 308-redirects to www as always); anon REST read of `whiteboard_items` / `whiteboard_pickup_calls` on prod → 42501. Prod pane, read-only (no RO opened, nothing written): W opened the board — look + self-hosted fonts loaded, THU 9/24, live channel joined, Ready = #6013 SEAN DOHERTY, #6065 TODD FIRMSTONE, #6078 INTELIGENT SOLUTIONS, #6092 TONY KRUG, #6098 TC AUTOMOTIVE. That pane has no prod sign-in, so the hand-written half + Called ✓ stayed hidden (by design) — not eyeballed signed-in on prod.
 - **2026-09-24** — two-person check with Cris on test.*: his line as **ZZ Test Advisor** (Chrome) — "test from advisor - order ATF · ZZ Test Advisor · 6:12 AM" — appeared live on the ZZ Test Owner tab (loaded 6:06, no reload); from ZZ Test Owner at 6:14: Called ✓ on #6026, a new line, and his line erased, for Cris to confirm on his side. Change (Cris): the write box now **closes after each save** (stays open with the text only when a save fails).
 - **2026-09-24** — slices 3 + 4 driven on test.* at `a489f36` (sandbox; two tabs, each its own page + realtime socket, both signed in as ZZ Test Owner — Chrome had no test.* session and Claude doesn't type passwords, so not two different people): served files byte-identical; `/api/whiteboard` GET 405, POST no token / junk token 401; anon REST read of `whiteboard_items` → 42501. Typed a note + Enter in tab 1 → shown there 0.7 s, in tab 2 ~1.9 s, stamped "ZZ Test Owner · 6:07 AM" by the server; Called ✓ in tab 2 → stamp in tab 1 in 1.8 s; Esc in the write box closed only the box, a 2nd Esc hid the drawer; erase in tab 2 → gone in tab 1 1.6 s, "recently erased (1)" with who; Undo in tab 1 → back in tab 2 1.3 s, original writer + time; RO #6009 `invoice`→`ro`→`invoice` (sandbox) → left 1.1 s, back 0.9 s **with its old stamp**; undo call in tab 1 → gone in tab 2 1.7 s. Left: #6009 at `invoice`, its call row stamp-empty, the test note erased (soft).
 - **2026-09-24** — slices 3 + 4 on staging: `whiteboard_items` + `whiteboard_pickup_calls` (SANDBOX applied by Cris, 8/8 PASS; PROD not run), `api/whiteboard.js` (add / clear / undo / called / uncalled, `requireUser` first, server-side stamps), "Called ✓" + undo on Ready lines, Don't forget (+ write on board, who/when, erase, recently erased + Undo), realtime on all three tables after `setAuth`. The drawer now skips an Esc a panel already handled.
