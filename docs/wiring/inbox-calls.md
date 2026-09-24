@@ -89,8 +89,8 @@ nothing itself (test-locked). The card still never writes `resolved_at` (test-lo
   `no answer`, `busy`, `failed`, ~19 % of calls).
 - **Done / Attach / Start RO / Not a customer** show as "coming" (slice 5).
 - Below 900 px the open tray overlays the board (as before); the folded strip still pushes.
-- A modal (z 3000) covers the tray (z 2900) — a ringing call behind an open modal shows once the modal closes
-  (the strip badge was 4000 before; nothing is above modals now).
+- A modal (z 3000) covers the tray (z 2900) — a call that rings while a modal is open shows once the modal
+  closes (the old floating cards sat at z 4000, above modals; now nothing call-related is above a modal).
 
 ## Where it lives in the code
 - `shared/inbox-calls.js` — `mountCallSlot({ section, onChange, timeLabel })`: the ringing glance, the rows, the
