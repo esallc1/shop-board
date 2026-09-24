@@ -1,7 +1,7 @@
 # How the Whiteboard is wired
 > Doc: `/docs/wiring/whiteboard.md`
 > Last updated: 2026-09-24 — created with slices 1 + 2 (design approved by Cris 2026-09-24).
-> Verified vs commit `7dbaff0` + this change (slices 1 + 2, on `staging` only).
+> Verified vs commit `d158b6a` (slices 1 + 2, on `staging` only; driven on test.* 2026-09-24).
 > Status: 🟡 **staging only** (test.*) — Cris reviews on test.* before `main`.
 > Related: [[desk-pad]] (the other tab of the same drawer; §2 there = the drawer frame),
 > [[ro-checkin-tech]] §8 (the close path that sets `status = 'closed'`), [[messenger-tray]] (shares the right edge),
@@ -60,16 +60,25 @@ Laid out side by side (`repeat(auto-fit, minmax(230px, 1fr))`), wrapping on a na
 
 ## 5. Live updates
 - A realtime channel `advisor-board-whiteboard-live` on `repair_orders` (any change → one re-read,
-  debounced 400 ms). `repair_orders` is already in the realtime publication (the board's RO list and
-  Desk listen to it).
+  debounced 400 ms) — the same table the board's RO list and Desk listen to. It only fires if
+  `repair_orders` is in the project's `supabase_realtime` publication (see the ⚠ below).
 - A **catch-up re-read every 60 s**, one when the browser tab becomes visible again, and one each time
   the Whiteboard tab is shown.
 - The list loads at page load (not only when the tab is opened), so the closed tab's count is live.
+- ⚠ **On test.* (sandbox) realtime delivers NO `repair_orders` events** (2026-09-24: the channel joins,
+  but a fresh probe channel got 0 events for a status update; the Messenger tray's realtime works on the
+  same page). So on test.* the list follows the **60 s catch-up** only. Most likely `repair_orders` is
+  missing from the sandbox's `supabase_realtime` publication (prod added it in `20260716_ro_foundation.sql`);
+  not yet checked on either project — see Known gaps. This also means the RO Board's and Desk's own
+  `repair_orders` live refresh can't work on test.* today (existing, not caused by the Whiteboard).
 
 ## Known gaps & open questions (as of 2026-09-24)
 - Slices 3–7 not built: the `whiteboard_items` / `whiteboard_pickup_calls` tables + `api/whiteboard.js`
   (staff-only, `requireUser` + service role, like `api/messenger.js`), "Called ✓", Don't forget,
   Waiting on parts, "📌 Whiteboard" on stickies, other boards.
+- **Realtime on `repair_orders`** — needs a read-only check by Cris on BOTH projects:
+  `select tablename from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'repair_orders';`
+  (expect 1 row). Until then, worst case a line appears / leaves up to 60 s late.
 - Any `repair_orders` change anywhere re-reads the list (one small query, debounced) — fine at this
   shop's volume; revisit only if it isn't.
 
@@ -83,4 +92,5 @@ Laid out side by side (`repeat(auto-fit, minmax(230px, 1fr))`), wrapping on a na
 - `advisor-board.html` — the three stylesheet links and the mount module before `</body>`.
 
 ## Session change log
+- **2026-09-24** — driven on test.* at `d158b6a` (ZZ Test Owner, sandbox DB): served files byte-identical (13); 1100 px + tray open → drawer 232→760, 324 px (45 % cap, zones wrap), page pushed 324; tray tucked → 232→1100, 228 px, page pushed 228; real keys: N switched to the pad, Esc hid it (scroll 0, padding 44), W opened, W again hid, **w typed in the search box did not open it**; 800 px → overlay (no push), tray open covers the right of the drawer (z 2900, same as before); 2 real invoice ROs (#6009, #6026); click #6009 → RO Board + that RO open, drawer stays. **RO #6033 round trip** (`ro` → `invoice` → `closed` → `invoice` → `ro`): appeared, disappeared on close, came back on reopen, left on restore — each via the 60 s catch-up, because realtime delivered no `repair_orders` events (see §5). Side effect: closing #6033 on the sandbox stamped its `closed_at` (kept on reopen, by design).
 - **2026-09-24** — created (slices 1 + 2, staging only): the Desk pad became the bottom drawer's first tab and the Whiteboard its second (W); "Ready → call for pickup" = status `'invoice'`, read-only, live; Waiting on parts / Don't forget shown as "Coming next".
