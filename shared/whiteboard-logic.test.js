@@ -12,7 +12,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { READY_STATUS, READY_SELECT, readyLines, vehicleText } from './whiteboard-logic.js';
+import { existsSync, statSync } from 'node:fs';
+import { READY_STATUS, READY_SELECT, readyLines, vehicleText, boardDate } from './whiteboard-logic.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (f) => readFileSync(join(here, f), 'utf8');
@@ -91,4 +92,26 @@ test('static: one shared module mounts the drawer (no per-board copy)', () => {
     const hit = /shared\/(whiteboard|bottom-drawer|front-desk-drawer)/.test(src('../' + b));
     assert.equal(hit, false, b + ' — advisor board only for now');
   }
+});
+
+test("the board's date: shop time, 'THU 9/24' (late evening UTC-wise is still the shop's day)", () => {
+  assert.equal(boardDate(new Date('2026-09-24T14:00:00Z')), 'THU 9/24');
+  assert.equal(boardDate(new Date('2026-09-25T03:30:00Z')), 'THU 9/24');   // 11:30 pm ET
+  assert.equal(boardDate(new Date('2026-09-25T04:30:00Z')), 'FRI 9/25');
+});
+
+test('the look: self-hosted marker + handwriting fonts, no font CDN; the mockup pieces are there', () => {
+  const css = src('whiteboard.css');
+  assert.doesNotMatch(css, /googleapis|gstatic|@import|https?:\/\//, 'no external font / CSS');
+  for (const f of ['permanent-marker-400.woff2', 'kalam-400.woff2', 'kalam-700.woff2']) {
+    assert.match(css, new RegExp(`url\\('fonts/${f.replace('.', '\\.')}'\\)`), f + ' referenced');
+    const path = join(here, 'fonts', f);
+    assert.ok(existsSync(path) && statSync(path).size > 5000, f + ' present');
+  }
+  for (const lic of ['KALAM-OFL.txt', 'PERMANENT-MARKER-LICENSE.txt']) assert.ok(existsSync(join(here, 'fonts', lic)), lic);
+  const ui = code('whiteboard.js');
+  for (const piece of ['wb-frame', 'wb-board', 'FRONT OFFICE', 'wb-tray', 'WAITING ON PARTS', 'READY → CALL FOR PICKUP', "DON'T FORGET", '⚡ auto']) {
+    assert.ok(ui.includes(piece), piece);
+  }
+  assert.doesNotMatch(ui, /is-soon|dashed/, 'no grey dashed placeholder boxes');
 });

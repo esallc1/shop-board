@@ -3,11 +3,16 @@
    drawer (shared/bottom-drawer.js owns the tab, push-up, height, Hide, Esc).
    Wiring: docs/wiring/whiteboard.md. Rules: shared/whiteboard-logic.js.
 
-   The shop's shared whiteboard — what the Desk tab doesn't hold. Three zones:
-     1. READY → CALL FOR PICKUP (automatic): every RO with status 'invoice'.
+   The shop's shared whiteboard — what the Desk tab doesn't hold. DRAWN like
+   the real board on the office wall (the approved Front Desk mockup, Cris
+   2026-09-16/24): aluminum frame, glossy white board, "FRONT OFFICE" in marker
+   with today's date in red, zone titles in coloured marker, lines in
+   handwriting with ⚡ auto / ✎ hand chips, a marker tray along the bottom.
+   Fonts are self-hosted (shared/fonts) — no font CDN. Three zones:
+     1. WAITING ON PARTS (red)       — "coming next" in faint marker (slice 5).
+     2. READY → CALL FOR PICKUP (blue, automatic): every RO with status 'invoice'.
         Click a line → the RO opens the normal way (RO Board tab + cdOpenRo).
-     2. WAITING ON PARTS — "coming next" placeholder (slice 5).
-     3. DON'T FORGET     — "coming next" placeholder (slice 4).
+     3. DON'T FORGET (red)           — "coming next" in faint marker (slice 4).
 
    READ-ONLY (slice 2). ONE query — `READY_SELECT` where status = 'invoice' —
    with the board's own signed-in Supabase client. This file never writes
@@ -19,7 +24,7 @@
    re-read), a catch-up re-read every minute, and one when the tab comes back.
    ============================================================ */
 import { isBoardToggleKey } from './desk-pad-logic.js';
-import { READY_STATUS, READY_SELECT, readyLines } from './whiteboard-logic.js';
+import { READY_STATUS, READY_SELECT, readyLines, boardDate } from './whiteboard-logic.js';
 
 const CATCH_UP_MS = 60 * 1000;
 const DEBOUNCE_MS = 400;
@@ -37,37 +42,41 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
   const el = document.createElement('div');
   el.className = 'wb';
   el.innerHTML = `
-      <div class="wb-body"><div class="wb-grid">
-        <section class="wb-zone wb-ready" aria-labelledby="wbReadyH">
-          <h3 class="wb-h" id="wbReadyH">Ready → call for pickup <span class="wb-n" data-wb="n"></span></h3>
-          <div class="wb-list" data-wb="ready"></div>
-        </section>
-        <section class="wb-zone is-soon" aria-labelledby="wbPartsH">
-          <h3 class="wb-h" id="wbPartsH">Waiting on parts</h3>
-          <p class="wb-soon">Coming next</p>
-        </section>
-        <section class="wb-zone is-soon" aria-labelledby="wbNotesH">
-          <h3 class="wb-h" id="wbNotesH">Don't forget</h3>
-          <p class="wb-soon">Coming next</p>
-        </section>
+      <div class="wb-body"><div class="wb-frame">
+        <div class="wb-board">
+          <div class="wb-title"><b>FRONT OFFICE</b><span data-wb="date"></span></div>
+          <div class="wb-grid">
+            <section class="wz red" aria-labelledby="wbPartsH">
+              <h4 id="wbPartsH">WAITING ON PARTS</h4>
+              <p class="wz-soon">coming next</p>
+            </section>
+            <section class="wz blue wz-wide" aria-labelledby="wbReadyH">
+              <h4 id="wbReadyH">READY → CALL FOR PICKUP</h4>
+              <ul class="wz-list" data-wb="ready"></ul>
+            </section>
+            <section class="wz red" aria-labelledby="wbNotesH">
+              <h4 id="wbNotesH">DON'T FORGET</h4>
+              <p class="wz-soon">coming next</p>
+            </section>
+          </div>
+        </div>
+        <div class="wb-tray" aria-hidden="true"><i></i><i></i><i></i></div>
       </div></div>`;
   const scroller = el.querySelector('.wb-body');
-  const grid = el.querySelector('.wb-grid');
+  const frame = el.querySelector('.wb-frame');
   const list = el.querySelector('[data-wb="ready"]');
-  const n = el.querySelector('[data-wb="n"]');
+  const dateEl = el.querySelector('[data-wb="date"]');
+  const AUTO = '<span class="wb-chip auto" title="Fills itself from the RO Board">⚡ auto</span>';
 
   function draw() {
-    n.textContent = lines.length ? String(lines.length) : '';
+    dateEl.textContent = boardDate();
     let html = lines.map((l) => {
-      const sub = l.po && l.roNumber && l.po !== l.roNumber ? ` <small>RO ${esc(l.roNumber)}</small>` : '';
-      return `<button type="button" class="wb-line" data-wb-ro="${esc(l.id)}" title="Open RO ${esc(l.number)}">` +
-        `<b class="wb-num">${esc(l.number)}</b>${sub}` +
-        `<span class="wb-cust">${esc(l.customer)}</span>` +
-        (l.vehicle ? `<span class="wb-veh">${esc(l.vehicle)}</span>` : '') +
-        `</button>`;
+      const ro = l.po && l.roNumber && l.po !== l.roNumber ? ` <small>RO ${esc(l.roNumber)}</small>` : '';
+      return `<li>${AUTO}<button type="button" class="wz-line" data-wb-ro="${esc(l.id)}" title="Open RO ${esc(l.number)}">` +
+        `${esc(l.number)}${ro} ${esc(l.customer)}${l.vehicle ? ` — ${esc(l.vehicle)}` : ''}</button></li>`;
     }).join('');
-    if (!lines.length) html = `<p class="wb-empty">${loaded ? 'No ROs waiting for pickup.' : (failed ? '' : 'Loading…')}</p>`;
-    if (failed) html += `<p class="wb-err">Couldn't load the list — trying again shortly.</p>`;
+    if (!lines.length) html = `<li class="wz-empty">${loaded ? 'nobody waiting on a call' : (failed ? '' : '…')}</li>`;
+    if (failed) html += `<li class="wz-err">couldn't load the list — trying again</li>`;
     list.innerHTML = html;
     ctx.recount();
     ctx.refit();
@@ -123,11 +132,11 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
     subtitle: 'Shared · everyone in the office sees this',
     isKey: isBoardToggleKey,
     el, actions: null,
-    observe: [grid],
+    observe: [frame],
     count: () => lines.length,
     measure() {
       const cs = getComputedStyle(scroller);
-      return { chrome: 0, content: grid.offsetHeight + (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) };
+      return { chrome: 0, content: frame.offsetHeight + (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) };
     },
     onShow() { schedule(); return false; },
   };

@@ -48,3 +48,15 @@ export function readyLines(rows) {
   out.sort((a, b) => String(a.created).localeCompare(String(b.created)) || a.number.localeCompare(b.number));
   return out;
 }
+
+// The date in red marker at the top right of the board — "THU 9/24", shop time.
+export function boardDate(now = new Date()) {
+  try {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', weekday: 'short', month: 'numeric', day: 'numeric',
+    }).formatToParts(now).map((x) => [x.type, x.value]));
+    return `${String(p.weekday).toUpperCase()} ${p.month}/${p.day}`;
+  } catch (e) {
+    return ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'][now.getDay()] + ` ${now.getMonth() + 1}/${now.getDate()}`;
+  }
+}
