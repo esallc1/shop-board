@@ -1395,19 +1395,12 @@
 </head>
 <body>
 
-<!-- CTM caller card (slice 2): read-only "who's calling" cards, newest on top.
-     Fixed overlay so it's visible on any board view. -->
-<div id="callCardStack" aria-live="polite"></div>
+<!-- CTM caller card. Since 2026-09-24 (calls → Inbox tray, slice 1) the cards live INSIDE
+     the Inbox tray (shared/messenger-tray.js + shared/inbox-calls.js) — the floating
+     top-right stack (#callCardStack, z 4000) is gone, so nothing floats over the board.
+     These styles are the card's own look. See docs/wiring/inbox-calls.md. -->
 <style>
-  #callCardStack {
-    position: fixed; top: 16px; right: 16px; z-index: 4000;
-    width: 340px; max-width: calc(100vw - 32px);
-    max-height: calc(100vh - 32px); overflow-y: auto;
-    display: flex; flex-direction: column; gap: 10px;
-    pointer-events: none;               /* empty stack never blocks the board */
-  }
   .call-card {
-    pointer-events: auto;
     background: var(--surface); border: 1px solid var(--border);
     border-left: 4px solid var(--accent);
     border-radius: var(--radius);
@@ -12809,8 +12802,21 @@
   // data loss and MUST be replaced with explicit dismiss only.
   // ══════════════════════════════════════════════════════════
   (function callerCard() {
-    const stack = document.getElementById('callCardStack');
-    if (!stack) return;
+    // WHERE a card goes (calls → Inbox tray, slice 1, 2026-09-24): into the Inbox
+    // tray's calls area — window.cdCallInbox, set up by shared/messenger-tray.js, a
+    // module that runs AFTER this script. Until it exists, cards wait in
+    // window.cdCallInboxPending and the tray takes them when it mounts. The card
+    // itself and every write it makes are unchanged.
+    const pendingCards = (window.cdCallInboxPending = window.cdCallInboxPending || []);
+    function placeCard(card) {
+      if (window.cdCallInbox && typeof window.cdCallInbox.add === 'function') window.cdCallInbox.add(card);
+      else pendingCards.push(card);
+    }
+    function hasCard(ctmId) {
+      const id = String(ctmId);
+      return !!document.querySelector(`.call-card[data-call-id="${CSS.escape(id)}"]`)
+        || pendingCards.some((c) => c.dataset.callId === id);
+    }
 
     // NOTE: the slice-2 5-minute auto-clear timer has been REMOVED here (slice
     // 3a). Auto-clear was safe only while the card was read-only; now that Josh
@@ -12932,10 +12938,14 @@
     async function loadDetail(customerId) {
       // created_at is selected so the checking_on_car picker can order each stage
       // group newest-first (see shared/ro-calls.js sortRosForPicker).
-      const [vehRes, roRes] = await Promise.all([
+      // closed_at + the RO's vehicle feed the tray's caller-ID glance ("Last visit",
+      // "In shop now" — inbox-calls.md). READ-only; a project without them falls back.
+      const [vehRes, roRes0] = await Promise.all([
         db.from('vehicles').select('year, make, model').eq('customer_id', customerId).order('created_at', { ascending: false }),
-        db.from('repair_orders').select('id, ro_number, status, declined_at, created_at').eq('customer_id', customerId),
+        db.from('repair_orders').select('id, ro_number, status, declined_at, created_at, closed_at, vehicles(year, make, model)').eq('customer_id', customerId),
       ]);
+      let roRes = roRes0;
+      if (roRes.error) roRes = await db.from('repair_orders').select('id, ro_number, status, declined_at, created_at').eq('customer_id', customerId);
       let ros = roRes.data;
       if (roRes.error) {
         const alt = await db.from('repair_orders').select('id, ro_number, status, created_at').eq('customer_id', customerId);
@@ -13157,6 +13167,7 @@
             const detail = await loadDetail(c.id);
             applyLoadedDetail(card, detail.ros);
             setDetail(card, matchedBodyHtml(call, c, detail));
+            setGlance(card, { state: 'matched', customer: c, vehicles: detail.vehicles, ros: detail.ros });
           } catch (e) {
             console.error('[callerCard] detail load failed', e);
             applyLoadedDetail(card, []);
@@ -13167,24 +13178,35 @@
     }
 
     // ── THE NOTE FORM (slice 3a) ───────────────────────────────────────
+    // Next step (Cris, 2026-09-24 — Inbox tray mockup screen 2): Call back · Coming in ·
+    // Done. Same next_step values as before. The two old chips stay in the DOM but
+    // hidden, shown only on a call that already has them (legacy: true). "Done" needs
+    // its own column (handled_at — slice 5), so it shows as "coming" and writes nothing.
     const NEXT_STEPS = [
-      { key: 'quoted_callback',  label: 'Quoted — will call back' },
-      { key: 'dropping_off',     label: 'Dropping off' },
-      { key: 'checking_on_car',  label: 'Checking on their car' },
-      { key: 'price_shopper',    label: 'Price shopper' },
+      { key: 'quoted_callback',  label: 'Call back' },
+      { key: 'dropping_off',     label: 'Coming in' },
+      { key: 'checking_on_car',  label: 'Checking on their car', legacy: true },
+      { key: 'price_shopper',    label: 'Price shopper', legacy: true },
     ];
 
     function formShellHtml() {
       return `<div class="call-card-form">
+        <div class="cc-rec" aria-live="polite"></div>
         <div class="cc-label">Call note</div>
         <textarea class="cc-note" rows="2" placeholder="Type your note while you talk…"></textarea>
-        <div class="cc-label">What happens next</div>
+        <div class="cc-label">Anything left to do? <span class="cc-label-hint">(skip if not)</span></div>
         <div class="cc-next">
-          ${NEXT_STEPS.map(s => `<button type="button" data-next="${s.key}">${esc(s.label)}</button>`).join('')}
+          ${NEXT_STEPS.map(s => `<button type="button" data-next="${s.key}"${s.legacy ? ' data-legacy="1" hidden' : ''}>${esc(s.label)}</button>`).join('')}
+          <button type="button" class="cc-soon" disabled title="Coming soon — needs its own 'handled' mark (Inbox slice 5)">Done <small>coming</small></button>
         </div>
         <div class="cc-when"></div>
         <div class="cc-filed"></div>
         <div class="cc-echo" aria-live="polite"></div>
+        <div class="cc-more">
+          <button type="button" class="cc-soon" disabled title="Coming soon (Inbox slice 5)">Attach… <small>coming</small></button>
+          <button type="button" class="cc-soon" disabled title="Coming soon (Inbox slice 5)">Start RO <small>coming</small></button>
+          <button type="button" class="cc-soon" disabled title="Coming soon (Inbox slice 5)">Not a customer <small>coming</small></button>
+        </div>
         <div class="cc-footer">
           <span class="cc-saved" aria-live="polite"></span>
           <span class="cc-actions">
@@ -13350,12 +13372,12 @@
       // scheduling something for later. Renamed from the old "Done", which read
       // as "handled" but only dismissed — the ambiguity that hid an open callback.
       const closeBtn = card.querySelector('.cc-close');
-      if (closeBtn) closeBtn.addEventListener('click', () => { clearTimeout(noteTimer); saveIfChanged(); dismissedCardIds.add(card.dataset.callId); card.remove(); });
+      if (closeBtn) closeBtn.addEventListener('click', () => { clearTimeout(noteTimer); saveIfChanged(); tryClose(card); });
 
-      card.querySelectorAll('.cc-next button').forEach(b =>
+      card.querySelectorAll('.cc-next button[data-next]').forEach(b =>
         b.addEventListener('click', () => {
           const step = b.dataset.next;
-          card.querySelectorAll('.cc-next button').forEach(x => x.classList.toggle('active', x === b));
+          card.querySelectorAll('.cc-next button[data-next]').forEach(x => x.classList.toggle('active', x === b));
           // Single-select next_step. A step switch ALWAYS starts the date fresh —
           // a due_at from the previous step must never ride across (a callback
           // date silently carried into a drop-off pick once).
@@ -13375,11 +13397,85 @@
         }));
     }
 
+    // ── In the Inbox tray (calls → tray slice 1, docs/wiring/inbox-calls.md) ──
+    // The tray's pinned caller-ID glance is computed from what this card already
+    // loaded; the card just hands over the ingredients and says they changed.
+    function setGlance(card, data) {
+      card._glanceData = data;
+      card.dispatchEvent(new CustomEvent('cc:glance', { bubbles: true }));
+    }
+    // A call that nobody has noted (no note, no next step, not filed to an RO — every
+    // one of those goes through saveNote, which stamps noted_at) can NOT be closed:
+    // it stays in "Needs handling" (Cris, 2026-09-24 — "a call must never disappear just
+    // because nobody typed anything"). Slice 5's "Done" / "Not a customer" add the
+    // other ways out.
+    function tryClose(card) {
+      if (!card._noted) {
+        const el = card.querySelector('.cc-saved');
+        if (el) { el.classList.remove('ok'); el.classList.add('err'); el.textContent = 'Add a note or pick what happens next first — then Close.'; }
+        const n = card.querySelector('.cc-note'); if (n) n.focus();
+        return false;
+      }
+      dismissedCardIds.add(card.dataset.callId);
+      card.remove();
+      return true;
+    }
+    // The recording (screen 2): api/recording-links (signed-in employee only) →
+    // a player when the file is ready; "pending" until the 5-minute fetch cron has it.
+    async function loadCardRecording(card) {
+      const el = card.querySelector('.cc-rec'); if (!el) return 'none';
+      const RP = window.RecordingPlayer;
+      const id = card._call && card._call.id;
+      if (id == null) { el.innerHTML = '<div class="cc-rec-line">🎧 Recording — none (test call)</div>'; return 'none'; }
+      if (!RP) { el.innerHTML = '<div class="cc-rec-line">🎧 Recording — player not loaded</div>'; return 'none'; }
+      if (el.dataset.state === 'ready' && el.querySelector('audio')) return 'ready';
+      let idx = {};
+      try {
+        const r = await cdAuthFetch(db, '/api/recording-links', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ call_ids: [Number(id)] }),
+        });
+        if (r.ok) idx = RP.indexResults(await r.json());
+      } catch (e) { console.warn('[callerCard] recording-links failed', e); }
+      const d = RP.describeCallId(idx, id);
+      if (d.state === 'ready' && d.playbackUrl) {
+        el.dataset.state = 'ready';
+        el.innerHTML = `<div class="cc-rec-line">🎧 Recording${d.label ? ' · ' + esc(d.label) : ''}</div><audio class="cc-rec-audio" controls preload="none" src="${esc(d.playbackUrl)}"></audio>`;
+        // The signed link lasts 5 minutes — on an error, fetch a fresh one once.
+        const audio = el.querySelector('audio');
+        audio.addEventListener('error', async () => {
+          if (audio.dataset.retried) return;
+          audio.dataset.retried = '1';
+          el.dataset.state = '';
+          await loadCardRecording(card);
+        }, { once: true });
+        return 'ready';
+      }
+      el.dataset.state = d.state || 'none';
+      el.innerHTML = `<div class="cc-rec-line is-wait">🎧 Recording — ${d.render && d.state === 'failed'
+        ? 'couldn\'t be fetched' : 'arrives a few minutes after the call ends'}</div>`;
+      return d.state || 'none';
+    }
+    // Shown in the tray's detail view → load the recording, and keep checking every
+    // 45 s while it's open there and not ready yet.
+    function wireCardInTray(card) {
+      let timer = null;
+      card.addEventListener('cc:shown', async () => {
+        clearInterval(timer);
+        const state = await loadCardRecording(card);
+        if (state === 'ready' || state === 'none' && (card._call || {}).id == null) return;
+        timer = setInterval(async () => {
+          if (!card.isConnected || !card.closest('.mtray-calldetail-slot')) { clearInterval(timer); return; }
+          if (await loadCardRecording(card) === 'ready') clearInterval(timer);
+        }, 45000);
+      });
+    }
+
     async function handleNewCall(call) {
       if (!call || call.ctm_call_id == null) return;
       // Dedup: one card per ctm_call_id (a retry hits ON CONFLICT server-side and
       // arrives as UPDATE, not INSERT — but guard anyway).
-      if ([...stack.children].some(el => el.dataset.callId === String(call.ctm_call_id))) return;
+      if (hasCard(call.ctm_call_id)) return;
 
       const card = document.createElement('div');
       card.className = 'call-card';
@@ -13397,9 +13493,11 @@
       card.innerHTML = headHtml(call)
         + `<div class="call-card-detail"><div class="call-card-muted">Looking up…</div></div>`
         + formShellHtml();
-      stack.prepend(card);   // newest on top; multiple calls stack
+      placeCard(card);       // into the Inbox tray (newest rings on top; the rest are "Needs handling" rows)
 
-      card.querySelector('.call-card-x').addEventListener('click', () => { dismissedCardIds.add(card.dataset.callId); card.remove(); });
+      card.querySelector('.call-card-x').addEventListener('click', () => tryClose(card));
+      wireCardInTray(card);
+      setGlance(card, { state: 'loading' });
       // Clicking the matched customer name opens the customer record (delegated,
       // so it survives the detail area re-rendering after a pick). No origin →
       // Back returns to the Desk (where the card lives).
@@ -13414,7 +13512,7 @@
       if (call.note) card.querySelector('.cc-note').value = call.note;
       if (call.next_step) {
         const b = card.querySelector(`.cc-next button[data-next="${call.next_step}"]`);
-        if (b) b.classList.add('active');
+        if (b) { b.classList.add('active'); b.hidden = false; }   // an old step on this call stays visible
         renderWhen(card);
       }
       wireForm(card);
@@ -13425,6 +13523,7 @@
         const matches = await matchCustomers(call.caller_bare);
         if (matches.length === 0) {
           setDetail(card, unmatchedBodyHtml(call));
+          setGlance(card, { state: 'new' });
         } else if (matches.length === 1) {
           // Confident single match: remember customer_id locally (persisted with
           // the first note save, so a card no one touches never writes a row).
@@ -13433,12 +13532,15 @@
           const detail = await loadDetail(matches[0].id);
           applyLoadedDetail(card, detail.ros);
           setDetail(card, matchedBodyHtml(call, matches[0], detail));
+          setGlance(card, { state: 'matched', customer: matches[0], vehicles: detail.vehicles, ros: detail.ros });
         } else {
           renderPickList(card, call, matches);
+          setGlance(card, { state: 'multi' });
         }
       } catch (e) {
         console.error('[callerCard] handle call failed', e);
         setDetail(card, unmatchedBodyHtml(call));   // safe fallback still shows the number + chip
+        setGlance(card, { state: 'new' });
       }
     }
     window.cdHandleTestCall = handleNewCall;   // lets us dry-run a card without a live call
@@ -13461,15 +13563,19 @@
     // 60s health tick the safety net re-subscribes us (cdResubscribeCalls) and
     // calls this to pop any call that slipped through. BOUNDED by a short time
     // window AND a max count so a long sleep can't dump a pile of stale cards.
-    const BACKFILL_WINDOW_MIN = 15;      // only calls from the last 15 minutes
-    const BACKFILL_MAX = 5;              // at most 5 cards per backfill
+    // TODAY's untouched calls (Cris, 2026-09-24): an un-noted call stays in the tray's
+    // "Needs handling" until someone notes it — so a reload / a dropped socket brings
+    // back every untouched real call since local midnight (newest BACKFILL_MAX).
+    // Per board: nothing in the DB says "handled" until slice 5 (inbox-calls.md).
+    const BACKFILL_MAX = 25;             // at most 25 cards per backfill
     const dismissedCardIds = new Set();  // ctm ids dismissed WITHOUT being touched — don't re-pop
     let backfilling = false;
     async function backfillRecentCalls() {
       if (backfilling) return;
       backfilling = true;
       try {
-        const sinceIso = new Date(Date.now() - BACKFILL_WINDOW_MIN * 60 * 1000).toISOString();
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const sinceIso = today.toISOString();
         // UNTOUCHED, real inbound calls in the window: never noted (noted_at null
         // = nobody has seen/worked the card), not resolved, positive ctm_call_id
         // (excludes manual appointments, whose ids are negative). Newest first,
@@ -13495,6 +13601,9 @@
     window.cdCallsHealthy = () => !!callsChannel && callsChannel.state === 'joined';
     window.cdResubscribeCalls = subscribeCalls;
     window.cdBackfillCalls = backfillRecentCalls;
+    // On page load, bring today's untouched calls into the tray straight away (not
+    // only on the first 60 s health tick) — they must not vanish on a reload.
+    setTimeout(() => { if (document.visibilityState === 'visible') backfillRecentCalls(); }, 1500);
   })();
 </script>
 <!-- Facebook Messenger inbox tray. Mounted once on <body>, outside every view, so

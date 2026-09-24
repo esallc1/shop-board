@@ -3,8 +3,9 @@
    Wiring: docs/wiring/messenger-tray.md.
 
    z-index 2900 on purpose: BELOW every modal (3000), the call-log drawer
-   (3300), the call card (4000), the mobile sidebar (4500) and Team Chat toasts
-   (9999). The tray must never paint over any of them.
+   (3300), the mobile sidebar (4500) and Team Chat toasts (9999). The tray must
+   never paint over any of them. The call cards live INSIDE the tray since
+   2026-09-24 (no more floating z-4000 stack) — see docs/wiring/inbox-calls.md.
    ============================================================ */
 .mtray-strip {
   position: fixed; right: 0; top: 38%; z-index: 2900;
@@ -140,3 +141,85 @@
 .mtray-typed-phone { font-size: 12.5px; margin-top: 4px; }
 .mtray-typed-phone small { color: var(--muted, #8c93a8); }
 .mtray-suggest { margin-top: 8px; font-size: 12.5px; background:#eef6ff; border:1px solid #cfe2ff; border-radius:8px; padding:7px 9px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+
+/* ── Incoming calls in the tray (slice 1, 2026-09-24) — docs/wiring/inbox-calls.md ── */
+.mtray-ph {
+  width: 22px; height: 22px; border-radius: 50%; background: #16a34a; color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1;
+}
+.mtray-ph[hidden], .mtray-pcount[hidden], .mtray-count[hidden] { display: none; }
+.mtray-pcount {
+  min-width: 20px; padding: 2px 5px; border-radius: 10px; background: #16a34a;
+  color: #fff; font-size: 11px; font-weight: 700; text-align: center; margin-bottom: 4px;
+}
+.mtray-strip.is-ringing .mtray-ph { animation: mtrayRing 1.1s ease-in-out infinite; }
+@keyframes mtrayRing { 0%, 100% { box-shadow: 0 0 0 0 rgba(22,163,74,.55); } 50% { box-shadow: 0 0 0 7px rgba(22,163,74,0); } }
+@media (prefers-reduced-motion: reduce) { .mtray-strip.is-ringing .mtray-ph { animation: none; outline: 2px solid #16a34a; } }
+
+/* The calls area sits above the Facebook list and scrolls on its own. */
+.mtray-calls { flex: 0 1 auto; max-height: 68%; overflow-y: auto; border-bottom: 1px solid var(--border, #e2e5ee); }
+.mtray-calls[hidden] { display: none; }
+.mtray-callstore { display: none; }
+.mtray-ring .call-card, .mtray-calldetail-slot .call-card {
+  margin: 10px; box-shadow: none; animation: none;
+}
+.mtray-ring .call-card { border-left-color: #16a34a; box-shadow: 0 0 0 2px rgba(22,163,74,.18); }
+.mtray-calldetail-head { padding: 8px 10px 0; }
+.mtray-calldetail[hidden] { display: none; }
+.mtray-sec {
+  padding: 8px 14px 4px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted, #8c93a8);
+}
+.mtray-callrow.is-ringing { background: #f0fdf4; }
+.mtray-callrow.is-ringing .mtray-preview { color: #15803d; font-weight: 600; }
+.mtray-note.is-small { padding: 10px 16px; }
+
+/* An opened call takes the whole tray; an open Facebook conversation hides the call rows. */
+.mtray.has-call-detail .mtray-calls { flex: 1; max-height: none; border-bottom: 0; }
+.mtray.has-call-detail .mtray-body,
+.mtray.has-call-detail .mtray-compose { display: none; }
+.mtray.has-call-detail .mtray-callrows { display: none; }
+.mtray.has-thread .mtray-callrows { display: none; }
+
+/* ── The folded strip is the DEFAULT (Cris 2026-09-24, mockup screen 4): a slim
+   full-height column on the right that PUSHES the board — never covers it. ── */
+.mtray-strip {
+  top: 0; bottom: 0; width: 48px; min-width: 48px; padding: 14px 0; gap: 8px;
+  justify-content: flex-start; border-radius: 0; border-right: none; box-shadow: -4px 0 14px rgba(20,22,40,0.06);
+}
+.mtray-vlabel {
+  writing-mode: vertical-rl; transform: rotate(180deg); margin-top: 8px;
+  font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted, #8c93a8);
+}
+.mtray-ph.is-off, .mtray-fb.is-off { opacity: .3; filter: grayscale(1); }
+body.mtray-tucked .main-area { padding-right: 48px; }
+
+/* The pinned caller-ID glance (screen 1). */
+.mtray-ringcard {
+  margin: 10px; padding: 10px 12px; border: 2px solid #16a34a; border-radius: 12px; background: #f0fdf4;
+  display: flex; flex-direction: column; gap: 4px; animation: mtrayPulse 1.4s ease-in-out infinite;
+}
+@keyframes mtrayPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(22,163,74,.35); } 50% { box-shadow: 0 0 0 6px rgba(22,163,74,0); } }
+@media (prefers-reduced-motion: reduce) { .mtray-ringcard { animation: none; } }
+.mtray-rg-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.mtray-rg-live { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #15803d; }
+.mtray-rg-tag { font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 8px; background: #fff; color: #15803d; border: 1px solid #bbf7d0; }
+.mtray-rg-who { font-weight: 800; font-size: 15px; }
+.mtray-rg-sub { font-size: 12.5px; color: var(--muted, #8c93a8); }
+.mtray-rg-ln { display: flex; gap: 6px; align-items: baseline; font-size: 12.5px; }
+.mtray-rg-ln .k { color: var(--muted, #8c93a8); min-width: 76px; font-size: 11.5px; white-space: nowrap; }
+.mtray-rg-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.mtray-iconbtn.is-primary { background: var(--accent, #5b5ef4); border-color: var(--accent, #5b5ef4); color: #fff; }
+.mtray-iconbtn.is-primary:hover { filter: brightness(1.05); background: var(--accent, #5b5ef4); }
+.mtray-callrow.is-unnoted .mtray-preview { color: #b45309; font-weight: 600; }
+
+/* Screen 2 bits on the card (recording, "coming" buttons). */
+.call-card .cc-rec { margin: 2px 0 8px; }
+.call-card .cc-rec-line { font-size: 12.5px; font-weight: 600; margin-bottom: 4px; }
+.call-card .cc-rec-line.is-wait { font-weight: 500; color: var(--muted, #8c93a8); }
+.call-card .cc-rec-audio { width: 100%; height: 34px; }
+.call-card .cc-soon { opacity: .55; cursor: default; }
+.call-card .cc-soon small { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; margin-left: 3px; }
+.call-card .cc-more { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 2px; }
+.call-card .cc-more .cc-soon { border: 1px solid var(--border, #e2e5ee); background: var(--surface, #fff); border-radius: 7px; padding: 4px 8px; font: inherit; font-size: 12px; }
+.call-card .cc-label-hint { font-weight: 500; text-transform: none; letter-spacing: 0; }

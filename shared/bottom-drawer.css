@@ -18,6 +18,7 @@
   --sticky: #fff2a1; --sticky-ink: #453a00;
 }
 body.mtray-open .bdr { --dp-right: 340px; }
+body.mtray-tucked .bdr { --dp-right: 48px; }   /* beside the Inbox strip, never under it */
 
 /* Keep the bottom sliver free for the tabs, so they never sit on the last card. */
 .main-area { padding-bottom: 44px; }

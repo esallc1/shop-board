@@ -1,7 +1,7 @@
 # How the call window & advisor Desk are wired
 
 > Doc: `/docs/wiring/call-window-desk.md`
-> Last updated: 2026-09-22 — **new §6d: every Desk row gets a name** (link → "+Add" typed name → phone GUESS with a confirm box → number); Recently cleared gets its own lookup. **LIVE ON PROD at `62bbd73`**, verified vs commit `62bbd73`.
+> Last updated: 2026-09-24 — **§2 / §2a / §5: the card lives in the Inbox tray ([[inbox-calls]]), next step is Call back · Coming in · Done (coming), an un-noted call can't be closed, backfill = today's untouched calls** (staging). Previously: 2026-09-22 — §6d.
 > Previously: 2026-09-21 (3) — **new §6b (key drop box) + §6c (calendar 7 am–6 pm, same-time chips side by side).** **LIVE ON PROD at `83826ed`** (after `20260921_calls_dropoff_key_box_PROD.sql`, run by Cris), verified vs commit `83826ed`.
 > Previously: 2026-09-21 (2) — **new §10: the appointment date + outcome show on the Call Log and the customer record** (no migration; manual "+Add" rows stay out of the Call Log by decision). **LIVE ON PROD at `6733056`**, verified vs commit `6733056`.
 > Previously: 2026-09-21 — **§6: each lane scrolls inside its own ~6-row box** so the calendar stays close (CSS only). **LIVE ON PROD at `e74136f`**, verified vs commit `e74136f`.
@@ -53,18 +53,29 @@ appears in the day's Call Log, which queries by `started_at` — it lives only o
 via `next_step` + `due_at`). Written by `api/desk-appointment.js` (§8).
 
 ## 2. The call window (the popup) — `callerCard` IIFE
+- **Where it shows (since 2026-09-24): inside the right-hand Inbox tray, not floating over the board**
+  ([[inbox-calls]]). It rings as a pinned caller-ID glance, then waits in the tray's "Needs handling" list;
+  tapping it opens this card inside the tray. The old top-right stack (`#callCardStack`, z 4000) is gone.
+  The card hands itself to the tray (`placeCard` → `window.cdCallInbox.add`, queued in
+  `window.cdCallInboxPending` until the tray mounts).
 - Opens on a live inbound call (Supabase realtime **INSERT** on `calls`), one card per
   `ctm_call_id`. Test hook: `window.cdHandleTestCall(call)`.
 - The card **autosaves** to the `calls` row as you go (`saveNote` — note on a 2s debounce
   + blur; every other field immediately). The first save stamps `noted_at/noted_by_name`.
-- **"What happens next"** is four single-select chips (`NEXT_STEPS`):
+- **"Anything left to do?"** (was "What happens next") — single-select chips (`NEXT_STEPS`). Since
+  2026-09-24 (Inbox mockup screen 2) only **Call back** and **Coming in** show, plus **Done (coming)**
+  (disabled — it needs a "handled" column, Inbox slice 5). The two old chips stay in the DOM **hidden**,
+  shown only on a call that already has that step. Same `next_step` values as before:
 
   | Chip | `next_step` | Date UI | Lands on the Desk as |
   |---|---|---|---|
-  | Quoted — will call back | `quoted_callback` | quick buttons (Tomorrow / In 3 days / Next week) + date; all-day | **Callbacks** lane |
-  | Dropping off | `dropping_off` | date + optional time (Morning = all-day) | **Coming in** lane + **drop-off calendar** |
-  | Checking on their car | `checking_on_car` | none (see the RO row below) | (not a Desk lane) |
-  | Price shopper | `price_shopper` | none | (not a Desk lane) |
+  | Call back | `quoted_callback` | quick buttons (Tomorrow / In 3 days / Next week) + date; all-day | **Callbacks** lane |
+  | Coming in | `dropping_off` | date + optional time (Morning = all-day) | **Coming in** lane + **drop-off calendar** |
+  | Checking on their car *(hidden unless already set)* | `checking_on_car` | none (see the RO row below) | (not a Desk lane) |
+  | Price shopper *(hidden unless already set)* | `price_shopper` | none | (not a Desk lane) |
+
+- Also on the card since 2026-09-24: **🎧 Recording** (via `api/recording-links`, pending until the
+  file is ready) and **Attach… / Start RO / Not a customer** shown as "coming" ([[inbox-calls]] §4).
 
 - **All-day dates** are stored as **noon local** (`toDueAt(date, null)` → `new Date(y,m-1,d,12,0,0)`),
   so the calendar date can't slip a day across a timezone. A specific drop-off time sets
@@ -84,13 +95,14 @@ via `next_step` + `due_at`). Written by `api/desk-appointment.js` (§8).
   **focus / visibilitychange / the 60s tick, regardless of active view**:
   1. re-subscribes the channel if `cdCallsHealthy()` is false (`cdResubscribeCalls`), and
   2. runs **`backfillRecentCalls()`** (`cdBackfillCalls`) when the tab is visible.
-- **Backfill** queries `calls` for **untouched, real inbound calls** in the last
-  `BACKFILL_WINDOW_MIN` (15) minutes — `noted_at is null` (nobody has worked the card),
-  `resolved_at is null`, `ctm_call_id > 0` (excludes manual appointments) — newest first,
-  capped at `BACKFILL_MAX` (5) so a long sleep can't dump a pile of stale cards. It pops a
-  card per row via `handleNewCall` (which **dedups** any still-open card by `ctm_call_id`).
-- A card dismissed **without being touched** (× or **Close**) records its `ctm_call_id` in
-  an in-memory `dismissedCardIds` set, so backfill won't re-pop it.
+- **Backfill** queries `calls` for **today's untouched, real inbound calls** — `started_at` since local
+  midnight, `noted_at is null` (nobody has worked the card), `resolved_at is null`, `ctm_call_id > 0`
+  (excludes manual appointments) — newest first, capped at `BACKFILL_MAX` (**25**). (Until 2026-09-24:
+  the last 15 minutes, 5 cards.) It runs **1.5 s after page load** too, so an untouched call survives a
+  reload ([[inbox-calls]] §3). It pops a card per row via `handleNewCall` (which **dedups** any
+  still-open card by `ctm_call_id`).
+- A card closed (only possible once it's noted — §5) records its `ctm_call_id` in the in-memory
+  `dismissedCardIds` set, so backfill won't re-pop it.
 
 ## 2b. "Filed to RO" — its own persistent row (`.cc-filed`, `renderFiledRo`)
 **Which RO a call is about is independent of what happens next**, so the RO picker is a
@@ -169,8 +181,11 @@ point — it makes a wrong lane or a wrong date (e.g. "Thu, Jul 30" when Tuesday
 meant) visible **before** the card is closed.
 
 ## 5. Closing the call window (it can no longer clear anything)
-The card has **one** button: **Close**. It flushes any pending note and dismisses the
-popup. A callback or drop-off **stays on the Desk** (`resolved_at` null) so it cannot fall
+The card has **one** button: **Close** (and the × in its header). It flushes any pending note and
+dismisses the card — **but only once the call has been noted** (a note, a next step, or filed to an RO —
+all via `saveNote`, which stamps `noted_at`). On an un-noted call, Close / × say "Add a note or pick
+what happens next first — then Close." and keep the card (`tryClose`, Cris 2026-09-24: "a call must
+never disappear just because nobody typed anything" — [[inbox-calls]] §3). A callback or drop-off **stays on the Desk** (`resolved_at` null) so it cannot fall
 off the radar.
 
 **"Mark done" used to sit next to it and is gone** (2026-09-20). It appeared the instant a
@@ -583,6 +598,7 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- **2026-09-24** — calls into the Inbox tray, slice 1 (staging): the card lives inside the tray (no floating stack); chips Call back · Coming in · Done (coming), old two hidden unless set; recording + "coming" Attach/Start RO/Not a customer on the card; Close / × refuse an un-noted call; backfill = today's untouched calls (25) and runs on page load; `loadDetail` also reads each RO's `closed_at` + vehicle (for the tray's glance). Writes unchanged. [[inbox-calls]].
 - 2026-09-23 — §6-log added: `window.cdDeskOpenLogAt(when, callId)` + `data-log-call` on log rows + `.log-row-hl`, for the top-bar search's unattached call-note results. Nothing else in the call log changed.
 - 2026-09-22 — §6d shipped to prod at `62bbd73` (fast-forward `d2ac603..62bbd73`, no migration); all 5 changed files byte-identical to git on www, board.* and apex.
 - 2026-09-22 — **§6d added:** one name resolver for every lane, Recently cleared and the chips (link → "+Add" typed name → phone guess → number); Recently cleared gets its own customer lookup; guesses are grey italic "?" and open a "Who is this?" box that confirms via the July 29 attach path; red-sliver banner fix. No migration, no new endpoint.

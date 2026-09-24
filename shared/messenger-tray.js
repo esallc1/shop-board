@@ -1,6 +1,16 @@
 /* ============================================================
-   messenger-tray.js — the Advisor inbox tray (Messenger steps 4 + 5).
-   Wiring: docs/wiring/messenger-tray.md. Rules: shared/messenger-tray-logic.js.
+   messenger-tray.js — the Advisor inbox tray (Messenger steps 4 + 5; incoming
+   CALLS since slice 1 of "calls into the tray", 2026-09-24).
+   Wiring: docs/wiring/messenger-tray.md (+ inbox-calls.md for the calls area).
+   Rules: shared/messenger-tray-logic.js.
+
+   CALLS: the tray has a calls area above the Facebook list (shared/inbox-calls.js):
+   the pinned ringing card + "Needs handling" rows + the opened card. The card
+   itself is still the callerCard code in advisor-board.html; it hands each new
+   card to window.cdCallInbox.add (queued in window.cdCallInboxPending until this
+   mounts). A new call OPENS the tray — from hidden or tucked. The tray only hides
+   when no Facebook thread waits AND no call is on this board. The strip shows a
+   📞 badge + count next to the f. The old floating card stack is gone.
 
    Mounted ONCE by advisor-board.html, on <body>, outside every view — so it
    shows on every advisor tab. READS social_threads / social_messages with the
@@ -9,10 +19,12 @@
    cdAuthFetch (the same session as a bearer token); the browser never writes
    a social_* row itself. No anon fallback.
 
-   States:
-     hidden  — signed-in staff, nothing waiting.
-     open    — the panel (list, or one conversation + its reply box).
-     tucked  — a thin strip on the right edge: FB badge + count. Click → open.
+   States (Cris, 2026-09-24 — the Front Desk Inbox mockup, screens 1/2/4):
+     tucked  — the DEFAULT: a slim full-height strip on the right edge (📞 + f
+               badges with counts) that PUSHES the board (never covers it). The
+               tray folds back to it by itself when nothing is waiting.
+     open    — the panel (calls + "Needs handling", or one call / conversation).
+     hidden  — only before the first load.
      signin / notstaff / error — the strip with a "!" badge; opening it says why.
    A NEW customer message opens it from tucked. Tucking is remembered per
    browser until the next new customer message.
@@ -22,6 +34,7 @@
 
    Refresh: realtime on both tables + a 60-second catch-up.
    ============================================================ */
+import { mountCallSlot } from './inbox-calls.js';
 import {
   waitingThreads, threadName, windowLabel, previewText, attachmentLabel,
   timeLabel, newestInbound, hasNewInbound, latestByThread,
@@ -49,15 +62,18 @@ export function mountMessengerTray({ db, viewer }) {
   root.id = 'mtray';
   root.className = 'mtray';
   root.innerHTML = `
-    <button type="button" class="mtray-strip" aria-label="Open Facebook messages">
+    <button type="button" class="mtray-strip" aria-label="Open the inbox">
+      <span class="mtray-ph" aria-hidden="true">📞</span><span class="mtray-pcount" hidden></span>
       <span class="mtray-fb" aria-hidden="true">f</span><span class="mtray-count"></span>
+      <span class="mtray-vlabel" aria-hidden="true">Inbox</span>
     </button>
-    <aside class="mtray-panel" aria-label="Facebook messages">
+    <aside class="mtray-panel" aria-label="Inbox — calls and Facebook messages">
       <div class="mtray-head">
-        <div class="mtray-title">Facebook messages<small></small></div>
+        <div class="mtray-title">Inbox<small></small></div>
         <button type="button" class="mtray-iconbtn" data-act="tuck" title="Tuck the tray away">Hide »</button>
       </div>
       <div class="mtray-banner" hidden></div>
+      <div class="mtray-calls" hidden></div>
       <div class="mtray-body"></div>
       <div class="mtray-compose" hidden>
         <div class="mtray-compose-closed" hidden></div>
@@ -93,6 +109,10 @@ export function mountMessengerTray({ db, viewer }) {
   const pickerSearch = $('.mtray-picker-search');
   const pickerList = $('.mtray-picker-list');
   const pickerErr = $('.mtray-picker-err');
+  let callSlot = null;        // the calls area (set below, once mounted)
+  const phBadge = $('.mtray-ph');
+  const callSection = $('.mtray-calls');
+  const phCount = $('.mtray-pcount');
 
   const st = {
     mode: 'loading',           // loading | ok | signin | notstaff | error
@@ -127,18 +147,28 @@ export function mountMessengerTray({ db, viewer }) {
     root.classList.toggle('is-open', ui === 'open');
     root.classList.toggle('is-tucked', ui === 'tucked');
     document.body.classList.toggle('mtray-open', ui === 'open');
+    document.body.classList.toggle('mtray-tucked', ui === 'tucked');   // the strip pushes the board too
     if (ui !== 'open') closePicker();
   }
 
   function drawStrip() {
+    const c = callSlot ? callSlot.strip() : { count: 0, ringing: false };
+    phBadge.classList.toggle('is-off', !c.count);
+    phCount.hidden = !c.count;
+    phCount.textContent = String(c.count);
+    strip.classList.toggle('is-ringing', c.ringing);
+    const calls = c.count ? `${c.count} call${c.count === 1 ? '' : 's'}${c.ringing ? ' (ringing)' : ''} · ` : '';
     if (st.mode === 'ok') {
       countEl.textContent = String(st.waiting.length);
+      countEl.hidden = !st.waiting.length;
+      $('.mtray-fb').classList.toggle('is-off', !st.waiting.length);
       countEl.classList.remove('is-note');
-      strip.title = `${st.waiting.length} Facebook conversation${st.waiting.length === 1 ? '' : 's'} waiting`;
+      strip.title = `${calls}${st.waiting.length} Facebook conversation${st.waiting.length === 1 ? '' : 's'} waiting`;
     } else {
       countEl.textContent = '!';
+      countEl.hidden = false;
       countEl.classList.add('is-note');
-      strip.title = 'Facebook messages — sign in from CrisData to see them';
+      strip.title = `${calls}Facebook messages — sign in from CrisData to see them`;
     }
   }
 
@@ -149,7 +179,8 @@ export function mountMessengerTray({ db, viewer }) {
 
   function drawList() {
     compose.hidden = true;
-    titleSmall.textContent = st.mode === 'ok' ? `· ${st.waiting.length} waiting` : '';
+    const nWait = (st.mode === 'ok' ? st.waiting.length : 0) + calls();
+    titleSmall.textContent = nWait ? `· ${nWait} waiting` : '';
     if (st.mode === 'signin') {
       body.innerHTML = `<div class="mtray-note"><strong>Sign in from CrisData to see Facebook messages.</strong>This board was opened without a CrisData sign-in, so it can't read the shop's Facebook conversations. Log out and sign in again from the CrisData front door.</div>`;
       return;
@@ -164,11 +195,16 @@ export function mountMessengerTray({ db, viewer }) {
     }
     const warn = st.mode === 'error' ? `<div class="mtray-warn">Couldn't refresh just now — showing what was last loaded.</div>` : '';
     if (!st.waiting.length) {
-      body.innerHTML = warn + `<div class="mtray-note"><strong>All caught up.</strong>New Facebook messages will show here.</div>`;
+      body.innerHTML = warn + (calls()
+        ? `<div class="mtray-note is-small">No Facebook messages waiting.</div>`
+        : `<div class="mtray-note"><strong>All caught up.</strong>New calls and Facebook messages will show here.</div>`);
       return;
     }
     const now = Date.now();
-    body.innerHTML = warn + st.waiting.map((t) => {
+    // ONE "Needs handling" list: the call rows (in the calls area above) come first,
+    // the Facebook threads continue it — the heading only when no call row shows it.
+    const head = callSection && callSection.querySelector('.mtray-callrow') ? '' : '<div class="mtray-sec">Needs handling</div>';
+    body.innerHTML = warn + head + st.waiting.map((t) => {
       const who = threadName(t, st.customers);
       const w = windowLabel(t.last_inbound_at, now);
       const winCls = !w.open ? 'is-closed' : (w.urgent ? 'is-urgent' : '');
@@ -294,6 +330,10 @@ export function mountMessengerTray({ db, viewer }) {
   function draw() {
     drawStrip();
     drawBanner();
+    // An open Facebook conversation hides the call rows (the ringing card stays pinned);
+    // an opened call hides the Facebook list.
+    root.classList.toggle('has-thread', !!(st.openThreadId && st.mode !== 'signin' && st.mode !== 'notstaff'));
+    root.classList.toggle('has-call-detail', !!(callSlot && callSlot.inDetail()));
     if (st.openThreadId && st.mode !== 'signin' && st.mode !== 'notstaff') drawThread();
     else { body.dataset.thread = ''; drawList(); }
   }
@@ -305,7 +345,8 @@ export function mountMessengerTray({ db, viewer }) {
       return;
     }
     if (!st.waiting.length) {
-      if (!(st.ui === 'open' && st.openThreadId)) setUi('hidden');
+      if (calls()) { if (st.ui === 'hidden') setUi('tucked'); return; }   // a call is here — keep it where it is
+      if (!(st.ui === 'open' && st.openThreadId)) setUi('tucked');        // nothing waiting → fold to the strip
       return;
     }
     if (!st.loadedOnceBefore) {
@@ -435,7 +476,7 @@ export function mountMessengerTray({ db, viewer }) {
     t.done_at = (r.body && r.body.thread && r.body.thread.done_at) || new Date().toISOString();
     st.waiting = waitingThreads(st.threads);
     st.openThreadId = null; st.threadMsgs = []; st.confirmUnlink = false;
-    if (!st.waiting.length) setUi('hidden');
+    if (!st.waiting.length && !calls()) setUi('tucked');
     draw();
     load();
   }
@@ -529,12 +570,12 @@ export function mountMessengerTray({ db, viewer }) {
         case 'tuck':
           writeTuck(st.newest != null ? st.newest : Date.now());
           st.openThreadId = null; st.confirmUnlink = false;
-          setUi(st.mode === 'ok' && !st.waiting.length ? 'hidden' : 'tucked');
+          setUi('tucked');
           draw(); return;
         case 'back':
           st.openThreadId = null; st.threadMsgs = []; st.confirmUnlink = false; st.headErr = ''; st.composeErrText = '';
           closePicker();
-          if (st.mode === 'ok' && !st.waiting.length) setUi('hidden');
+          if (st.mode === 'ok' && !st.waiting.length && !calls()) setUi('tucked');
           draw(); return;
         case 'send': send(); return;
         case 'done': doDone(); return;
@@ -561,6 +602,24 @@ export function mountMessengerTray({ db, viewer }) {
       if (!input.disabled) input.focus();
     }
   });
+
+  /* ── incoming calls (slice 1) ────────────────────────────────────────── */
+  // The calls area. A new call opens the tray (from hidden or tucked); the last
+  // call closing hides it again when nothing else waits.
+  callSlot = mountCallSlot({
+    section: callSection,
+    timeLabel,
+    onChange({ added }) {
+      if (added) setUi('open');
+      else if (!calls() && st.ui === 'open' && !st.openThreadId && st.mode === 'ok' && !st.waiting.length) setUi('tucked');
+      draw();
+    },
+  });
+  function calls() { return callSlot ? callSlot.count() : 0; }
+  // Hand-off from the callerCard code (a classic script that runs before this module).
+  window.cdCallInbox = { add: (card) => callSlot.add(card), has: (id) => callSlot.has(id) };
+  const pending = Array.isArray(window.cdCallInboxPending) ? window.cdCallInboxPending.splice(0) : [];
+  for (const card of pending) if (!card._closed) callSlot.add(card);
 
   load();
   return { reload: load };

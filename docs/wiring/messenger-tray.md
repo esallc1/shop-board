@@ -1,9 +1,9 @@
 # How the Messenger inbox tray is wired
 > Doc: `/docs/wiring/messenger-tray.md`
-> Last updated: 2026-09-23 — **step 5: reply, link / unlink and Done in the tray** (§3a), all through
+> Last updated: 2026-09-24 — **it's the Inbox now: incoming calls live here too** ([[inbox-calls]]); §2 rewritten — the folded strip is the default, pushes the board, 📞 + f badges. Earlier: step 5 actions (§3a), created with step 4.
 > `api/messenger.js`. Created the same day with step 4 (read-only).
 > Verified vs commit `bc52dd2` (the commit that SHIPPED the sent-before-Done fix — prod + staging, 2026-09-23).
-> Status: 🟢 **LIVE on prod with real Messenger traffic** — proven end to end 2026-09-23 with Cris's personal
+> Status: 🟢 **LIVE on prod with real Messenger traffic** — proven end to end 2026-09-23 with Cris's personal 🟡 The Inbox with calls ([[inbox-calls]] slice 1) is on **staging only**.
 > account ([[meta-webhook]] §8b): auto-open, real name, a reply delivered to Messenger, a Business Suite echo.
 > Real customers only after App Review (role-holders only until then).
 > Related: [[meta-webhook]] (§9 storage, §11 `api/messenger.js`), [[office-auth]] (`is_staff()`), [[call-window-desk]] (untouched).
@@ -18,18 +18,26 @@ or mark it Done.
   `mountMessengerTray({ db })` with the board's own Supabase client. It appends `#mtray` to
   `<body>`, **outside every view**, so it is on every advisor tab. No other board mounts it.
 - **z-index 2900** (panel and strip): below every modal (3000), the call-log drawer (3300), the
-  call card (4000), the mobile sidebar (4500) and Team Chat toasts (9999). It never paints over them.
+  mobile sidebar (4500) and Team Chat toasts (9999). It never paints over them.
+- **Since 2026-09-24 it's the "Inbox": incoming CALLS live here too** ([[inbox-calls]]) — a calls area
+  above the Facebook list (the pinned ringing caller-ID glance + "Needs handling" call rows + the opened
+  call card). The old floating call cards (z 4000) are gone.
 - **Open, ≥ 900 px wide:** `body.mtray-open` gives `.main-area` `padding-right: 340px`, so the
   lanes move over instead of being covered. **Below 900 px:** the panel overlays (max 92vw).
 - The call card, call log, Desk lanes and Team Chat are untouched.
 
-## 2. The three looks
+## 2. The looks (Cris, 2026-09-24 — Inbox mockup screen 4)
 | Look | When | What |
 |---|---|---|
-| **hidden** | signed-in staff, nothing waiting | nothing on screen |
-| **open** | something waiting (first load, or a NEW customer message), or the strip was clicked | 340 px panel: list, or one conversation |
-| **tucked** | "Hide »" was clicked while something waits; or a sign-in/permission/load problem | thin strip on the right edge: blue **f** badge + a red count (or an amber **!**) |
+| **tucked** (the DEFAULT) | nothing waiting; or "Hide »" was clicked; or a sign-in/permission/load problem | a slim **full-height strip** on the right (48 px) with a **📞 badge + count** and the **f badge + count** (greyed when nothing of that kind waits; an amber **!** for a sign-in/permission/load problem), "INBOX" written down it. It **pushes the board** (`body.mtray-tucked`) and the bottom drawer stops beside it. |
+| **open** | a NEW call, or a NEW customer message, or the strip was clicked; or anything waits on the first load | 340 px panel: **Inbox · N waiting** (calls + threads) — the calls area ([[inbox-calls]]) above the Facebook list, or one call / one conversation |
+| hidden | only before the first load | nothing on screen |
 
+- **It folds back to the strip by itself** when no Facebook thread waits AND no call is on this board
+  (and no conversation is open on screen). It is never hidden after the first load.
+- **"Needs handling" is one list:** call rows first (no-note calls on top), then the waiting Facebook
+  threads under the same heading ([[inbox-calls]] §3). An open conversation hides the call rows (a
+  ringing glance stays pinned); an opened call hides the Facebook list.
 - **A thread waits** (`isWaiting`) when `done_at` is null **or** a customer message **arrived** after
   it: `last_inbound_received_at > done_at` (`inboundArrivedMs`; a row without the column falls
   back to `last_inbound_at`). **Arrival, not Meta's send time** — a message sent 10:00:00, Done at
@@ -43,7 +51,7 @@ or mark it Done.
   Meta timestamp still opens it. The first load opens it too if anything waits —
   **unless** the viewer tucked it and nothing newer has arrived since (`localStorage
   cdMtrayTuckedAt` = the newest inbound when they tucked; per browser, a convenience only).
-- If nothing waits, it hides — except while a conversation is open on screen.
+- If nothing waits (no thread, no call), it folds to the strip — except while a conversation is open on screen.
 
 ## 3. What it shows
 **List** (waiting only, newest activity first): the name (`threadName`: linked customer's name >
@@ -155,6 +163,7 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 - Tables: `social_threads`, `social_messages` (`migrations/20260923_social_messaging_*.sql`).
 
 ## Session change log
+- **2026-09-24** — calls into the tray, slice 1 (staging): the tray is the **Inbox** — a calls area above the Facebook list ([[inbox-calls]]); the folded strip is the default (full-height, pushes the board, 📞 + f badges); a new call opens it; it folds back to the strip (never hides) when nothing waits; header counts calls + threads; one "Needs handling" heading.
 - **2026-09-23** — §3b (on staging): AUTO label + "Auto-reply" byline for `auto` messages, the customer's typed phone in the header, and a one-tap "Attach to <name>" suggestion that runs the normal Link. Selects gained `detected_phone` / `auto` (need migration `20260923_social_auto_reply_*`).
 - **2026-09-23** — a 401 on reply / link / done now shows the shared sentence "Your CrisData sign-in isn't active on this page — log out and sign in again." (was "…has expired…").
 - **2026-09-23** — **live on prod, proven with real traffic** (~8:03–8:10am, build `0e644cc`, Cris's personal Facebook account → Page `821690607890680`): "Test 1 from Cris" → the tray **auto-opened**, named **"Cristian Mendez"**, chip "23h left to reply"; a reply typed in the tray arrived in his Messenger and shows as **"CrisData · Cristian"**; a Business Suite reply appeared as **"via Facebook app"**. See [[meta-webhook]] §8b.
