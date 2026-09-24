@@ -1,6 +1,6 @@
 # How the Desk pad is wired
 > Doc: `/docs/wiring/desk-pad.md`
-> Last updated: 2026-09-24 — **the pad is now the first tab of a two-tab bottom drawer** (📝 Desk pad · 📋 Whiteboard);
+> Last updated: 2026-09-24 — **§3: 📌 on each sticky moves it to the Whiteboard (only after the server confirmed)**; §4 how the pad stays network-free. Earlier the same day: the pad became the first tab of a two-tab bottom drawer.
 > §2 + §3 + Where-it-lives rewritten. Created 2026-09-23 (Front Desk redesign; design approved by Cris 2026-09-16).
 > Verified vs commit `968d376` (driven on test.* and read-only on prod 2026-09-24).
 > Status: 🟢 **LIVE on prod** — the pad since `334868f`; the two-tab drawer since `968d376` (2026-09-24).
@@ -58,6 +58,13 @@ is the frame; each tab is a **panel** built by its own module: **📝 Desk pad**
   sticky with the time (shop time), cursor in it. **Several at once**; they wrap in a grid.
 - **Type** — saved as you type (no redraw, so the cursor never jumps).
 - **×** on a sticky → that note is gone (no confirm).
+- **📌** ("Pin to whiteboard", next to ×) → the sticky's text **moves** to the shared Whiteboard as a
+  Don't forget line ([[whiteboard]] §6a), stamped with the signed-in person's name + time by the server.
+  **The sticky leaves the pad only after the server confirmed** — if the post fails (offline, signed out,
+  refused) the sticky **stays**, with a short red line under it saying why (it clears as soon as you
+  type). Empty sticky → 📌 disabled (and it follows typing without a redraw). Over **500 characters** →
+  "Too long for the whiteboard (612 / 500 characters) — shorten it first." — nothing is cut. While a pin
+  is in flight the sticky is read-only and its 📌 / × are disabled. Rules: `pinCheck` / `pinNoteFlow`.
 - **Tear off page** → an inline bar: **"Tear off this page? All notes will be removed."** · Tear off ·
   Cancel. (Inline, never a blocking `confirm()`.)
 - **Hide ▾** → the drawer closes and the screen comes back down.
@@ -81,15 +88,16 @@ is the frame; each tab is a **panel** built by its own module: **📝 Desk pad**
   makes no request — a test fails if it, `desk-pad-logic.js` or the drawer frame `bottom-drawer.js`
   mentions `supabase`, `db`, `.from(`, `.rpc(`,
   `.channel(`, `fetch(`, `cdAuthFetch` or `/api/`.
+  - 📌 doesn't break that: the pad is handed one function, `pinToBoard(text)` → `{ ok, error }`, by
+    `mountFrontDeskDrawer` (shared/front-desk-drawer.js), which wires it to the Whiteboard panel's
+    `pin(text)` — the Whiteboard module does the post. A pad mounted without it shows no 📌.
 - Per browser, per address: a note written on `www` isn't on `board.*` (same reason as sign-ins —
   [[hosting-domains]] §4a).
 
-## Known gaps & open questions (as of 2026-09-23)
+## Known gaps & open questions (as of 2026-09-24)
 - **On a very short window (under ~667 px tall) two full rows don't quite fit the 45 % cap** (two rows
   need 300 px; 45 % of 640 is 288, so the 2nd row scrolls ~12 px). Cris checked on his laptop in full
   Chrome: 6 notes = two clean rows, nothing cut off — **no change to the cap or sticky height** (2026-09-23).
-- **Not yet: "📌 Whiteboard"** on a sticky (post it to the Whiteboard's Don't forget zone) — slice 6, after
-  the Whiteboard's table + endpoint ([[whiteboard]]).
 - The drawer's open/closed state is not remembered across a refresh (it starts closed) — on purpose, so a
   refresh never shoves the page up by surprise.
 - No undo for × or Tear off.
@@ -100,9 +108,10 @@ is the frame; each tab is a **panel** built by its own module: **📝 Desk pad**
   No database, no network (test-locked).
 - `shared/front-desk-drawer.js` — `mountFrontDeskDrawer({ db })`: the drawer with the Desk pad and the
   Whiteboard. The one call a board makes.
-- `shared/desk-pad.js` — the pad panel: `createDeskPadPanel(ctx)`.
+- `shared/desk-pad.js` — the pad panel: `createDeskPadPanel(ctx, { pinToBoard })` (📌 only when `pinToBoard` is given).
 - `shared/desk-pad-logic.js` — pure rules: `addNote`, `deleteNote`, `updateNoteText`, `tearOff`,
   `cleanNotes`, `loadNotes`, `saveNotes`, `isTypingTarget`, `isPadToggleKey`, `isBoardToggleKey`,
+  `PIN_MAX` / `pinCheck` / `pinNoteFlow` (📌 — removes the sticky only on a confirmed `{ ok: true }`),
   `noteTime`, `STORAGE_KEY`, and the height rule `padHeight` / `pushScrollTarget` (`CAP_RATIO` 0.45,
   `ONE_ROW_MIN` 132). Tested by `shared/desk-pad-logic.test.js`.
 - `shared/bottom-drawer.css` — the frame's look (z 2800, the 900 px push/overlay switch, the tray-aware
@@ -110,6 +119,7 @@ is the frame; each tab is a **panel** built by its own module: **📝 Desk pad**
 - `advisor-board.html` — the stylesheet `<link>`s and the mount module before `</body>`.
 
 ## Session change log
+- **2026-09-24** — slice 6 (staging): 📌 "Pin to whiteboard" on each sticky — posts the text as a Don't forget line through the injected `pinToBoard` (→ the Whiteboard panel's `pin` → `/api/whiteboard`), removes the sticky only on a confirmed success, keeps it with an error otherwise; empty → disabled; > 500 → clear message. The pad still makes no network call (test-locked). Known gap removed.
 - **2026-09-24** — drawer Esc now skips an Esc a panel field already handled (the Whiteboard's write box, [[whiteboard]] §6). Staging.
 - **2026-09-24** — the two-tab drawer **shipped to prod** as `968d376` (www / board. / apex byte-identical; N / W / Esc checked read-only on prod) — see [[whiteboard]].
 - **2026-09-24** — drawer driven on test.* at `d158b6a` (1100 px tray open/tucked, 800 px overlay; real N / W / Esc; W typed in the search box did not open it) — see [[whiteboard]]'s change log for the numbers.

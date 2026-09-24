@@ -23,6 +23,10 @@
         later the old stamp shows again.
      3. DON'T FORGET (red, by hand): "+ write on board", who + when on every
         line, anyone can erase any line, "Recently erased" (7 days) with Undo.
+        Also fed by the Desk pad's 📌 (slice 6): the panel's `pin(text)` posts a
+        sticky's text here (the pad never touches the network — the drawer
+        wires the two, shared/front-desk-drawer.js); the new line is briefly
+        highlighted the next time the Whiteboard is shown.
    The write box closes after each save; Esc / cancel close it without saving.
 
    READS — with the board's own signed-in Supabase client: repair_orders
@@ -64,6 +68,8 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
   let loaded = false, failed = false, handOk = false;
   const inFlight = {};       // line key → true while its request is out (buttons disabled)
   let readyErr = '';
+  const fresh = {};         // item id pinned from the Desk pad → when it was first shown (null = not yet)
+  const FRESH_MS = 4000;
 
   const el = document.createElement('div');
   el.className = 'wb';
@@ -166,7 +172,7 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
       const arrived = z.kind === 'parts'
         ? `<button type="button" class="wz-callbtn wz-arrived" data-wb-act="arrived" data-id="${esc(n.id)}"${off} title="The part came in — take it off the board">Arrived ✓</button>`
         : '';
-      return `<li>${HAND}<span class="wz-text">${roPart(n)}${esc(n.text)} <small class="wz-who">— ${esc(stamp(n.created_by_name, n.created_at))}</small>` +
+      return `<li${n.id in fresh ? ' class="is-fresh"' : ''}>${HAND}<span class="wz-text">${roPart(n)}${esc(n.text)} <small class="wz-who">— ${esc(stamp(n.created_by_name, n.created_at))}</small>` +
         `${arrived}<button type="button" class="wz-x" data-wb-act="erase" data-id="${esc(n.id)}"${off} aria-label="Erase this line" title="Erase this line">×</button></span></li>`;
     }).join('') || (handOk ? '' : `<li class="wz-empty">${loaded ? '' : '…'}</li>`);
     z.writeBtn.hidden = !handOk || !z.form.hidden;
@@ -436,6 +442,30 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
     }
   });
 
+  // 📌 from the Desk pad: post the sticky's text as a Don't forget line. Resolves
+  // { ok: true } only when the server stored it (the pad removes the sticky only then),
+  // else { ok: false, error } in plain words — the sticky stays. Never throws.
+  async function pinNote(text) {
+    const r = await post({ action: 'add', kind: 'note', text });
+    if (r.ok && r.body && r.body.item) {
+      items = upsertRow(items, r.body.item);
+      fresh[r.body.item.id] = null;
+      if (ctx.isShown('board')) markFreshShown();
+      draw();
+      schedule();
+      return { ok: true };
+    }
+    return { ok: false, error: actionError(r.status, r.body, "Couldn't pin it to the whiteboard — it's still here. Try again.") };
+  }
+  // The highlight runs FRESH_MS from the first time the line is actually on screen.
+  function markFreshShown() {
+    for (const id of Object.keys(fresh)) {
+      if (fresh[id] !== null) continue;
+      fresh[id] = Date.now();
+      setTimeout(() => { delete fresh[id]; draw(); }, FRESH_MS);
+    }
+  }
+
   setInterval(load, CATCH_UP_MS);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') schedule(); });
 
@@ -453,6 +483,7 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
       const cs = getComputedStyle(scroller);
       return { chrome: 0, content: frame.offsetHeight + (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) };
     },
-    onShow() { schedule(); return false; },
+    onShow() { schedule(); markFreshShown(); return false; },
+    pin: pinNote,
   };
 }

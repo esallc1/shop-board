@@ -1,8 +1,8 @@
 # How the Whiteboard is wired
 > Doc: `/docs/wiring/whiteboard.md`
-> Last updated: 2026-09-24 — **§6b: a parts line whose RO is closed comes off the board by itself (derived at read time, no write), listed as "RO closed"** (no time — the DB has no true close time); §4 embed adds the RO's `updated_at`. Earlier the same day: slice 5, slices 1–4 and the office-whiteboard look.
+> Last updated: 2026-09-24 — **§6a (slice 6, staging): 📌 on a Desk pad sticky moves it here as a Don't forget line**. Earlier the same day: slice 5 + the closed-RO rule, slices 1–4 and the office-whiteboard look.
 > Verified vs commit `157ebd6` (the closed-RO rule driven on test.* 2026-09-24); slice 5 at `c596275`; slices 1–4 read-only on prod at `8014f95`.
-> Status: 🟢 **LIVE on prod** — slices 1 + 2 since `968d376`; the look + slices 3 + 4 since `8014f95`; slice 5 (Waiting on parts + the closed-RO rule) since `bc22bc8` (2026-09-24). No migration for slice 5.
+> Status: 🟢 **LIVE on prod** — slices 1 + 2 since `968d376`; the look + slices 3 + 4 since `8014f95`; slice 5 (Waiting on parts + the closed-RO rule) since `bc22bc8` (2026-09-24). No migration for slice 5. 🟡 slice 6 (📌 from the Desk pad) on **staging only**.
 > Related: [[desk-pad]] (the other tab of the same drawer; §2 there = the drawer frame),
 > [[ro-checkin-tech]] §8 (the close path that sets `status = 'closed'`), [[messenger-tray]] (shares the right edge),
 > [[call-window-desk]] (the Desk tab — **untouched**; the Whiteboard only holds what the Desk doesn't).
@@ -124,6 +124,22 @@ All with the board's own signed-in Supabase client (passed in as `db`):
 - Two people erasing the same line: the second gets "Someone already took that line off the board."
 - N / W typed into the box are letters, never the drawer shortcuts (the typing guard).
 
+### 6a. 📌 from the Desk pad (slice 6)
+- Each Desk pad sticky has a **📌** ([[desk-pad]] §3). Tap → the sticky's (trimmed) text is posted here
+  as a **Don't forget** line — `pin(text)` on this panel = `POST /api/whiteboard { action: 'add', kind:
+  'note', text }`, so who + when are stamped by the server exactly like "+ write on board".
+- **A move, not a copy:** the pad removes the sticky **only when `pin` resolved `{ ok: true }`** (the
+  server stored it). Any failure resolves `{ ok: false, error }` in plain words (`actionError` — e.g. a
+  401 → "Your CrisData sign-in isn't active on this page…") and the sticky stays. `pin` never throws.
+- Wiring: `mountFrontDeskDrawer` builds both panels and hands the pad `pinToBoard(text)` → this panel's
+  `pin` — the pad itself never touches the network. Before the Whiteboard exists it answers "The
+  whiteboard isn't ready yet — try again in a moment."
+- The new line is **highlighted** (a short yellow fade, `li.is-fresh`, 4 s) the first time the
+  Whiteboard is shown after the pin (right away if it's already showing); reduced-motion → a plain tint.
+- It's an ordinary Don't forget line afterwards (erase / Undo as usual). The mockup's permanent
+  "from desk pad" yellow-sticky look is **not** kept after a reload — the table has no "where it came
+  from" column (see Known gaps).
+
 ## 6b. Waiting on parts (slice 5)
 - **+ write on board** → a small form: first an **optional RO** search ("RO #, customer or vehicle"),
   then the **note** ("part · vendor · ETA…", ≤ 500), save / cancel.
@@ -191,23 +207,27 @@ transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/wh
 - **"RO closed" carries no time** — there's no true close time in the DB (§6b). Showing one would need a
   DB change (e.g. a `repair_orders.last_closed_at` stamped by a trigger every time status becomes
   `closed`) — Cris's call; not built.
-- Slices 6–7 not built: "📌 Whiteboard" on a Desk pad sticky (shows as a yellow sticky, `li.stk`), other boards.
+- Slice 7 not built: the drawer on the manager / owner / bookkeeping boards.
+- A pinned sticky becomes a plain Don't forget line — it's highlighted once, but the mockup's lasting
+  yellow "from desk pad" sticky look would need a "source" column on `whiteboard_items` (a migration) —
+  not built; Cris's call. (`li.stk` CSS is there, unused.)
 - Any change to the three tables re-reads the board (three small queries, debounced) — fine at this
   shop's volume; revisit only if it isn't.
 
 ## Where it lives in the code
-- `shared/whiteboard.js` — the panel: `createWhiteboardPanel(ctx, { db })` (the reads, realtime + `setAuth`, catch-up, click → `cdOpenRo`, the actions via `cdAuthFetch` → `/api/whiteboard`).
+- `shared/whiteboard.js` — the panel: `createWhiteboardPanel(ctx, { db })` (the reads, realtime + `setAuth`, catch-up, click → `cdOpenRo`, the actions via `cdAuthFetch` → `/api/whiteboard`, and `pin(text)` for the Desk pad's 📌).
 - `shared/whiteboard-logic.js` — `READY_STATUS`, `READY_SELECT`, `readyLines`, `vehicleText`, `boardDate`, `CALL_SELECT`, `ITEM_SELECT`, `ITEM_RO_EMBED`, `PICK_SELECT`, `RECENT_DAYS`, `NOTE_MAX`, `whenText`, `stamp`, `callsByRo`, `noteLists`, `clearedLabel`, `roLabel`, `pickOptions`, `matchRos`, `upsertRow`, `actionError`. Tested by `shared/whiteboard-logic.test.js`.
 - `api/whiteboard.js` (+ `api/whiteboard.test.js`) — every write (§8); uses `api/_lib/require-user.js`.
 - `migrations/20260924_whiteboard_{SANDBOX,PROD}.sql` (+ `shared/whiteboard-migration.test.js`) — the two tables (§7).
 - `shared/whiteboard.css` — the board look (frame, board, marker titles, handwriting lines, chips, Called ✓, write box, recently erased, tray) + the `@font-face` rules.
 - `shared/fonts/` — `permanent-marker-400.woff2`, `kalam-400.woff2`, `kalam-700.woff2` + `KALAM-OFL.txt`, `PERMANENT-MARKER-LICENSE.txt`.
-- `shared/front-desk-drawer.js` — `mountFrontDeskDrawer({ db })`: the drawer with both panels.
+- `shared/front-desk-drawer.js` — `mountFrontDeskDrawer({ db })`: the drawer with both panels, and the pad's `pinToBoard` → this panel's `pin`.
 - `shared/bottom-drawer.js` + `shared/bottom-drawer.css` — the drawer frame ([[desk-pad]] §2); skips an Esc a panel already handled.
 - `shared/desk-pad-logic.js` — `isBoardToggleKey` (W).
 - `advisor-board.html` — the three stylesheet links and the mount module before `</body>` (`cdAuthFetch` is already loaded there).
 
 ## Session change log
+- **2026-09-24** — slice 6 on staging: 📌 on each Desk pad sticky → `pin(text)` → a Don't forget line (server-stamped); the sticky leaves the pad only on success, stays with an error otherwise; new line highlighted once. No migration.
 - **2026-09-24** — **slice 5 shipped to prod** as `bc22bc8` (fast-forward `95131a4..bc22bc8`, Cris's OK after testing on test.* as ZZ Test Advisor: RO search → #6033, note with his name 7:36 AM, box closed, Arrived ✓ → "recently cleared · arrived · ZZ Test Advisor" + Undo). www / board. / apex `/api/version` = `bc22bc8` (one www read flipped back to the old SHA mid-switch, then steady); `whiteboard.js` / `.css` / `-logic.js` / this doc byte-identical on all three; CLAUDE.md 404; `POST /api/whiteboard` no token → 401 (www, board.). Prod pane, read-only (no RO opened, nothing written): W opened the board — WAITING ON PARTS zone with its RO picker loaded, no "coming next", Ready = the 5 real ROs; the pane has no prod sign-in, so "+ write on board" stayed hidden (by design) — not eyeballed signed-in on prod.
 - **2026-09-24** — closed-RO rule driven on test.* at `157ebd6` (sandbox, RO #6033 with the "torque converter · Transtar" line): status → `closed` → line off the board in 0.9 s, "recently cleared" shows "#6033 · Toyota Rav4 · IAN GEQUELIN — torque converter · Transtar · ETA Fri — RO closed" with no Undo; → `ro` → back on the board in 1.1 s, gone from recently cleared. The `whiteboard_items` row was never written (`cleared_at` / `cleared_reason` still null). #6033 left at `ro`.
 - **2026-09-24** — Cris's call on the open question: a parts line whose RO is closed now leaves the board automatically — derived from the RO's `status` at read time (`noteLists`, `auto: 'ro_closed'`), shown under "recently cleared" as "RO closed" without Undo, 7 days from the RO's `updated_at`; reopening the RO brings it back. No migration, no new `cleared_reason`, no write. Known gap removed. First cut dated it with `closed_at` — caught on test.* (showed 5:17 AM for a 6:4x close: `closed_at` is the set-once pay stamp) and changed the same day to no time + `updated_at` window; exact time left as an open question.

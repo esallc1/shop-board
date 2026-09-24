@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path';
 import {
   STORAGE_KEY, MAX_NOTES, addNote, deleteNote, updateNoteText, tearOff, cleanNotes,
   loadNotes, saveNotes, isTypingTarget, isPadToggleKey, isBoardToggleKey, noteTime,
+  PIN_MAX, pinCheck, pinNoteFlow,
   padHeight, pushScrollTarget, CAP_RATIO, ONE_ROW_MIN,
 } from './desk-pad-logic.js';
 
@@ -176,4 +177,76 @@ test('push follows the real height: the page moves by exactly the change, never 
   assert.equal(pushScrollTarget(178, 178, 300), 300);    // a 2nd row: up by the extra 122
   assert.equal(pushScrollTarget(300, 300, 178), 178);    // a note deleted: back down by 122
   assert.equal(pushScrollTarget(50, 300, 178), 0);       // clamped at the top
+});
+
+/* ── 📌 Whiteboard (slice 6): MOVE a sticky, only on a confirmed success ─── */
+const PADNOTES = [
+  { id: 'a', text: '  call Suncoast after lunch  ', time: '9:00' },
+  { id: 'b', text: '   ', time: '9:01' },
+  { id: 'c', text: 'x'.repeat(501), time: '9:02' },
+];
+
+test('pin: success → the sticky leaves the pad; the TRIMMED text is what gets posted; input untouched', async () => {
+  const copy = JSON.stringify(PADNOTES);
+  const sent = [];
+  const r = await pinNoteFlow(PADNOTES, 'a', async (t) => { sent.push(t); return { ok: true }; });
+  assert.equal(r.pinned, true);
+  assert.equal(r.error, '');
+  assert.deepEqual(r.notes.map((n) => n.id), ['b', 'c']);
+  assert.deepEqual(sent, ['call Suncoast after lunch']);
+  assert.equal(JSON.stringify(PADNOTES), copy);
+});
+
+test('pin: failure keeps the sticky — refused, 401, offline (throws), no pin function — with a message', async () => {
+  for (const [name, fn] of [
+    ['refused', async () => ({ ok: false, error: "Your CrisData sign-in isn't active on this page — log out and sign in again." })],
+    ['no message', async () => ({ ok: false })],
+    ['throws (offline)', async () => { throw new TypeError('Failed to fetch'); }],
+    ['odd value', async () => 'yes'],
+    ['no function', undefined],
+  ]) {
+    const r = await pinNoteFlow(PADNOTES, 'a', fn);
+    assert.equal(r.pinned, false, name);
+    assert.deepEqual(r.notes.map((n) => n.id), ['a', 'b', 'c'], name + ': sticky kept');
+    assert.ok(r.error.length > 0, name + ': says why');
+  }
+  const r = await pinNoteFlow(PADNOTES, 'a', async () => ({ ok: false, error: '401 words' }));
+  assert.equal(r.error, '401 words', 'the whiteboard\'s own words are shown');
+});
+
+test('pin: empty sticky is never posted; over 500 characters is refused with a clear message (never cut)', async () => {
+  let called = 0;
+  const fn = async () => { called++; return { ok: true }; };
+  const e = await pinNoteFlow(PADNOTES, 'b', fn);
+  assert.equal(e.pinned, false);
+  assert.match(e.error, /Nothing to pin/);
+  const long = await pinNoteFlow(PADNOTES, 'c', fn);
+  assert.equal(long.pinned, false);
+  assert.match(long.error, /Too long for the whiteboard \(501 \/ 500 characters\)/);
+  assert.deepEqual(long.notes.map((n) => n.id), ['a', 'b', 'c']);
+  assert.equal(called, 0, 'nothing posted');
+  assert.equal((await pinNoteFlow(PADNOTES, 'zzz', fn)).pinned, false, 'unknown id → nothing');
+  assert.equal(pinCheck('x'.repeat(PIN_MAX)).ok, true, 'exactly 500 is fine');
+  assert.equal(pinCheck('  ').reason, 'empty');
+});
+
+test('pin: the cap matches the whiteboard; the pad UI disables 📌 when empty and never touches the network', async () => {
+  const { NOTE_MAX } = await import('./whiteboard-logic.js');
+  assert.equal(PIN_MAX, NOTE_MAX);
+  const strip = (f) => readFileSync(join(here, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const ui = strip('desk-pad.js');
+  assert.match(ui, /export function createDeskPadPanel\(ctx, \{ pinToBoard \} = \{\}\)/);
+  assert.match(ui, /await pinNoteFlow\(notes, id, pinToBoard\)/);
+  assert.match(ui, /if \(r\.pinned\) notes = deleteNote\(notes, id\);\s*else if \(r\.error\) pinErr\[id\] = r\.error;/, 'removed ONLY when pinned');
+  assert.match(ui, /!n\.text\.trim\(\) \|\| busy \? ' disabled' : ''/, '📌 disabled when empty');
+  assert.match(ui, /pinBtn\.disabled = !ta\.value\.trim\(\)/, '…and follows typing');
+  assert.match(ui, /title="Pin to whiteboard"/);
+  // The drawer wires the pad to the Whiteboard's pin — the only network path.
+  const fd = strip('front-desk-drawer.js');
+  assert.match(fd, /createDeskPadPanel\(ctx, \{ pinToBoard \}\)/);
+  assert.match(fd, /board = createWhiteboardPanel\(ctx, \{ db \}\)/);
+  assert.match(fd, /board\.pin\(text\)/);
+  const wb = strip('whiteboard.js');
+  assert.match(wb, /async function pinNote\(text\) \{\s*const r = await post\(\{ action: 'add', kind: 'note', text \}\);/);
+  assert.match(wb, /pin: pinNote,/);
 });

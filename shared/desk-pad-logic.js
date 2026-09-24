@@ -95,6 +95,44 @@ export function saveNotes(getStorage, notes) {
   }
 }
 
+/* ── 📌 Whiteboard: MOVE a sticky to the shared whiteboard ─────────────── */
+// The pad never talks to the network: the drawer hands it `pinFn(text)`, which
+// posts the line (shared/whiteboard.js → /api/whiteboard) and resolves
+// { ok: true } or { ok: false, error }. The sticky is removed ONLY after the
+// server confirmed — a failure (offline, signed out, refused) keeps it, so
+// nothing is lost. Same 500-character cap as the whiteboard (never cut silently).
+export const PIN_MAX = 500;
+
+// Can this note be pinned? { ok, text } (trimmed) or { ok: false, reason, message }.
+export function pinCheck(text) {
+  const t = typeof text === 'string' ? text.trim() : '';
+  if (!t) return { ok: false, reason: 'empty', message: 'Nothing to pin — write something first.' };
+  if (t.length > PIN_MAX) {
+    return { ok: false, reason: 'too_long', message: `Too long for the whiteboard (${t.length} / ${PIN_MAX} characters) — shorten it first.` };
+  }
+  return { ok: true, text: t };
+}
+
+// Pin note `id`: check it, hand it to pinFn, and only on a confirmed success
+// return the notes without it. Never throws. Input never mutated.
+// → { notes, pinned: boolean, error: string }
+export async function pinNoteFlow(notes, id, pinFn) {
+  const list = cleanNotes(notes);
+  const note = list.find((n) => n.id === String(id));
+  if (!note) return { notes: list, pinned: false, error: '' };
+  const c = pinCheck(note.text);
+  if (!c.ok) return { notes: list, pinned: false, error: c.message };
+  let r;
+  try {
+    r = typeof pinFn === 'function' ? await pinFn(c.text) : { ok: false, error: 'Pinning isn\'t available here.' };
+  } catch (e) {
+    r = { ok: false, error: '' };
+  }
+  if (r && r.ok === true) return { notes: deleteNote(list, id), pinned: true, error: '' };
+  const err = (r && typeof r.error === 'string' && r.error) || "Couldn't pin it — it's still here. Try again.";
+  return { notes: list, pinned: false, error: err };
+}
+
 /* ── The N and W keys (the bottom drawer's two tabs) ──────────────────── */
 // Is focus somewhere the person is typing? Then N is a letter, never a shortcut.
 export function isTypingTarget(el) {

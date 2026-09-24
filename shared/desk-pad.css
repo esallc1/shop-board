@@ -30,6 +30,13 @@
 .dpad-note-head { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--sticky-ink); opacity: .8; }
 .dpad-x { border: 0; background: none; font-size: 16px; line-height: 1; color: var(--sticky-ink); padding: 2px 5px; border-radius: 5px; cursor: pointer; }
 .dpad-x:hover { background: rgba(0,0,0,.08); }
+.dpad-note-btns { display: inline-flex; align-items: center; gap: 2px; }
+.dpad-pin { border: 0; background: none; font-size: 13px; line-height: 1; padding: 3px 5px; border-radius: 5px; cursor: pointer; }
+.dpad-pin:hover:not([disabled]) { background: rgba(0,0,0,.08); }
+.dpad-pin[disabled] { opacity: .35; cursor: default; }
+.dpad-x[disabled] { opacity: .35; cursor: default; }
+.dpad-note.is-pinning { opacity: .75; }
+.dpad-note-err { font: 600 11.5px/1.35 'Segoe UI', system-ui, sans-serif; color: #b42318; background: #fff1f1; border-radius: 4px; padding: 3px 6px; }
 .dpad-text {
   flex: 1; border: 0; background: transparent; resize: none; outline: none;
   font: 14.5px/1.4 'Segoe UI', system-ui, sans-serif; color: var(--sticky-ink); min-height: 74px; padding: 2px;

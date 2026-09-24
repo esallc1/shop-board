@@ -148,6 +148,11 @@ li.is-called .wz-line { color: #5b5f69; }
 .wz-pick-item:hover, .wz-pick-item.is-sel { background: #e7eefc; }
 .wz-pick-note { padding: 4px 8px; font: 12px/1.4 ui-sans-serif, system-ui, 'Segoe UI', sans-serif; color: #6b6f7a; }
 
+/* Slice 6: a line just pinned from the Desk pad — a short yellow highlight when it's first seen. */
+.wz-list > li.is-fresh { animation: wbFresh 4s ease-out; border-radius: 3px; }
+@keyframes wbFresh { 0%, 35% { background: #fff2a1; box-shadow: 0 0 0 3px #fff2a1; } 100% { background: transparent; box-shadow: none; } }
+@media (prefers-reduced-motion: reduce) { .wz-list > li.is-fresh { animation: none; background: #fff8c9; } }
+
 /* A sticky pinned from the Desk pad. */
 .wz-list > li.stk {
   background: #fff2a1; border-radius: 2px; padding: 2px 6px; box-shadow: 0 1px 3px rgba(0,0,0,.15); transform: rotate(-.6deg);
