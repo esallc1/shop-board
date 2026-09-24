@@ -119,7 +119,9 @@ export function callsByRo(rows) {
 // A parts line whose RO is CLOSED is off the board too (Cris, 2026-09-24) —
 // DERIVED here from the RO's status, never written: it's listed under
 // "recently cleared" as { ...row, auto: 'ro_closed' } (no Undo — reopening the
-// RO brings the line back by itself), for RECENT_DAYS from the RO's close.
+// RO brings the line back by itself), for RECENT_DAYS from the RO's last change
+// (updated_at — the close itself, unless the closed RO was edited since). There
+// is no true "closed at" in the database, so the label carries no time.
 // A line already cleared by a person keeps its own reason. No RO → unaffected.
 export function noteLists(rows, now = new Date(), kind = 'note') {
   const open = [], erased = [];
@@ -132,7 +134,7 @@ export function noteLists(rows, now = new Date(), kind = 'note') {
     seen.add(String(r.id));
     const roClosed = kind === 'parts' && r.ro_id && r.ro && r.ro.status === 'closed';
     if (!r.cleared_at && roClosed) {
-      const t = Date.parse(r.ro.closed_at);
+      const t = Date.parse(r.ro.updated_at);
       if (!Number.isFinite(t) || t >= since) erased.push({ ...r, auto: 'ro_closed' });
     } else if (!r.cleared_at) {
       open.push(r);
@@ -148,16 +150,14 @@ export function noteLists(rows, now = new Date(), kind = 'note') {
 // When a line came off the board: a person's clear, or (derived) its RO's close.
 export function clearedWhen(row) {
   if (!row) return '';
-  if (row.auto === 'ro_closed') return (row.ro && row.ro.closed_at) || '';
+  if (row.auto === 'ro_closed') return (row.ro && row.ro.updated_at) || '';
   return row.cleared_at || '';
 }
 
-// "arrived · Kevin · 2:14 PM" / "erased · Kevin · 2:14 PM" / "RO closed · 3:10 PM" — how a cleared line reads.
+// "arrived · Kevin · 2:14 PM" / "erased · Kevin · 2:14 PM" / "RO closed" — how a cleared line reads.
 export function clearedLabel(row, now = new Date()) {
-  if (row && row.auto === 'ro_closed') {
-    const when = whenText(row.ro && row.ro.closed_at, now);
-    return when ? `RO closed · ${when}` : 'RO closed';
-  }
+  // No time: the database has no true "closed at" (closed_at is the set-once pay stamp).
+  if (row && row.auto === 'ro_closed') return 'RO closed';
   const what = row && row.cleared_reason === 'arrived' ? 'arrived' : 'erased';
   return `${what} · ${stamp(row && row.cleared_by_name, row && row.cleared_at, now)}`;
 }
@@ -167,8 +167,10 @@ export function clearedLabel(row, now = new Date()) {
 export const PICK_SELECT = 'id, ro_number, po, status, created_at, customers(name), vehicles(year, make, model)';
 // The RO embedded on a parts line (whiteboard_items.ro_id → repair_orders).
 // status decides whether a parts line is still on the board (a closed RO takes it off — derived,
-// never written); closed_at is only the time shown for that ("RO closed · 3:10 PM").
-export const ITEM_RO_EMBED = 'ro:repair_orders(id, ro_number, po, status, closed_at, customers(name), vehicles(year, make, model))';
+// never written). updated_at only dates that for the 7-day "recently cleared" window.
+// NOT closed_at: that is the set-ONCE pay stamp (first time the RO hit invoice OR closed —
+// migrations/20260807_ro_closed_at.sql), so it is not when the RO was closed.
+export const ITEM_RO_EMBED = 'ro:repair_orders(id, ro_number, po, status, updated_at, customers(name), vehicles(year, make, model))';
 
 // "#6089 · Ford F-250 · JOSE RAMIREZ" — make + model (no year, like the mockup), then the customer.
 export function roLabel(ro) {

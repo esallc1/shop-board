@@ -1,6 +1,6 @@
 # How the Whiteboard is wired
 > Doc: `/docs/wiring/whiteboard.md`
-> Last updated: 2026-09-24 — **§6b: a parts line whose RO is closed comes off the board by itself (derived at read time, no write)**; §4 embed adds the RO's `closed_at` (display only). Earlier the same day: slice 5, slices 1–4 and the office-whiteboard look.
+> Last updated: 2026-09-24 — **§6b: a parts line whose RO is closed comes off the board by itself (derived at read time, no write), listed as "RO closed"** (no time — the DB has no true close time); §4 embed adds the RO's `updated_at`. Earlier the same day: slice 5, slices 1–4 and the office-whiteboard look.
 > Verified vs commit `c596275` (slice 5 driven on test.* with two tabs, 2026-09-24); slices 1–4 read-only on prod at `8014f95`.
 > Status: 🟢 slices 1–4 + the look **LIVE on prod** since `8014f95`; 🟡 slice 5 (Waiting on parts) on **staging only** (test.*). No migration (uses the existing `whiteboard_items`, kind `parts`).
 > Related: [[desk-pad]] (the other tab of the same drawer; §2 there = the drawer frame),
@@ -80,10 +80,10 @@ All with the board's own signed-in Supabase client (passed in as `db`):
 2. `whiteboard_pickup_calls.select('ro_id, called_at, called_by, called_by_name').in('ro_id', <the Ready ROs>)`.
 3. `whiteboard_items.select(ITEM_SELECT + ', ' + ITEM_RO_EMBED).in('kind', ['note', 'parts'])` where
    `cleared_at` is null **or** in the last 7 days (`.or('cleared_at.is.null,cleared_at.gte.<7 days ago>')`),
-   oldest first, max 400. `ITEM_RO_EMBED = 'ro:repair_orders(id, ro_number, po, status, closed_at,
+   oldest first, max 400. `ITEM_RO_EMBED = 'ro:repair_orders(id, ro_number, po, status, updated_at,
    customers(name), vehicles(year, make, model))'` — a parts line's RO comes with it (over the `ro_id`
-   foreign key); its `status` decides whether the line is on the board (§6b), `closed_at` is only the
-   time shown. `noteLists(rows, now, kind)` splits each kind: on the board and recently cleared
+   foreign key); its `status` decides whether the line is on the board (§6b), `updated_at` only dates
+   the 7-day window. **Never `closed_at`** — see §6b. `noteLists(rows, now, kind)` splits each kind: on the board and recently cleared
    (Don't forget: `erased`; Waiting on parts: `erased`, `arrived`, and — derived — its RO closed).
 4. **Only when the parts box is opened:** `repair_orders.select(PICK_SELECT).neq('status', 'closed')
    .order('created_at', desc).limit(400)` — the open ROs for the picker (`pickOptions`, `matchRos`).
@@ -144,10 +144,15 @@ All with the board's own signed-in Supabase client (passed in as `db`):
 - **A line whose RO closes comes off the board by itself** (Cris, 2026-09-24) — **derived at read time,
   nothing is written** (no `cleared_*`, no new `cleared_reason`; same idea as the Ready list):
   `noteLists` treats a not-cleared parts line whose embedded RO has `status = 'closed'` as off the board
-  and lists it under "recently cleared" as **"RO closed · <the RO's close time>"** — **no Undo** (there's
-  nothing to undo: **reopening the RO brings the line back by itself**, because its status is no longer
-  `closed`). It stays in "recently cleared" for 7 days **from the RO's `closed_at`**; with no `closed_at`
-  it's listed without a time. Lines with no RO are unaffected; a line a person already cleared keeps its
+  and lists it under "recently cleared" as **"RO closed"** — **no Undo** (there's nothing to undo:
+  **reopening the RO brings the line back by itself**, because its status is no longer `closed`). It
+  stays in "recently cleared" for 7 days from the RO's **`updated_at`** (= the close, unless the closed
+  RO was edited since).
+  - **Why no time, and why not `closed_at`:** the database has no true "closed at". `repair_orders.closed_at`
+    is the **set-once pay stamp** — the FIRST time an RO reached `invoice` **or** `closed`, never moved
+    (`migrations/20260807_ro_closed_at.sql`) — so it's usually the invoice time and would show the wrong
+    time (on test.* it said 5:17 AM for a 6:4x close). `updated_at` moves on any later edit. An exact
+    close time would need a new stamp in the DB — open question below. Lines with no RO are unaffected; a line a person already cleared keeps its
   own "arrived / erased" reason. Live: an RO status change arrives on the `repair_orders` realtime (§5).
 
 ## 7. Storage — `whiteboard_items` + `whiteboard_pickup_calls`
@@ -183,6 +188,9 @@ transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/wh
   server-side stamps, own columns only, the 404/409 rules, never writes `repair_orders`, never DELETE).
 
 ## Known gaps & open questions (as of 2026-09-24)
+- **"RO closed" carries no time** — there's no true close time in the DB (§6b). Showing one would need a
+  DB change (e.g. a `repair_orders.last_closed_at` stamped by a trigger every time status becomes
+  `closed`) — Cris's call; not built.
 - Slices 6–7 not built: "📌 Whiteboard" on a Desk pad sticky (shows as a yellow sticky, `li.stk`), other boards.
 - Any change to the three tables re-reads the board (three small queries, debounced) — fine at this
   shop's volume; revisit only if it isn't.
@@ -200,7 +208,7 @@ transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/wh
 - `advisor-board.html` — the three stylesheet links and the mount module before `</body>` (`cdAuthFetch` is already loaded there).
 
 ## Session change log
-- **2026-09-24** — Cris's call on the open question: a parts line whose RO is closed now leaves the board automatically — derived from the RO's `status` at read time (`noteLists`, `auto: 'ro_closed'`), shown under "recently cleared" as "RO closed · <close time>" without Undo, 7 days from the RO's close; reopening the RO brings it back. No migration, no new `cleared_reason`, no write. Known gap removed.
+- **2026-09-24** — Cris's call on the open question: a parts line whose RO is closed now leaves the board automatically — derived from the RO's `status` at read time (`noteLists`, `auto: 'ro_closed'`), shown under "recently cleared" as "RO closed" without Undo, 7 days from the RO's `updated_at`; reopening the RO brings it back. No migration, no new `cleared_reason`, no write. Known gap removed. First cut dated it with `closed_at` — caught on test.* (showed 5:17 AM for a 6:4x close: `closed_at` is the set-once pay stamp) and changed the same day to no time + `updated_at` window; exact time left as an open question.
 - **2026-09-24** — slice 5 driven on test.* at `c596275` (sandbox, two tabs, ZZ Test Owner): served files byte-identical. Typed "6033" in the RO search → "#6033 · Toyota Rav4 · IAN GEQUELIN"; Enter picked it (form not submitted), note "torque converter · Transtar · ETA Fri" + Enter → line in tab 1 in 1.0 s, tab 2 ~1.9 s, RO part a link; box closed. Enter in the empty search → jumped to the note; "shop order: 10 qts ATF" (no RO) → tab 2 in 1.5 s. Arrived ✓ in tab 2 → gone in tab 1 1.3 s, "recently cleared (1)" = "arrived · ZZ Test Owner · 6:31 AM"; Undo in tab 1 → back in tab 2 1.3 s. × → "erased · ZZ Test Owner · 6:31 AM", Undo → back. Clicking the RO part → RO Board + RO #6033 open. Both test lines left on the sandbox board for Cris to look at.
 - **2026-09-24** — slice 5 on staging: Waiting on parts — optional RO picker (open ROs, number / customer / vehicle), note, who/when, RO part opens the RO, Arrived ✓ + ×, "recently cleared" (arrived / erased) + Undo, box closes after save. Endpoint: `add` with an `ro_id` now refuses a closed RO (409). The two hand-written zones share one code path (`Z.parts` / `Z.note`). No migration.
 - **2026-09-24** — **shipped to prod** as `8014f95` (fast-forward `b713d50..8014f95`, Cris's OK; PROD migration applied first, 8/8 PASS). www / board. / apex `/api/version` = `8014f95`; the 11 changed served files byte-identical on all three; migrations + CLAUDE.md 404; `POST /api/whiteboard` without a token → 401 (www, board.; the apex 308-redirects to www as always); anon REST read of `whiteboard_items` / `whiteboard_pickup_calls` on prod → 42501. Prod pane, read-only (no RO opened, nothing written): W opened the board — look + self-hosted fonts loaded, THU 9/24, live channel joined, Ready = #6013 SEAN DOHERTY, #6065 TODD FIRMSTONE, #6078 INTELIGENT SOLUTIONS, #6092 TONY KRUG, #6098 TC AUTOMOTIVE. That pane has no prod sign-in, so the hand-written half + Called ✓ stayed hidden (by design) — not eyeballed signed-in on prod.
