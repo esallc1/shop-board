@@ -180,7 +180,8 @@ export function mountBottomDrawer({ panels: factories = [] } = {}) {
   });
 
   document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape' && shown && root.contains(document.activeElement)) {
+    // A field inside a panel that uses Esc itself (e.g. the Whiteboard's write box) prevents default.
+    if (ev.key === 'Escape' && !ev.defaultPrevented && shown && root.contains(document.activeElement)) {
       ev.preventDefault();
       const was = shown; show(null);
       const t = closedTabs.querySelector(`[data-panel="${CSS.escape(was)}"]`); if (t) t.focus();

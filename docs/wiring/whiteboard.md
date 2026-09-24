@@ -1,16 +1,17 @@
 # How the Whiteboard is wired
 > Doc: `/docs/wiring/whiteboard.md`
-> Last updated: 2026-09-24 — **§2 restyled to the approved whiteboard mockup** (staging). Created the same day with slices 1 + 2.
+> Last updated: 2026-09-24 — **slices 3 + 4 (staging): "Called ✓" (§3a), Don't forget (§6), storage (§7), `api/whiteboard.js` (§8)**; §4/§5 rewritten. Earlier the same day: §2 restyled to the approved mockup; slices 1 + 2 created.
 > Verified vs commit `968d376` (slices 1 + 2; driven on test.* and read-only on prod 2026-09-24).
-> Status: 🟢 slices 1 + 2 **LIVE on prod** since `968d376`; 🟡 the whiteboard restyle is on **staging only** (test.*) until Cris's OK.
+> Status: 🟢 slices 1 + 2 **LIVE on prod** since `968d376`; 🟡 the restyle + slices 3 + 4 are on **staging only** (test.*). The tables exist on the SANDBOX only (applied by Cris 2026-09-24, 8/8 PASS) — **the PROD migration must run before this goes to `main`**.
 > Related: [[desk-pad]] (the other tab of the same drawer; §2 there = the drawer frame),
 > [[ro-checkin-tech]] §8 (the close path that sets `status = 'closed'`), [[messenger-tray]] (shares the right edge),
 > [[call-window-desk]] (the Desk tab — **untouched**; the Whiteboard only holds what the Desk doesn't).
 
 ## 0. In one line
 The shop's shared whiteboard at the bottom of the advisor board — the second tab of the bottom drawer
-("📋 Whiteboard", key **W**) — showing the ROs that are ready and need a pickup call; the parts and
-"don't forget" zones come next.
+("📋 Whiteboard", key **W**) — showing the ROs that are ready and need a pickup call (with who called
+them, and when), and a "Don't forget" list anyone in the office can write on and erase. The parts zone
+comes next.
 
 ## 1. Where it is on the page
 - A **panel** of the bottom drawer (`shared/bottom-drawer.js`, described in [[desk-pad]] §2). The drawer
@@ -36,10 +37,11 @@ another notepad"):
 - **Zones are written on the board — no boxes, no cards.** Titles in marker, UPPERCASE, underlined,
   each its own colour: **WAITING ON PARTS** (red) · **READY → CALL FOR PICKUP** (blue) ·
   **DON'T FORGET** (red). They sit side by side and wrap on a narrow window (flex; the Ready zone gets
-  the most room). An empty zone shows only its title and faint marker text ("coming next" until slices
-  4/5 ship; "nobody waiting on a call" when the Ready list is empty).
+  the most room). An empty zone shows only its title and faint marker text ("coming next" on Waiting on
+  parts until slice 5; "nobody waiting on a call" when the Ready list is empty); Don't forget always
+  shows its "+ write on board" link.
 - **Lines are handwriting** (not app cards), each with the mockup's small chip in front:
-  **⚡ auto** (fills itself — the Ready lines) or **✎ hand** (written by a person — slices 4/5).
+  **⚡ auto** (fills itself — the Ready lines) or **✎ hand** (written by a person — Don't forget; parts next).
   A sticky pinned from the Desk pad will show as a yellow sticky on the board (`li.stk`, slice 6).
 - **Fonts are self-hosted** in `shared/fonts/` — no font CDN: **Permanent Marker** (titles; Apache 2.0)
   and **Kalam** 400/700 (lines; SIL OFL 1.1), latin subset, `font-display: swap`, with system
@@ -58,53 +60,118 @@ another notepad"):
   Oldest RO first (`created_at`).
 - **Click a line** → the RO opens the normal way: the RO Board sidebar tab, then `window.cdOpenRo(id)` —
   the same door global search uses. The drawer stays open.
-- "Called ✓" (who + when) is **not** in this slice — it needs the new table + endpoint (slice 3).
 
-## 4. Reading — read-only, one query
-- **One query**, with the board's own signed-in Supabase client (passed in as `db`):
-  `repair_orders.select(READY_SELECT).eq('status', 'invoice').order('created_at')`, where
-  `READY_SELECT = 'id, ro_number, po, status, created_at, customers(name), vehicles(year, make, model)'`.
-  Named columns only — no `*`, no `book_hours`, no `closed_at`.
-- `readyLines()` shapes the rows and **drops anything that isn't `'invoice'`** a second time.
-- **Never writes, never re-saves an RO.** The Whiteboard files contain no `.update(` / `.insert(` /
-  `.upsert(` / `.delete(` / `.rpc(`, no endpoint call, and never touch `openRo` / `currentRo` /
-  `updateBookHoursAuto` — so drawing the board can't trip the "opening an RO re-saves book_hours" trap
-  (test-locked in `shared/whiteboard-logic.test.js`). Clicking a line is an ordinary RO open, with the
-  ordinary RO-open behaviour.
-- A failed read keeps the last good lines on screen with "Couldn't load the list — trying again shortly."
+### 3a. "Called ✓" (slice 3)
+- Every Ready line has a small marker-style **Called ✓** button. Tap → the line reads
+  **"✓ called · <name> · <time>"** in green marker (and the RO text greys a little), with a small
+  **undo** for a mis-tap. Time = shop time: "2:14 PM" today, "Tue 2:14 PM" this week, "9/17" older
+  (`whenText` / `stamp`).
+- One stamp per RO (`whiteboard_pickup_calls`, §7). **The line still leaves when the RO closes** (the
+  status filter, §3). The stamp row stays, so **if the RO comes back to `'invoice'` later, the old
+  stamp shows again**. undo = the stamp goes back to empty (the row is kept; nothing is deleted).
+- Only an RO whose status is `'invoice'` can be stamped (the endpoint answers 409 "That RO isn't ready
+  for pickup any more." otherwise — shown under the zone).
+
+## 4. Reading — three read-only queries, with the viewer's own session
+All with the board's own signed-in Supabase client (passed in as `db`):
+1. `repair_orders.select(READY_SELECT).eq('status', 'invoice').order('created_at')`, where
+   `READY_SELECT = 'id, ro_number, po, status, created_at, customers(name), vehicles(year, make, model)'`.
+   Named columns only — no `*`, no `book_hours`, no `closed_at`. `readyLines()` **drops anything that
+   isn't `'invoice'`** a second time.
+2. `whiteboard_pickup_calls.select('ro_id, called_at, called_by, called_by_name').in('ro_id', <the Ready ROs>)`.
+3. `whiteboard_items.select(ITEM_SELECT).eq('kind', 'note')` where `cleared_at` is null **or** in the last
+   7 days (`.or('cleared_at.is.null,cleared_at.gte.<7 days ago>')`), oldest first, max 300.
+   `noteLists()` splits them: on the board (not cleared) and "recently erased" (cleared as `erased`).
+- 2 and 3 are **staff-only** tables (RLS `is_staff()`, §7): they're read only when there is a signed-in
+  session; without one the hand-written half and the Called buttons don't show.
+- **Never writes through the client, never re-saves an RO.** The Whiteboard files contain no `.update(` /
+  `.insert(` / `.upsert(` / `.delete(` / `.rpc(`, no direct `fetch(`, and never touch `openRo` /
+  `currentRo` / `updateBookHoursAuto`; the only way out is `cdAuthFetch(db, '/api/whiteboard', …)` (§8)
+  and it never sends who/when (test-locked in `shared/whiteboard-logic.test.js`). Clicking a line is an
+  ordinary RO open, with the ordinary RO-open behaviour.
+- A failed read keeps the last good lines on screen with "couldn't load the list — trying again".
 
 ## 5. Live updates
-- A realtime channel `advisor-board-whiteboard-live` on `repair_orders` (any change → one re-read,
-  debounced 400 ms) — the same table the board's RO list and Desk listen to. It only fires because
-  `repair_orders` is in the project's `supabase_realtime` publication (prod since July; sandbox since
-  2026-09-24).
+- One realtime channel `advisor-board-whiteboard-live` on **`repair_orders`, `whiteboard_items` and
+  `whiteboard_pickup_calls`** — any change → one re-read of §4, debounced 400 ms.
+- **`db.realtime.setAuth(<the viewer's access token>)` before subscribing** (same as the Messenger tray):
+  the whiteboard tables are staff-only, so the socket must run as the viewer or RLS hides the changes.
+- All three tables are in `supabase_realtime`: `repair_orders` on prod since July and on the sandbox
+  since 2026-09-24 (`migrations/20260924_sandbox_repair_orders_realtime.sql`, [[staging-db]]); the two
+  whiteboard tables by their own migration (§7).
+- The person who made a change sees it at once (the endpoint's returned row is folded in — `upsertRow`),
+  then a quick re-read; everyone else gets it by realtime.
 - A **catch-up re-read every 60 s**, one when the browser tab becomes visible again, and one each time
-  the Whiteboard tab is shown.
-- The list loads at page load (not only when the tab is opened), so the closed tab's count is live.
-- **Proven live on test.*** (2026-09-24, after the sandbox fix): an RO moved to `invoice` appeared on
-  the Whiteboard in **0.7 s** and left in **1.1 s** when moved back; the RO Board's Ready for pickup
-  column followed in 0.4 s / 0.7 s. Before the fix the sandbox's `supabase_realtime` publication lacked
-  `repair_orders` (prod has had it since July), so test.* only moved on the 60 s catch-up — Cris added it
-  on the sandbox (`migrations/20260924_sandbox_repair_orders_realtime.sql`, SANDBOX ONLY; [[staging-db]]).
+  the Whiteboard tab is shown. The list loads at page load, so the closed tab's count is live.
+- Measured on test.*: `repair_orders` → Whiteboard in 0.7 s / out 1.1 s (2026-09-24).
+
+## 6. Don't forget (slice 4)
+- **+ write on board** → a one-line box in handwriting under the list (up to 500 characters). **Enter**
+  saves (the box stays open for the next line), **Esc** or "cancel" closes it (Esc here closes only the
+  box, not the drawer — the drawer skips an Esc a panel already handled). Empty = nothing saved.
+- Each line: ✎ hand, the text, **"— <name> · <time>"** (who wrote it, when), and a small **×**.
+- **Anyone in the office can erase any line** (×, no confirm — Undo is right there). An erased line goes
+  to **"recently erased (n) ▾"** under the zone (the last 7 days, newest first), shown struck through
+  with "erased by <name> · <time>" and an **Undo** that puts it back on the board exactly as it was
+  (same writer, same time).
+- Two people erasing the same line: the second gets "Someone already took that line off the board."
+- N / W typed into the box are letters, never the drawer shortcuts (the typing guard).
+
+## 7. Storage — `whiteboard_items` + `whiteboard_pickup_calls`
+Migration `migrations/20260924_whiteboard_{SANDBOX,PROD}.sql` (self-guarding on `app_env`, one
+transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/whiteboard-migration.test.js`).
+**SANDBOX applied by Cris 2026-09-24 (8/8 PASS). PROD not yet run.**
+- **`whiteboard_items`** — `id`, `kind` (`parts` | `note`), `text` (1–500 after trim, CHECK), `ro_id`
+  (optional → `repair_orders`), `created_by` (→ employees), `created_by_name`, `created_at`,
+  `cleared_at`, `cleared_by`, `cleared_by_name`, `cleared_reason` (`arrived` | `erased`). CHECKs:
+  `cleared_at` and `cleared_reason` are set together; `arrived` only on a `parts` line. **Never deleted** —
+  erase / Arrived ✓ set `cleared_*`, Undo clears them.
+- **`whiteboard_pickup_calls`** — `ro_id` (PK → `repair_orders`), `called_at`, `called_by`,
+  `called_by_name`, `updated_at`. One row per RO; undo sets the stamp to null and keeps the row.
+- **Who can do what** (the social_* pattern): `anon` nothing; `authenticated` **SELECT only, and only
+  when `public.is_staff()`** (a KiKi login is `authenticated` too — not enough); `service_role` everything.
+  No insert/update/delete policies — the browser never writes these tables. Both in `supabase_realtime`.
+
+## 8. The endpoint — `api/whiteboard.js`
+- **POST only.** `requireUser(req)` **first**: a live Supabase session that maps to exactly one ACTIVE
+  employee, else a flat **401** and nothing is read (same gate as `api/messenger.js`). Then `parseBody`
+  (400 on anything malformed), then the service-role key.
+- Actions — each writes **only its own columns**:
+  | action | body | writes |
+  |---|---|---|
+  | `add` | `kind` note or parts, `text` (≤ 500), `ro_id`? | a new row: kind, text, ro_id, created_by, created_by_name (RO must exist → 404) |
+  | `clear` | `id`, `reason` erased or arrived | `cleared_at/_by/_by_name/_reason` — only if not cleared yet (409); `arrived` only on parts (400) |
+  | `undo` | `id` | the four `cleared_*` back to null |
+  | `called` | `ro_id` | upsert on `ro_id`: `called_at/_by/_by_name`, `updated_at` — only for status `'invoice'` (409) |
+  | `uncalled` | `ro_id` | `called_*` back to null (row kept) |
+- **Who + when are always stamped on the server** (the employee from `requireUser`, the server clock) —
+  anything the browser sends for them is ignored. `repair_orders` is only READ. Nothing is ever DELETEd.
+- Tested by `api/whiteboard.test.js` (401 × no token / junk / KiKi login / inactive employee, 405, 400s,
+  server-side stamps, own columns only, the 404/409 rules, never writes `repair_orders`, never DELETE).
 
 ## Known gaps & open questions (as of 2026-09-24)
-- Slices 3–7 not built: the `whiteboard_items` / `whiteboard_pickup_calls` tables + `api/whiteboard.js`
-  (staff-only, `requireUser` + service role, like `api/messenger.js`), "Called ✓", Don't forget,
-  Waiting on parts, "📌 Whiteboard" on stickies, other boards.
-- Any `repair_orders` change anywhere re-reads the list (one small query, debounced) — fine at this
+- **PROD migration not run** — `migrations/20260924_whiteboard_PROD.sql` must be applied (and verified
+  8/8) **before** this reaches `main`, or prod's Called ✓ / Don't forget would read missing tables.
+- Slices 5–7 not built: Waiting on parts (RO picker + note + "Arrived ✓" — the table and endpoint
+  already take `kind: 'parts'` and `reason: 'arrived'`), "📌 Whiteboard" on a Desk pad sticky (shows as
+  a yellow sticky, `li.stk`), other boards.
+- Any change to the three tables re-reads the board (three small queries, debounced) — fine at this
   shop's volume; revisit only if it isn't.
 
 ## Where it lives in the code
-- `shared/whiteboard.js` — the panel: `createWhiteboardPanel(ctx, { db })` (the query, realtime, catch-up, click → `cdOpenRo`).
-- `shared/whiteboard-logic.js` — `READY_STATUS`, `READY_SELECT`, `readyLines`, `vehicleText`, `boardDate`. Tested by `shared/whiteboard-logic.test.js`.
-- `shared/whiteboard.css` — the board look (frame, board, marker titles, handwriting lines, chips, tray) + the `@font-face` rules.
+- `shared/whiteboard.js` — the panel: `createWhiteboardPanel(ctx, { db })` (the reads, realtime + `setAuth`, catch-up, click → `cdOpenRo`, the actions via `cdAuthFetch` → `/api/whiteboard`).
+- `shared/whiteboard-logic.js` — `READY_STATUS`, `READY_SELECT`, `readyLines`, `vehicleText`, `boardDate`, `CALL_SELECT`, `ITEM_SELECT`, `RECENT_DAYS`, `NOTE_MAX`, `whenText`, `stamp`, `callsByRo`, `noteLists`, `upsertRow`, `actionError`. Tested by `shared/whiteboard-logic.test.js`.
+- `api/whiteboard.js` (+ `api/whiteboard.test.js`) — every write (§8); uses `api/_lib/require-user.js`.
+- `migrations/20260924_whiteboard_{SANDBOX,PROD}.sql` (+ `shared/whiteboard-migration.test.js`) — the two tables (§7).
+- `shared/whiteboard.css` — the board look (frame, board, marker titles, handwriting lines, chips, Called ✓, write box, recently erased, tray) + the `@font-face` rules.
 - `shared/fonts/` — `permanent-marker-400.woff2`, `kalam-400.woff2`, `kalam-700.woff2` + `KALAM-OFL.txt`, `PERMANENT-MARKER-LICENSE.txt`.
 - `shared/front-desk-drawer.js` — `mountFrontDeskDrawer({ db })`: the drawer with both panels.
-- `shared/bottom-drawer.js` + `shared/bottom-drawer.css` — the drawer frame ([[desk-pad]] §2).
+- `shared/bottom-drawer.js` + `shared/bottom-drawer.css` — the drawer frame ([[desk-pad]] §2); skips an Esc a panel already handled.
 - `shared/desk-pad-logic.js` — `isBoardToggleKey` (W).
-- `advisor-board.html` — the three stylesheet links and the mount module before `</body>`.
+- `advisor-board.html` — the three stylesheet links and the mount module before `</body>` (`cdAuthFetch` is already loaded there).
 
 ## Session change log
+- **2026-09-24** — slices 3 + 4 on staging: `whiteboard_items` + `whiteboard_pickup_calls` (SANDBOX applied by Cris, 8/8 PASS; PROD not run), `api/whiteboard.js` (add / clear / undo / called / uncalled, `requireUser` first, server-side stamps), "Called ✓" + undo on Ready lines, Don't forget (+ write on board, who/when, erase, recently erased + Undo), realtime on all three tables after `setAuth`. The drawer now skips an Esc a panel already handled.
 - **2026-09-24** — restyled to the approved Front Office whiteboard mockup (Cris: "looks like another notepad"): aluminum frame, glossy board, FRONT OFFICE + red date, marker zone titles (parts red · ready blue · don't forget red), handwriting lines with ⚡ auto chips, marker tray; grey dashed "Coming next" boxes removed (faint marker text instead); fonts self-hosted in `shared/fonts` (Permanent Marker, Kalam). Checked locally at 1100 and 800 px. Staging only.
 - **2026-09-24** — **shipped to prod** as `968d376` (fast-forward `7dbaff0..968d376`, Cris's OK). www / board. / apex `/api/version` = `968d376`; the 14 changed served files byte-identical on all three; migration record + CLAUDE.md 404. Prod read-only (no RO opened, no status moved): W opened the Whiteboard (324 px, page pushed 324), N switched to the pad, Esc hid it (scroll 0); "Ready → call for pickup" = #6013 SEAN DOHERTY, #6065 TODD FIRMSTONE, #6078 INTELIGENT SOLUTIONS, #6092 TONY KRUG, #6098 TC AUTOMOTIVE — matches a direct status='invoice' query; realtime channel joined.
 - **2026-09-24** — realtime proven on test.* after Cris added `repair_orders` to the sandbox's `supabase_realtime` (prod already had it): Whiteboard in 0.7 s / out 1.1 s, RO Board 0.4 s / 0.7 s (RO #6033 `ro`→`invoice`→`ro`, left at `ro`). §5 + Known gaps rewritten.

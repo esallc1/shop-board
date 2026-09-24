@@ -65,7 +65,8 @@ is the frame; each tab is a **panel** built by its own module: **📝 Desk pad**
   with no Ctrl/⌘/Alt, not a held-down repeat (`isPadToggleKey`). N while the Whiteboard shows switches to
   the pad. Opened with N, the cursor goes into the first note (if any), else onto the pad's header tab.
   **W** does the same for the Whiteboard (`isBoardToggleKey`, same guards). **Esc** hides the drawer
-  when it's open and focus is inside it (opening it puts focus there).
+  when it's open and focus is inside it (opening it puts focus there) — unless a field in a panel already
+  used that Esc (`defaultPrevented`, e.g. the Whiteboard's write-on-board box closes only itself).
 - Another browser tab on the same computer changing the pad → this one follows (`storage` event),
   unless you're typing in a note here.
 
@@ -109,6 +110,7 @@ is the frame; each tab is a **panel** built by its own module: **📝 Desk pad**
 - `advisor-board.html` — the stylesheet `<link>`s and the mount module before `</body>`.
 
 ## Session change log
+- **2026-09-24** — drawer Esc now skips an Esc a panel field already handled (the Whiteboard's write box, [[whiteboard]] §6). Staging.
 - **2026-09-24** — the two-tab drawer **shipped to prod** as `968d376` (www / board. / apex byte-identical; N / W / Esc checked read-only on prod) — see [[whiteboard]].
 - **2026-09-24** — drawer driven on test.* at `d158b6a` (1100 px tray open/tucked, 800 px overlay; real N / W / Esc; W typed in the search box did not open it) — see [[whiteboard]]'s change log for the numbers.
 - **2026-09-24** — the pad became the first tab of a two-tab bottom drawer (📝 Desk pad N · 📋 Whiteboard W): frame moved to `shared/bottom-drawer.js`/`.css`, pad now `createDeskPadPanel`, mounted via `mountFrontDeskDrawer({ db })`; `isBoardToggleKey` added; notes behave as before. Staging only.

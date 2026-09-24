@@ -60,3 +60,86 @@ export function boardDate(now = new Date()) {
     return ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'][now.getDay()] + ` ${now.getMonth() + 1}/${now.getDate()}`;
   }
 }
+
+/* ── Slices 3 + 4: "Called ✓" and Don't forget ─────────────────────────── */
+// Rows come from whiteboard_pickup_calls / whiteboard_items (staff read); every
+// write goes through api/whiteboard.js, which stamps who + when.
+
+export const RECENT_DAYS = 7;          // "Recently erased" looks back this far
+export const NOTE_MAX = 500;           // same cap as the endpoint + the table CHECK
+export const CALL_SELECT = 'ro_id, called_at, called_by, called_by_name';
+export const ITEM_SELECT = 'id, kind, text, ro_id, created_by_name, created_at, cleared_at, cleared_by_name, cleared_reason';
+
+const SHOP_TZ = 'America/New_York';
+function parts(d) {
+  return Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: SHOP_TZ, weekday: 'short', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  }).formatToParts(d).map((x) => [x.type, x.value]));
+}
+
+// "2:14 PM" today · "Tue 2:14 PM" this week · "9/17" older. Shop time.
+export function whenText(iso, now = new Date()) {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  const d = new Date(t);
+  try {
+    const p = parts(d), n = parts(now);
+    const time = `${p.hour}:${p.minute} ${p.dayPeriod}`;
+    if (p.month === n.month && p.day === n.day && Math.abs(now - d) < 36 * 3600e3) return time;
+    if (now - d < 6 * 24 * 3600e3) return `${p.weekday} ${time}`;
+    return `${p.month}/${p.day}`;
+  } catch (e) {
+    return d.toLocaleString();
+  }
+}
+
+// "Kevin · 2:14 PM" — the stamp shown after a line.
+export function stamp(name, iso, now = new Date()) {
+  const who = (name && String(name).trim()) || 'someone';
+  const when = whenText(iso, now);
+  return when ? `${who} · ${when}` : who;
+}
+
+// ro_id → call row, only the rows that are actually stamped (called_at set).
+export function callsByRo(rows) {
+  const m = new Map();
+  if (!Array.isArray(rows)) return m;
+  for (const r of rows) {
+    if (r && r.ro_id != null && r.called_at) m.set(String(r.ro_id), r);
+  }
+  return m;
+}
+
+// Don't forget rows → { open, erased }. open = on the board, oldest first.
+// erased = taken off with "erase" in the last RECENT_DAYS, newest first.
+export function noteLists(rows, now = new Date(), kind = 'note') {
+  const open = [], erased = [];
+  if (!Array.isArray(rows)) return { open, erased };
+  const since = now.getTime() - RECENT_DAYS * 24 * 3600e3;
+  const seen = new Set();
+  for (const r of rows) {
+    if (!r || typeof r !== 'object' || r.kind !== kind || r.id == null || seen.has(String(r.id))) continue;
+    seen.add(String(r.id));
+    if (!r.cleared_at) open.push(r);
+    else if (r.cleared_reason === 'erased' && Date.parse(r.cleared_at) >= since) erased.push(r);
+  }
+  open.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+  erased.sort((a, b) => String(b.cleared_at).localeCompare(String(a.cleared_at)));
+  return { open, erased };
+}
+
+// Put one row the endpoint just returned into a list (replace by key, or add).
+export function upsertRow(rows, row, key = 'id') {
+  const list = Array.isArray(rows) ? rows.slice() : [];
+  if (!row || row[key] == null) return list;
+  const i = list.findIndex((r) => r && String(r[key]) === String(row[key]));
+  if (i >= 0) list[i] = { ...list[i], ...row }; else list.push(row);
+  return list;
+}
+
+// The words shown when an action is refused (the endpoint's own message wins).
+export function actionError(status, body, fallback = "Couldn't save that — try again.") {
+  if (Number(status) === 401) return "Your CrisData sign-in isn't active on this page — log out and sign in again.";
+  if (body && typeof body.message === 'string' && body.message) return body.message;
+  return fallback;
+}
