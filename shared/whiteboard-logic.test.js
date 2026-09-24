@@ -179,3 +179,16 @@ test('the look: self-hosted marker + handwriting fonts, no font CDN; the mockup 
   }
   assert.doesNotMatch(ui, /is-soon|dashed/, 'no grey dashed placeholder boxes');
 });
+
+test("write on board: the box CLOSES after a save; stays open (text kept) when the save fails; Esc/cancel close without saving", () => {
+  const ui = code('whiteboard.js');
+  const submit = ui.slice(ui.indexOf("form.addEventListener('submit'"), ui.indexOf("input.addEventListener('keydown'"));
+  assert.match(submit, /if \(ok\) \{ closeForm\(\); writeBtn\.focus\(\); \} else input\.focus\(\);/);
+  assert.doesNotMatch(submit, /if \(ok\) input\.value = ''/, 'the old keep-open behaviour is gone');
+  assert.match(submit, /if \(!text\) \{ closeForm\(\); return; \}/, 'empty = nothing saved, box closes');
+  const esc = ui.slice(ui.indexOf("input.addEventListener('keydown'"));
+  assert.match(esc, /ev\.key === 'Escape'\) \{ ev\.preventDefault\(\); closeForm\(\);/);
+  assert.match(ui, /case 'cancel': closeForm\(\); return;/);
+  // closeForm clears the text — nothing lingers for the next open.
+  assert.match(ui, /function closeForm\(\) \{ form\.hidden = true; input\.value = ''; draw\(\); \}/);
+});

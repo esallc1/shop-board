@@ -107,8 +107,10 @@ All with the board's own signed-in Supabase client (passed in as `db`):
 
 ## 6. Don't forget (slice 4)
 - **+ write on board** → a one-line box in handwriting under the list (up to 500 characters). **Enter**
-  saves (the box stays open for the next line), **Esc** or "cancel" closes it (Esc here closes only the
-  box, not the drawer — the drawer skips an Esc a panel already handled). Empty = nothing saved.
+  or "save" saves and **the box closes** (Cris, 2026-09-24) — "+ write on board" again for the next
+  line. If the save fails, the box stays open with the text and the reason shows under it. **Esc** or
+  "cancel" closes it without saving (Esc here closes only the box, not the drawer — the drawer skips an
+  Esc a panel already handled). Empty = nothing saved.
 - Each line: ✎ hand, the text, **"— <name> · <time>"** (who wrote it, when), and a small **×**.
 - **Anyone in the office can erase any line** (×, no confirm — Undo is right there). An erased line goes
   to **"recently erased (n) ▾"** under the zone (the last 7 days, newest first), shown struck through
@@ -171,6 +173,7 @@ transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/wh
 - `advisor-board.html` — the three stylesheet links and the mount module before `</body>` (`cdAuthFetch` is already loaded there).
 
 ## Session change log
+- **2026-09-24** — two-person check with Cris on test.*: his line as **ZZ Test Advisor** (Chrome) — "test from advisor - order ATF · ZZ Test Advisor · 6:12 AM" — appeared live on the ZZ Test Owner tab (loaded 6:06, no reload); from ZZ Test Owner at 6:14: Called ✓ on #6026, a new line, and his line erased, for Cris to confirm on his side. Change (Cris): the write box now **closes after each save** (stays open with the text only when a save fails).
 - **2026-09-24** — slices 3 + 4 driven on test.* at `a489f36` (sandbox; two tabs, each its own page + realtime socket, both signed in as ZZ Test Owner — Chrome had no test.* session and Claude doesn't type passwords, so not two different people): served files byte-identical; `/api/whiteboard` GET 405, POST no token / junk token 401; anon REST read of `whiteboard_items` → 42501. Typed a note + Enter in tab 1 → shown there 0.7 s, in tab 2 ~1.9 s, stamped "ZZ Test Owner · 6:07 AM" by the server; Called ✓ in tab 2 → stamp in tab 1 in 1.8 s; Esc in the write box closed only the box, a 2nd Esc hid the drawer; erase in tab 2 → gone in tab 1 1.6 s, "recently erased (1)" with who; Undo in tab 1 → back in tab 2 1.3 s, original writer + time; RO #6009 `invoice`→`ro`→`invoice` (sandbox) → left 1.1 s, back 0.9 s **with its old stamp**; undo call in tab 1 → gone in tab 2 1.7 s. Left: #6009 at `invoice`, its call row stamp-empty, the test note erased (soft).
 - **2026-09-24** — slices 3 + 4 on staging: `whiteboard_items` + `whiteboard_pickup_calls` (SANDBOX applied by Cris, 8/8 PASS; PROD not run), `api/whiteboard.js` (add / clear / undo / called / uncalled, `requireUser` first, server-side stamps), "Called ✓" + undo on Ready lines, Don't forget (+ write on board, who/when, erase, recently erased + Undo), realtime on all three tables after `setAuth`. The drawer now skips an Esc a panel already handled.
 - **2026-09-24** — restyled to the approved Front Office whiteboard mockup (Cris: "looks like another notepad"): aluminum frame, glossy board, FRONT OFFICE + red date, marker zone titles (parts red · ready blue · don't forget red), handwriting lines with ⚡ auto chips, marker tray; grey dashed "Coming next" boxes removed (faint marker text instead); fonts self-hosted in `shared/fonts` (Permanent Marker, Kalam). Checked locally at 1100 and 800 px. Staging only.

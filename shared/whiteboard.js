@@ -253,8 +253,9 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
     const ok = await act('new', { action: 'add', kind: 'note', text },
       (b) => { if (b.item) items = upsertRow(items, b.item); }, setNoteErr);
     input.disabled = false;
-    if (ok) input.value = '';
-    input.focus();            // stay in the box: write the next line straight away
+    // Saved → the box closes (Cris, 2026-09-24); "+ write on board" opens it again.
+    // Not saved → it stays open with the text, so nothing typed is lost.
+    if (ok) { closeForm(); writeBtn.focus(); } else input.focus();
   });
   // Esc in the box closes the box only — not the whole drawer (the drawer skips a prevented Esc).
   input.addEventListener('keydown', (ev) => {
