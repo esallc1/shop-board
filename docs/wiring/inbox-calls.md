@@ -1,8 +1,8 @@
 # How incoming calls live in the Inbox tray
 > Doc: `/docs/wiring/inbox-calls.md`
 > Last updated: 2026-09-24 — created with **slice 1** of "calls into the Inbox tray" (Cris's design, the
-> "Front Desk Inbox Tray" mockup screens 1, 2 and 4). Verified vs commit `0881a9d` (driven on test.*, staging only).
-> Status: 🟡 **staging only** (test.*) — Cris reviews before `main`.
+> "Front Desk Inbox Tray" mockup screens 1, 2 and 4). Verified vs commit `47bdc15` (test.* + read-only on prod).
+> Status: 🟢 **LIVE on prod** since `47bdc15` (2026-09-24). Slices 2–6 (general inbox, security, missed calls, handled, History) not built.
 > Related: [[messenger-tray]] (the tray this lives in), [[call-window-desk]] (the call card's writes, the Desk
 > lanes it feeds — unchanged), [[recordings-audio]] (the recording on screen 2), [[desk-pad]] (the bottom
 > drawer beside the tray).
@@ -110,6 +110,7 @@ nothing itself (test-locked). The card still never writes `resolved_at` (test-lo
 - `shared/bottom-drawer.css` — `body.mtray-tucked .bdr { --dp-right: 48px }`.
 
 ## Session change log
+- **2026-09-24** — **shipped to prod** as `47bdc15` (fast-forward `1682236..47bdc15`, Cris's OK after testing on test.* as ZZ Test Advisor). www / board. / apex `/api/version` = `47bdc15` (steady); the 12 changed served files byte-identical on all three; CLAUDE.md 404. Prod read-only (pane not signed in, nothing written, no RO opened): the tray loaded FOLDED (strip, board padded 48 px), no `#callCardStack`, no floating `.call-card` anywhere, f badge "!" (the not-signed-in state), 📞 grey. Before the ship, the two glance fixes checked on test.* with dry-run rings: JOSE RAMIREZ → no Last visit / no Heads up rows (his only RO is in the shop); KEVIN CRUZ → Last visit "RO #6032 · Sep 19", no Heads up.
 - **2026-09-24** — Cris tested slice 1 on test.* as ZZ Test Advisor (3:51–3:57 PM): reload folded (📞1 f2), JOSE RAMIREZ ring auto-opened with the glance, (239) 555-0196 as New caller, his note saved (Call Log shows it), Jose dropped to "no note yet" after the ring window. Approved, with two glance fixes: Last visit = most recent CLOSED RO "RO# · date", hidden when none; Heads up hidden when nothing to flag. Sandbox leftovers kept on purpose: TEST RELOAD (untouched), TEST TRAYCALL (row 297, Fri Sep 25 callback), and the two 3:52 / 3:53 PM test rings (JOSE RAMIREZ 990000501, (239) 555-0196 990000502).
 - **2026-09-24** — the two changes driven on test.* at `0881a9d` (ZZ Test Owner, sandbox): files byte-identical. **Reload with old threads waiting → stayed folded**: f badge 2 (the 2 threads still in their reply window), phone badge grey, "Can't reply anymore (7)" not counted. **Fake ring (`cdHandleTestCall`) → opened** (3 waiting = 1 call + 2 threads). Can't-reply section opened: 7 rows, 📞 Call them (`tel:` from the customer's or the typed phone) or "No phone on file", ✓ Done on each; Done on one sandbox thread → `done_at` set, section 7 → 6, f badge still 2, tray stayed open. **An old untouched call after a reload joins quietly**: a fake sandbox ring (TEST RELOAD, row via test.*'s webhook) left 2+ min, reload → folded; backfill → row "no note yet", 📞 badge 1, no pulse, still folded. (The load-time backfill waits for the page to be visible — the test pane was hidden; it also runs on becoming visible.) Left on the sandbox: TEST RELOAD (untouched — shows in "Needs handling" on today's sandbox boards) and TEST TRAYCALL (row 297, a Fri Sep 25 callback).
 - **2026-09-24** — (Cris) page load stays folded; only a call ringing NOW (or a new FB message) opens the tray; backfilled calls join quietly. FB threads past the 24 h window don't count toward the badge / "N waiting" ([[messenger-tray]] §2). Staging.
