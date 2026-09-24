@@ -172,7 +172,9 @@ export function mountCallSlot({ section, onChange, timeLabel }) {
       if (!card.dataset.ringStart) card.dataset.ringStart = String(ringStartMs(card._call, Date.now()));
       store.appendChild(card);
       arrange();
-      if (typeof onChange === 'function') onChange({ added: true });
+      // `ringing`: the tray opens by itself only for a call ringing NOW — a backfilled
+      // call from earlier today (e.g. after a reload) just joins the list quietly.
+      if (typeof onChange === 'function') onChange({ added: true, ringing: isRinging(Number(card.dataset.ringStart), Date.now()) });
     },
     has: (id) => cards().some((c) => c.dataset.callId === String(id)),
     count: () => cards().length,

@@ -26,8 +26,13 @@
      open    — the panel (calls + "Needs handling", or one call / conversation).
      hidden  — only before the first load.
      signin / notstaff / error — the strip with a "!" badge; opening it says why.
-   A NEW customer message opens it from tucked. Tucking is remembered per
-   browser until the next new customer message.
+   OPENS BY ITSELF ONLY FOR SOMETHING NEW while the page is open (Cris,
+   2026-09-24): a ringing call, or a newly arrived customer message. A page load /
+   new tab stays folded even with items waiting (the badges show them). It folds
+   back by itself when the last waiting item is handled.
+   A thread whose 24 h reply window closed stops counting as waiting: it moves to a
+   collapsed "Can't reply anymore" section at the bottom (Call them / Done); a new
+   customer message brings it back to "Needs handling".
 
    The reply box lives OUTSIDE the redrawn area, so a realtime refresh never
    wipes what someone is typing. Drafts are kept per conversation.
@@ -36,12 +41,11 @@
    ============================================================ */
 import { mountCallSlot } from './inbox-calls.js';
 import {
-  waitingThreads, threadName, windowLabel, previewText, attachmentLabel,
+  splitWaiting, callLink, threadName, windowLabel, previewText, attachmentLabel,
   timeLabel, newestInbound, hasNewInbound, latestByThread,
   composeState, replyError, searchCustomers, bylineWithViewer, matchPhoneToCustomer,
 } from './messenger-tray-logic.js';
 
-const TUCK_KEY = 'cdMtrayTuckedAt';   // newest inbound (ms) when the viewer tucked it
 const CATCH_UP_MS = 60 * 1000;
 const API = '/api/messenger';
 
@@ -51,8 +55,6 @@ const esc = (s) => String(s == null ? '' : s)
 const safeUrl = (u) => (typeof u === 'string' && /^https:\/\//i.test(u)) ? u : null;
 const fmtPhone = (p) => (typeof window.formatPhone === 'function' ? window.formatPhone(p) : p) || '';
 
-function readTuck() { try { const v = localStorage.getItem(TUCK_KEY); return v == null ? null : Number(v); } catch (e) { return null; } }
-function writeTuck(v) { try { if (v == null) localStorage.removeItem(TUCK_KEY); else localStorage.setItem(TUCK_KEY, String(v)); } catch (e) {} }
 
 export function mountMessengerTray({ db, viewer }) {
   if (!db || document.getElementById('mtray')) return;
@@ -117,7 +119,9 @@ export function mountMessengerTray({ db, viewer }) {
   const st = {
     mode: 'loading',           // loading | ok | signin | notstaff | error
     ui: 'hidden',              // hidden | open | tucked
-    threads: [], waiting: [], latest: {}, customers: {}, employees: null,
+    threads: [], waiting: [], stale: [], latest: {}, customers: {}, employees: null,
+    showStale: false,          // the "Can't reply anymore" section is collapsed until clicked
+    lastCount: 0,              // waiting threads + calls at the last decision (auto-fold on the drop to 0)
     openThreadId: null, threadMsgs: [], newest: null, loadedOnce: false, loadedOnceBefore: false,
     errorText: '', staffChecked: false,
     drafts: {},                // threadId → unsent text
@@ -197,7 +201,7 @@ export function mountMessengerTray({ db, viewer }) {
     if (!st.waiting.length) {
       body.innerHTML = warn + (calls()
         ? `<div class="mtray-note is-small">No Facebook messages waiting.</div>`
-        : `<div class="mtray-note"><strong>All caught up.</strong>New calls and Facebook messages will show here.</div>`);
+        : `<div class="mtray-note"><strong>All caught up.</strong>New calls and Facebook messages will show here.</div>`) + staleHtml();
       return;
     }
     const now = Date.now();
@@ -213,7 +217,30 @@ export function mountMessengerTray({ db, viewer }) {
         <div class="mtray-preview">${esc(previewText(st.latest[t.id]))}</div>
         <span class="mtray-win ${winCls}">${esc(w.text)}</span>
       </button>`;
+    }).join('') + staleHtml();
+  }
+
+  // "Can't reply anymore" — waiting threads whose 24 h window closed. Collapsed; not counted.
+  function staleHtml() {
+    if (!st.stale.length) return '';
+    const now = Date.now();
+    const rows = !st.showStale ? '' : st.stale.map((t) => {
+      const who = threadName(t, st.customers);
+      const call = callLink(t, linkedCustomer(t));
+      const busy = st.busy === 'done:' + t.id;
+      return `<div class="mtray-stale-row">
+        <button type="button" class="mtray-stale-open" data-thread="${esc(t.id)}">
+          <span class="mtray-row-top"><span class="mtray-name${who.linked ? '' : ' is-fb'}">${esc(who.name)}</span><span class="mtray-time">${esc(timeLabel(t.last_message_at, now))}</span></span>
+          <span class="mtray-preview">${esc(previewText(st.latest[t.id]))}</span>
+        </button>
+        <div class="mtray-stale-acts">
+          ${call ? `<a class="mtray-iconbtn" href="${esc(call.tel)}">📞 Call them</a>` : '<span class="mtray-stale-nophone">No phone on file</span>'}
+          <button type="button" class="mtray-iconbtn is-done" data-act="done-thread" data-thread-id="${esc(t.id)}"${busy ? ' disabled' : ''}>${busy ? 'Done…' : '✓ Done'}</button>
+        </div>
+      </div>`;
     }).join('');
+    return `<button type="button" class="mtray-stale-toggle" data-act="stale-toggle" aria-expanded="${st.showStale}">Can't reply anymore (${st.stale.length}) ${st.showStale ? '▾' : '▸'}</button>
+      ${st.headErr && !st.openThreadId ? `<div class="mtray-head-err">${esc(st.headErr)}</div>` : ''}${rows}`;
   }
 
   function openThread() { return st.threads.find((x) => x.id === st.openThreadId) || null; }
@@ -340,22 +367,20 @@ export function mountMessengerTray({ db, viewer }) {
 
   /* ── what to show after a load ───────────────────────────────────────── */
   function decideUi(prevNewest) {
+    const count = (st.mode === 'ok' ? st.waiting.length : 0) + calls();
+    const before = st.lastCount;
+    st.lastCount = count;
     if (st.mode === 'signin' || st.mode === 'notstaff' || (st.mode === 'error' && !st.loadedOnce)) {
       if (st.ui === 'hidden') setUi('tucked');
       return;
     }
-    if (!st.waiting.length) {
-      if (calls()) { if (st.ui === 'hidden') setUi('tucked'); return; }   // a call is here — keep it where it is
-      if (!(st.ui === 'open' && st.openThreadId)) setUi('tucked');        // nothing waiting → fold to the strip
-      return;
-    }
-    if (!st.loadedOnceBefore) {
-      const tuck = readTuck();
-      setUi(tuck != null && st.newest != null && st.newest <= tuck ? 'tucked' : 'open');
-      if (st.ui === 'open') writeTuck(null);
-      return;
-    }
-    if (hasNewInbound(prevNewest, st.newest)) { setUi('open'); writeTuck(null); return; }
+    // Page load / new tab: stay folded — the badges show what's waiting. Never opens here.
+    if (!st.loadedOnceBefore) { if (st.ui === 'hidden') setUi('tucked'); return; }
+    // Something NEW while the page is open: a customer message that just arrived.
+    if (hasNewInbound(prevNewest, st.newest) && st.waiting.length) { setUi('open'); return; }
+    // The last waiting item was just handled (count dropped to 0) → fold back to the strip,
+    // unless someone is reading a conversation or the "Can't reply anymore" list.
+    if (count === 0 && before > 0 && st.ui === 'open' && !st.openThreadId && !st.showStale) { setUi('tucked'); return; }
     if (st.ui === 'hidden') setUi('tucked');
   }
 
@@ -385,8 +410,8 @@ export function mountMessengerTray({ db, viewer }) {
           .limit(200);
         if (tr.error) throw tr.error;
         st.threads = tr.data || [];
-        st.waiting = waitingThreads(st.threads);
-        const ids = st.waiting.map((t) => t.id);
+        ({ active: st.waiting, stale: st.stale } = splitWaiting(st.threads));
+        const ids = [...st.waiting, ...st.stale].map((t) => t.id);
 
         const custIds = [...new Set(st.threads.map((t) => t.customer_id).filter(Boolean))].filter((id) => !st.customers[id]);
         if (custIds.length) {
@@ -465,18 +490,20 @@ export function mountMessengerTray({ db, viewer }) {
     load();
   }
 
-  async function doDone() {
-    const t = openThread();
+  // Done on the open conversation, or (from "Can't reply anymore") on thread `id`.
+  async function doDone(id) {
+    const t = id ? st.threads.find((x) => x.id === id) : openThread();
     if (!t || st.busy) return;
-    st.busy = 'done'; st.headErr = ''; draw();
+    st.busy = id ? 'done:' + id : 'done'; st.headErr = ''; draw();
     const r = await callApi({ action: 'done', thread_id: t.id });
     st.busy = null;
     if (!r.ok) { st.headErr = replyError(r.status, r.body).message; draw(); return; }
-    // Leave the conversation; the list redraws without it. Nothing left → hide.
+    // Leave the conversation; the list redraws without it.
     t.done_at = (r.body && r.body.thread && r.body.thread.done_at) || new Date().toISOString();
-    st.waiting = waitingThreads(st.threads);
-    st.openThreadId = null; st.threadMsgs = []; st.confirmUnlink = false;
-    if (!st.waiting.length && !calls()) setUi('tucked');
+    ({ active: st.waiting, stale: st.stale } = splitWaiting(st.threads));
+    if (!id) { st.openThreadId = null; st.threadMsgs = []; st.confirmUnlink = false; }
+    if (!st.stale.length) st.showStale = false;
+    if (!st.waiting.length && !calls() && !st.showStale) setUi('tucked');
     draw();
     load();
   }
@@ -550,7 +577,7 @@ export function mountMessengerTray({ db, viewer }) {
   setInterval(load, CATCH_UP_MS);
 
   /* ── events ──────────────────────────────────────────────────────────── */
-  strip.addEventListener('click', () => { setUi('open'); writeTuck(null); draw(); });
+  strip.addEventListener('click', () => { setUi('open'); draw(); });
   input.addEventListener('input', () => { if (input.dataset.thread) st.drafts[input.dataset.thread] = input.value; });
   input.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); send(); }
@@ -568,8 +595,7 @@ export function mountMessengerTray({ db, viewer }) {
     if (act) {
       switch (act.dataset.act) {
         case 'tuck':
-          writeTuck(st.newest != null ? st.newest : Date.now());
-          st.openThreadId = null; st.confirmUnlink = false;
+          st.openThreadId = null; st.confirmUnlink = false; st.showStale = false;
           setUi('tucked');
           draw(); return;
         case 'back':
@@ -579,6 +605,8 @@ export function mountMessengerTray({ db, viewer }) {
           draw(); return;
         case 'send': send(); return;
         case 'done': doDone(); return;
+        case 'done-thread': doDone(act.dataset.threadId); return;
+        case 'stale-toggle': st.showStale = !st.showStale; draw(); return;
         case 'link': openPicker(); return;
         case 'picker-close': closePicker(); return;
         case 'unlink': st.confirmUnlink = true; draw(); return;
@@ -593,7 +621,7 @@ export function mountMessengerTray({ db, viewer }) {
       }
     }
     const row = ev.target.closest('[data-thread]');
-    if (row && row.classList.contains('mtray-row')) {
+    if (row && (row.classList.contains('mtray-row') || row.classList.contains('mtray-stale-open'))) {
       st.openThreadId = row.dataset.thread;
       st.threadMsgs = []; st.confirmUnlink = false; st.headErr = ''; st.composeErrText = '';
       draw();
@@ -609,9 +637,9 @@ export function mountMessengerTray({ db, viewer }) {
   callSlot = mountCallSlot({
     section: callSection,
     timeLabel,
-    onChange({ added }) {
-      if (added) setUi('open');
-      else if (!calls() && st.ui === 'open' && !st.openThreadId && st.mode === 'ok' && !st.waiting.length) setUi('tucked');
+    onChange({ added, ringing }) {
+      if (added && ringing) setUi('open');                 // only a call that is actually ringing now
+      else if (!calls() && st.ui === 'open' && !st.openThreadId && !st.showStale && st.mode === 'ok' && !st.waiting.length) setUi('tucked');
       draw();
     },
   });

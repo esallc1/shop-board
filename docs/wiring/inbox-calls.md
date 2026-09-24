@@ -17,11 +17,14 @@ An incoming call no longer floats over the board: it rings as a pinned caller-ID
   **📞 badge + count** and the **f badge + count** (a badge with nothing waiting is greyed), and "INBOX" written
   down it. It **pushes the board** (`body.mtray-tucked` → `.main-area` padding-right 48 px) and the bottom drawer
   stops beside it (`--dp-right: 48px`) — nothing sits behind anything. Click it → the tray opens.
-- **The tray opens by itself** when a call arrives (from folded or not yet shown) — and, as before, on a new
-  Facebook message. Open = 340 px, pushing the board as before (`body.mtray-open`).
-- **It folds back to the strip by itself** when nothing waits: no call on this board and no Facebook thread
-  waiting (and no conversation open on screen). It is never "hidden" after the first load.
-- Header: **"Inbox · N waiting"** (calls + Facebook threads).
+- **Page load / new tab = folded**, even with calls or threads waiting (the badges show them) — Cris,
+  2026-09-24. **The tray opens by itself only for something NEW while the page is open:** a call **ringing
+  now** (inside its 2 minutes — `add()` reports `ringing`; a call brought back by the backfill after a reload
+  joins the list quietly) or a newly arrived Facebook message. Open = 340 px, pushing the board as before.
+- **It folds back to the strip by itself** when the last waiting item is handled (no call on this board and no
+  Facebook thread you can still reply to — threads past the 24 h window don't count, [[messenger-tray]] §2).
+  It is never "hidden" after the first load.
+- Header: **"Inbox · N waiting"** (calls + Facebook threads you can still reply to).
 
 ## 2. Ringing — the pinned caller-ID glance (screen 1)
 - A call **rings for 2 minutes** from its `started_at` (`RING_MS`; a dry-run card with no start rings from when
@@ -106,5 +109,6 @@ nothing itself (test-locked). The card still never writes `resolved_at` (test-lo
 - `shared/bottom-drawer.css` — `body.mtray-tucked .bdr { --dp-right: 48px }`.
 
 ## Session change log
+- **2026-09-24** — (Cris) page load stays folded; only a call ringing NOW (or a new FB message) opens the tray; backfilled calls join quietly. FB threads past the 24 h window don't count toward the badge / "N waiting" ([[messenger-tray]] §2). Staging.
 - **2026-09-24** — driven on test.* at `d5ddc37` (ZZ Test Owner, sandbox): served files byte-identical; `#callCardStack` gone; load → strip (this browser had tucked before, nothing new since — the existing FB rule). **Single fake ring** (`cdHandleTestCall`, JOSE RAMIREZ's number) → tray opened from the strip, board pushed 340 px, glance: "Returning · JOSE RAMIREZ · (813) 590-9459 · Chevrolet C1500 +1 · In shop now RO #6009 · 1993 Chevrolet c1500 · Ready for pickup · Heads up None", strip 📞 1 pulsing, FB threads continue "Needs handling". **3 in a row** → newest pinned, the other three rows "ringing", strip 4. Opened one → Call back · Coming in · Done (coming), Attach / Start RO / Not a customer (coming), "Recording — none (test call)"; **Close un-noted → refused** with the message, focus to the note; typed a note (real keys) → Close worked. Rings fast-forwarded past 2 min → no-note rows on top ("no note yet"), the noted one last, pulse off. **Real save:** a fake CTM ring posted to test.*'s own webhook created sandbox `calls` row 297; it did NOT pop live (sandbox realtime gap — Known gaps) — the backfill brought it in (pinned glance "New caller · TEST TRAYCALL"); Answered → note (real keys) + Call back + Tomorrow → row 297: note, `next_step quoted_callback`, `due_at` Fri Sep 25 all-day, `noted_by_name` ZZ Test Owner, `resolved_at` null; recording "arrives a few minutes after the call ends"; Close worked. **Layout:** 1440 open → drawer 232–1100 / tray 1100–1440; 1440 strip → drawer 232–1392 / strip 1392–1440, board padded 48; 1100 open → 232–760 / 760–1100; 1100 strip → 232–1052 / 1052–1100 — no overlap anywhere. Left on the sandbox: row 297 as a TEST callback on the Desk (Fri Sep 25).
 - **2026-09-24** — created with slice 1 (staging): cards moved into the Inbox tray; default folded strip pushes the board; pinned caller-ID glance while ringing; "Needs handling" with no-note calls on top; the card opens in the tray with its recording; next step Call back · Coming in · Done (coming); un-noted calls can't be closed; backfill = today's untouched calls. No DB change.

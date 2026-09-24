@@ -29,15 +29,26 @@ or mark it Done.
 ## 2. The looks (Cris, 2026-09-24 — Inbox mockup screen 4)
 | Look | When | What |
 |---|---|---|
-| **tucked** (the DEFAULT) | nothing waiting; or "Hide »" was clicked; or a sign-in/permission/load problem | a slim **full-height strip** on the right (48 px) with a **📞 badge + count** and the **f badge + count** (greyed when nothing of that kind waits; an amber **!** for a sign-in/permission/load problem), "INBOX" written down it. It **pushes the board** (`body.mtray-tucked`) and the bottom drawer stops beside it. |
-| **open** | a NEW call, or a NEW customer message, or the strip was clicked; or anything waits on the first load | 340 px panel: **Inbox · N waiting** (calls + threads) — the calls area ([[inbox-calls]]) above the Facebook list, or one call / one conversation |
+| **tucked** (the DEFAULT) | **every page load / new tab — even with items waiting**; nothing waiting; "Hide »" was clicked; a sign-in/permission/load problem | a slim **full-height strip** on the right (48 px) with a **📞 badge + count** and the **f badge + count** (greyed when nothing of that kind waits; an amber **!** for a sign-in/permission/load problem), "INBOX" written down it. It **pushes the board** (`body.mtray-tucked`) and the bottom drawer stops beside it. |
+| **open** | **only something NEW while the page is open** — a call ringing now ([[inbox-calls]]) or a customer message that just arrived (`hasNewInbound`); or the strip was clicked | 340 px panel: **Inbox · N waiting** (calls + threads you can still reply to) — the calls area above the Facebook list, or one call / one conversation |
 | hidden | only before the first load | nothing on screen |
 
-- **It folds back to the strip by itself** when no Facebook thread waits AND no call is on this board
-  (and no conversation is open on screen). It is never hidden after the first load.
+- **Never opens on load** (Cris, 2026-09-24): the first load always lands on the strip; the badges show what
+  waits. (The old per-browser "remember I tucked it" rule, `cdMtrayTuckedAt`, is gone — it isn't needed.)
+- **Folds back by itself** when the **last** waiting item is handled — the waiting count (threads you can
+  still reply to + calls) drops to 0 — unless a conversation or the "Can't reply anymore" list is open on
+  screen (`st.lastCount`). A tray you opened from the strip with nothing waiting stays open until you hide it.
 - **"Needs handling" is one list:** call rows first (no-note calls on top), then the waiting Facebook
   threads under the same heading ([[inbox-calls]] §3). An open conversation hides the call rows (a
   ringing glance stays pinned); an opened call hides the Facebook list.
+- **"Can't reply anymore"** (Cris, 2026-09-24): a waiting thread whose **24 h reply window has closed**
+  (`windowLabel(last_inbound_at).open` false — `splitWaiting`) **stops counting as waiting**: not on the f
+  badge, not in "N waiting", and it doesn't keep the tray open. It sits in a small **collapsed** section at
+  the bottom of the list, "Can't reply anymore (n) ▸"; opened, each row has **📞 Call them** (a `tel:` link —
+  the linked customer's phone, else the phone they typed, `callLink`; "No phone on file" otherwise) and
+  **✓ Done** (the normal `done` action through `api/messenger.js`). Tapping the row opens the conversation
+  as before. **If the customer writes again**, the window reopens and the thread is back in "Needs handling"
+  (and a new arrival opens the tray).
 - **A thread waits** (`isWaiting`) when `done_at` is null **or** a customer message **arrived** after
   it: `last_inbound_received_at > done_at` (`inboundArrivedMs`; a row without the column falls
   back to `last_inbound_at`). **Arrival, not Meta's send time** — a message sent 10:00:00, Done at
@@ -48,9 +59,7 @@ or mark it Done.
   The **24 h reply window still runs on `last_inbound_at`** (Meta's rule, Meta's clock).
 - **Auto-open:** after the first load, a refresh whose newest waiting **arrival** time is newer
   than before (`newestInbound` / `hasNewInbound`) opens the panel — so a late delivery with an older
-  Meta timestamp still opens it. The first load opens it too if anything waits —
-  **unless** the viewer tucked it and nothing newer has arrived since (`localStorage
-  cdMtrayTuckedAt` = the newest inbound when they tucked; per browser, a convenience only).
+  Meta timestamp still opens it. **The first load never opens it** (§2).
 - If nothing waits (no thread, no call), it folds to the strip — except while a conversation is open on screen.
 
 ## 3. What it shows
@@ -163,6 +172,7 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 - Tables: `social_threads`, `social_messages` (`migrations/20260923_social_messaging_*.sql`).
 
 ## Session change log
+- **2026-09-24** — (Cris) the tray **never opens on page load** — it opens only for a call ringing now or a newly arrived message; folds back when the last waiting item is handled; the `cdMtrayTuckedAt` memory is gone. Threads past the 24 h window move to a collapsed **"Can't reply anymore"** section (📞 Call them · ✓ Done), not counted anywhere; a new customer message brings them back. `splitWaiting` / `callLink` (+ tests). Staging.
 - **2026-09-24** — calls into the tray, slice 1 (staging): the tray is the **Inbox** — a calls area above the Facebook list ([[inbox-calls]]); the folded strip is the default (full-height, pushes the board, 📞 + f badges); a new call opens it; it folds back to the strip (never hides) when nothing waits; header counts calls + threads; one "Needs handling" heading.
 - **2026-09-23** — §3b (on staging): AUTO label + "Auto-reply" byline for `auto` messages, the customer's typed phone in the header, and a one-tap "Attach to <name>" suggestion that runs the normal Link. Selects gained `detected_phone` / `auto` (need migration `20260923_social_auto_reply_*`).
 - **2026-09-23** — a 401 on reply / link / done now shows the shared sentence "Your CrisData sign-in isn't active on this page — log out and sign in again." (was "…has expired…").

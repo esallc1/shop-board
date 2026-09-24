@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path';
 import {
   isWaiting, waitingThreads, threadName, windowLabel, previewText, attachmentLabel,
   messageByline, newestInbound, hasNewInbound, latestByThread, timeLabel, WINDOW_MS,
-  composeState, replyError, searchCustomers, bylineWithViewer, WINDOW_CLOSED_TEXT, inboundArrivedMs,
+  composeState, replyError, searchCustomers, bylineWithViewer, WINDOW_CLOSED_TEXT, inboundArrivedMs, splitWaiting, callLink,
 } from './messenger-tray-logic.js';
 
 const NOW = Date.parse('2026-09-23T15:00:00Z');
@@ -255,4 +255,29 @@ test('tray: reads auto + detected_phone, shows the auto label, and Attach runs t
   // doLink is only ever called from a tap, never from a render/load path
   const calls = [...src.matchAll(/doLink\(/g)].length;
   assert.equal(calls, 3, 'doLink: its definition + the picker tap + the suggestion tap');
+});
+
+test("waiting threads split: can still reply → Needs handling (counted); window closed → Can't reply anymore (not counted); a new message brings it back", () => {
+  const now = Date.parse('2026-09-24T18:00:00Z');
+  const th = [
+    { id: 'fresh', done_at: null, last_inbound_at: '2026-09-24T10:00:00Z', last_message_at: '2026-09-24T10:00:00Z' },
+    { id: 'old', done_at: null, last_inbound_at: '2026-09-22T10:00:00Z', last_message_at: '2026-09-22T11:00:00Z' },
+    { id: 'none', done_at: null, last_inbound_at: null, last_message_at: '2026-09-23T10:00:00Z' },
+    { id: 'done', done_at: '2026-09-24T11:00:00Z', last_inbound_at: '2026-09-24T10:00:00Z' },
+  ];
+  const r = splitWaiting(th, now);
+  assert.deepEqual(r.active.map((t) => t.id), ['fresh']);
+  assert.deepEqual(r.stale.map((t) => t.id), ['none', 'old'], 'newest activity first');
+  // The customer writes again → the window reopens → back in Needs handling.
+  const again = splitWaiting([{ ...th[1], last_inbound_at: '2026-09-24T17:30:00Z', last_inbound_received_at: '2026-09-24T17:30:05Z', last_message_at: '2026-09-24T17:30:00Z' }], now);
+  assert.deepEqual([again.active.length, again.stale.length], [1, 0]);
+  assert.deepEqual(th.map((t) => t.id), ['fresh', 'old', 'none', 'done'], 'input untouched');
+});
+
+test('Call them: the linked customer\'s phone, else the phone they typed; else nothing', () => {
+  assert.deepEqual(callLink({ detected_phone: '239-887-8557' }, { phone_primary: '(813) 590-9459' }), { tel: 'tel:+18135909459', digits: '8135909459' });
+  assert.deepEqual(callLink({ detected_phone: '239-887-8557' }, null), { tel: 'tel:+12398878557', digits: '2398878557' });
+  assert.deepEqual(callLink({ detected_phone: '239-887-8557' }, { phone_primary: null, phone_secondary: '12395550112' }), { tel: 'tel:+12395550112', digits: '2395550112' });
+  assert.equal(callLink({}, null), null);
+  assert.equal(callLink({ detected_phone: '555' }, null), null);
 });

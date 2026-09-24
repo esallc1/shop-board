@@ -223,3 +223,20 @@ body.mtray-tucked .main-area { padding-right: 48px; }
 .call-card .cc-more { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 2px; }
 .call-card .cc-more .cc-soon { border: 1px solid var(--border, #e2e5ee); background: var(--surface, #fff); border-radius: 7px; padding: 4px 8px; font: inherit; font-size: 12px; }
 .call-card .cc-label-hint { font-weight: 500; text-transform: none; letter-spacing: 0; }
+
+/* "Can't reply anymore" — waiting threads past the 24 h window (collapsed, not counted). */
+.mtray-stale-toggle {
+  display: block; width: 100%; text-align: left; border: 0; border-top: 1px solid var(--border, #e2e5ee);
+  background: none; padding: 9px 14px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 700;
+  color: var(--muted, #8c93a8); letter-spacing: .02em;
+}
+.mtray-stale-toggle:hover { color: var(--text, #1a1f36); background: #f7f8fc; }
+.mtray-stale-row { padding: 6px 12px 8px 14px; border-top: 1px solid #f1f2f7; background: #fafbfd; }
+.mtray-stale-open {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; border: 0; background: none;
+  padding: 0; cursor: pointer; font: inherit; color: var(--text, #1a1f36); opacity: .8;
+}
+.mtray-stale-open .mtray-row-top { display: flex; justify-content: space-between; gap: 8px; }
+.mtray-stale-acts { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.mtray-stale-acts a.mtray-iconbtn { text-decoration: none; }
+.mtray-stale-nophone { font-size: 12px; color: var(--muted, #8c93a8); }

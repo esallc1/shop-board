@@ -37,6 +37,25 @@ export function waitingThreads(threads) {
     .sort((a, b) => (ms(b.last_message_at) || 0) - (ms(a.last_message_at) || 0));
 }
 
+// Split the waiting threads (Cris, 2026-09-24): `active` = we can still reply (the
+// 24 h window is open) — these are "Needs handling" and count on the badge / "N
+// waiting"; `stale` = the window closed — a small collapsed "Can't reply anymore"
+// section, not counted. A new customer message reopens the window, so the thread
+// moves back to `active` by itself. Both newest activity first. Input never mutated.
+export function splitWaiting(threads, nowMs = Date.now()) {
+  const active = [], stale = [];
+  for (const t of waitingThreads(threads)) (windowLabel(t.last_inbound_at, nowMs).open ? active : stale).push(t);
+  return { active, stale };
+}
+
+// A number to call the person on: the linked customer's phone > the phone they
+// typed in a message (detected_phone). → { tel: 'tel:+1…', digits } or null.
+export function callLink(thread, customer) {
+  const raw = (customer && (customer.phone_primary || customer.phone_secondary)) || (thread && thread.detected_phone) || '';
+  const digits = String(raw).replace(/\D/g, '').slice(-10);
+  return digits.length === 10 ? { tel: `tel:+1${digits}`, digits } : null;
+}
+
 // Who the row is: the linked customer's name > the Facebook name > "Facebook user".
 // `customersById` = { [id]: { name } } — a linked customer that hasn't loaded falls
 // through to the Facebook name rather than showing nothing.
