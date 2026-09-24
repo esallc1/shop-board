@@ -1,7 +1,7 @@
 # How incoming calls live in the Inbox tray
 > Doc: `/docs/wiring/inbox-calls.md`
 > Last updated: 2026-09-24 — created with **slice 1** of "calls into the Inbox tray" (Cris's design, the
-> "Front Desk Inbox Tray" mockup screens 1, 2 and 4). Verified vs this commit (staging only).
+> "Front Desk Inbox Tray" mockup screens 1, 2 and 4). Verified vs commit `d5ddc37` (driven on test.*, staging only).
 > Status: 🟡 **staging only** (test.*) — Cris reviews before `main`.
 > Related: [[messenger-tray]] (the tray this lives in), [[call-window-desk]] (the call card's writes, the Desk
 > lanes it feeds — unchanged), [[recordings-audio]] (the recording on screen 2), [[desk-pad]] (the bottom
@@ -79,6 +79,11 @@ fixed columns, server stamps) and removes that permission. The tray code (`inbox
 nothing itself (test-locked). The card still never writes `resolved_at` (test-locked).
 
 ## Known gaps & open questions (as of 2026-09-24)
+- **On test.* a real ring doesn't pop live** — the sandbox's `supabase_realtime` publication seems to lack
+  `calls` (a real webhook row was created, the channel said "joined", no event arrived — the same gap
+  `repair_orders` had, [[staging-db]]). The backfill (page load, focus, 60 s tick) still brings it in. Prod
+  has `calls` in the publication (cards pop live there today). Fix = add `calls` on the SANDBOX only (Cris,
+  the prod-vs-sandbox publication comparison query).
 - **Per-board "Needs handling"** — shared state needs `handled_at` / `handled_by_name` (slice 5).
 - **Answered vs missed** isn't known yet — CTM's `call_status` from the end webhook (slice 4: missed =
   `no answer`, `busy`, `failed`, ~19 % of calls).
@@ -101,4 +106,5 @@ nothing itself (test-locked). The card still never writes `resolved_at` (test-lo
 - `shared/bottom-drawer.css` — `body.mtray-tucked .bdr { --dp-right: 48px }`.
 
 ## Session change log
+- **2026-09-24** — driven on test.* at `d5ddc37` (ZZ Test Owner, sandbox): served files byte-identical; `#callCardStack` gone; load → strip (this browser had tucked before, nothing new since — the existing FB rule). **Single fake ring** (`cdHandleTestCall`, JOSE RAMIREZ's number) → tray opened from the strip, board pushed 340 px, glance: "Returning · JOSE RAMIREZ · (813) 590-9459 · Chevrolet C1500 +1 · In shop now RO #6009 · 1993 Chevrolet c1500 · Ready for pickup · Heads up None", strip 📞 1 pulsing, FB threads continue "Needs handling". **3 in a row** → newest pinned, the other three rows "ringing", strip 4. Opened one → Call back · Coming in · Done (coming), Attach / Start RO / Not a customer (coming), "Recording — none (test call)"; **Close un-noted → refused** with the message, focus to the note; typed a note (real keys) → Close worked. Rings fast-forwarded past 2 min → no-note rows on top ("no note yet"), the noted one last, pulse off. **Real save:** a fake CTM ring posted to test.*'s own webhook created sandbox `calls` row 297; it did NOT pop live (sandbox realtime gap — Known gaps) — the backfill brought it in (pinned glance "New caller · TEST TRAYCALL"); Answered → note (real keys) + Call back + Tomorrow → row 297: note, `next_step quoted_callback`, `due_at` Fri Sep 25 all-day, `noted_by_name` ZZ Test Owner, `resolved_at` null; recording "arrives a few minutes after the call ends"; Close worked. **Layout:** 1440 open → drawer 232–1100 / tray 1100–1440; 1440 strip → drawer 232–1392 / strip 1392–1440, board padded 48; 1100 open → 232–760 / 760–1100; 1100 strip → 232–1052 / 1052–1100 — no overlap anywhere. Left on the sandbox: row 297 as a TEST callback on the Desk (Fri Sep 25).
 - **2026-09-24** — created with slice 1 (staging): cards moved into the Inbox tray; default folded strip pushes the board; pinned caller-ID glance while ringing; "Needs handling" with no-note calls on top; the card opens in the tray with its recording; next step Call back · Coming in · Done (coming); un-noted calls can't be closed; backfill = today's untouched calls. No DB change.

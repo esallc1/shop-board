@@ -268,7 +268,8 @@ staging); this overwrites one of them. To log in as a different role, change `'o
   table prod registered before the sandbox was built (Aug 12) can be silent on test.* — the channel
   joins and gets 0 events. `repair_orders` was missing; Cris added it on the sandbox 2026-09-24
   (`migrations/20260924_sandbox_repair_orders_realtime.sql`, SANDBOX ONLY). Whether any other table
-  is missing is being checked (compare prod vs sandbox `pg_publication_tables`). Tables added later by
+  is missing is being checked (compare prod vs sandbox `pg_publication_tables`). **`calls` looks missing too**
+  (2026-09-24: a real sandbox webhook row didn't reach the board's calls channel — [[inbox-calls]] Known gaps). Tables added later by
   migrations run on both projects (e.g. `social_*`) are fine.
 - **⚠ Staging cannot verify any office-identity path — see §7.** This is the big one: it
   silently voids "test on staging first" for a whole class of bug.
