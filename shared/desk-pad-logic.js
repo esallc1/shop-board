@@ -95,7 +95,7 @@ export function saveNotes(getStorage, notes) {
   }
 }
 
-/* ── The N key ─────────────────────────────────────────────────────────── */
+/* ── The N and W keys (the bottom drawer's two tabs) ──────────────────── */
 // Is focus somewhere the person is typing? Then N is a letter, never a shortcut.
 export function isTypingTarget(el) {
   if (!el || typeof el !== 'object') return false;
@@ -110,14 +110,26 @@ export function isTypingTarget(el) {
   return false;
 }
 
-// Should this keydown toggle the pad? Only a bare N (either case), not held
-// down, no modifier, and never while typing.
-export function isPadToggleKey(ev, activeEl) {
+// A bare letter key for one of the bottom drawer's tabs: that letter (either
+// case), not held down, no modifier, and never while typing.
+function isBareLetter(ev, activeEl, letter) {
   if (!ev || ev.defaultPrevented) return false;
-  if (ev.key !== 'n' && ev.key !== 'N') return false;
+  if (String(ev.key || '').toLowerCase() !== letter) return false;
   if (ev.repeat || ev.ctrlKey || ev.metaKey || ev.altKey || ev.isComposing) return false;
   if (isTypingTarget(activeEl) || isTypingTarget(ev.target)) return false;
   return true;
+}
+
+// Should this keydown toggle the pad? Only a bare N (either case), not held
+// down, no modifier, and never while typing.
+export function isPadToggleKey(ev, activeEl) {
+  return isBareLetter(ev, activeEl, 'n');
+}
+
+// Should this keydown toggle the Whiteboard tab of the same drawer? A bare W —
+// the same guards as N (typing, modifiers, key repeat).
+export function isBoardToggleKey(ev, activeEl) {
+  return isBareLetter(ev, activeEl, 'w');
 }
 
 /* ── Height: start short, grow as needed (Cris, 2026-09-23) ────────────── */

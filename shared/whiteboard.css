@@ -1,0 +1,38 @@
+/* ============================================================
+   whiteboard.css — the Whiteboard panel of the bottom drawer: three zones
+   side by side (they wrap on a narrow window). The drawer frame is
+   shared/bottom-drawer.css. Wiring: docs/wiring/whiteboard.md.
+   ============================================================ */
+.wb { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.wb[hidden] { display: none; }
+.wb-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; background: #fdfdfb; }
+.wb-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; align-content: start;
+}
+.wb-zone {
+  background: #fff; border: 1px solid #e3e5ee; border-radius: 8px; padding: 8px 10px 10px;
+  min-height: 112px; display: flex; flex-direction: column; gap: 6px;
+}
+.wb-h {
+  margin: 0; display: flex; align-items: center; gap: 6px;
+  font: 700 12.5px/1.3 'Segoe UI', system-ui, sans-serif; color: #2b2f45; letter-spacing: .02em; text-transform: uppercase;
+}
+.wb-n { min-width: 18px; padding: 0 6px; border-radius: 9px; background: #e7f5ec; color: #1e6b3a; font-size: 11px; line-height: 18px; text-align: center; }
+.wb-n:empty { display: none; }
+.wb-list { display: flex; flex-direction: column; gap: 4px; }
+.wb-line {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; text-align: left; width: 100%;
+  border: 1px solid transparent; border-left: 3px solid #2e9e5b; background: #f6fbf8; border-radius: 6px;
+  padding: 6px 8px; cursor: pointer; font: 13.5px/1.3 'Segoe UI', system-ui, sans-serif; color: #2b2f45;
+}
+.wb-line:hover { border-color: #cfe8d9; background: #eef8f2; }
+.wb-line:focus-visible { outline: 2px solid var(--accent, #5b5ef4); outline-offset: 1px; }
+.wb-num { font-weight: 700; }
+.wb-line small { color: #8c93a8; font-size: 11.5px; }
+.wb-cust { font-weight: 600; }
+.wb-veh { color: #666b85; }
+.wb-empty, .wb-soon, .wb-err { margin: 0; font: 13px/1.4 'Segoe UI', system-ui, sans-serif; color: #8c93a8; }
+.wb-err { color: #c62828; }
+.wb-zone.is-soon { background: #fafafc; border-style: dashed; }
+.wb-zone.is-soon .wb-h { color: #8c93a8; }
+.wb-soon { font-style: italic; }

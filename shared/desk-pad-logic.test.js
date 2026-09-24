@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   STORAGE_KEY, MAX_NOTES, addNote, deleteNote, updateNoteText, tearOff, cleanNotes,
-  loadNotes, saveNotes, isTypingTarget, isPadToggleKey, noteTime,
+  loadNotes, saveNotes, isTypingTarget, isPadToggleKey, isBoardToggleKey, noteTime,
   padHeight, pushScrollTarget, CAP_RATIO, ONE_ROW_MIN,
 } from './desk-pad-logic.js';
 
@@ -113,17 +113,37 @@ test('N key: toggles only when nobody is typing and no modifier is held', () => 
   assert.equal(isPadToggleKey(key('n'), { tagName: 'BUTTON' }), true);
   assert.equal(isPadToggleKey(key('n'), { tagName: 'INPUT', type: 'checkbox' }), true);
   assert.equal(isPadToggleKey(null, body), false);
+  assert.equal(isPadToggleKey(key('w'), body), false, 'W is the Whiteboard, not the pad');
 });
 
-test('static: the desk pad touches no database and no network', () => {
-  for (const f of ['desk-pad.js', 'desk-pad-logic.js']) {
+test('W key (Whiteboard tab): the same guards as N — typing, modifiers, key repeat', () => {
+  const body = { tagName: 'BODY' };
+  const key = (k, extra = {}) => ({ key: k, target: body, ...extra });
+  assert.equal(isBoardToggleKey(key('w'), body), true);
+  assert.equal(isBoardToggleKey(key('W'), body), true);
+  assert.equal(isBoardToggleKey(key('n'), body), false);
+  for (const mod of ['ctrlKey', 'metaKey', 'altKey', 'repeat', 'isComposing', 'defaultPrevented']) {
+    assert.equal(isBoardToggleKey(key('w', { [mod]: true }), body), false, mod);
+  }
+  for (const el of [{ tagName: 'INPUT', type: 'text' }, { tagName: 'TEXTAREA' }, { tagName: 'SELECT' }, { tagName: 'DIV', isContentEditable: true }]) {
+    assert.equal(isBoardToggleKey(key('w', { target: el }), el), false, JSON.stringify(el));
+  }
+  assert.equal(isBoardToggleKey(key('w'), { tagName: 'BUTTON' }), true);
+  assert.equal(isBoardToggleKey(null, body), false);
+});
+
+test('static: the desk pad and the drawer frame touch no database and no network', () => {
+  for (const f of ['desk-pad.js', 'desk-pad-logic.js', 'bottom-drawer.js']) {
     const src = readFileSync(join(here, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     assert.doesNotMatch(src, /supabase|\bdb\b|\.from\(|\.rpc\(|\.channel\(/i, f + ' talks to the database');
     assert.doesNotMatch(src, /\bfetch\(|cdAuthFetch|XMLHttpRequest|\/api\//, f + ' makes a network call');
   }
   const board = readFileSync(join(here, '..', 'advisor-board.html'), 'utf8');
-  assert.equal((board.match(/mountDeskPad\(\)/g) || []).length, 1, 'mounted exactly once');
-  assert.equal((board.match(/shared\/desk-pad\.css/g) || []).length, 1);
+  assert.equal((board.match(/mountFrontDeskDrawer\(\{ db \}\)/g) || []).length, 1, 'drawer mounted exactly once');
+  assert.equal((board.match(/mountDeskPad\(/g) || []).length, 0, 'the old stand-alone pad mount is gone');
+  for (const css of ['bottom-drawer', 'desk-pad', 'whiteboard']) {
+    assert.equal((board.match(new RegExp(`shared/${css}\\.css`, 'g')) || []).length, 1, css + '.css linked once');
+  }
 });
 
 /* ── Height: start short, grow as needed (Cris, 2026-09-23) ─────────────── */

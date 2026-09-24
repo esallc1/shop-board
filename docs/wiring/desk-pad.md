@@ -1,10 +1,11 @@
 # How the Desk pad is wired
 > Doc: `/docs/wiring/desk-pad.md`
-> Last updated: 2026-09-23 — created with the Desk pad (Front Desk redesign piece; design approved by Cris 2026-09-16,
-> "Advisor Front Desk" mockup step 8).
-> Verified vs commit `189588d`; shipped to prod in `334868f` (2026-09-23) after Cris's OK.
-> Status: 🟢 **LIVE on prod** (advisor board).
-> Related: [[messenger-tray]] (same mount pattern, shares the right edge), [[call-window-desk]] (untouched).
+> Last updated: 2026-09-24 — **the pad is now the first tab of a two-tab bottom drawer** (📝 Desk pad · 📋 Whiteboard);
+> §2 + §3 + Where-it-lives rewritten. Created 2026-09-23 (Front Desk redesign; design approved by Cris 2026-09-16).
+> Verified vs commit `7dbaff0` + this change (on `staging` only). Prod still runs the stand-alone pad (`334868f`).
+> Status: 🟡 **drawer on staging (test.*)**; 🟢 the pad itself LIVE on prod since `334868f`.
+> Related: [[whiteboard]] (the drawer's second tab), [[messenger-tray]] (same mount pattern, shares the right edge),
+> [[call-window-desk]] (untouched).
 
 ## 0. In one line
 A scratch pad at the bottom of the advisor board — yellow sticky notes you jot on while you work and
@@ -15,27 +16,37 @@ The big desk-pad calendar on a real secretary's desk: jot anything, tear off the
 Kevin says "get starter bolts for the Ford F-250, customer X" → Manny jots it, keeps working, crosses
 it out later. **Notes are not linked to anything** (Cris rejected "Add to RO").
 
-## 2. Where it is on the page
-- Mounted **once** by `advisor-board.html` (`mountDeskPad()` in a module before `</body>`), appended to
-  `<body>` outside every view — so it's on **every advisor tab**. No other board has it.
-- **Closed:** a small **"📝 Desk pad"** tab at the **bottom middle of the work area** (between the
-  sidebar and the window edge — or the Facebook tray's edge while it's open), with a note count and an
-  **N** key hint. `.main-area` always keeps 44 px at the bottom so the tab never sits on the last card.
-- **Height — start short, grow as needed (Cris, 2026-09-23).** The pad is its header + **one row** of
-  stickies to start (≈ ¼ of a laptop window, very little empty paper). When notes wrap to a second row it
-  grows to fit, a row at a time, up to **45 % of the window**; past that the notes scroll inside the
-  pad. Deleting notes shrinks it back. It never goes below header + one row, even on a short window.
-  Rule: `padHeight(chrome, content, viewportH)` in the logic module (chrome = top bar + the tear-off
-  confirm when shown; content = the notes grid's natural height + its padding). A `ResizeObserver` on
-  the grid re-applies it whenever the notes change size; window resizes re-apply it too.
-- **Open:** a lined pad (height per the rule above) docked at the bottom of the work area:
-  left = the sidebar's right edge (232 px), right = the window edge, or **340 px while the Messenger
-  tray is open** (`body.mtray-open`) so the two never overlap.
+## 2. Where it is on the page — the bottom drawer
+Since 2026-09-24 the pad is **one tab of a shared bottom drawer** (`shared/bottom-drawer.js`). The drawer
+is the frame; each tab is a **panel** built by its own module: **📝 Desk pad** (this doc, key **N**) and
+**📋 Whiteboard** ([[whiteboard]], key **W**).
+- Mounted **once** by `advisor-board.html` (`mountFrontDeskDrawer({ db })` from
+  `shared/front-desk-drawer.js`, in a module before `</body>`), appended to `<body>` outside every view —
+  so it's on **every advisor tab**. No other board has it (yet — [[whiteboard]] §1).
+- **Closed:** two small tabs side by side at the **bottom middle of the work area** (between the sidebar
+  and the window edge — or the Facebook tray's edge while it's open): **"📝 Desk pad"** with the note
+  count and an **N** hint, **"📋 Whiteboard"** with its count and a **W** hint. `.main-area` always keeps
+  44 px at the bottom so the tabs never sit on the last card.
+- **Open:** the drawer's header is the tab switcher (📝 Desk pad · 📋 Whiteboard), a subtitle, the shown
+  panel's own buttons, and **Hide ▾**. **One panel at a time**: clicking the other tab (closed or in the
+  header) switches to it; clicking the tab that's showing hides the drawer.
+- **Height — start short, grow as needed (Cris, 2026-09-23).** The drawer is its header + **one row** of
+  the shown panel to start (≈ ¼ of a laptop window). When notes wrap to a second row it grows to fit,
+  a row at a time, up to **45 % of the window**; past that the panel scrolls inside. Deleting notes
+  shrinks it back; switching panels resizes it to the new panel. It never goes below header + one row.
+  Rule: `padHeight(chrome, content, viewportH)` in the logic module (chrome = the drawer header + the
+  panel's own header, e.g. the tear-off confirm when shown; content = the panel's natural height — for
+  the pad, the notes grid + its padding). A `ResizeObserver` on each panel's content re-applies it;
+  window resizes re-apply it too.
+- **Where:** docked at the bottom of the work area: left = the sidebar's right edge (232 px), right =
+  the window edge, or **340 px while the Messenger tray is open** (`body.mtray-open`) so the two never
+  overlap.
 - **It pushes, it doesn't cover (≥ 900 px wide).** The page scrolls as a whole (the sidebar is
-  `sticky`), so "push up" = `.main-area` gets bottom padding the pad's height (`--dpad-h`) **and** the
-  window scrolls up by that height when it opens — what was at the bottom of the screen is now just
-  above the pad, and every card can still be scrolled to. **Hide** scrolls back down by the same amount
-  and removes the padding. Crossing below 900 px while open undoes the push.
+  `sticky`), so "push up" = `.main-area` gets bottom padding the drawer's height (`--bdr-h`, class
+  `body.bdr-open`) **and** the window scrolls up by that height when it opens — what was at the bottom
+  of the screen is now just above the drawer, and every card can still be scrolled to. A height change
+  (more notes, switching panels) moves the page by the difference. **Hide** scrolls back down by the
+  total and removes the padding. Crossing below 900 px while open undoes the push.
 - **Below 900 px** it overlays, full width of the work area (full width on the phone layout, where the
   sidebar is off-canvas). No push.
 - **z-index 2800** — below the Messenger tray (2900), every modal (3000), the call-log drawer (3300),
@@ -43,16 +54,18 @@ it out later. **Notes are not linked to anything** (Cris rejected "Add to RO").
   The call card, call log, Desk lanes and Team Chat are untouched.
 
 ## 3. What you can do
-- **+ New note** (in the pad's top bar, or the dashed tile after the last note) → an empty yellow
+- **+ New note** (in the drawer's header while the pad shows, or the dashed tile after the last note) → an empty yellow
   sticky with the time (shop time), cursor in it. **Several at once**; they wrap in a grid.
 - **Type** — saved as you type (no redraw, so the cursor never jumps).
 - **×** on a sticky → that note is gone (no confirm).
 - **Tear off page** → an inline bar: **"Tear off this page? All notes will be removed."** · Tear off ·
   Cancel. (Inline, never a blocking `confirm()`.)
-- **Hide ▾** → the pad closes and the screen comes back down.
+- **Hide ▾** → the drawer closes and the screen comes back down.
 - **N** toggles the pad — **only** when focus is not in an input / textarea / select / contenteditable,
-  with no Ctrl/⌘/Alt, not a held-down repeat (`isPadToggleKey`). **Esc** hides it when it's open and
-  focus is inside the pad.
+  with no Ctrl/⌘/Alt, not a held-down repeat (`isPadToggleKey`). N while the Whiteboard shows switches to
+  the pad. Opened with N, the cursor goes into the first note (if any), else onto the pad's header tab.
+  **W** does the same for the Whiteboard (`isBoardToggleKey`, same guards). **Esc** hides the drawer
+  when it's open and focus is inside it (opening it puts focus there).
 - Another browser tab on the same computer changing the pad → this one follows (`storage` event),
   unless you're typing in a note here.
 
@@ -64,7 +77,8 @@ it out later. **Notes are not linked to anything** (Cris rejected "Add to RO").
 - Junk in storage is cleaned, never trusted (`cleanNotes`): bad JSON, non-objects, missing/duplicate
   ids. Caps: 200 notes, 4,000 characters a note.
 - **Nothing goes to the database or the network.** `shared/desk-pad.js` takes no Supabase client and
-  makes no request — a test fails if either file mentions `supabase`, `db`, `.from(`, `.rpc(`,
+  makes no request — a test fails if it, `desk-pad-logic.js` or the drawer frame `bottom-drawer.js`
+  mentions `supabase`, `db`, `.from(`, `.rpc(`,
   `.channel(`, `fetch(`, `cdAuthFetch` or `/api/`.
 - Per browser, per address: a note written on `www` isn't on `board.*` (same reason as sign-ins —
   [[hosting-domains]] §4a).
@@ -73,22 +87,29 @@ it out later. **Notes are not linked to anything** (Cris rejected "Add to RO").
 - **On a very short window (under ~667 px tall) two full rows don't quite fit the 45 % cap** (two rows
   need 300 px; 45 % of 640 is 288, so the 2nd row scrolls ~12 px). Cris checked on his laptop in full
   Chrome: 6 notes = two clean rows, nothing cut off — **no change to the cap or sticky height** (2026-09-23).
-- **Not in this slice: "📌 Whiteboard"** on a sticky (post it to the shared Front Desk whiteboard) — needs
-  the whiteboard and a notes table first.
-- The pad's open/closed state is not remembered across a refresh (it starts closed) — on purpose, so a
+- **Not yet: "📌 Whiteboard"** on a sticky (post it to the Whiteboard's Don't forget zone) — slice 6, after
+  the Whiteboard's table + endpoint ([[whiteboard]]).
+- The drawer's open/closed state is not remembered across a refresh (it starts closed) — on purpose, so a
   refresh never shoves the page up by surprise.
 - No undo for × or Tear off.
 
 ## Where it lives in the code
-- `shared/desk-pad.js` — the DOM half: `mountDeskPad()`.
+- `shared/bottom-drawer.js` — the drawer frame: `mountBottomDrawer({ panels })` (tabs, switching, the
+  push-up, the height rule applied to the shown panel, Hide, Esc, the N/W keys via each panel's `isKey`).
+  No database, no network (test-locked).
+- `shared/front-desk-drawer.js` — `mountFrontDeskDrawer({ db })`: the drawer with the Desk pad and the
+  Whiteboard. The one call a board makes.
+- `shared/desk-pad.js` — the pad panel: `createDeskPadPanel(ctx)`.
 - `shared/desk-pad-logic.js` — pure rules: `addNote`, `deleteNote`, `updateNoteText`, `tearOff`,
-  `cleanNotes`, `loadNotes`, `saveNotes`, `isTypingTarget`, `isPadToggleKey`, `noteTime`, `STORAGE_KEY`,
-  and the height rule `padHeight` / `pushScrollTarget` (`CAP_RATIO` 0.45, `ONE_ROW_MIN` 132).
-  Tested by `shared/desk-pad-logic.test.js`.
-- `shared/desk-pad.css` — the look (z 2800, the 900 px push/overlay switch, the tray-aware right edge).
-- `advisor-board.html` — the stylesheet `<link>` and the mount module before `</body>`.
+  `cleanNotes`, `loadNotes`, `saveNotes`, `isTypingTarget`, `isPadToggleKey`, `isBoardToggleKey`,
+  `noteTime`, `STORAGE_KEY`, and the height rule `padHeight` / `pushScrollTarget` (`CAP_RATIO` 0.45,
+  `ONE_ROW_MIN` 132). Tested by `shared/desk-pad-logic.test.js`.
+- `shared/bottom-drawer.css` — the frame's look (z 2800, the 900 px push/overlay switch, the tray-aware
+  right edge, the header, shared buttons and colour tokens). `shared/desk-pad.css` — the stickies.
+- `advisor-board.html` — the stylesheet `<link>`s and the mount module before `</body>`.
 
 ## Session change log
+- **2026-09-24** — the pad became the first tab of a two-tab bottom drawer (📝 Desk pad N · 📋 Whiteboard W): frame moved to `shared/bottom-drawer.js`/`.css`, pad now `createDeskPadPanel`, mounted via `mountFrontDeskDrawer({ db })`; `isBoardToggleKey` added; notes behave as before. Staging only.
 - **2026-09-23** — **shipped to prod** as `334868f` after Cris's OK in full Chrome on his laptop (1 note = one short row; 6 notes = two clean rows, nothing cut off; cap and sticky height unchanged). Fast-forward `5e688c8..334868f`; www / board. / apex byte-identical (7 served files; `/CLAUDE.md` 404).
 - **2026-09-23** — height re-verified on test.* (`189588d`, 1024×640, ZZ Test Advisor): **1 note** → 176 px (28 %, one row, 20 px of paper under the notes), page pushed 176; 2 notes still one row (3 across); **3rd note wrapped → 288 px = the 45 % cap** (2 rows need 300 → ~12 px scroll); **5 notes** → 288, notes scroll inside; **10 notes** → 288, 254 px of inner scroll, tab count 10; deleted to 2 → **176 px, page came back down by exactly 112**; Hide → scroll 0, padding 44 px, inline height cleared.
 - **2026-09-23** — height change requested by Cris after reviewing on a ~1000 px laptop: start with header + ONE row, grow a row at a time to fit, cap at 45 % of the window (then scroll inside), shrink back on delete; the push follows the real height. `padHeight` / `pushScrollTarget` + tests; notes grid wrapped in `.dpad-grid` so its natural height can be measured.

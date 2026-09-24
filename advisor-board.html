@@ -18,7 +18,9 @@
 <link rel="stylesheet" href="shared/board-shell.css">
 <link rel="stylesheet" href="shared/new-badge.css">
 <link rel="stylesheet" href="shared/messenger-tray.css">
+<link rel="stylesheet" href="shared/bottom-drawer.css">
 <link rel="stylesheet" href="shared/desk-pad.css">
+<link rel="stylesheet" href="shared/whiteboard.css">
 <link rel="stylesheet" href="shared/global-search.css">
 <style>
   /* ── CONTENT — .content padding is intentionally NOT in the shared
@@ -13509,13 +13511,14 @@
   import { mountGlobalSearch } from './shared/global-search.js';
   mountGlobalSearch({ db });
 </script>
-<!-- Desk pad — scratch sticky notes on every advisor tab (Front Desk redesign). Mounted
-     once on <body>, outside the views. This computer only (localStorage) — no database,
-     no network. z 2800: under the Facebook tray, modals, the call card and Team Chat.
-     See docs/wiring/desk-pad.md. -->
+<!-- Bottom drawer (Front Desk redesign) on every advisor tab, mounted once on <body>,
+     outside the views. Two tabs: "📝 Desk pad" (N — scratch notes, this computer only,
+     no database) and "📋 Whiteboard" (W — shared; read-only with the board's own
+     signed-in client: ROs ready for pickup). z 2800: under the Facebook tray, modals,
+     the call card and Team Chat. See docs/wiring/desk-pad.md + whiteboard.md. -->
 <script type="module">
-  import { mountDeskPad } from './shared/desk-pad.js';
-  mountDeskPad();
+  import { mountFrontDeskDrawer } from './shared/front-desk-drawer.js';
+  mountFrontDeskDrawer({ db });
 </script>
 <script type="module">
   import { mountMessengerTray } from './shared/messenger-tray.js';
