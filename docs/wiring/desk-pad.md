@@ -2,7 +2,7 @@
 > Doc: `/docs/wiring/desk-pad.md`
 > Last updated: 2026-09-24 — **§3: 📌 on each sticky moves it to the Whiteboard (only after the server confirmed)**; §4 how the pad stays network-free. Earlier the same day: the pad became the first tab of a two-tab bottom drawer.
 > §2 + §3 + Where-it-lives rewritten. Created 2026-09-23 (Front Desk redesign; design approved by Cris 2026-09-16).
-> Verified vs commit `968d376` (driven on test.* and read-only on prod 2026-09-24).
+> Verified vs commit `0accb27` (slice 6 — 📌 — driven on test.* 2026-09-24). Earlier checks: see the change log.
 > Status: 🟢 **LIVE on prod** — the pad since `334868f`; the two-tab drawer since `968d376` (2026-09-24).
 > Related: [[whiteboard]] (the drawer's second tab), [[messenger-tray]] (same mount pattern, shares the right edge),
 > [[call-window-desk]] (untouched).
@@ -119,6 +119,7 @@ is the frame; each tab is a **panel** built by its own module: **📝 Desk pad**
 - `advisor-board.html` — the stylesheet `<link>`s and the mount module before `</body>`.
 
 ## Session change log
+- **2026-09-24** — slice 6 driven on test.* at `0accb27` (sandbox, ZZ Test Owner): served files byte-identical (8). N → + New note → 📌 disabled while empty, enabled after typing (real keys) "Pin test: order 2 cases Mercon LV"; 📌 → sticky gone from the pad and from localStorage; W → the line under Don't forget "— ZZ Test Owner · 12:46 PM", highlighted (`is-fresh`). Failures (the page's `cdAuthFetch` swapped for the test, then restored): a 401 → sticky stays, "Your CrisData sign-in isn't active on this page — log out and sign in again."; a thrown fetch (offline) → stays, "Couldn't pin it to the whiteboard — it's still here. Try again."; 612 characters → stays, "Too long for the whiteboard (612 / 500 characters) — shorten it first." — none reached the board. Cleaned up: pad torn off, the pinned test line erased (soft).
 - **2026-09-24** — slice 6 (staging): 📌 "Pin to whiteboard" on each sticky — posts the text as a Don't forget line through the injected `pinToBoard` (→ the Whiteboard panel's `pin` → `/api/whiteboard`), removes the sticky only on a confirmed success, keeps it with an error otherwise; empty → disabled; > 500 → clear message. The pad still makes no network call (test-locked). Known gap removed.
 - **2026-09-24** — drawer Esc now skips an Esc a panel field already handled (the Whiteboard's write box, [[whiteboard]] §6). Staging.
 - **2026-09-24** — the two-tab drawer **shipped to prod** as `968d376` (www / board. / apex byte-identical; N / W / Esc checked read-only on prod) — see [[whiteboard]].
