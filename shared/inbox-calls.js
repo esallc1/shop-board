@@ -9,7 +9,8 @@
 
      ring   — the pinned caller-ID GLANCE (mockup screen 1): the newest call
               still ringing (RING_MS after it started) that nobody opened yet —
-              name, phone, vehicle, In shop now, Last visit, Heads up, and
+              name, phone, vehicle, In shop now, Last visit (only with a
+              closed RO), Heads up (only when there's something to flag), and
               "Answered → notepad" (opens the card; the call stops pinning);
      rows   — "Needs handling": every other call on this board — NO NOTE YET on
               top, then noted ones (newest first each). Click → that card opens;
@@ -92,8 +93,8 @@ export function mountCallSlot({ section, onChange, timeLabel }) {
       <div class="mtray-rg-sub">${esc([g.phone !== g.who ? g.phone : '', g.sub].filter(Boolean).join(' · '))}</div>
       ${g.vehicle ? line('Vehicle', g.vehicle) : ''}
       ${line('In shop now', g.inShop || '—')}
-      ${line('Last visit', g.lastVisit || '—')}
-      ${line('Heads up', g.headsUp || 'None')}
+      ${g.lastVisit ? line('Last visit', g.lastVisit) : ''}
+      ${g.headsUp ? line('Heads up', g.headsUp) : ''}
       <div class="mtray-rg-acts">
         <button type="button" class="mtray-iconbtn is-primary" data-call-act="answer" data-call-id="${esc(e.id)}">Answered → notepad</button>
         ${g.customerId != null ? `<button type="button" class="mtray-iconbtn" data-call-act="customer" data-customer-id="${esc(g.customerId)}">Customer record</button>` : ''}

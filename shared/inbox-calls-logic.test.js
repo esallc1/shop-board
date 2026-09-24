@@ -117,7 +117,7 @@ test('the ringing glance (screen 1): name, phone, vehicle, In shop now, Last vis
   assert.equal(g.tag, 'Returning');
   assert.equal(g.vehicle, '2014 Ford F-250');
   assert.equal(g.inShop, 'RO #6089 · 2014 Ford F-250 · Active RO');
-  assert.equal(g.lastVisit, 'Mar 3 · RO #5890 · 2014 Ford F-250');
+  assert.equal(g.lastVisit, 'RO #5890 · Mar 3', 'the most recent CLOSED RO: RO# · date');
   assert.equal(g.headsUp, 'Declined estimate #6062');
   assert.equal(g.customerId, 'c1');
   const n = callerGlance({ call: { cnam: 'WIRELESS CALLER' }, number: '(239) 555-0199', state: 'new' });
@@ -125,7 +125,17 @@ test('the ringing glance (screen 1): name, phone, vehicle, In shop now, Last vis
   assert.equal(callerGlance({ number: 'x', state: 'loading' }).sub, 'Looking up…');
   assert.match(callerGlance({ number: 'x', state: 'multi' }).sub, /pick one/);
   const quiet = callerGlance({ state: 'matched', customer: { name: 'A', last_invoiced: '2026-08-02T12:00:00Z' }, ros: [] });
-  assert.deepEqual([quiet.tag, quiet.inShop, quiet.lastVisit, quiet.headsUp], ['Customer', '', 'Aug 2', '']);
+  assert.deepEqual([quiet.tag, quiet.inShop, quiet.lastVisit, quiet.headsUp], ['Customer', '', '', ''], 'no closed RO → no Last visit (last_invoiced no longer used)');
+  // JOSE RAMIREZ-style: his only RO is in the shop now → no Last visit, nothing to flag.
+  const onlyOpen = callerGlance({ state: 'matched', customer: { name: 'JOSE' }, ros: [{ ro_number: 6009, status: 'invoice', created_at: '2026-09-01' }] });
+  assert.equal(onlyOpen.lastVisit, '', 'the RO in the shop now never counts as a visit');
+  assert.equal(onlyOpen.headsUp, '');
+  // Several closed ROs → the newest close wins.
+  const many = callerGlance({ state: 'matched', customer: { name: 'B' }, ros: [
+    { ro_number: 5001, status: 'closed', created_at: '2026-01-01', closed_at: '2026-01-05T15:00:00Z' },
+    { ro_number: 5500, status: 'closed', created_at: '2026-05-01', closed_at: '2026-05-09T15:00:00Z' },
+  ] });
+  assert.equal(many.lastVisit, 'RO #5500 · May 9');
 });
 
 test('static: a call with no note can NOT be closed (× / Close); today\'s untouched calls come back after a reload', () => {
@@ -149,4 +159,11 @@ test('static: a call with no note can NOT be closed (× / Close); today\'s untou
   // The recording: through the signed-in endpoint, pending until ready.
   assert.match(cc, /cdAuthFetch\(db, '\/api\/recording-links'/);
   assert.match(cc, /arrives a few minutes after the call ends/);
+});
+
+test('the glance hides Last visit with no closed RO, and Heads up when there is nothing to flag (no "—" / "None")', () => {
+  const slot = src('inbox-calls.js');
+  assert.match(slot, /\$\{g\.lastVisit \? line\('Last visit', g\.lastVisit\) : ''\}/);
+  assert.match(slot, /\$\{g\.headsUp \? line\('Heads up', g\.headsUp\) : ''\}/);
+  assert.doesNotMatch(slot, /'None'|g\.lastVisit \|\| '—'/);
 });

@@ -82,7 +82,7 @@ const shortDate = (iso) => {
 // Everything the pinned card shows, from what the call card already loaded.
 //   call:     the calls row;  number: its formatted number;  source: "Direct" / "Facebook" / …
 //   state:    'matched' | 'multi' | 'new' | 'loading'
-//   customer: { name, business_name, last_invoiced } (matched only)
+//   customer: { id, name, business_name } (matched only)
 //   vehicles: [{ year, make, model }];  ros: [{ ro_number, status, declined_at, created_at, closed_at, vehicles }]
 // → { who, sub, phone, source, tag, vehicle, inShop, lastVisit, headsUp, customerId }
 export function callerGlance({ call = {}, number = '', source = '', state = 'loading', customer = null, vehicles = [], ros = [] } = {}) {
@@ -104,9 +104,11 @@ export function callerGlance({ call = {}, number = '', source = '', state = 'loa
   const roLine = (r, parts) => [r.ro_number != null ? `RO #${r.ro_number}` : 'RO', ...parts].filter(Boolean).join(' · ');
 
   const inShop = open.length ? roLine(open[0], [vehText(open[0].vehicles), STAGE[open[0].status] || open[0].status]) : '';
-  let lastVisit = '';
-  if (closed.length) lastVisit = [shortDate(closed[0].closed_at || closed[0].created_at), roLine(closed[0], [vehText(closed[0].vehicles)])].filter(Boolean).join(' · ');
-  else if (c.last_invoiced) lastVisit = shortDate(c.last_invoiced);
+  // Last visit (Cris, 2026-09-24): the most recent CLOSED RO — "RO #5890 · Mar 3". The RO in the
+  // shop now never counts (it isn't closed). No closed RO → '' and the row is hidden.
+  const lastVisit = closed.length
+    ? [closed[0].ro_number != null ? `RO #${closed[0].ro_number}` : 'RO', shortDate(closed[0].closed_at || closed[0].created_at)].filter(Boolean).join(' · ')
+    : '';
 
   const declined = list.filter((r) => r.declined_at);
   const estimates = list.filter((r) => r.status === 'estimate' && !r.declined_at);
