@@ -263,6 +263,13 @@ staging); this overwrites one of them. To log in as a different role, change `'o
   pasted into `shared/supabase-config.js`.
 
 ## Known gaps & open questions (as of 2026-08-21)
+- **⚠ Realtime publication membership was NOT copied to the sandbox** (found 2026-09-24). The
+  `pg_dump -n public` restore brings tables but not their membership in `supabase_realtime`, so a
+  table prod registered before the sandbox was built (Aug 12) can be silent on test.* — the channel
+  joins and gets 0 events. `repair_orders` was missing; Cris added it on the sandbox 2026-09-24
+  (`migrations/20260924_sandbox_repair_orders_realtime.sql`, SANDBOX ONLY). Whether any other table
+  is missing is being checked (compare prod vs sandbox `pg_publication_tables`). Tables added later by
+  migrations run on both projects (e.g. `social_*`) are fine.
 - **⚠ Staging cannot verify any office-identity path — see §7.** This is the big one: it
   silently voids "test on staging first" for a whole class of bug.
 - **Auth users aren't copied** (Step 4b creates a fresh staging login). If more staff logins
@@ -611,6 +618,7 @@ it will be followed.
 - **Employee ↔ auth mapping:** see [[office-auth]].
 
 ## Session change log
+- 2026-09-24 — Known gaps: realtime publication membership isn't copied by the dump; `repair_orders` added on the sandbox (record: `migrations/20260924_sandbox_repair_orders_realtime.sql`). Nothing else re-verified.
 - 2026-09-17 — §7.2: PIN value removed and the PIN half marked history — Security Phase 2 dropped `employees.pin` on BOTH projects (M1 + M2 hand-run and verified; [[employee-roster]] §1c). The duplicate-phone analysis stands. Nothing else re-verified.
 - 2026-09-17 — §7.2: PIN value removed (this doc is served publicly). Nothing else re-verified.
 - 2026-09-17 — §7: noted that the `?u/p` passthrough and `expectedRole` it describes were deleted. Rest not re-verified.
