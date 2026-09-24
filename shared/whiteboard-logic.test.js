@@ -16,6 +16,7 @@ import { existsSync, statSync } from 'node:fs';
 import {
   READY_STATUS, READY_SELECT, readyLines, vehicleText, boardDate,
   callsByRo, noteLists, stamp, whenText, upsertRow, actionError, RECENT_DAYS, NOTE_MAX,
+  PICK_SELECT, ITEM_RO_EMBED, roLabel, pickOptions, matchRos, clearedLabel,
 } from './whiteboard-logic.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -71,8 +72,11 @@ test('the Ready query: named columns, no closed_at, no book_hours; reads only th
   const ui = code('whiteboard.js');
   assert.match(ui, /\.from\('repair_orders'\)\.select\(READY_SELECT\)\s*\.eq\('status', READY_STATUS\)/);
   const tables = [...ui.matchAll(/\.from\('([a-z_]+)'\)\s*\.(\w+)\(/g)].map((m) => m[1] + '.' + m[2]);
-  assert.deepEqual(tables.sort(), ['repair_orders.select', 'whiteboard_items.select', 'whiteboard_pickup_calls.select']);
-  assert.equal((ui.match(/\.from\(/g) || []).length, 3);
+  assert.deepEqual(tables.sort(), ['repair_orders.select', 'repair_orders.select', 'whiteboard_items.select', 'whiteboard_pickup_calls.select']);
+  assert.equal((ui.match(/\.from\(/g) || []).length, 4);
+  // The parts picker's read: open ROs only, named columns.
+  assert.match(ui, /\.from\('repair_orders'\)\.select\(PICK_SELECT\)\s*\.neq\('status', 'closed'\)/);
+  assert.doesNotMatch(PICK_SELECT + ITEM_RO_EMBED, /closed_at|book_hours|\*/);
 });
 
 test('static: the Whiteboard never writes through the client — every write is POST /api/whiteboard', () => {
@@ -180,15 +184,64 @@ test('the look: self-hosted marker + handwriting fonts, no font CDN; the mockup 
   assert.doesNotMatch(ui, /is-soon|dashed/, 'no grey dashed placeholder boxes');
 });
 
-test("write on board: the box CLOSES after a save; stays open (text kept) when the save fails; Esc/cancel close without saving", () => {
+test("write on board (both zones): the box CLOSES after a save; stays open (text kept) when the save fails; Esc/cancel close without saving", () => {
   const ui = code('whiteboard.js');
-  const submit = ui.slice(ui.indexOf("form.addEventListener('submit'"), ui.indexOf("input.addEventListener('keydown'"));
-  assert.match(submit, /if \(ok\) \{ closeForm\(\); writeBtn\.focus\(\); \} else input\.focus\(\);/);
-  assert.doesNotMatch(submit, /if \(ok\) input\.value = ''/, 'the old keep-open behaviour is gone');
-  assert.match(submit, /if \(!text\) \{ closeForm\(\); return; \}/, 'empty = nothing saved, box closes');
-  const esc = ui.slice(ui.indexOf("input.addEventListener('keydown'"));
-  assert.match(esc, /ev\.key === 'Escape'\) \{ ev\.preventDefault\(\); closeForm\(\);/);
-  assert.match(ui, /case 'cancel': closeForm\(\); return;/);
-  // closeForm clears the text — nothing lingers for the next open.
-  assert.match(ui, /function closeForm\(\) \{ form\.hidden = true; input\.value = ''; draw\(\); \}/);
+  const submit = ui.slice(ui.indexOf("z.form.addEventListener('submit'"), ui.indexOf("z.input.addEventListener('keydown'"));
+  assert.match(submit, /if \(ok\) \{ closeForm\(z\); z\.writeBtn\.focus\(\); \} else z\.input\.focus\(\);/);
+  assert.doesNotMatch(submit, /if \(ok\) z?\.?input\.value = ''/, 'the old keep-open behaviour is gone');
+  assert.match(submit, /closeForm\(z\); return;/, 'empty = nothing saved, box closes');
+  assert.match(ui, /z\.input\.addEventListener\('keydown', \(ev\) => \{\s*if \(ev\.key === 'Escape'\) \{ ev\.preventDefault\(\); closeForm\(z\);/);
+  assert.match(ui, /case 'cancel': if \(z\) \{ closeForm\(z\);/);
+  // closeForm clears the text (and the picked RO) — nothing lingers for the next open.
+  assert.match(ui, /function closeForm\(z\) \{\s*z\.form\.hidden = true; z\.input\.value = '';/);
+  assert.match(ui, /if \(z\.kind === 'parts'\) \{ pick\.chosen = null; z\.pickq\.value = '';/);
+  // Enter in the RO search never submits the form.
+  assert.match(ui, /ev\.key === 'Enter'\) \{\s*ev\.preventDefault\(\);\s*\/\/ never submits from here/);
+});
+
+test('parts: an RO reads "#6089 · Ford F-250 · SMITH"; the picker offers open ROs only and matches number / customer / vehicle', () => {
+  const rows = [
+    { id: 'a', ro_number: 6089, po: '6089', status: 'ro', created_at: '2026-09-20', customers: { name: 'DALE SMITH' }, vehicles: { year: 2014, make: 'Ford', model: 'F-250' } },
+    { id: 'b', ro_number: 6090, po: '6090', status: 'closed', created_at: '2026-09-22', customers: { name: 'X' }, vehicles: {} },
+    { id: 'c', ro_number: 6091, po: null, status: 'estimate', created_at: '2026-09-23', customers: null, vehicles: { make: 'Chevy', model: '700R4 core' } },
+    { id: 'a', status: 'ro' }, null,
+  ];
+  assert.equal(roLabel(rows[0]), '#6089 · Ford F-250 · DALE SMITH');
+  assert.equal(roLabel(rows[2]), '#6091 · Chevy 700R4 core');
+  assert.equal(roLabel(null), '');
+  const o = pickOptions(rows);
+  assert.deepEqual(o.map((x) => x.id), ['c', 'a'], 'newest first, closed + duplicates dropped');
+  assert.deepEqual(o[1].row, { id: 'a', ro_number: 6089, po: '6089', status: 'ro', customers: { name: 'DALE SMITH' }, vehicles: { year: 2014, make: 'Ford', model: 'F-250' } });
+  assert.deepEqual(matchRos(o, '6089').map((x) => x.id), ['a']);
+  assert.deepEqual(matchRos(o, '#60').map((x) => x.id), ['c', 'a']);
+  assert.deepEqual(matchRos(o, 'ford smith').map((x) => x.id), ['a']);
+  assert.deepEqual(matchRos(o, 'SMITH 2014').map((x) => x.id), ['a']);
+  assert.deepEqual(matchRos(o, 'chevy smith'), []);
+  assert.equal(matchRos(o, '', 1).length, 1);
+});
+
+test("parts: 'recently cleared' holds BOTH arrived and erased lines; notes still only erased; labels say which", () => {
+  const now = new Date('2026-09-24T18:30:00Z');
+  const rows = [
+    { id: 'p1', kind: 'parts', text: 'starter', created_at: '2026-09-24T10:00:00Z', cleared_at: '2026-09-24T18:14:00Z', cleared_reason: 'arrived', cleared_by_name: 'Kevin' },
+    { id: 'p2', kind: 'parts', text: 'kit', created_at: '2026-09-24T09:00:00Z', cleared_at: '2026-09-24T17:00:00Z', cleared_reason: 'erased', cleared_by_name: 'Manny' },
+    { id: 'p3', kind: 'parts', text: 'valve body', created_at: '2026-09-24T08:00:00Z', cleared_at: null },
+    { id: 'n1', kind: 'note', text: 'x', created_at: '2026-09-24T08:00:00Z', cleared_at: '2026-09-24T17:00:00Z', cleared_reason: 'arrived' },
+  ];
+  const parts = noteLists(rows, now, 'parts');
+  assert.deepEqual(parts.open.map((r) => r.id), ['p3']);
+  assert.deepEqual(parts.erased.map((r) => r.id), ['p1', 'p2']);
+  assert.deepEqual(noteLists(rows, now, 'note').erased, [], "a note is never listed as 'arrived'");
+  assert.equal(clearedLabel(rows[0], now), 'arrived · Kevin · 2:14 PM');
+  assert.equal(clearedLabel(rows[1], now), 'erased · Manny · 1:00 PM');
+});
+
+test('parts UI: Arrived ✓ + × on each line, the RO part opens the RO, sent as kind parts with the picked ro_id', () => {
+  const ui = code('whiteboard.js');
+  assert.match(ui, /data-wb-act="arrived"/);
+  assert.match(ui, /case 'arrived': act\(id, \{ action: 'clear', id, reason: 'arrived' \}/);
+  assert.match(ui, /class="wz-line wz-roref" data-wb-ro=/, 'the RO part is the same open-the-RO door');
+  assert.match(ui, /const payload = \{ action: 'add', kind: z\.kind, text \};\s*if \(z\.kind === 'parts' && pick\.chosen\) payload\.ro_id = pick\.chosen\.id;/);
+  assert.match(ui, /\$\{ITEM_SELECT\}, \$\{ITEM_RO_EMBED\}/);
+  assert.match(ui, /\.in\('kind', \['note', 'parts'\]\)/);
 });

@@ -19,6 +19,7 @@ import handler, { parseBody, MAX_TEXT } from './whiteboard.js';
 
 const RO = '11111111-1111-4111-8111-111111111111';
 const RO_CLOSED = '22222222-2222-4222-8222-222222222222';
+const RO_ACTIVE = '77777777-7777-4777-8777-777777777777';
 const NOTE = '33333333-3333-4333-8333-333333333333';
 const PARTS = '55555555-5555-4555-8555-555555555555';
 const CLEARED = '66666666-6666-4666-8666-666666666666';
@@ -51,6 +52,7 @@ function world() {
       if (method !== 'GET') { w.writes.push({ url, method, body: opts.body }); return json(500, {}); }
       if (url.includes(`id=eq.${RO}`)) return json(200, [{ id: RO, status: 'invoice' }]);
       if (url.includes(`id=eq.${RO_CLOSED}`)) return json(200, [{ id: RO_CLOSED, status: 'closed' }]);
+      if (url.includes(`id=eq.${RO_ACTIVE}`)) return json(200, [{ id: RO_ACTIVE, status: 'ro' }]);
       return json(200, []);
     }
     if (url.includes('/rest/v1/whiteboard_items?')) {
@@ -229,4 +231,44 @@ test('nothing ever writes repair_orders, and nothing is ever DELETEd', async () 
     assert.ok(!w.writes.some((x) => x.url.includes('repair_orders')), body.action + ' wrote repair_orders');
     assert.ok(!w.calls.some((c) => c.opts.method === 'DELETE'), body.action + ' deleted');
   }
+});
+
+/* ── Slice 5: Waiting on parts ─────────────────────────────────────────── */
+test('parts: add with an open RO, and with no RO at all (free text) — both stamped by the server', async () => {
+  let r = await call({ action: 'add', kind: 'parts', text: 'torque converter · Transtar · ETA Fri', ro_id: RO_ACTIVE, created_by_name: 'Mallory' });
+  assert.equal(r.res.statusCode, 200);
+  assert.deepEqual(r.w.writes[0].body, { kind: 'parts', text: 'torque converter · Transtar · ETA Fri', ro_id: RO_ACTIVE, created_by: EMP.id, created_by_name: EMP.name });
+  r = await call({ action: 'add', kind: 'parts', text: 'shop order: 10 qts ATF' });
+  assert.equal(r.res.statusCode, 200);
+  assert.equal(r.w.writes[0].body.ro_id, null);
+  assert.ok(!r.w.calls.some((c) => c.url.includes('repair_orders')), 'no RO → no RO read');
+  r = await call({ action: 'add', kind: 'parts', text: 'x', ro_id: '' });
+  assert.equal(r.res.statusCode, 200);
+  assert.equal(r.w.writes[0].body.ro_id, null);
+});
+
+test('parts: a bad ro_id → 400; an unknown RO → 404; a CLOSED RO → 409 — nothing written', async () => {
+  for (const bad of ['6089', 'RO-6089', 42, { id: RO }]) {
+    const r = await call({ action: 'add', kind: 'parts', text: 'starter', ro_id: bad });
+    assert.equal(r.res.statusCode, 400, JSON.stringify(bad));
+    assert.equal(r.w.writes.length, 0);
+  }
+  let r = await call({ action: 'add', kind: 'parts', text: 'starter', ro_id: FAKE });
+  assert.equal(r.res.statusCode, 404);
+  r = await call({ action: 'add', kind: 'parts', text: 'starter', ro_id: RO_CLOSED });
+  assert.equal(r.res.statusCode, 409);
+  assert.equal(r.res.body.error, 'ro_closed');
+  assert.equal(r.w.writes.length, 0);
+});
+
+test("parts: 'Arrived ✓' clears with reason 'arrived' (server-stamped); a note can't be 'arrived'; Undo brings a parts line back", async () => {
+  let r = await call({ action: 'clear', id: PARTS, reason: 'arrived' });
+  assert.equal(r.res.statusCode, 200);
+  assert.equal(r.w.writes[0].body.cleared_reason, 'arrived');
+  assert.equal(r.w.writes[0].body.cleared_by, EMP.id);
+  r = await call({ action: 'clear', id: PARTS, reason: 'erased' });
+  assert.equal(r.res.statusCode, 200, 'a parts line can be erased too');
+  r = await call({ action: 'clear', id: NOTE, reason: 'arrived' });
+  assert.equal(r.res.statusCode, 400);
+  assert.equal(r.w.writes.length, 0);
 });

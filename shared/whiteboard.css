@@ -108,7 +108,7 @@ li.is-called .wz-line { color: #5b5f69; }
 .wz-callbtn:focus-visible, .wz-link:focus-visible, .wz-x:focus-visible { outline: 2px solid var(--wb-blue); outline-offset: 1px; }
 .wz-callbtn[disabled], .wz-link[disabled], .wz-x[disabled] { opacity: .45; cursor: default; }
 .wz-foot { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; }
-.wz-form { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.wz-form { display: flex; align-items: center; gap: 6px 8px; margin-top: 4px; }
 .wz-form[hidden] { display: none; }
 .wz-input {
   flex: 1; min-width: 0; border: 0; border-bottom: 2px solid rgba(35,38,47,.35); background: transparent; outline: none;
@@ -119,6 +119,34 @@ li.is-called .wz-line { color: #5b5f69; }
 .wz-erased > li { font-size: 14px; color: #8b8f99; }
 .wz-erased s { text-decoration-thickness: 2px; }
 .wz-err[hidden] { display: none; }
+
+/* Slice 5: Waiting on parts — the RO part of a line, Arrived ✓, the RO picker. */
+.wz-roref { font-weight: 700; }
+.wz-callbtn.wz-arrived { margin-left: 4px; border-color: var(--wb-green); color: var(--wb-green); }
+.wz-callbtn.wz-arrived:hover { background: #e3f5ec; }
+.wz-form-parts { flex-wrap: wrap; }
+.wz-form-parts > .wz-input { flex: 1 1 180px; }
+.wz-pick { position: relative; flex: 1 1 100%; display: flex; align-items: center; min-width: 0; }
+.wz-pick-q { flex: 1; }
+.wz-pick-q[hidden] { display: none; }
+.wz-pick-chosen {
+  display: inline-flex; align-items: center; gap: 2px; max-width: 100%;
+  font-family: var(--wb-hand); font-size: 15px; font-weight: 700; color: var(--wb-black);
+  background: #fff2a1; border-radius: 3px; padding: 0 2px 0 6px; box-shadow: 0 1px 2px rgba(0,0,0,.12);
+}
+.wz-pick-chosen[hidden] { display: none; }
+.wz-pick-list {
+  position: absolute; left: 0; right: 0; top: 100%; z-index: 2; margin: 2px 0 0; padding: 4px; list-style: none;
+  background: #fff; border: 1px solid #d9dce8; border-radius: 8px; box-shadow: 0 8px 22px rgba(20,22,35,.18);
+  max-height: 210px; overflow: auto;
+}
+.wz-pick-list[hidden] { display: none; }
+.wz-pick-item {
+  display: block; width: 100%; text-align: left; border: 0; background: none; border-radius: 5px; cursor: pointer;
+  padding: 4px 8px; font-family: var(--wb-hand); font-size: 15px; color: var(--wb-black);
+}
+.wz-pick-item:hover, .wz-pick-item.is-sel { background: #e7eefc; }
+.wz-pick-note { padding: 4px 8px; font: 12px/1.4 ui-sans-serif, system-ui, 'Segoe UI', sans-serif; color: #6b6f7a; }
 
 /* A sticky pinned from the Desk pad. */
 .wz-list > li.stk {

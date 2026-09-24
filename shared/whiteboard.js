@@ -9,7 +9,10 @@
    with today's date in red, zone titles in coloured marker, lines in
    handwriting with ⚡ auto / ✎ hand chips, a marker tray along the bottom.
    Fonts are self-hosted (shared/fonts) — no font CDN. Three zones:
-     1. WAITING ON PARTS (red)  — "coming next" in faint marker (slice 5).
+     1. WAITING ON PARTS (red, by hand): "+ write on board" → an optional RO
+        (picked from the open ROs) + a short note. The RO part of a line opens
+        the RO the normal way. "Arrived ✓" or × takes it off; both land in
+        "recently cleared" (7 days) with Undo.
      2. READY → CALL FOR PICKUP (blue, automatic): every RO with status
         'invoice'. Click a line → the RO opens the normal way (RO Board tab +
         cdOpenRo). "Called ✓" stamps who + when; a small "undo" clears a
@@ -17,15 +20,17 @@
         later the old stamp shows again.
      3. DON'T FORGET (red, by hand): "+ write on board", who + when on every
         line, anyone can erase any line, "Recently erased" (7 days) with Undo.
+   The write box closes after each save; Esc / cancel close it without saving.
 
    READS — with the board's own signed-in Supabase client: repair_orders
-   (READY_SELECT, status 'invoice'), whiteboard_pickup_calls and
-   whiteboard_items (staff only, RLS is_staff()). WRITES — NEVER through the
-   client: every change is a POST to /api/whiteboard via cdAuthFetch, which
-   checks the employee and stamps who + when on the server. This file never
-   calls .update( / .insert( / .upsert( / .delete( / .rpc( and never touches
-   the RO detail's open/current-RO code, so it can't re-save an RO
-   (the book_hours trap). Test-locked.
+   (READY_SELECT, status 'invoice'; and PICK_SELECT, the open ROs, only when
+   the parts box is opened), whiteboard_pickup_calls and whiteboard_items
+   (staff only, RLS is_staff(); the parts line's RO comes embedded). WRITES —
+   NEVER through the client: every change is a POST to /api/whiteboard via
+   cdAuthFetch, which checks the employee and stamps who + when on the server.
+   This file never calls .update( / .insert( / .upsert( / .delete( / .rpc( and
+   never touches the RO detail's open/current-RO code, so it can't re-save an
+   RO (the book_hours trap). Test-locked.
 
    LIVE: one realtime channel on repair_orders + both whiteboard tables (after
    db.realtime.setAuth(token), like the Messenger tray — the whiteboard tables
@@ -36,7 +41,8 @@
 import { isBoardToggleKey } from './desk-pad-logic.js';
 import {
   READY_STATUS, READY_SELECT, readyLines, boardDate,
-  CALL_SELECT, ITEM_SELECT, RECENT_DAYS, NOTE_MAX, callsByRo, noteLists, stamp, upsertRow, actionError,
+  CALL_SELECT, ITEM_SELECT, ITEM_RO_EMBED, PICK_SELECT, RECENT_DAYS, NOTE_MAX,
+  callsByRo, noteLists, stamp, clearedLabel, roLabel, pickOptions, matchRos, upsertRow, actionError,
 } from './whiteboard-logic.js';
 
 const API = '/api/whiteboard';
@@ -51,57 +57,76 @@ const esc = (s) => String(s == null ? '' : s)
 export function createWhiteboardPanel(ctx, { db } = {}) {
   let lines = [];            // Ready → call for pickup
   let calls = [];            // whiteboard_pickup_calls rows for those ROs
-  let items = [];            // whiteboard_items rows (open + recently cleared)
+  let items = [];            // whiteboard_items rows, both kinds (open + recently cleared)
   let loaded = false, failed = false, handOk = false;
-  let showErased = false;
   const inFlight = {};       // line key → true while its request is out (buttons disabled)
-  let noteErr = '', readyErr = '';
+  let readyErr = '';
 
   const el = document.createElement('div');
   el.className = 'wb';
+  const handZone = (kind, id, title, placeholder) => `
+            <section class="wz red" aria-labelledby="${id}" data-zone="${kind}">
+              <h4 id="${id}">${title}</h4>
+              <ul class="wz-list" data-z="list"></ul>
+              <form class="wz-form${kind === 'parts' ? ' wz-form-parts' : ''}" data-z="form" hidden>
+                ${kind === 'parts' ? `
+                <div class="wz-pick">
+                  <input class="wz-input wz-pick-q" data-z="pickq" type="text" autocomplete="off"
+                    placeholder="RO #, customer or vehicle (optional)" aria-label="Pick an RO (optional)">
+                  <span class="wz-pick-chosen" data-z="chosen" hidden></span>
+                  <ul class="wz-pick-list" data-z="picklist" role="listbox" hidden></ul>
+                </div>` : ''}
+                <input class="wz-input" data-z="input" type="text" maxlength="${NOTE_MAX}" autocomplete="off"
+                  placeholder="${placeholder}" aria-label="Write on the board">
+                <button type="submit" class="wz-link">save</button>
+                <button type="button" class="wz-link" data-wb-act="cancel">cancel</button>
+              </form>
+              <p class="wz-err" data-z="err" hidden></p>
+              <div class="wz-foot">
+                <button type="button" class="wz-link" data-wb-act="write" hidden>+ write on board</button>
+                <button type="button" class="wz-link" data-wb-act="cleared" hidden></button>
+              </div>
+              <ul class="wz-list wz-erased" data-z="cleared" hidden></ul>
+            </section>`;
   el.innerHTML = `
       <div class="wb-body"><div class="wb-frame">
         <div class="wb-board">
           <div class="wb-title"><b>FRONT OFFICE</b><span data-wb="date"></span></div>
           <div class="wb-grid">
-            <section class="wz red" aria-labelledby="wbPartsH">
-              <h4 id="wbPartsH">WAITING ON PARTS</h4>
-              <p class="wz-soon">coming next</p>
-            </section>
+            ${handZone('parts', 'wbPartsH', 'WAITING ON PARTS', 'part · vendor · ETA…')}
             <section class="wz blue wz-wide" aria-labelledby="wbReadyH">
               <h4 id="wbReadyH">READY → CALL FOR PICKUP</h4>
               <ul class="wz-list" data-wb="ready"></ul>
               <p class="wz-err" data-wb="ready-err" hidden></p>
             </section>
-            <section class="wz red" aria-labelledby="wbNotesH">
-              <h4 id="wbNotesH">DON'T FORGET</h4>
-              <ul class="wz-list" data-wb="notes"></ul>
-              <form class="wz-form" data-wb="form" hidden>
-                <input class="wz-input" data-wb="input" type="text" maxlength="${NOTE_MAX}" autocomplete="off"
-                  placeholder="write it on the board…" aria-label="Write on the board">
-                <button type="submit" class="wz-link">save</button>
-                <button type="button" class="wz-link" data-wb-act="cancel">cancel</button>
-              </form>
-              <p class="wz-err" data-wb="note-err" hidden></p>
-              <div class="wz-foot">
-                <button type="button" class="wz-link" data-wb-act="write" hidden>+ write on board</button>
-                <button type="button" class="wz-link" data-wb-act="erased" hidden></button>
-              </div>
-              <ul class="wz-list wz-erased" data-wb="erased" hidden></ul>
-            </section>
+            ${handZone('note', 'wbNotesH', "DON'T FORGET", 'write it on the board…')}
           </div>
         </div>
         <div class="wb-tray" aria-hidden="true"><i></i><i></i><i></i></div>
       </div></div>`;
-  const $ = (k) => el.querySelector(`[data-wb="${k}"]`);
   const scroller = el.querySelector('.wb-body');
   const frame = el.querySelector('.wb-frame');
-  const readyList = $('ready'), notesList = $('notes'), erasedList = $('erased');
-  const form = $('form'), input = $('input'), dateEl = $('date');
-  const writeBtn = el.querySelector('[data-wb-act="write"]');
-  const erasedBtn = el.querySelector('[data-wb-act="erased"]');
+  const readyList = el.querySelector('[data-wb="ready"]');
+  const dateEl = el.querySelector('[data-wb="date"]');
   const AUTO = '<span class="wb-chip auto" title="Fills itself from the RO Board">⚡ auto</span>';
   const HAND = '<span class="wb-chip hand" title="Written by hand">✎ hand</span>';
+
+  // The two hand-written zones share one set of rules; only these differ.
+  const Z = {};
+  for (const kind of ['parts', 'note']) {
+    const sec = el.querySelector(`[data-zone="${kind}"]`);
+    const q = (k) => sec.querySelector(`[data-z="${k}"]`);
+    Z[kind] = {
+      kind, sec, list: q('list'), form: q('form'), input: q('input'), errEl: q('err'), clearedList: q('cleared'),
+      writeBtn: sec.querySelector('[data-wb-act="write"]'), clearedBtn: sec.querySelector('[data-wb-act="cleared"]'),
+      pickq: q('pickq'), chosenEl: q('chosen'), pickList: q('picklist'),
+      err: '', showCleared: false,
+      clearedWord: kind === 'parts' ? 'recently cleared' : 'recently erased',
+      clearedText: kind === 'parts' ? (r) => clearedLabel(r) : (r) => `erased by ${stamp(r.cleared_by_name, r.cleared_at)}`,
+    };
+  }
+  // The parts box's RO picker.
+  const pick = { options: [], results: [], sel: 0, chosen: null, loading: false, err: '' };
 
   /* ── drawing ─────────────────────────────────────────────────────────── */
   function drawReady() {
@@ -121,33 +146,62 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
     if (!lines.length) html = `<li class="wz-empty">${loaded ? 'nobody waiting on a call' : (failed ? '' : '…')}</li>`;
     if (failed) html += `<li class="wz-err">couldn't load the list — trying again</li>`;
     readyList.innerHTML = html;
-    const re = $('ready-err'); re.textContent = readyErr; re.hidden = !readyErr;
+    const re = el.querySelector('[data-wb="ready-err"]'); re.textContent = readyErr; re.hidden = !readyErr;
   }
 
-  function drawNotes() {
-    const { open, erased } = noteLists(items);
-    notesList.innerHTML = open.map((n) => {
+  // A parts line starts with its RO (a link that opens it), then the note.
+  function roPart(n) {
+    if (n.kind !== 'parts' || !n.ro_id) return '';
+    const label = n.ro ? roLabel(n.ro) : 'RO';
+    return `<button type="button" class="wz-line wz-roref" data-wb-ro="${esc(n.ro_id)}" title="Open this RO">${esc(label)}</button> — `;
+  }
+
+  function drawHand(z) {
+    const { open, erased } = noteLists(items, new Date(), z.kind);
+    z.list.innerHTML = open.map((n) => {
       const off = inFlight[n.id] ? ' disabled' : '';
-      return `<li>${HAND}<span class="wz-text">${esc(n.text)} <small class="wz-who">— ${esc(stamp(n.created_by_name, n.created_at))}</small>` +
-        `<button type="button" class="wz-x" data-wb-act="erase" data-id="${esc(n.id)}"${off} aria-label="Erase this line" title="Erase this line">×</button></span></li>`;
+      const arrived = z.kind === 'parts'
+        ? `<button type="button" class="wz-callbtn wz-arrived" data-wb-act="arrived" data-id="${esc(n.id)}"${off} title="The part came in — take it off the board">Arrived ✓</button>`
+        : '';
+      return `<li>${HAND}<span class="wz-text">${roPart(n)}${esc(n.text)} <small class="wz-who">— ${esc(stamp(n.created_by_name, n.created_at))}</small>` +
+        `${arrived}<button type="button" class="wz-x" data-wb-act="erase" data-id="${esc(n.id)}"${off} aria-label="Erase this line" title="Erase this line">×</button></span></li>`;
     }).join('') || (handOk ? '' : `<li class="wz-empty">${loaded ? '' : '…'}</li>`);
-    writeBtn.hidden = !handOk || !form.hidden;
-    erasedBtn.hidden = !handOk || !erased.length;
-    erasedBtn.textContent = `recently erased (${erased.length}) ${showErased ? '▴' : '▾'}`;
-    erasedBtn.setAttribute('aria-expanded', String(showErased));
-    erasedList.hidden = !showErased || !erased.length;
-    erasedList.innerHTML = erased.map((n) => {
+    z.writeBtn.hidden = !handOk || !z.form.hidden;
+    z.clearedBtn.hidden = !handOk || !erased.length;
+    z.clearedBtn.textContent = `${z.clearedWord} (${erased.length}) ${z.showCleared ? '▴' : '▾'}`;
+    z.clearedBtn.setAttribute('aria-expanded', String(z.showCleared));
+    z.clearedList.hidden = !z.showCleared || !erased.length;
+    z.clearedList.innerHTML = erased.map((n) => {
       const off = inFlight[n.id] ? ' disabled' : '';
-      return `<li><span class="wz-text"><s>${esc(n.text)}</s> <small class="wz-who">erased by ${esc(stamp(n.cleared_by_name, n.cleared_at))}</small>` +
+      const ro = n.kind === 'parts' && n.ro_id ? `${esc(n.ro ? roLabel(n.ro) : 'RO')} — ` : '';
+      return `<li><span class="wz-text"><s>${ro}${esc(n.text)}</s> <small class="wz-who">${esc(z.clearedText(n))}</small>` +
         `<button type="button" class="wz-link" data-wb-act="undo" data-id="${esc(n.id)}"${off}>Undo</button></span></li>`;
     }).join('');
-    const ne = $('note-err'); ne.textContent = noteErr; ne.hidden = !noteErr;
+    z.errEl.textContent = z.err; z.errEl.hidden = !z.err;
+  }
+
+  function drawPick() {
+    const z = Z.parts;
+    const ch = pick.chosen;
+    z.chosenEl.hidden = !ch;
+    z.pickq.hidden = !!ch;
+    z.chosenEl.innerHTML = ch
+      ? `${esc(ch.label)} <button type="button" class="wz-x" data-wb-act="unpick" aria-label="No RO" title="No RO">×</button>` : '';
+    const show = !ch && !z.form.hidden && document.activeElement === z.pickq;
+    z.pickList.hidden = !show;
+    if (!show) return;
+    if (pick.loading && !pick.options.length) { z.pickList.innerHTML = '<li class="wz-pick-note">loading open ROs…</li>'; return; }
+    if (pick.err) { z.pickList.innerHTML = `<li class="wz-pick-note">${esc(pick.err)}</li>`; return; }
+    z.pickList.innerHTML = pick.results.map((o, i) =>
+      `<li><button type="button" class="wz-pick-item${i === pick.sel ? ' is-sel' : ''}" role="option" aria-selected="${i === pick.sel}" data-wb-act="pick" data-id="${esc(o.id)}">${esc(o.label)}</button></li>`
+    ).join('') || '<li class="wz-pick-note">no open RO matches — leave it empty for a shop order</li>';
   }
 
   function draw() {
     dateEl.textContent = boardDate();
     drawReady();
-    drawNotes();
+    drawHand(Z.parts);
+    drawHand(Z.note);
     ctx.recount();
     ctx.refit();
   }
@@ -189,8 +243,8 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
           lines.length
             ? db.from('whiteboard_pickup_calls').select(CALL_SELECT).in('ro_id', lines.map((l) => l.id))
             : Promise.resolve({ data: [], error: null }),
-          db.from('whiteboard_items').select(ITEM_SELECT).eq('kind', 'note')
-            .or(`cleared_at.is.null,cleared_at.gte.${since}`).order('created_at', { ascending: true }).limit(300),
+          db.from('whiteboard_items').select(`${ITEM_SELECT}, ${ITEM_RO_EMBED}`).in('kind', ['note', 'parts'])
+            .or(`cleared_at.is.null,cleared_at.gte.${since}`).order('created_at', { ascending: true }).limit(400),
         ]);
         if (c.error) throw c.error;
         if (it.error) throw it.error;
@@ -212,6 +266,26 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
 
   let debounce = null;
   function schedule() { clearTimeout(debounce); debounce = setTimeout(load, DEBOUNCE_MS); }
+
+  // The open ROs for the parts picker — read fresh each time the box opens.
+  async function loadPick() {
+    if (!db) return;
+    pick.loading = true; pick.err = ''; drawPick();
+    try {
+      const { data, error } = await db.from('repair_orders').select(PICK_SELECT)
+        .neq('status', 'closed').order('created_at', { ascending: false }).limit(400);
+      if (error) throw error;
+      pick.options = pickOptions(data);
+    } catch (e) {
+      console.warn('[Whiteboard] RO picker', e);
+      pick.err = "couldn't load the ROs — you can still write the line without one";
+    } finally {
+      pick.loading = false;
+      pick.results = matchRos(pick.options, Z.parts.pickq.value);
+      pick.sel = 0;
+      drawPick();
+    }
+  }
 
   /* ── writing — only through /api/whiteboard ──────────────────────────── */
   async function post(payload) {
@@ -239,33 +313,93 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
     schedule();
     return r.ok;
   }
-  const setNoteErr = (t) => { noteErr = t; };
   const setReadyErr = (t) => { readyErr = t; };
+  const foldItem = (r) => { if (r.item) items = upsertRow(items, keepRo(r.item)); };
+  // The endpoint returns the bare row; keep the RO we already know so the line doesn't flicker.
+  function keepRo(row) {
+    if (!row || !row.ro_id) return row;
+    const known = items.find((x) => x && x.ro_id === row.ro_id && x.ro);
+    const chosen = pick.chosen && pick.chosen.id === row.ro_id ? pick.chosen.row : null;
+    return { ...row, ro: (known && known.ro) || chosen || null };
+  }
 
-  function openForm() { form.hidden = false; noteErr = ''; draw(); input.focus(); }
-  function closeForm() { form.hidden = true; input.value = ''; draw(); }
+  function openForm(z) {
+    z.form.hidden = false; z.err = '';
+    if (z.kind === 'parts') {
+      pick.chosen = null; z.pickq.value = '';
+      draw(); drawPick();
+      z.pickq.focus();
+      loadPick();
+    } else {
+      draw();
+      z.input.focus();
+    }
+  }
+  function closeForm(z) {
+    z.form.hidden = true; z.input.value = '';
+    if (z.kind === 'parts') { pick.chosen = null; z.pickq.value = ''; drawPick(); }
+    draw();
+  }
+  function choose(id) {
+    const o = pick.options.find((x) => x.id === id);
+    if (!o) return;
+    pick.chosen = { id: o.id, label: o.label, row: o.row };
+    drawPick();
+    Z.parts.input.focus();
+  }
 
-  form.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const text = input.value.trim();
-    if (!text) { closeForm(); return; }
-    input.disabled = true;
-    const ok = await act('new', { action: 'add', kind: 'note', text },
-      (b) => { if (b.item) items = upsertRow(items, b.item); }, setNoteErr);
-    input.disabled = false;
-    // Saved → the box closes (Cris, 2026-09-24); "+ write on board" opens it again.
-    // Not saved → it stays open with the text, so nothing typed is lost.
-    if (ok) { closeForm(); writeBtn.focus(); } else input.focus();
+  for (const z of Object.values(Z)) {
+    z.form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const text = z.input.value.trim();
+      if (!text) {
+        if (z.kind === 'parts' && pick.chosen) { z.err = 'Write what part it’s waiting on.'; draw(); z.input.focus(); return; }
+        closeForm(z); return;
+      }
+      const payload = { action: 'add', kind: z.kind, text };
+      if (z.kind === 'parts' && pick.chosen) payload.ro_id = pick.chosen.id;
+      z.input.disabled = true;
+      const ok = await act('new:' + z.kind, payload, foldItem, (t) => { z.err = t; });
+      z.input.disabled = false;
+      // Saved → the box closes (Cris, 2026-09-24); "+ write on board" opens it again.
+      // Not saved → it stays open with the text, so nothing typed is lost.
+      if (ok) { closeForm(z); z.writeBtn.focus(); } else z.input.focus();
+    });
+    // Esc in the box closes the box only — not the whole drawer (the drawer skips a prevented Esc).
+    z.input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); closeForm(z); z.writeBtn.focus(); }
+    });
+  }
+
+  // The RO search box: type to filter, ↑/↓ to move, Enter picks, Esc closes the box.
+  const pq = Z.parts.pickq;
+  pq.addEventListener('input', () => { pick.results = matchRos(pick.options, pq.value); pick.sel = 0; drawPick(); });
+  pq.addEventListener('focus', drawPick);
+  pq.addEventListener('blur', () => setTimeout(drawPick, 150));   // let a click on a result land first
+  pq.addEventListener('keydown', (ev) => {
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      const n = pick.results.length;
+      if (n) pick.sel = (pick.sel + (ev.key === 'ArrowDown' ? 1 : -1) + n) % n;
+      drawPick();
+    } else if (ev.key === 'Enter') {
+      ev.preventDefault();                       // never submits from here
+      const o = pick.results[pick.sel];
+      if (o && pq.value.trim()) choose(o.id); else Z.parts.input.focus();
+    } else if (ev.key === 'Escape') {
+      ev.preventDefault(); closeForm(Z.parts); Z.parts.writeBtn.focus();
+    }
   });
-  // Esc in the box closes the box only — not the whole drawer (the drawer skips a prevented Esc).
-  input.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Escape') { ev.preventDefault(); closeForm(); writeBtn.focus(); }
+
+  el.addEventListener('mousedown', (ev) => {
+    // Keep the search box focused while a result is clicked (so the list doesn't vanish first).
+    if (ev.target.closest('[data-wb-act="pick"]')) ev.preventDefault();
   });
 
   el.addEventListener('click', (ev) => {
     const lineBtn = ev.target.closest('[data-wb-ro]');
     if (lineBtn) {
-      // Click a Ready line → the RO opens the normal way (same path as global search).
+      // Click a Ready line / a parts line's RO → the RO opens the normal way (same path as global search).
       if (!window.cdOpenRo) return;
       const nav = document.querySelector('.sidebar-item[data-view="cdros"]'); if (nav) nav.click();
       window.cdOpenRo(lineBtn.dataset.wbRo);
@@ -274,16 +408,18 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
     const b = ev.target.closest('[data-wb-act]');
     if (!b || b.disabled) return;
     const id = b.dataset.id, ro = b.dataset.ro;
+    const sec = b.closest('[data-zone]');
+    const z = sec ? Z[sec.dataset.zone] : null;
+    const zoneErr = (t) => { if (z) z.err = t; };
     switch (b.dataset.wbAct) {
-      case 'write': openForm(); return;
-      case 'cancel': closeForm(); return;
-      case 'erased': showErased = !showErased; draw(); return;
-      case 'erase':
-        act(id, { action: 'clear', id, reason: 'erased' }, (r) => { if (r.item) items = upsertRow(items, r.item); }, setNoteErr);
-        return;
-      case 'undo':
-        act(id, { action: 'undo', id }, (r) => { if (r.item) items = upsertRow(items, r.item); }, setNoteErr);
-        return;
+      case 'write': if (z) openForm(z); return;
+      case 'cancel': if (z) { closeForm(z); z.writeBtn.focus(); } return;
+      case 'cleared': if (z) { z.showCleared = !z.showCleared; draw(); } return;
+      case 'pick': choose(id); return;
+      case 'unpick': pick.chosen = null; pq.value = ''; pick.results = matchRos(pick.options, ''); pick.sel = 0; drawPick(); pq.focus(); return;
+      case 'erase': act(id, { action: 'clear', id, reason: 'erased' }, foldItem, zoneErr); return;
+      case 'arrived': act(id, { action: 'clear', id, reason: 'arrived' }, foldItem, zoneErr); return;
+      case 'undo': act(id, { action: 'undo', id }, foldItem, zoneErr); return;
       case 'call':
         act('ro:' + ro, { action: 'called', ro_id: ro }, (r) => { if (r.call) calls = upsertRow(calls, r.call, 'ro_id'); }, setReadyErr);
         return;

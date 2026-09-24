@@ -69,6 +69,7 @@ export const RECENT_DAYS = 7;          // "Recently erased" looks back this far
 export const NOTE_MAX = 500;           // same cap as the endpoint + the table CHECK
 export const CALL_SELECT = 'ro_id, called_at, called_by, called_by_name';
 export const ITEM_SELECT = 'id, kind, text, ro_id, created_by_name, created_at, cleared_at, cleared_by_name, cleared_reason';
+// Items are read with the RO embedded (ITEM_RO_EMBED, below) for the parts lines.
 
 const SHOP_TZ = 'America/New_York';
 function parts(d) {
@@ -110,22 +111,87 @@ export function callsByRo(rows) {
   return m;
 }
 
-// Don't forget rows → { open, erased }. open = on the board, oldest first.
-// erased = taken off with "erase" in the last RECENT_DAYS, newest first.
+// Hand-written rows of one kind → { open, erased }. open = on the board, oldest
+// first. erased = taken off in the last RECENT_DAYS, newest first — for Don't
+// forget that's "erased"; for Waiting on parts it's "erased" AND "arrived"
+// (both land in "recently cleared" with Undo).
 export function noteLists(rows, now = new Date(), kind = 'note') {
   const open = [], erased = [];
   if (!Array.isArray(rows)) return { open, erased };
   const since = now.getTime() - RECENT_DAYS * 24 * 3600e3;
+  const reasons = kind === 'parts' ? ['erased', 'arrived'] : ['erased'];
   const seen = new Set();
   for (const r of rows) {
     if (!r || typeof r !== 'object' || r.kind !== kind || r.id == null || seen.has(String(r.id))) continue;
     seen.add(String(r.id));
     if (!r.cleared_at) open.push(r);
-    else if (r.cleared_reason === 'erased' && Date.parse(r.cleared_at) >= since) erased.push(r);
+    else if (reasons.includes(r.cleared_reason) && Date.parse(r.cleared_at) >= since) erased.push(r);
   }
   open.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   erased.sort((a, b) => String(b.cleared_at).localeCompare(String(a.cleared_at)));
   return { open, erased };
+}
+
+// "arrived · Kevin · 2:14 PM" / "erased · Kevin · 2:14 PM" — how a cleared line reads.
+export function clearedLabel(row, now = new Date()) {
+  const what = row && row.cleared_reason === 'arrived' ? 'arrived' : 'erased';
+  return `${what} · ${stamp(row && row.cleared_by_name, row && row.cleared_at, now)}`;
+}
+
+/* ── Slice 5: Waiting on parts — the RO part of a line + the RO picker ───── */
+// Open ROs for the picker (never 'closed'). Named columns, read-only.
+export const PICK_SELECT = 'id, ro_number, po, status, created_at, customers(name), vehicles(year, make, model)';
+// The RO embedded on a parts line (whiteboard_items.ro_id → repair_orders).
+export const ITEM_RO_EMBED = 'ro:repair_orders(id, ro_number, po, status, customers(name), vehicles(year, make, model))';
+
+// "#6089 · Ford F-250 · JOSE RAMIREZ" — make + model (no year, like the mockup), then the customer.
+export function roLabel(ro) {
+  if (!ro || typeof ro !== 'object') return '';
+  const num = ro.po || ro.ro_number;
+  const v = ro.vehicles && typeof ro.vehicles === 'object' ? ro.vehicles : {};
+  const veh = [v.make, v.model].filter((x) => x != null && String(x).trim() !== '').join(' ');
+  const c = ro.customers && typeof ro.customers === 'object' ? ro.customers : {};
+  const cust = c.name && String(c.name).trim();
+  return [num != null && String(num) !== '' ? '#' + num : '#—', veh, cust].filter(Boolean).join(' · ');
+}
+
+// Rows from PICK_SELECT → picker options (open ROs only), newest first.
+export function pickOptions(rows) {
+  if (!Array.isArray(rows)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const r of rows) {
+    if (!r || typeof r !== 'object' || r.id == null || r.status === 'closed' || seen.has(String(r.id))) continue;
+    seen.add(String(r.id));
+    const v = r.vehicles && typeof r.vehicles === 'object' ? r.vehicles : {};
+    out.push({
+      id: String(r.id),
+      label: roLabel(r),
+      nums: [r.po, r.ro_number].filter((x) => x != null && x !== '').map(String),
+      hay: [r.customers && r.customers.name, v.year, v.make, v.model].filter((x) => x != null).join(' ').toLowerCase(),
+      created: r.created_at || '',
+      // The RO's own fields, shaped like ITEM_RO_EMBED — so a line just written shows its RO at once.
+      row: { id: String(r.id), ro_number: r.ro_number, po: r.po, status: r.status, customers: r.customers || null, vehicles: r.vehicles || null },
+    });
+  }
+  out.sort((a, b) => String(b.created).localeCompare(String(a.created)));
+  return out;
+}
+
+// Search the picker: digits match the RO / PO number, words match customer + vehicle
+// (every word must match). Empty query → the newest few. At most `max`.
+export function matchRos(options, query, max = 8) {
+  const list = Array.isArray(options) ? options : [];
+  const q = String(query == null ? '' : query).trim().toLowerCase().replace(/^#/, '');
+  if (!q) return list.slice(0, max);
+  const words = q.split(/\s+/).filter(Boolean);
+  const out = [];
+  for (const o of list) {
+    const ok = words.every((w) => (/^\d+$/.test(w) ? o.nums.some((n) => n.includes(w)) || o.hay.includes(w) : o.hay.includes(w)));
+    if (ok) out.push(o);
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 // Put one row the endpoint just returned into a list (replace by key, or add).

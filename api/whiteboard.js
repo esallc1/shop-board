@@ -16,6 +16,7 @@
 
    ── WHAT EACH ACTION MAY TOUCH ── (fixed columns only)
    add      → a NEW whiteboard_items row: kind, text, ro_id, created_by, created_by_name.
+              An ro_id must be a real RO that isn't closed (404 / 409).
    clear    → cleared_at, cleared_by, cleared_by_name, cleared_reason — only on a line that
               isn't cleared yet. Nothing is ever deleted.
    undo     → the same four cleared_* columns back to null.
@@ -122,9 +123,13 @@ async function write(db, method, path, body, extraPrefer) {
 
 async function doAdd(res, db, p, who) {
   if (p.roId) {
-    const ro = await readOne(db, `repair_orders?id=eq.${p.roId}&select=id`);
+    // The RO must exist and still be open — a parts line on a closed job is a mistake.
+    const ro = await readOne(db, `repair_orders?id=eq.${p.roId}&select=id,status`);
     if (ro.error) return res.status(502).json({ error: 'read failed' });
     if (!ro.row) return res.status(404).json({ error: 'ro not found' });
+    if (ro.row.status === 'closed') {
+      return res.status(409).json({ error: 'ro_closed', message: 'That RO is closed — pick an open one, or leave the RO empty.' });
+    }
   }
   const w = await write(db, 'POST', `whiteboard_items?select=${ITEM_COLS}`, {
     kind: p.kind, text: p.text, ro_id: p.roId, created_by: who.id, created_by_name: who.name,

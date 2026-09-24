@@ -1,8 +1,8 @@
 # How the Whiteboard is wired
 > Doc: `/docs/wiring/whiteboard.md`
-> Last updated: 2026-09-24 — **slices 3 + 4 (staging): "Called ✓" (§3a), Don't forget (§6), storage (§7), `api/whiteboard.js` (§8)**; §4/§5 rewritten. Earlier the same day: §2 restyled to the approved mockup; slices 1 + 2 created.
+> Last updated: 2026-09-24 — **slice 5 (staging): Waiting on parts (§6b)** — RO picker, Arrived ✓, recently cleared; §4 / §8 updated (picker read, closed-RO 409). Earlier the same day: slices 1–4 and the office-whiteboard look.
 > Verified vs commit `8014f95` (slices 3 + 4 driven on test.* incl. a two-person check; read-only on prod 2026-09-24).
-> Status: 🟢 **LIVE on prod** — slices 1 + 2 since `968d376`; the office-whiteboard look + slices 3 + 4 (Called ✓, Don't forget) since `8014f95` (2026-09-24). Tables on SANDBOX + PROD (both 8/8 PASS).
+> Status: 🟢 slices 1–4 + the look **LIVE on prod** since `8014f95`; 🟡 slice 5 (Waiting on parts) on **staging only** (test.*). No migration (uses the existing `whiteboard_items`, kind `parts`).
 > Related: [[desk-pad]] (the other tab of the same drawer; §2 there = the drawer frame),
 > [[ro-checkin-tech]] §8 (the close path that sets `status = 'closed'`), [[messenger-tray]] (shares the right edge),
 > [[call-window-desk]] (the Desk tab — **untouched**; the Whiteboard only holds what the Desk doesn't).
@@ -10,8 +10,8 @@
 ## 0. In one line
 The shop's shared whiteboard at the bottom of the advisor board — the second tab of the bottom drawer
 ("📋 Whiteboard", key **W**) — showing the ROs that are ready and need a pickup call (with who called
-them, and when), and a "Don't forget" list anyone in the office can write on and erase. The parts zone
-comes next.
+them, and when), a "Waiting on parts" list (optionally tied to an RO) with "Arrived ✓", and a
+"Don't forget" list anyone in the office can write on and erase.
 
 ## 1. Where it is on the page
 - A **panel** of the bottom drawer (`shared/bottom-drawer.js`, described in [[desk-pad]] §2). The drawer
@@ -37,11 +37,10 @@ another notepad"):
 - **Zones are written on the board — no boxes, no cards.** Titles in marker, UPPERCASE, underlined,
   each its own colour: **WAITING ON PARTS** (red) · **READY → CALL FOR PICKUP** (blue) ·
   **DON'T FORGET** (red). They sit side by side and wrap on a narrow window (flex; the Ready zone gets
-  the most room). An empty zone shows only its title and faint marker text ("coming next" on Waiting on
-  parts until slice 5; "nobody waiting on a call" when the Ready list is empty); Don't forget always
-  shows its "+ write on board" link.
+  the most room). An empty Ready zone shows faint marker text ("nobody waiting on a call"); the two
+  hand-written zones always show their "+ write on board" link.
 - **Lines are handwriting** (not app cards), each with the mockup's small chip in front:
-  **⚡ auto** (fills itself — the Ready lines) or **✎ hand** (written by a person — Don't forget; parts next).
+  **⚡ auto** (fills itself — the Ready lines) or **✎ hand** (written by a person — Waiting on parts, Don't forget).
   A sticky pinned from the Desk pad will show as a yellow sticky on the board (`li.stk`, slice 6).
 - **Fonts are self-hosted** in `shared/fonts/` — no font CDN: **Permanent Marker** (titles; Apache 2.0)
   and **Kalam** 400/700 (lines; SIL OFL 1.1), latin subset, `font-display: swap`, with system
@@ -72,23 +71,28 @@ another notepad"):
 - Only an RO whose status is `'invoice'` can be stamped (the endpoint answers 409 "That RO isn't ready
   for pickup any more." otherwise — shown under the zone).
 
-## 4. Reading — three read-only queries, with the viewer's own session
+## 4. Reading — read-only queries, with the viewer's own session
 All with the board's own signed-in Supabase client (passed in as `db`):
 1. `repair_orders.select(READY_SELECT).eq('status', 'invoice').order('created_at')`, where
    `READY_SELECT = 'id, ro_number, po, status, created_at, customers(name), vehicles(year, make, model)'`.
    Named columns only — no `*`, no `book_hours`, no `closed_at`. `readyLines()` **drops anything that
    isn't `'invoice'`** a second time.
 2. `whiteboard_pickup_calls.select('ro_id, called_at, called_by, called_by_name').in('ro_id', <the Ready ROs>)`.
-3. `whiteboard_items.select(ITEM_SELECT).eq('kind', 'note')` where `cleared_at` is null **or** in the last
-   7 days (`.or('cleared_at.is.null,cleared_at.gte.<7 days ago>')`), oldest first, max 300.
-   `noteLists()` splits them: on the board (not cleared) and "recently erased" (cleared as `erased`).
-- 2 and 3 are **staff-only** tables (RLS `is_staff()`, §7): they're read only when there is a signed-in
-  session; without one the hand-written half and the Called buttons don't show.
+3. `whiteboard_items.select(ITEM_SELECT + ', ' + ITEM_RO_EMBED).in('kind', ['note', 'parts'])` where
+   `cleared_at` is null **or** in the last 7 days (`.or('cleared_at.is.null,cleared_at.gte.<7 days ago>')`),
+   oldest first, max 400. `ITEM_RO_EMBED = 'ro:repair_orders(id, ro_number, po, status, customers(name),
+   vehicles(year, make, model))'` — a parts line's RO comes with it (over the `ro_id` foreign key).
+   `noteLists(rows, now, kind)` splits each kind: on the board (not cleared) and recently cleared
+   (Don't forget: `erased`; Waiting on parts: `erased` **and** `arrived`).
+4. **Only when the parts box is opened:** `repair_orders.select(PICK_SELECT).neq('status', 'closed')
+   .order('created_at', desc).limit(400)` — the open ROs for the picker (`pickOptions`, `matchRos`).
+- 2, 3 and 4's items are **staff-only** tables (RLS `is_staff()`, §7): read only when there is a signed-in
+  session; without one the hand-written zones and the Called buttons don't show.
 - **Never writes through the client, never re-saves an RO.** The Whiteboard files contain no `.update(` /
   `.insert(` / `.upsert(` / `.delete(` / `.rpc(`, no direct `fetch(`, and never touch `openRo` /
   `currentRo` / `updateBookHoursAuto`; the only way out is `cdAuthFetch(db, '/api/whiteboard', …)` (§8)
-  and it never sends who/when (test-locked in `shared/whiteboard-logic.test.js`). Clicking a line is an
-  ordinary RO open, with the ordinary RO-open behaviour.
+  and it never sends who/when (test-locked in `shared/whiteboard-logic.test.js`). Clicking a line (or a
+  parts line's RO) is an ordinary RO open, with the ordinary RO-open behaviour.
 - A failed read keeps the last good lines on screen with "couldn't load the list — trying again".
 
 ## 5. Live updates
@@ -119,6 +123,24 @@ All with the board's own signed-in Supabase client (passed in as `db`):
 - Two people erasing the same line: the second gets "Someone already took that line off the board."
 - N / W typed into the box are letters, never the drawer shortcuts (the typing guard).
 
+## 6b. Waiting on parts (slice 5)
+- **+ write on board** → a small form: first an **optional RO** search ("RO #, customer or vehicle"),
+  then the **note** ("part · vendor · ETA…", ≤ 500), save / cancel.
+  - The search lists **open ROs only** (not `closed`), newest first, up to 8: digits match the RO / PO
+    number, words match customer + vehicle (every word must match). ↑/↓ move, **Enter picks** (it never
+    submits the form), a click picks. The picked RO shows as a yellow chip with × to drop it.
+  - **No RO = free text** (e.g. "shop order: 10 qts ATF").
+  - Enter in the note (or save) saves and **the box closes**; Esc / cancel close without saving. With an
+    RO picked but no note: "Write what part it's waiting on." (nothing saved).
+- A line reads **✎ hand · "#6089 · Ford F-250 · DALE SMITH — torque converter · Transtar · ETA Fri
+  — <name> · <time>"** (`roLabel` = number · make model · customer; who/when stamped by the server).
+  The **RO part is a link** that opens the RO the normal way (same door as the Ready lines).
+- **Arrived ✓** (green) takes it off with `cleared_reason = 'arrived'`; **×** erases it. Both land in
+  **"recently cleared (n) ▾"** (7 days, newest first), each reading **"arrived · <name> · <time>"** or
+  **"erased · <name> · <time>"** (`clearedLabel`), with **Undo**.
+- The endpoint refuses an RO that doesn't exist (404) or is **closed** (409 "That RO is closed — pick an
+  open one, or leave the RO empty.") — shown under the zone, the box stays open with the text.
+
 ## 7. Storage — `whiteboard_items` + `whiteboard_pickup_calls`
 Migration `migrations/20260924_whiteboard_{SANDBOX,PROD}.sql` (self-guarding on `app_env`, one
 transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/whiteboard-migration.test.js`).
@@ -141,7 +163,7 @@ transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/wh
 - Actions — each writes **only its own columns**:
   | action | body | writes |
   |---|---|---|
-  | `add` | `kind` note or parts, `text` (≤ 500), `ro_id`? | a new row: kind, text, ro_id, created_by, created_by_name (RO must exist → 404) |
+  | `add` | `kind` note or parts, `text` (≤ 500), `ro_id`? | a new row: kind, text, ro_id, created_by, created_by_name (RO must exist → 404, and not be `closed` → 409) |
   | `clear` | `id`, `reason` erased or arrived | `cleared_at/_by/_by_name/_reason` — only if not cleared yet (409); `arrived` only on parts (400) |
   | `undo` | `id` | the four `cleared_*` back to null |
   | `called` | `ro_id` | upsert on `ro_id`: `called_at/_by/_by_name`, `updated_at` — only for status `'invoice'` (409) |
@@ -152,15 +174,15 @@ transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/wh
   server-side stamps, own columns only, the 404/409 rules, never writes `repair_orders`, never DELETE).
 
 ## Known gaps & open questions (as of 2026-09-24)
-- Slices 5–7 not built: Waiting on parts (RO picker + note + "Arrived ✓" — the table and endpoint
-  already take `kind: 'parts'` and `reason: 'arrived'`), "📌 Whiteboard" on a Desk pad sticky (shows as
-  a yellow sticky, `li.stk`), other boards.
+- Slices 6–7 not built: "📌 Whiteboard" on a Desk pad sticky (shows as a yellow sticky, `li.stk`), other boards.
+- A parts line whose RO closes stays on the board (it's a person's line — "Arrived ✓" or × takes it off);
+  its RO link still opens the closed RO.
 - Any change to the three tables re-reads the board (three small queries, debounced) — fine at this
   shop's volume; revisit only if it isn't.
 
 ## Where it lives in the code
 - `shared/whiteboard.js` — the panel: `createWhiteboardPanel(ctx, { db })` (the reads, realtime + `setAuth`, catch-up, click → `cdOpenRo`, the actions via `cdAuthFetch` → `/api/whiteboard`).
-- `shared/whiteboard-logic.js` — `READY_STATUS`, `READY_SELECT`, `readyLines`, `vehicleText`, `boardDate`, `CALL_SELECT`, `ITEM_SELECT`, `RECENT_DAYS`, `NOTE_MAX`, `whenText`, `stamp`, `callsByRo`, `noteLists`, `upsertRow`, `actionError`. Tested by `shared/whiteboard-logic.test.js`.
+- `shared/whiteboard-logic.js` — `READY_STATUS`, `READY_SELECT`, `readyLines`, `vehicleText`, `boardDate`, `CALL_SELECT`, `ITEM_SELECT`, `ITEM_RO_EMBED`, `PICK_SELECT`, `RECENT_DAYS`, `NOTE_MAX`, `whenText`, `stamp`, `callsByRo`, `noteLists`, `clearedLabel`, `roLabel`, `pickOptions`, `matchRos`, `upsertRow`, `actionError`. Tested by `shared/whiteboard-logic.test.js`.
 - `api/whiteboard.js` (+ `api/whiteboard.test.js`) — every write (§8); uses `api/_lib/require-user.js`.
 - `migrations/20260924_whiteboard_{SANDBOX,PROD}.sql` (+ `shared/whiteboard-migration.test.js`) — the two tables (§7).
 - `shared/whiteboard.css` — the board look (frame, board, marker titles, handwriting lines, chips, Called ✓, write box, recently erased, tray) + the `@font-face` rules.
@@ -171,6 +193,7 @@ transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/wh
 - `advisor-board.html` — the three stylesheet links and the mount module before `</body>` (`cdAuthFetch` is already loaded there).
 
 ## Session change log
+- **2026-09-24** — slice 5 on staging: Waiting on parts — optional RO picker (open ROs, number / customer / vehicle), note, who/when, RO part opens the RO, Arrived ✓ + ×, "recently cleared" (arrived / erased) + Undo, box closes after save. Endpoint: `add` with an `ro_id` now refuses a closed RO (409). The two hand-written zones share one code path (`Z.parts` / `Z.note`). No migration.
 - **2026-09-24** — **shipped to prod** as `8014f95` (fast-forward `b713d50..8014f95`, Cris's OK; PROD migration applied first, 8/8 PASS). www / board. / apex `/api/version` = `8014f95`; the 11 changed served files byte-identical on all three; migrations + CLAUDE.md 404; `POST /api/whiteboard` without a token → 401 (www, board.; the apex 308-redirects to www as always); anon REST read of `whiteboard_items` / `whiteboard_pickup_calls` on prod → 42501. Prod pane, read-only (no RO opened, nothing written): W opened the board — look + self-hosted fonts loaded, THU 9/24, live channel joined, Ready = #6013 SEAN DOHERTY, #6065 TODD FIRMSTONE, #6078 INTELIGENT SOLUTIONS, #6092 TONY KRUG, #6098 TC AUTOMOTIVE. That pane has no prod sign-in, so the hand-written half + Called ✓ stayed hidden (by design) — not eyeballed signed-in on prod.
 - **2026-09-24** — two-person check with Cris on test.*: his line as **ZZ Test Advisor** (Chrome) — "test from advisor - order ATF · ZZ Test Advisor · 6:12 AM" — appeared live on the ZZ Test Owner tab (loaded 6:06, no reload); from ZZ Test Owner at 6:14: Called ✓ on #6026, a new line, and his line erased, for Cris to confirm on his side. Change (Cris): the write box now **closes after each save** (stays open with the text only when a save fails).
 - **2026-09-24** — slices 3 + 4 driven on test.* at `a489f36` (sandbox; two tabs, each its own page + realtime socket, both signed in as ZZ Test Owner — Chrome had no test.* session and Claude doesn't type passwords, so not two different people): served files byte-identical; `/api/whiteboard` GET 405, POST no token / junk token 401; anon REST read of `whiteboard_items` → 42501. Typed a note + Enter in tab 1 → shown there 0.7 s, in tab 2 ~1.9 s, stamped "ZZ Test Owner · 6:07 AM" by the server; Called ✓ in tab 2 → stamp in tab 1 in 1.8 s; Esc in the write box closed only the box, a 2nd Esc hid the drawer; erase in tab 2 → gone in tab 1 1.6 s, "recently erased (1)" with who; Undo in tab 1 → back in tab 2 1.3 s, original writer + time; RO #6009 `invoice`→`ro`→`invoice` (sandbox) → left 1.1 s, back 0.9 s **with its old stamp**; undo call in tab 1 → gone in tab 2 1.7 s. Left: #6009 at `invoice`, its call row stamp-empty, the test note erased (soft).
