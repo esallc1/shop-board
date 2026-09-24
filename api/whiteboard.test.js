@@ -26,8 +26,8 @@ const CLEARED = '66666666-6666-4666-8666-666666666666';
 const EMP = { id: '44444444-4444-4444-8444-444444444444', name: 'ZZ Test Advisor', role: 'advisor' };
 const FAKE = '99999999-9999-4999-8999-999999999999';
 
-function world() {
-  const w = { calls: [], writes: [] };
+function world({ recent = [] } = {}) {
+  const w = { calls: [], writes: [], recent, dupeChecks: [] };
   const items = {
     [NOTE]: { id: NOTE, kind: 'note', cleared_at: null },
     [PARTS]: { id: PARTS, kind: 'parts', cleared_at: null },
@@ -56,6 +56,16 @@ function world() {
       return json(200, []);
     }
     if (url.includes('/rest/v1/whiteboard_items?')) {
+      if (method === 'GET' && url.includes('created_by=eq.')) {
+        // The duplicate check: same person + kind + text + RO, still on the board, recent.
+        const q = new URL(url).searchParams;
+        const val = (k) => (q.get(k) || '').replace(/^eq\./, '');
+        const hit = w.recent.filter((r) => r.created_by === val('created_by') && r.kind === val('kind') && r.text === val('text') &&
+          (q.get('ro_id') === 'is.null' ? r.ro_id == null : r.ro_id === val('ro_id')) && r.cleared_at == null &&
+          Date.parse(r.created_at) >= Date.parse(q.get('created_at').replace(/^gte\./, '')));
+        w.dupeChecks.push(url);
+        return json(200, hit.slice(0, 1));
+      }
       if (method === 'GET') {
         const id = (url.match(/id=eq\.([0-9a-f-]+)/) || [])[1];
         return json(200, items[id] ? [items[id]] : []);
@@ -270,5 +280,47 @@ test("parts: 'Arrived ✓' clears with reason 'arrived' (server-stamped); a note
   assert.equal(r.res.statusCode, 200, 'a parts line can be erased too');
   r = await call({ action: 'clear', id: NOTE, reason: 'arrived' });
   assert.equal(r.res.statusCode, 400);
+  assert.equal(r.w.writes.length, 0);
+});
+
+/* ── No doubles (Cris 2026-09-24: one 📌 → three lines) ─────────────────── */
+const mins = (m) => new Date(Date.now() - m * 60000).toISOString();
+const mine = (extra) => ({ id: 'old-line', kind: 'note', text: 'call Suncoast about the 4L60 core', ro_id: null,
+  created_by: EMP.id, created_by_name: EMP.name, created_at: mins(1), cleared_at: null, ...extra });
+
+test('add: the same person + kind + text (+ RO) still on the board within 10 minutes → that line comes back, NOTHING written', async () => {
+  const w = world({ recent: [mine()] });
+  const r = await call({ action: 'add', kind: 'note', text: '  call Suncoast about the 4L60 core ' }, { w });
+  assert.equal(r.res.statusCode, 200);
+  assert.equal(r.res.body.duplicate, true);
+  assert.equal(r.res.body.item.id, 'old-line');
+  assert.equal(r.w.writes.length, 0);
+  assert.equal(r.w.dupeChecks.length, 1);
+  assert.match(r.w.dupeChecks[0], /cleared_at=is\.null/);
+  assert.match(r.w.dupeChecks[0], /ro_id=is\.null/);
+});
+
+test('add: NOT a duplicate → written — different text, erased earlier, older than 10 min, another person, another RO, another kind', async () => {
+  const cases = [
+    ['different text', [mine()], { action: 'add', kind: 'note', text: 'call Suncoast about the 4L80 core' }],
+    ['erased earlier', [mine({ cleared_at: mins(0.5) })], { action: 'add', kind: 'note', text: 'call Suncoast about the 4L60 core' }],
+    ['11 minutes old', [mine({ created_at: mins(11) })], { action: 'add', kind: 'note', text: 'call Suncoast about the 4L60 core' }],
+    ['another person', [mine({ created_by: FAKE })], { action: 'add', kind: 'note', text: 'call Suncoast about the 4L60 core' }],
+    ['another RO', [mine({ kind: 'parts', ro_id: RO_ACTIVE, text: 'starter' })], { action: 'add', kind: 'parts', text: 'starter', ro_id: RO }],
+    ['no RO vs an RO', [mine({ kind: 'parts', ro_id: null, text: 'starter' })], { action: 'add', kind: 'parts', text: 'starter', ro_id: RO }],
+    ['another kind', [mine({ kind: 'parts' })], { action: 'add', kind: 'note', text: 'call Suncoast about the 4L60 core' }],
+  ];
+  for (const [name, recent, body] of cases) {
+    const r = await call(body, { w: world({ recent }) });
+    assert.equal(r.res.statusCode, 200, name);
+    assert.equal(r.res.body.duplicate, undefined, name);
+    assert.equal(r.w.writes.length, 1, name + ': written');
+  }
+});
+
+test('add: a parts line with the SAME RO + text from the same person is a duplicate too', async () => {
+  const r = await call({ action: 'add', kind: 'parts', text: 'starter', ro_id: RO_ACTIVE },
+    { w: world({ recent: [mine({ kind: 'parts', ro_id: RO_ACTIVE, text: 'starter' })] }) });
+  assert.equal(r.res.body.duplicate, true);
   assert.equal(r.w.writes.length, 0);
 });

@@ -455,7 +455,12 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
       schedule();
       return { ok: true };
     }
-    return { ok: false, error: actionError(r.status, r.body, "Couldn't pin it to the whiteboard — it's still here. Try again.") };
+    // No clear answer (offline, timeout, 5xx): the post MAY have landed — say so. Pinning
+    // again is safe: the server returns the same line instead of making a second one.
+    const unsure = !r.status || r.status >= 500;
+    return { ok: false, error: unsure
+      ? "Couldn't confirm it reached the whiteboard — it's still here. Pinning again won't add it twice."
+      : actionError(r.status, r.body, "Couldn't pin it to the whiteboard — it's still here. Try again.") };
   }
   // The highlight runs FRESH_MS from the first time the line is actually on screen.
   function markFreshShown() {

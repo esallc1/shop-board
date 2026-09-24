@@ -288,3 +288,9 @@ test('closed-RO lines: the UI shows no Undo for them and never writes anything w
   assert.doesNotMatch(ui, /ro_closed'[^\n]*action:|action: '[a-z]+'[^\n]*ro_closed/);
   assert.doesNotMatch(code('whiteboard-logic.js'), /cleared_reason: 'ro_closed'|'ro_closed' *\]/, 'no new cleared_reason value');
 });
+
+test("pin's failure words: no clear answer (offline / 5xx) says it MAY have landed and that pinning again won't double it", () => {
+  const ui = code('whiteboard.js');
+  assert.match(ui, /const unsure = !r\.status \|\| r\.status >= 500;/);
+  assert.match(ui, /Pinning again won't add it twice\./);
+});

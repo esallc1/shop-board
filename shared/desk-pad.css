@@ -36,6 +36,7 @@
 .dpad-pin[disabled] { opacity: .35; cursor: default; }
 .dpad-x[disabled] { opacity: .35; cursor: default; }
 .dpad-note.is-pinning { opacity: .75; }
+.dpad-note-pinning { font: 600 11.5px/1.35 'Segoe UI', system-ui, sans-serif; color: var(--sticky-ink); opacity: .8; font-style: italic; }
 .dpad-note-err { font: 600 11.5px/1.35 'Segoe UI', system-ui, sans-serif; color: #b42318; background: #fff1f1; border-radius: 4px; padding: 3px 6px; }
 .dpad-text {
   flex: 1; border: 0; background: transparent; resize: none; outline: none;

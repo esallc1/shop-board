@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 import {
   STORAGE_KEY, MAX_NOTES, addNote, deleteNote, updateNoteText, tearOff, cleanNotes,
   loadNotes, saveNotes, isTypingTarget, isPadToggleKey, isBoardToggleKey, noteTime,
-  PIN_MAX, pinCheck, pinNoteFlow,
+  PIN_MAX, pinCheck, pinNoteFlow, createPinner,
   padHeight, pushScrollTarget, CAP_RATIO, ONE_ROW_MIN,
 } from './desk-pad-logic.js';
 
@@ -236,8 +236,12 @@ test('pin: the cap matches the whiteboard; the pad UI disables 📌 when empty a
   const strip = (f) => readFileSync(join(here, f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const ui = strip('desk-pad.js');
   assert.match(ui, /export function createDeskPadPanel\(ctx, \{ pinToBoard \} = \{\}\)/);
-  assert.match(ui, /await pinNoteFlow\(notes, id, pinToBoard\)/);
+  assert.match(ui, /createPinner\(pinToBoard\)/);
+  assert.match(ui, /if \(!pinner \|\| pinner\.busy\(id\)\) return;/, 'a tap while in flight is ignored');
+  assert.match(ui, /const flight = pinner\.pin\(notes, id\);/);
   assert.match(ui, /if \(r\.pinned\) notes = deleteNote\(notes, id\);\s*else if \(r\.error\) pinErr\[id\] = r\.error;/, 'removed ONLY when pinned');
+  assert.match(ui, /pinning to the whiteboard…/, 'the sticky says so while in flight');
+  assert.doesNotMatch(ui, /setTimeout\([^)]*pin|retry/i, 'no automatic retry');
   assert.match(ui, /!n\.text\.trim\(\) \|\| busy \? ' disabled' : ''/, '📌 disabled when empty');
   assert.match(ui, /pinBtn\.disabled = !ta\.value\.trim\(\)/, '…and follows typing');
   assert.match(ui, /title="Pin to whiteboard"/);
@@ -249,4 +253,55 @@ test('pin: the cap matches the whiteboard; the pad UI disables 📌 when empty a
   const wb = strip('whiteboard.js');
   assert.match(wb, /async function pinNote\(text\) \{\s*const r = await post\(\{ action: 'add', kind: 'note', text \}\);/);
   assert.match(wb, /pin: pinNote,/);
+});
+
+/* ── One pin at a time (Cris 2026-09-24: one 📌 → three lines) ──────────── */
+function deferred() { let resolve; const p = new Promise((r) => { resolve = r; }); return { p, resolve }; }
+const ONE = [{ id: 'a', text: 'call Suncoast about the 4L60 core', time: '12:51' }, { id: 'b', text: 'other', time: '12:52' }];
+
+test('pin lock: a rapid double-tap (and a third) → exactly ONE post, the same answer to all', async () => {
+  let calls = 0;
+  const pinner = createPinner(async () => { calls++; await new Promise((r) => setTimeout(r, 20)); return { ok: true }; });
+  const [r1, r2, r3] = await Promise.all([pinner.pin(ONE, 'a'), pinner.pin(ONE, 'a'), pinner.pin(ONE, 'a')]);
+  assert.equal(calls, 1);
+  assert.ok(r1 === r2 && r2 === r3);
+  assert.deepEqual(r1.notes.map((n) => n.id), ['b']);
+  // A different sticky is its own flight.
+  await Promise.all([pinner.pin(ONE, 'a'), pinner.pin(ONE, 'b')]);
+  assert.equal(calls, 3);
+});
+
+test('pin lock: slow server → busy (locked, "pinning…") the whole time, then the sticky leaves once', async () => {
+  const d = deferred();
+  let calls = 0;
+  const pinner = createPinner(() => { calls++; return d.p; });
+  assert.equal(pinner.busy('a'), false);
+  const flight = pinner.pin(ONE, 'a');
+  assert.equal(pinner.busy('a'), true);
+  await new Promise((r) => setTimeout(r, 30));
+  pinner.pin(ONE, 'a');                         // impatient second tap while slow
+  assert.equal(pinner.busy('a'), true, 'still locked');
+  assert.equal(calls, 1, 'no second post');
+  d.resolve({ ok: true });
+  const r = await flight;
+  assert.equal(r.pinned, true);
+  assert.deepEqual(r.notes.map((n) => n.id), ['b']);
+  assert.equal(pinner.busy('a'), false);
+});
+
+test('pin lock: failure → the sticky stays, the lock lifts (📌 usable again), nothing retried by itself', async () => {
+  let calls = 0;
+  const pinner = createPinner(async () => { calls++; return { ok: false, error: "Couldn't confirm it reached the whiteboard — it's still here. Pinning again won't add it twice." }; });
+  const r = await pinner.pin(ONE, 'a');
+  assert.equal(r.pinned, false);
+  assert.deepEqual(r.notes.map((n) => n.id), ['a', 'b']);
+  assert.match(r.error, /won't add it twice/);
+  assert.equal(pinner.busy('a'), false);
+  await new Promise((res) => setTimeout(res, 50));
+  assert.equal(calls, 1, 'no automatic retry');
+  // A thrown pin (offline) also lifts the lock.
+  const p2 = createPinner(async () => { throw new TypeError('Failed to fetch'); });
+  const r2 = await p2.pin(ONE, 'a');
+  assert.equal(r2.pinned, false);
+  assert.equal(p2.busy('a'), false);
 });

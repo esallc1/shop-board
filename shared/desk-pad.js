@@ -25,7 +25,7 @@
    takes no Supabase client and makes no network call (test-locked).
    ============================================================ */
 import {
-  loadNotes, saveNotes, addNote, deleteNote, updateNoteText, tearOff, isPadToggleKey, pinNoteFlow,
+  loadNotes, saveNotes, addNote, deleteNote, updateNoteText, tearOff, isPadToggleKey, createPinner,
 } from './desk-pad-logic.js';
 
 const TEAR_TEXT = 'Tear off this page? All notes will be removed.';
@@ -40,7 +40,8 @@ const getStorage = () => window.localStorage;   // may throw — the logic modul
 export function createDeskPadPanel(ctx, { pinToBoard } = {}) {
   let notes = loadNotes(getStorage);
   let confirming = false;
-  const pinning = {};        // note id → true while its pin is in flight
+  // One pin at a time per sticky — a second tap while it's in flight is ignored (createPinner).
+  const pinner = typeof pinToBoard === 'function' ? createPinner(pinToBoard) : null;
   const pinErr = {};         // note id → the last pin error shown under it
 
   const el = document.createElement('div');
@@ -65,11 +66,12 @@ export function createDeskPadPanel(ctx, { pinToBoard } = {}) {
 
   function drawNotes() {
     body.innerHTML = notes.map((n) => {
-      const busy = !!pinning[n.id];
-      const pin = typeof pinToBoard === 'function'
+      const busy = !!(pinner && pinner.busy(n.id));
+      const pin = pinner
         ? `<button type="button" class="dpad-pin" data-dp="pin" data-id="${esc(n.id)}"${!n.text.trim() || busy ? ' disabled' : ''} aria-label="Pin to whiteboard" title="Pin to whiteboard">${busy ? '…' : '📌'}</button>`
         : '';
-      const err = pinErr[n.id] ? `<div class="dpad-note-err" role="alert">${esc(pinErr[n.id])}</div>` : '';
+      const err = busy ? '<div class="dpad-note-pinning" role="status">pinning to the whiteboard…</div>'
+        : pinErr[n.id] ? `<div class="dpad-note-err" role="alert">${esc(pinErr[n.id])}</div>` : '';
       return `
       <div class="dpad-note${busy ? ' is-pinning' : ''}" data-note="${esc(n.id)}">
         <div class="dpad-note-head"><span>${esc(n.time)}</span>
@@ -94,11 +96,13 @@ export function createDeskPadPanel(ctx, { pinToBoard } = {}) {
   }
 
   // 📌 — MOVE the sticky to the whiteboard; it leaves the pad only on a confirmed success.
+  // In flight → a second tap (or Enter / Space on the button) is ignored; nothing is retried by itself.
   async function pin(id) {
-    if (pinning[id] || typeof pinToBoard !== 'function') return;
-    pinning[id] = true; delete pinErr[id]; drawNotes();
-    const r = await pinNoteFlow(notes, id, pinToBoard);
-    delete pinning[id];
+    if (!pinner || pinner.busy(id)) return;
+    delete pinErr[id];
+    const flight = pinner.pin(notes, id);
+    drawNotes();                       // now busy: "pinning…", sticky read-only, 📌 / × locked
+    const r = await flight;
     // Fold the result into the CURRENT notes (others may have changed meanwhile).
     if (r.pinned) notes = deleteNote(notes, id);
     else if (r.error) pinErr[id] = r.error;
@@ -130,7 +134,7 @@ export function createDeskPadPanel(ctx, { pinToBoard } = {}) {
     save();
     // 📌 follows the text without a redraw (the caret must not jump): empty → disabled.
     const pinBtn = body.querySelector(`.dpad-pin[data-id="${CSS.escape(ta.dataset.id)}"]`);
-    if (pinBtn && !pinning[ta.dataset.id]) pinBtn.disabled = !ta.value.trim();
+    if (pinBtn && !(pinner && pinner.busy(ta.dataset.id))) pinBtn.disabled = !ta.value.trim();
     if (pinErr[ta.dataset.id]) {
       delete pinErr[ta.dataset.id];
       const e = ta.parentElement.querySelector('.dpad-note-err'); if (e) e.remove();

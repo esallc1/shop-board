@@ -17,6 +17,11 @@
    ── WHAT EACH ACTION MAY TOUCH ── (fixed columns only)
    add      → a NEW whiteboard_items row: kind, text, ro_id, created_by, created_by_name.
               An ro_id must be a real RO that isn't closed (404 / 409).
+              NO DOUBLES: if the SAME person added the same kind + text + RO in the
+              last DEDUPE_MS and that line is still on the board, that line is
+              returned ({ item, duplicate: true }) and nothing new is written — so a
+              re-tap after a response that never arrived (the post may have
+              succeeded) can't make a second line (Cris, 2026-09-24: one 📌 → 3 lines).
    clear    → cleared_at, cleared_by, cleared_by_name, cleared_reason — only on a line that
               isn't cleared yet. Nothing is ever deleted.
    undo     → the same four cleared_* columns back to null.
@@ -31,6 +36,7 @@ import { requireUser } from './_lib/require-user.js';
 const PROD_SUPABASE = 'https://hygemiszxwmyrkmhbjub.supabase.co';
 export const MAX_TEXT = 500;
 export const ACTIONS = ['add', 'clear', 'undo', 'called', 'uncalled'];
+export const DEDUPE_MS = 10 * 60 * 1000;   // an identical add within 10 minutes = the same line
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ITEM_COLS = 'id,kind,text,ro_id,created_by,created_by_name,created_at,cleared_at,cleared_by,cleared_by_name,cleared_reason';
 const CALL_COLS = 'ro_id,called_at,called_by,called_by_name,updated_at';
@@ -131,6 +137,14 @@ async function doAdd(res, db, p, who) {
       return res.status(409).json({ error: 'ro_closed', message: 'That RO is closed — pick an open one, or leave the RO empty.' });
     }
   }
+  // Already on the board from this person a moment ago? Then that's the line (no second row).
+  const since = new Date(Date.now() - DEDUPE_MS).toISOString();
+  const same = await readOne(db, `whiteboard_items?select=${ITEM_COLS}` +
+    `&created_by=eq.${encodeURIComponent(who.id)}&kind=eq.${p.kind}` +
+    `&text=eq.${encodeURIComponent(p.text)}&ro_id=${p.roId ? `eq.${p.roId}` : 'is.null'}` +
+    `&cleared_at=is.null&created_at=gte.${encodeURIComponent(since)}&order=created_at.desc&limit=1`);
+  if (same.error) return res.status(502).json({ error: 'read failed' });
+  if (same.row) return res.status(200).json({ item: same.row, duplicate: true });
   const w = await write(db, 'POST', `whiteboard_items?select=${ITEM_COLS}`, {
     kind: p.kind, text: p.text, ro_id: p.roId, created_by: who.id, created_by_name: who.name,
   });

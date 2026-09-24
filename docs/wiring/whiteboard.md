@@ -129,8 +129,17 @@ All with the board's own signed-in Supabase client (passed in as `db`):
   as a **Don't forget** line — `pin(text)` on this panel = `POST /api/whiteboard { action: 'add', kind:
   'note', text }`, so who + when are stamped by the server exactly like "+ write on board".
 - **A move, not a copy:** the pad removes the sticky **only when `pin` resolved `{ ok: true }`** (the
-  server stored it). Any failure resolves `{ ok: false, error }` in plain words (`actionError` — e.g. a
-  401 → "Your CrisData sign-in isn't active on this page…") and the sticky stays. `pin` never throws.
+  server stored it). Any failure resolves `{ ok: false, error }` in plain words and the sticky stays;
+  `pin` never throws. With **no clear answer** (offline, timeout, 5xx) the post **may have landed**, so it
+  says "Couldn't confirm it reached the whiteboard — it's still here. Pinning again won't add it twice."
+  (a 401 / 4xx keeps `actionError`'s words, e.g. "Your CrisData sign-in isn't active on this page…").
+- **Never two lines from one sticky** (Cris's bug, 2026-09-24 — one 📌 made three lines, §8):
+  - on the pad, **one pin at a time per sticky** (`createPinner` in `desk-pad-logic.js`): a tap, Enter or
+    Space while it's in flight gets the same flight, never a second post; the sticky shows
+    "pinning to the whiteboard…", is read-only, and its 📌 / × are locked until the answer; **nothing is
+    retried automatically** — only a person's next tap tries again;
+  - on the server, the `add` duplicate guard (§8) returns the existing line for an identical add, so a
+    re-tap after an answer that never arrived just finishes the move.
 - Wiring: `mountFrontDeskDrawer` builds both panels and hands the pad `pinToBoard(text)` → this panel's
   `pin` — the pad itself never touches the network. Before the Whiteboard exists it answers "The
   whiteboard isn't ready yet — try again in a moment."
@@ -193,11 +202,18 @@ transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/wh
 - Actions — each writes **only its own columns**:
   | action | body | writes |
   |---|---|---|
-  | `add` | `kind` note or parts, `text` (≤ 500), `ro_id`? | a new row: kind, text, ro_id, created_by, created_by_name (RO must exist → 404, and not be `closed` → 409) |
+  | `add` | `kind` note or parts, `text` (≤ 500), `ro_id`? | a new row: kind, text, ro_id, created_by, created_by_name (RO must exist → 404, and not be `closed` → 409) — or, for an identical recent add by the same person, the existing line (`duplicate: true`, nothing written) |
   | `clear` | `id`, `reason` erased or arrived | `cleared_at/_by/_by_name/_reason` — only if not cleared yet (409); `arrived` only on parts (400) |
   | `undo` | `id` | the four `cleared_*` back to null |
   | `called` | `ro_id` | upsert on `ro_id`: `called_at/_by/_by_name`, `updated_at` — only for status `'invoice'` (409) |
   | `uncalled` | `ro_id` | `called_*` back to null (row kept) |
+- **No doubles (`DEDUPE_MS` = 10 min):** before inserting, `add` looks for a line from the **same employee**
+  with the same `kind` + `text` + `ro_id` (or both no RO), **still on the board** (`cleared_at` null),
+  created in the last 10 minutes; if there is one it answers `200 { item: <that line>, duplicate: true }`
+  and writes nothing. An erased line, another person's, another RO's, or one older than 10 min doesn't
+  count. No migration (a read before the insert). Two requests landing in the same instant could still
+  both insert — the pad's lock prevents that from one sticky; a DB-level guarantee would need a unique
+  key column (a migration) — not built.
 - **Who + when are always stamped on the server** (the employee from `requireUser`, the server clock) —
   anything the browser sends for them is ignored. `repair_orders` is only READ. Nothing is ever DELETEd.
 - Tested by `api/whiteboard.test.js` (401 × no token / junk / KiKi login / inactive employee, 405, 400s,
@@ -227,6 +243,7 @@ transaction, one-query PASS/FAIL verify block; posture test-locked by `shared/wh
 - `advisor-board.html` — the three stylesheet links and the mount module before `</body>` (`cdAuthFetch` is already loaded there).
 
 ## Session change log
+- **2026-09-24** — **bug (Cris, test.*, ZZ Test Advisor): one 📌 made THREE Don't forget lines** — sandbox rows for "call Suncoast about the 4L60 core" at 12:51:57.9, 12:52:07.5 and 12:52:42.5 (two later erased by him). `cdAuthFetch` never retries and the pad's in-page lock held in a slow-server repro (one call, 📌 locked, sticky left on confirm), so the 9.6 s / 35 s gaps are separate taps — which the pad only allows after a pin ENDS in failure: most likely the first post was stored but his page didn't get a clean OK (slow / failed response), the sticky stayed and he tapped again. Not provable from the rows (his browser console would show `[authFetch] /api/whiteboard → HTTP …`). Fix: server duplicate guard on `add` (same person + kind + text + RO, still on the board, 10 min → the existing line, nothing written); `createPinner` — one pin per sticky, "pinning to the whiteboard…", no automatic retry; clearer "couldn't confirm" message. No migration.
 - **2026-09-24** — slice 6 driven on test.* at `0accb27` (sandbox, ZZ Test Owner): served files byte-identical (8). N → + New note → 📌 disabled while empty, enabled after typing (real keys) "Pin test: order 2 cases Mercon LV"; 📌 → sticky gone from the pad and from localStorage; W → the line under Don't forget "— ZZ Test Owner · 12:46 PM", highlighted (`is-fresh`). Failures (the page's `cdAuthFetch` swapped for the test, then restored): a 401 → sticky stays, "Your CrisData sign-in isn't active on this page — log out and sign in again."; a thrown fetch (offline) → stays, "Couldn't pin it to the whiteboard — it's still here. Try again."; 612 characters → stays, "Too long for the whiteboard (612 / 500 characters) — shorten it first." — none reached the board. Cleaned up: pad torn off, the pinned test line erased (soft).
 - **2026-09-24** — slice 6 on staging: 📌 on each Desk pad sticky → `pin(text)` → a Don't forget line (server-stamped); the sticky leaves the pad only on success, stays with an error otherwise; new line highlighted once. No migration.
 - **2026-09-24** — **slice 5 shipped to prod** as `bc22bc8` (fast-forward `95131a4..bc22bc8`, Cris's OK after testing on test.* as ZZ Test Advisor: RO search → #6033, note with his name 7:36 AM, box closed, Arrived ✓ → "recently cleared · arrived · ZZ Test Advisor" + Undo). www / board. / apex `/api/version` = `bc22bc8` (one www read flipped back to the old SHA mid-switch, then steady); `whiteboard.js` / `.css` / `-logic.js` / this doc byte-identical on all three; CLAUDE.md 404; `POST /api/whiteboard` no token → 401 (www, board.). Prod pane, read-only (no RO opened, nothing written): W opened the board — WAITING ON PARTS zone with its RO picker loaded, no "coming next", Ready = the 5 real ROs; the pane has no prod sign-in, so "+ write on board" stayed hidden (by design) — not eyeballed signed-in on prod.

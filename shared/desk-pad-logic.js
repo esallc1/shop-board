@@ -133,6 +133,26 @@ export async function pinNoteFlow(notes, id, pinFn) {
   return { notes: list, pinned: false, error: err };
 }
 
+// ONE pin at a time per sticky (Cris, 2026-09-24: one 📌 made three lines).
+// `pin(notes, id)` while that sticky's pin is still in flight returns the SAME
+// promise — never a second post; `busy(id)` says whether it's in flight (the UI
+// shows "pinning…" and locks the sticky). Nothing is retried automatically: a
+// failure ends the flight, and only a person's next tap tries again (the server
+// also refuses to make a second identical line — api/whiteboard.js DEDUPE_MS).
+export function createPinner(pinFn) {
+  const flights = new Map();
+  return {
+    busy: (id) => flights.has(String(id)),
+    pin(notes, id) {
+      const key = String(id);
+      if (flights.has(key)) return flights.get(key);
+      const p = pinNoteFlow(notes, key, pinFn).finally(() => { flights.delete(key); });
+      flights.set(key, p);
+      return p;
+    },
+  };
+}
+
 /* ── The N and W keys (the bottom drawer's two tabs) ──────────────────── */
 // Is focus somewhere the person is typing? Then N is a letter, never a shortcut.
 export function isTypingTarget(el) {

@@ -63,8 +63,13 @@ is the frame; each tab is a **panel** built by its own module: **📝 Desk pad**
   **The sticky leaves the pad only after the server confirmed** — if the post fails (offline, signed out,
   refused) the sticky **stays**, with a short red line under it saying why (it clears as soon as you
   type). Empty sticky → 📌 disabled (and it follows typing without a redraw). Over **500 characters** →
-  "Too long for the whiteboard (612 / 500 characters) — shorten it first." — nothing is cut. While a pin
-  is in flight the sticky is read-only and its 📌 / × are disabled. Rules: `pinCheck` / `pinNoteFlow`.
+  "Too long for the whiteboard (612 / 500 characters) — shorten it first." — nothing is cut.
+  **One pin at a time per sticky** (`createPinner`): while it's in flight the sticky says "pinning to the
+  whiteboard…", is read-only, 📌 / × are locked, and another tap / Enter / Space does nothing — never a
+  second post; nothing is retried by itself. If the answer never came clearly (offline / timeout / 5xx)
+  it says "Couldn't confirm it reached the whiteboard — it's still here. Pinning again won't add it
+  twice." (the server returns the existing line for an identical re-pin — [[whiteboard]] §8).
+  Rules: `pinCheck` / `pinNoteFlow` / `createPinner`.
 - **Tear off page** → an inline bar: **"Tear off this page? All notes will be removed."** · Tear off ·
   Cancel. (Inline, never a blocking `confirm()`.)
 - **Hide ▾** → the drawer closes and the screen comes back down.
@@ -111,7 +116,7 @@ is the frame; each tab is a **panel** built by its own module: **📝 Desk pad**
 - `shared/desk-pad.js` — the pad panel: `createDeskPadPanel(ctx, { pinToBoard })` (📌 only when `pinToBoard` is given).
 - `shared/desk-pad-logic.js` — pure rules: `addNote`, `deleteNote`, `updateNoteText`, `tearOff`,
   `cleanNotes`, `loadNotes`, `saveNotes`, `isTypingTarget`, `isPadToggleKey`, `isBoardToggleKey`,
-  `PIN_MAX` / `pinCheck` / `pinNoteFlow` (📌 — removes the sticky only on a confirmed `{ ok: true }`),
+  `PIN_MAX` / `pinCheck` / `pinNoteFlow` / `createPinner` (📌 — one flight per sticky; removes it only on a confirmed `{ ok: true }`),
   `noteTime`, `STORAGE_KEY`, and the height rule `padHeight` / `pushScrollTarget` (`CAP_RATIO` 0.45,
   `ONE_ROW_MIN` 132). Tested by `shared/desk-pad-logic.test.js`.
 - `shared/bottom-drawer.css` — the frame's look (z 2800, the 900 px push/overlay switch, the tray-aware
@@ -119,6 +124,7 @@ is the frame; each tab is a **panel** built by its own module: **📝 Desk pad**
 - `advisor-board.html` — the stylesheet `<link>`s and the mount module before `</body>`.
 
 ## Session change log
+- **2026-09-24** — bug fix (one 📌 → three whiteboard lines, see [[whiteboard]]'s log): `createPinner` (one pin per sticky, "pinning…", no auto-retry) + a clearer "couldn't confirm" message; the server now refuses to make a second identical line.
 - **2026-09-24** — slice 6 driven on test.* at `0accb27` (sandbox, ZZ Test Owner): served files byte-identical (8). N → + New note → 📌 disabled while empty, enabled after typing (real keys) "Pin test: order 2 cases Mercon LV"; 📌 → sticky gone from the pad and from localStorage; W → the line under Don't forget "— ZZ Test Owner · 12:46 PM", highlighted (`is-fresh`). Failures (the page's `cdAuthFetch` swapped for the test, then restored): a 401 → sticky stays, "Your CrisData sign-in isn't active on this page — log out and sign in again."; a thrown fetch (offline) → stays, "Couldn't pin it to the whiteboard — it's still here. Try again."; 612 characters → stays, "Too long for the whiteboard (612 / 500 characters) — shorten it first." — none reached the board. Cleaned up: pad torn off, the pinned test line erased (soft).
 - **2026-09-24** — slice 6 (staging): 📌 "Pin to whiteboard" on each sticky — posts the text as a Don't forget line through the injected `pinToBoard` (→ the Whiteboard panel's `pin` → `/api/whiteboard`), removes the sticky only on a confirmed success, keeps it with an error otherwise; empty → disabled; > 500 → clear message. The pad still makes no network call (test-locked). Known gap removed.
 - **2026-09-24** — drawer Esc now skips an Esc a panel field already handled (the Whiteboard's write box, [[whiteboard]] §6). Staging.
