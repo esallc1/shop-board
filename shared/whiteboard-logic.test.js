@@ -16,7 +16,7 @@ import { existsSync, statSync } from 'node:fs';
 import {
   READY_STATUS, READY_SELECT, readyLines, vehicleText, boardDate,
   callsByRo, noteLists, stamp, whenText, upsertRow, actionError, RECENT_DAYS, NOTE_MAX,
-  PICK_SELECT, ITEM_RO_EMBED, roLabel, pickOptions, matchRos, clearedLabel,
+  PICK_SELECT, ITEM_RO_EMBED, roLabel, pickOptions, matchRos, clearedLabel, clearedWhen,
 } from './whiteboard-logic.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -76,7 +76,11 @@ test('the Ready query: named columns, no closed_at, no book_hours; reads only th
   assert.equal((ui.match(/\.from\(/g) || []).length, 4);
   // The parts picker's read: open ROs only, named columns.
   assert.match(ui, /\.from\('repair_orders'\)\.select\(PICK_SELECT\)\s*\.neq\('status', 'closed'\)/);
-  assert.doesNotMatch(PICK_SELECT + ITEM_RO_EMBED, /closed_at|book_hours|\*/);
+  assert.doesNotMatch(PICK_SELECT, /closed_at|book_hours|\*/);
+  // The parts line's RO: status decides on/off the board; closed_at is ONLY the time shown.
+  assert.doesNotMatch(ITEM_RO_EMBED, /book_hours|\*/);
+  assert.match(ITEM_RO_EMBED, /\bstatus\b/);
+  assert.match(ITEM_RO_EMBED, /\bclosed_at\b/);
 });
 
 test('static: the Whiteboard never writes through the client — every write is POST /api/whiteboard', () => {
@@ -244,4 +248,42 @@ test('parts UI: Arrived ✓ + × on each line, the RO part opens the RO, sent as
   assert.match(ui, /const payload = \{ action: 'add', kind: z\.kind, text \};\s*if \(z\.kind === 'parts' && pick\.chosen\) payload\.ro_id = pick\.chosen\.id;/);
   assert.match(ui, /\$\{ITEM_SELECT\}, \$\{ITEM_RO_EMBED\}/);
   assert.match(ui, /\.in\('kind', \['note', 'parts'\]\)/);
+});
+
+test('parts + CLOSED RO: off the board, derived at read time ("RO closed · time", no Undo); reopen → back; no RO / open RO unaffected', () => {
+  const now = new Date('2026-09-24T18:30:00Z');
+  const ro = (status, closed_at = null) => ({ id: 'r', ro_number: 6033, po: '6033', status, closed_at, customers: { name: 'IAN' }, vehicles: { make: 'Toyota', model: 'Rav4' } });
+  const line = (id, extra) => ({ id, kind: 'parts', text: 'converter', created_at: '2026-09-24T10:00:00Z', cleared_at: null, ro_id: 'r', ...extra });
+  const rows = [
+    line('closed', { ro: ro('closed', '2026-09-24T18:10:00Z') }),
+    line('open', { ro: ro('ro') }),
+    line('invoice', { ro: ro('invoice') }),
+    { id: 'free', kind: 'parts', text: 'shop order ATF', created_at: '2026-09-24T09:00:00Z', cleared_at: null, ro_id: null, ro: null },
+    line('old-close', { ro: ro('closed', '2026-09-10T12:00:00Z') }),
+    line('arrived-then-closed', { ro: ro('closed', '2026-09-24T18:00:00Z'), cleared_at: '2026-09-24T17:00:00Z', cleared_reason: 'arrived', cleared_by_name: 'Kevin' }),
+    line('no-embed', { ro: null }),
+  ];
+  const { open, erased } = noteLists(rows, now, 'parts');
+  assert.deepEqual(open.map((r) => r.id).sort(), ['free', 'invoice', 'no-embed', 'open']);
+  assert.deepEqual(erased.map((r) => r.id), ['closed', 'arrived-then-closed'], 'newest first by when it came off; a 14-day-old close is gone');
+  assert.equal(erased[0].auto, 'ro_closed');
+  assert.equal(erased[1].auto, undefined, "a person's clear keeps its own reason");
+  assert.equal(clearedLabel(erased[0], now), 'RO closed · 2:10 PM');
+  assert.equal(clearedLabel(erased[1], now), 'arrived · Kevin · 1:00 PM');
+  assert.equal(clearedWhen(erased[0]), '2026-09-24T18:10:00Z');
+  assert.equal(rows[0].auto, undefined, 'input rows untouched');
+  // Reopen (status back to 'ro' — closed_at is kept on a reopen) → the SAME row is back on the board.
+  const reopened = noteLists([line('closed', { ro: ro('ro', '2026-09-24T18:10:00Z') })], now, 'parts');
+  assert.deepEqual(reopened.open.map((r) => r.id), ['closed']);
+  assert.deepEqual(reopened.erased, []);
+  // Notes are never touched by an RO.
+  assert.deepEqual(noteLists([{ id: 'n', kind: 'note', text: 'x', created_at: 'a', cleared_at: null, ro_id: 'r', ro: ro('closed', '2026-09-24T18:10:00Z') }], now, 'note').open.map((r) => r.id), ['n']);
+});
+
+test('closed-RO lines: the UI shows no Undo for them and never writes anything when an RO closes', () => {
+  const ui = code('whiteboard.js');
+  assert.match(ui, /const undo = n\.auto === 'ro_closed' \? ''/);
+  // No write path mentions an RO close: the only actions sent are the five user actions.
+  assert.doesNotMatch(ui, /ro_closed'[^\n]*action:|action: '[a-z]+'[^\n]*ro_closed/);
+  assert.doesNotMatch(code('whiteboard-logic.js'), /cleared_reason: 'ro_closed'|'ro_closed' *\]/, 'no new cleared_reason value');
 });

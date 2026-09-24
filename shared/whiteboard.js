@@ -12,7 +12,10 @@
      1. WAITING ON PARTS (red, by hand): "+ write on board" → an optional RO
         (picked from the open ROs) + a short note. The RO part of a line opens
         the RO the normal way. "Arrived ✓" or × takes it off; both land in
-        "recently cleared" (7 days) with Undo.
+        "recently cleared" (7 days) with Undo. A line whose RO is CLOSED comes
+        off by itself — derived from the RO's status at read time, nothing is
+        written — shown as "RO closed · <time>" without Undo (reopening the RO
+        brings it back).
      2. READY → CALL FOR PICKUP (blue, automatic): every RO with status
         'invoice'. Click a line → the RO opens the normal way (RO Board tab +
         cdOpenRo). "Called ✓" stamps who + when; a small "undo" clears a
@@ -174,8 +177,11 @@ export function createWhiteboardPanel(ctx, { db } = {}) {
     z.clearedList.innerHTML = erased.map((n) => {
       const off = inFlight[n.id] ? ' disabled' : '';
       const ro = n.kind === 'parts' && n.ro_id ? `${esc(n.ro ? roLabel(n.ro) : 'RO')} — ` : '';
-      return `<li><span class="wz-text"><s>${ro}${esc(n.text)}</s> <small class="wz-who">${esc(z.clearedText(n))}</small>` +
-        `<button type="button" class="wz-link" data-wb-act="undo" data-id="${esc(n.id)}"${off}>Undo</button></span></li>`;
+      // Taken off because its RO closed (derived): no Undo — reopening the RO brings it back.
+      const undo = n.auto === 'ro_closed' ? ''
+        : `<button type="button" class="wz-link" data-wb-act="undo" data-id="${esc(n.id)}"${off}>Undo</button>`;
+      return `<li${n.auto ? ' class="is-auto"' : ''}><span class="wz-text"><s>${ro}${esc(n.text)}</s> <small class="wz-who">${esc(z.clearedText(n))}</small>` +
+        `${undo}</span></li>`;
     }).join('');
     z.errEl.textContent = z.err; z.errEl.hidden = !z.err;
   }
