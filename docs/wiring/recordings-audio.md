@@ -1,7 +1,7 @@
 # How recordings & audio is wired
 
 > Doc: `/docs/wiring/recordings-audio.md`
-> Last updated: 2026-09-25 — **§3 added: ONE shared player** (`shared/recording-view.js`, Inbox slice 2b) for all four places on the advisor board; **LIVE on prod** since `103a645`.
+> Last updated: 2026-09-25 — **§3 added: ONE shared player** (`shared/recording-view.js`, Inbox slice 2b) for all four places on the advisor board; **LIVE on prod** since `103a645`; the in-place built-in player (§3) on staging only.
 > Status: §3 verified vs `103a645` (code + test.* + read-only prod load). §1–§2 last verified vs `bea25cf` (2026-07-30) plus the 2026-09-17 auth notes — not re-checked this session.
 
 ## 0. In one line
@@ -50,13 +50,21 @@ Four places show a call recording; since slice 2b they all use **`shared/recordi
 - **One reader:** `cdRecordingIndex(callIds, tag)` near the top of the board's main script is the ONLY call to
   `api/recording-links` (through `cdAuthFetch`, signed-in employee) → `fetchRecordingIndex`: ids cleaned, sent in
   **batches of 50** (the endpoint's `MAX_CALL_IDS`); a failed batch is logged and those calls just show nothing.
-- **▶ Play button** — **Call Log** (`deskRec`, `#deskRecAudio`), **RO Call History** (`roRec`, `#cdRoRecAudio`),
-  **customer record** timeline (`custRec`, `#custRecAudio`), each made by `cdRecordingPlayer(audioId, tag)` →
-  `createButtonPlayer`. `recButtonHtml`: ready = `▶ Play (m:ss)` button, pending = disabled "● Recording…",
-  failed = quiet "Recording unavailable", **no recording row = nothing**. One reused hidden `<audio>` per place;
-  tapping the playing button stops it; a second button stops the first; the "playing" highlight clears on
-  pause/ended. A link that aged out (5 min) → **one** fresh link, then give up quietly. No auto-refresh — the
-  links are fetched when the list is drawn.
+- **▶ Play → the browser's own player, in place** (Cris, 2026-09-25: recordings work "like any other audio") —
+  **Call Log** (`deskRec`), **RO Call History** (`roRec`), **customer record** timeline (`custRec`), each made by
+  `cdRecordingPlayer(place)` → `createButtonPlayer`. Each row keeps its compact button (`recButtonHtml`: ready =
+  `▶ Play (m:ss)`, pending = disabled "● Recording…", failed = quiet "Recording unavailable", **no recording row =
+  nothing**). A tap swaps that button **in place** for an `<audio controls>` (`.rec-player`: play/pause, a bar to
+  drag, the time) and starts it; if the browser blocks the autoplay, the player is open and its ▶ starts it.
+  - **ONE open player on the whole board** (`closeOpenPlayer`): opening another recording — in any of the three
+    places — pauses the first and puts its button back (the same button element, so its click still works).
+  - **Leaving collapses it:** closing the Call log (`cdRecordingStop('desk')`), opening another RO or leaving the
+    RO (`'CdRO'`), the customer list / back / a record reload (`'cust'`), any sidebar navigation (any place). A
+    place redrawing its rows (`reset()`) closes its own; a player whose row was redrawn off the page stops itself
+    on its next `timeupdate` (no invisible audio keeps talking).
+  - A link that aged out (5 min) → the player's `error` → **one** fresh link into the same player; a second failure
+    puts the button back. No link at all → the button stays. The latest tap wins while a fresh link is loading.
+  - The old hidden per-place `<audio>` elements (`#deskRecAudio`, `#cdRoRecAudio`, `#custRecAudio`) are gone.
 - **Tray call card** (`loadInlineRecording`, [[inbox-calls]] §4) — an inline `<audio controls>`; pending →
   "arrives a few minutes after the call ends"; **no row** → "shows up after the call ends" for the first
   `NO_RECORDING_AFTER_MS` (30 min) from the call's start, then **"No recording"** — the row is created by the
@@ -87,6 +95,7 @@ Four places show a call recording; since slice 2b they all use **`shared/recordi
   `20260729_recordings_links.sql` (`vehicle_id`, `ro_id` columns)
 
 ## Session change log
+- 2026-09-25 — (staging) the three ▶ Play places now open the browser's own `<audio controls>` in place of the button (play/pause, drag, time), one open player board-wide, collapsed on leave / redraw; hidden per-place `<audio>` removed. Link logic and states unchanged. Tray card unchanged.
 - 2026-09-25 — **slice 2b shipped to prod** (Cris's OK on test.*): fast-forward `d600a5e..1a2cd8a` (code = `103a645`; `1a2cd8a` = docs-only on top). www / board. / apex `/api/version` = `1a2cd8a` (~30 s after the push); `advisor-board.html`, `shared/recording-view.js` (+test) and `shared/inbox-calls-logic.test.js` byte-identical to `103a645`, the two docs to `1a2cd8a`, on all three; CLAUDE.md 404. Prod read-only (pane not signed in, nothing written, no RO opened): tray folded, strip drawn, `recording-view.js` + `recording-player.js` 200, `window.RecordingView` + `cdRecordingIndex` / `cdRecordingPlayer` present, no console errors. Real playback on prod not yet heard (no sign-in in the pane) — Cris to click a real one.
 - 2026-09-25 — slice 2b driven on test.* at `103a645` (ZZ Test Advisor): served files byte-identical; prod untouched (`d600a5e`). **The sandbox has the `recordings` rows but NOT the audio files** (201 ready rows, every signed link comes back null — storage objects were never copied), so nothing real can play on test.*. Real reader, real clicks: customer record ▶ → exactly one fresh-link request, nothing plays, highlight clears, no error (same as before); tray card for call 284 → "couldn't be fetched"; TEST RELOAD (no row, yesterday) → "🎧 No recording". Then with the page's links reader wrapped to hand back a generated tone (real server read, link swapped; page memory only), real clicks: customer record ▶ plays / tap again stops / highlight clears; RO Call History (2 rows, one batched call) 284 plays then 117 takes over; Call Log Aug 12 (10 rows, one batched call, 7 ▶ / 3 empty) with a dead first link → exactly one fresh link → plays; tray card with a dead first link → the error fetched one fresh link → plays.
 - 2026-09-25 — §3 (Inbox slice 2b, staging): the four copied fetch/draw/relink blocks on the advisor board (Call Log, RO Call History, customer record, tray call card) replaced by `shared/recording-view.js` + one links reader `cdRecordingIndex`. Call Log + RO Call History now batch by 50 like the customer record; the tray card's "no recording" case fixed ("No recording" after 30 min). No DB change, no new write.

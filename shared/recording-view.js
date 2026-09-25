@@ -8,10 +8,13 @@
      - fetchRecordingIndex — asks api/recording-links (the ONLY reader; the
        board never touches the recordings table) for many call ids, in batches
        of 50 (the endpoint's cap);
-     - recButtonHtml + createButtonPlayer — the ▶ Play button used by the Call
-       Log, the RO's Call History and the customer record: one reused hidden
-       <audio> per place, tap again = stop, a signed link that aged out (5 min)
-       is fetched fresh ONCE;
+     - recButtonHtml + createButtonPlayer — the Call Log, the RO's Call History
+       and the customer record: each row shows a compact "▶ Play (m:ss)" button;
+       a tap swaps it IN PLACE for the browser's own <audio controls> player
+       (play/pause, a bar to drag, the time) and starts it. ONE open player on
+       the whole board: opening another, leaving the view or the row being
+       redrawn pauses it and puts the button back. A signed link that aged out
+       (5 min) is fetched fresh ONCE;
      - inlineRecordingView + loadInlineRecording — the tray call card's inline
        <audio controls> player (pending → "arrives a few minutes after the call
        ends"; no recording at all → a short "No recording" once the call is
@@ -73,20 +76,32 @@ export function recButtonHtml(d, callId, esc = escHtml) {
   return `<span class="rec-marker" title="${esc(d.aria)}">${esc(d.label)}</span>`;
 }
 
-// One per place. getAudio() → that place's hidden <audio>; fetchIndex(ids) → an index.
-export function createButtonPlayer({ getAudio, fetchIndex }) {
+// ONE open player on the whole board (Cris, 2026-09-25: "like any other audio").
+let openOne = null;           // { place, btn, wrap, audio }
+let openTicket = 0;           // the latest tap wins (a slow fresh-link fetch can't open a second player)
+
+function collapse(o) {
+  if (!o) return;
+  try { o.audio.pause(); } catch (_) {}
+  try { o.audio.removeAttribute('src'); o.audio.load(); } catch (_) {}   // stop buffering too
+  if (o.wrap.parentNode) o.wrap.replaceWith(o.btn);                       // the same button (its listeners) comes back
+  if (openOne === o) openOne = null;
+}
+
+// Pause + collapse the open player — only if it belongs to `place` (when given).
+// Leaving a view, closing the Call log, opening another RO → the board calls this.
+export function closeOpenPlayer(place) {
+  if (!place) openTicket++;                     // leaving the view also cancels a tap still fetching its link
+  if (!openOne) return false;
+  if (place && openOne.place !== place) return false;
+  collapse(openOne);
+  return true;
+}
+export const openPlayerInfo = () => (openOne ? { place: openOne.place, callId: openOne.callId } : null);
+
+// One per place (tag = place name). fetchIndex(ids) → an index. doc = the document (tests pass a fake).
+export function createButtonPlayer({ fetchIndex, place = 'rec', doc = (typeof document !== 'undefined' ? document : null) }) {
   let state = {};              // call id (string) → descriptor last drawn
-  let playingBtn = null;
-  let wired = null;
-  function wire() {
-    const audio = getAudio();
-    if (!audio || wired === audio) return audio;
-    wired = audio;
-    const clear = () => { if (playingBtn) playingBtn.classList.remove('playing'); };
-    audio.addEventListener('ended', clear);
-    audio.addEventListener('pause', clear);
-    return audio;
-  }
   // A fresh signed link for one call (they age out in 5 min). Updates the remembered descriptor.
   async function relink(callId) {
     const idx = await fetchIndex([callId]);
@@ -96,7 +111,8 @@ export function createButtonPlayer({ getAudio, fetchIndex }) {
   }
   const player = {
     fetchIndex,
-    reset() { state = {}; wire(); },
+    // A redraw of this place: forget the links; an open player of this place is gone with its row.
+    reset() { state = {}; closeOpenPlayer(place); },
     remember(callId, d) { if (d && d.render) state[String(callId)] = d; },
     descriptor: (callId) => state[String(callId)] || null,
     // Paint one cell and remember what it shows.
@@ -106,25 +122,44 @@ export function createButtonPlayer({ getAudio, fetchIndex }) {
       cell.innerHTML = recButtonHtml(d, callId, esc);
       return d;
     },
+    // Tap on "▶ Play (m:ss)" → the built-in player in its place, playing.
     async play(callId, btn) {
-      const audio = wire(); if (!audio) return;
-      if (playingBtn === btn && !audio.paused) { audio.pause(); return; }       // tap the playing one → stop
-      if (playingBtn && playingBtn !== btn) playingBtn.classList.remove('playing');
-      playingBtn = btn;
+      if (!doc || !btn || !btn.parentNode) return;
+      if (openOne && openOne.btn === btn) return;                  // already open
+      closeOpenPlayer();                                           // one at a time, board-wide
+      const ticket = ++openTicket;
       let url = (state[String(callId)] && state[String(callId)].playbackUrl) || null;
-      if (!url) url = await relink(callId);                                   // opened > 5 min ago, or never minted
-      if (!url) { btn.classList.remove('playing'); return; }
-      const tryPlay = async (src) => { audio.src = src; await audio.play(); };
-      try { await tryPlay(url); btn.classList.add('playing'); }
-      catch (e) {
-        // Most likely the signed link aged out between drawing and the tap → one fresh link.
+      if (!url) url = await relink(callId);                        // opened > 5 min ago, or never minted
+      if (ticket !== openTicket) return;                           // another tap came after this one
+      if (!url || !btn.parentNode) return;                         // nothing to play → the button stays
+      const d = state[String(callId)];
+      const wrap = doc.createElement('span');
+      wrap.className = 'rec-player';
+      const audio = doc.createElement('audio');
+      audio.controls = true;
+      audio.preload = 'auto';
+      audio.setAttribute('aria-label', `Call recording${d && d.durationLabel ? ', ' + d.durationLabel + ' long' : ''}`);
+      wrap.appendChild(audio);
+      const o = { place, callId: String(callId), btn, wrap, audio, relinked: false };
+      // A link that aged out between drawing and the tap → ONE fresh link, same player.
+      audio.addEventListener('error', async () => {
+        if (openOne !== o) return;
+        if (o.relinked) { collapse(o); return; }                   // gave up: back to the button
+        o.relinked = true;
         const fresh = await relink(callId);
-        if (fresh) { try { await tryPlay(fresh); btn.classList.add('playing'); } catch (_) { btn.classList.remove('playing'); } }
-        else btn.classList.remove('playing');
-      }
+        if (openOne !== o) return;
+        if (!fresh) { collapse(o); return; }
+        audio.src = fresh;
+        audio.play().catch(() => {});                              // blocked autoplay → the ▶ in the controls
+      });
+      // The row was redrawn away (the player isn't on the page any more) → stop it.
+      audio.addEventListener('timeupdate', () => { if (!audio.isConnected && openOne === o) collapse(o); });
+      btn.replaceWith(wrap);
+      openOne = o;
+      audio.src = url;
+      audio.play().catch(() => {});                                // blocked autoplay → the ▶ in the controls
     },
   };
-  wire();
   return player;
 }
 

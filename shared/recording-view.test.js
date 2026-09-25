@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   LINKS_BATCH, NO_RECORDING_AFTER_MS, cleanCallIds, fetchRecordingIndex, recButtonHtml,
-  createButtonPlayer, inlineRecordingView, loadInlineRecording,
+  createButtonPlayer, closeOpenPlayer, openPlayerInfo, inlineRecordingView, loadInlineRecording,
 } from './recording-view.js';
 import { describeEntry } from './recording-player.js';
 
@@ -59,70 +59,161 @@ test('the button: ready = a play button, pending = a disabled "Recording…", fa
   assert.doesNotMatch(recButtonHtml(describeEntry(READY), '"><script>'), /<script>/, 'escaped');
 });
 
-/* ── the player: tap again = stop; ONE fresh link when the link expired ── */
+/* ── the player: the browser's own <audio controls>, opened in place ──── */
 
 function fakeAudio({ failSrc = [] } = {}) {
   const ls = {};
   const a = {
-    src: '', paused: true, plays: [],
+    src: '', paused: true, plays: [], controls: false, preload: '', attrs: {}, parentNode: null,
+    get isConnected() { return isConnected(a); },
+    setAttribute: (k, v) => { a.attrs[k] = v; },
+    removeAttribute: (k) => { if (k === 'src') a.src = ''; delete a.attrs[k]; },
+    load() {},
     addEventListener: (ev, fn) => { (ls[ev] = ls[ev] || []).push(fn); },
-    emit: (ev) => (ls[ev] || []).forEach((fn) => fn()),
-    async play() { a.plays.push(a.src); if (failSrc.includes(a.src)) throw new Error('403 expired'); a.paused = false; },
-    pause() { a.paused = true; a.emit('pause'); },
+    emit: (ev) => Promise.all((ls[ev] || []).map((fn) => fn())),
+    async play() {
+      a.plays.push(a.src);
+      if (failSrc.includes(a.src)) { setTimeout(() => a.emit('error'), 0); throw new Error('NotSupportedError'); }
+      a.paused = false;
+    },
+    pause() { a.paused = true; },
   };
   return a;
 }
-const fakeBtn = () => { const c = new Set(); return { classList: { add: (x) => c.add(x), remove: (x) => c.delete(x), has: (x) => c.has(x) } }; };
+// A tiny DOM: elements with a parent, replaceWith / appendChild, and "on the page" = reaches a root.
+function isConnected(el) { let n = el; while (n) { if (n.isRoot) return true; n = n.parentNode; } return false; }
+function el(tag) {
+  const e = { tag, className: '', children: [], parentNode: null,
+    get isConnected() { return isConnected(e); },
+    appendChild(c) { c.parentNode = e; e.children.push(c); return c; },
+    replaceWith(n) { const p = e.parentNode; if (!p) return; const i = p.children.indexOf(e); p.children[i] = n; n.parentNode = p; e.parentNode = null; },
+  };
+  return e;
+}
+function fakeDoc(audioOpts) {
+  const made = [];
+  return { made, createElement: (tag) => { const x = tag === 'audio' ? fakeAudio(audioOpts) : el(tag); made.push(x); return x; } };
+}
+// A row on the page holding a "▶ Play" button.
+function row() { const root = el('page'); root.isRoot = true; const r = root.appendChild(el('row')); const btn = r.appendChild(el('button')); return { root, row: r, btn }; }
+const tick = () => new Promise((r) => setTimeout(r, 5));
 
-test('the player plays the remembered link; tapping the playing button stops it; a second button stops the first', async () => {
-  const audio = fakeAudio();
+test('tap → the button is replaced IN PLACE by the built-in player (controls), playing the remembered link — no fetch', async () => {
+  closeOpenPlayer();
   let fetches = 0;
-  const P = createButtonPlayer({ getAudio: () => audio, fetchIndex: async () => { fetches++; return {}; } });
+  const doc = fakeDoc();
+  const P = createButtonPlayer({ place: 'desk', doc, fetchIndex: async () => { fetches++; return {}; } });
   P.remember(7, describeEntry(READY));
-  const b1 = fakeBtn(), b2 = fakeBtn();
-  await P.play(7, b1);
+  const { row: r, btn } = row();
+  await P.play(7, btn);
+  const wrap = r.children[0];
+  assert.equal(wrap.className, 'rec-player');
+  const audio = wrap.children[0];
+  assert.equal(audio.controls, true, 'the browser\'s own controls: play/pause, the bar, the time');
   assert.deepEqual(audio.plays, ['https://x/s1']);
-  assert.equal(b1.classList.has('playing'), true);
+  assert.equal(audio.paused, false);
+  assert.equal(btn.parentNode, null, 'the button is out of the row');
   assert.equal(fetches, 0, 'no fetch when the link is fresh');
-  await P.play(7, b1);                                       // tap again → stop
+  assert.deepEqual(openPlayerInfo(), { place: 'desk', callId: '7' });
+  closeOpenPlayer();
+  assert.equal(r.children[0], btn, 'collapsed: the SAME button (its listeners) is back');
   assert.equal(audio.paused, true);
-  assert.equal(b1.classList.has('playing'), false, 'pause clears the highlight');
-  P.remember(8, describeEntry({ ...READY, call_id: 8, playback_url: 'https://x/s2' }));
-  await P.play(7, b1); await P.play(8, b2);
-  assert.equal(b1.classList.has('playing'), false);
-  assert.equal(b2.classList.has('playing'), true);
-  audio.emit('ended');
-  assert.equal(b2.classList.has('playing'), false, 'ended clears the highlight');
+  assert.equal(openPlayerInfo(), null);
 });
 
-test('an EXPIRED link: the play fails → ONE fresh link is fetched and played; a second failure gives up quietly', async () => {
-  const audio = fakeAudio({ failSrc: ['https://x/old'] });
+test('ONE open player on the whole board: opening another pauses + collapses the first, in any place', async () => {
+  closeOpenPlayer();
+  const doc = fakeDoc();
+  const desk = createButtonPlayer({ place: 'desk', doc, fetchIndex: async () => ({}) });
+  const cust = createButtonPlayer({ place: 'cust', doc, fetchIndex: async () => ({}) });
+  desk.remember(7, describeEntry(READY));
+  desk.remember(8, describeEntry({ ...READY, call_id: 8, playback_url: 'https://x/s2' }));
+  cust.remember(9, describeEntry({ ...READY, call_id: 9, playback_url: 'https://x/s3' }));
+  const a = row(), b = row(), c = row();
+  await desk.play(7, a.btn);
+  const first = a.row.children[0].children[0];
+  await desk.play(8, b.btn);
+  assert.equal(a.row.children[0], a.btn, 'the first is back to its button');
+  assert.equal(first.paused, true, 'and paused');
+  assert.equal(b.row.children[0].className, 'rec-player');
+  await cust.play(9, c.btn);
+  assert.equal(b.row.children[0], b.btn, 'another place closes it too');
+  assert.deepEqual(openPlayerInfo(), { place: 'cust', callId: '9' });
+  // Leaving a view: only that place's player (closeOpenPlayer(place)), or any (no place).
+  assert.equal(closeOpenPlayer('desk'), false, 'the Call log closing leaves the customer record alone');
+  assert.equal(closeOpenPlayer('cust'), true);
+  assert.equal(c.row.children[0], c.btn);
+  // A redraw of a place (reset) closes its open player.
+  await desk.play(7, a.btn);
+  desk.reset();
+  assert.equal(a.row.children[0], a.btn);
+  assert.equal(openPlayerInfo(), null);
+});
+
+test('an EXPIRED link: the player errors → ONE fresh link into the same player; a second failure collapses back to the button', async () => {
+  closeOpenPlayer();
   const asked = [];
-  const P = createButtonPlayer({ getAudio: () => audio, fetchIndex: async (ids) => { asked.push(ids); return { 7: { ...READY, playback_url: 'https://x/new' } }; } });
+  const doc = fakeDoc({ failSrc: ['https://x/old'] });
+  const P = createButtonPlayer({ place: 'CdRO', doc, fetchIndex: async (ids) => { asked.push(ids); return { 7: { ...READY, playback_url: 'https://x/new' } }; } });
   P.remember(7, describeEntry({ ...READY, playback_url: 'https://x/old' }));
-  const b = fakeBtn();
-  await P.play(7, b);
+  const { row: r, btn } = row();
+  await P.play(7, btn);
+  await tick();
+  const audio = r.children[0].children[0];
   assert.deepEqual(audio.plays, ['https://x/old', 'https://x/new']);
   assert.deepEqual(asked, [[7]], 'exactly one fresh link');
-  assert.equal(b.classList.has('playing'), true);
+  assert.equal(audio.paused, false, 'playing the fresh link');
   assert.equal(P.descriptor(7).playbackUrl, 'https://x/new', 'the fresh link is remembered');
+  closeOpenPlayer();
 
-  const dead = fakeAudio({ failSrc: ['https://x/old', 'https://x/new'] });
-  const P2 = createButtonPlayer({ getAudio: () => dead, fetchIndex: async () => ({ 7: { ...READY, playback_url: 'https://x/new' } }) });
+  const dead = fakeDoc({ failSrc: ['https://x/old', 'https://x/new'] });
+  const P2 = createButtonPlayer({ place: 'CdRO', doc: dead, fetchIndex: async () => ({ 7: { ...READY, playback_url: 'https://x/new' } }) });
   P2.remember(7, describeEntry({ ...READY, playback_url: 'https://x/old' }));
-  const b2 = fakeBtn();
-  await P2.play(7, b2);
-  assert.equal(dead.plays.length, 2, 'never a third try');
-  assert.equal(b2.classList.has('playing'), false);
-  // Never drawn (e.g. a pending row that became ready) → it asks for a link first.
-  const P3 = createButtonPlayer({ getAudio: () => fakeAudio(), fetchIndex: async () => ({}) });
-  const b3 = fakeBtn();
-  await P3.play(99, b3);
-  assert.equal(b3.classList.has('playing'), false, 'no recording → nothing plays');
+  const two = row();
+  await P2.play(7, two.btn);
+  await tick(); await tick();
+  const a2 = dead.made.find((x) => x.plays);
+  assert.equal(a2.plays.length, 2, 'never a third try');
+  assert.equal(two.row.children[0], two.btn, 'gave up: the button is back');
+  assert.equal(openPlayerInfo(), null);
+});
+
+test('no link at all → the button stays, nothing opens; a player redrawn off the page stops itself', async () => {
+  closeOpenPlayer();
+  const doc = fakeDoc();
+  const P = createButtonPlayer({ place: 'cust', doc, fetchIndex: async () => ({}) });
+  const one = row();
+  await P.play(99, one.btn);
+  assert.equal(one.row.children[0], one.btn);
+  assert.equal(openPlayerInfo(), null);
+  // The customer record re-draws its body: the row (and the open player) leave the page.
+  P.remember(7, describeEntry(READY));
+  await P.play(7, one.btn);
+  const audio = one.row.children[0].children[0];
+  one.row.parentNode.children.length = 0; one.row.parentNode = null;   // redrawn away
+  await audio.emit('timeupdate');
+  assert.equal(audio.paused, true, 'no invisible audio keeps talking');
+  assert.equal(openPlayerInfo(), null);
+});
+
+test('the latest tap wins: a slow fresh-link fetch can not open a second player', async () => {
+  closeOpenPlayer();
+  const doc = fakeDoc();
+  let release;
+  const slow = new Promise((r) => { release = r; });
+  const P = createButtonPlayer({ place: 'desk', doc, fetchIndex: async (ids) => { if (ids[0] === 1) await slow; return { [ids[0]]: { ...READY, call_id: ids[0], playback_url: `https://x/${ids[0]}` } }; } });
+  const a = row(), b = row();
+  const first = P.play(1, a.btn);            // no remembered link → fetches (slowly)
+  P.remember(2, describeEntry({ ...READY, call_id: 2, playback_url: 'https://x/2' }));
+  await P.play(2, b.btn);                     // tapped second, opens at once
+  release(); await first;
+  assert.equal(a.row.children[0], a.btn, 'the slow first tap does not open');
+  assert.deepEqual(openPlayerInfo(), { place: 'desk', callId: '2' });
+  closeOpenPlayer();
 });
 
 test('paint(): draws a cell and remembers it; reset() forgets', () => {
-  const P = createButtonPlayer({ getAudio: () => null, fetchIndex: async () => ({}) });
+  const P = createButtonPlayer({ place: 'desk', doc: fakeDoc(), fetchIndex: async () => ({}) });
   const cell = { innerHTML: 'old' };
   P.paint(cell, { 7: READY }, '7');
   assert.match(cell.innerHTML, /rec-ready/);
@@ -207,9 +298,16 @@ test('static: the advisor board has ONE links reader and every recording place u
   assert.match(code, /function cdRecordingIndex\(callIds, tag\) \{[\s\S]*?cdAuthFetch\(db, '\/api\/recording-links'/);
   assert.match(code, /import \* as RecordingView from '\.\/shared\/recording-view\.js';\s*window\.RecordingPlayer = RecordingPlayer;\s*window\.RecordingView = RecordingView;/);
   // The four places.
-  assert.match(code, /const deskRec = cdRecordingPlayer\('deskRecAudio', 'desk'\);/, 'Call Log');
-  assert.match(code, /const roRec = cdRecordingPlayer\('cdRoRecAudio', 'CdRO'\);/, 'RO Call History');
-  assert.match(code, /const custRec = cdRecordingPlayer\('custRecAudio', 'cust'\);/, 'customer record');
+  assert.match(code, /const deskRec = cdRecordingPlayer\('desk'\);/, 'Call Log');
+  assert.match(code, /const roRec = cdRecordingPlayer\('CdRO'\);/, 'RO Call History');
+  assert.match(code, /const custRec = cdRecordingPlayer\('cust'\);/, 'customer record');
+  // The built-in player replaced the hidden <audio> per place; leaving collapses it.
+  assert.doesNotMatch(code, /deskRecAudio|cdRoRecAudio|custRecAudio/, 'no hidden per-place <audio> left');
+  assert.match(code, /function closeLog\(\) \{ closeAttach\(\); cdRecordingStop\('desk'\);/, 'closing the Call log');
+  assert.equal((code.match(/cdRecordingStop\('CdRO'\);/g) || []).length, 2, 'another RO / leaving the RO');
+  assert.equal((code.match(/cdRecordingStop\('cust'\);/g) || []).length, 3, 'customer list / back / reload');
+  assert.match(code, /i\.addEventListener\('click', \(\) => cdRecordingStop\(\)\)\);/, 'any sidebar navigation');
+  assert.match(code, /\.rec-player audio \{/);
   assert.match(code, /custRecIdx = await cdRecordingIndex\(custRecCallsAll\.map\(c => c\.id\), 'cust'\);/);
   assert.match(code, /return RV\.loadInlineRecording\(el, card\._call \|\| \{\}, \(ids\) => cdRecordingIndex\(ids, 'callerCard'\)\);/, 'tray call card');
   // The old copies.
