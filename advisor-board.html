@@ -11699,25 +11699,34 @@
         });
       });
     }
-    // Optimistic reschedule with revert on failure (same shape as the RO board's
-    // optimistic updates). Uses the shared supabase-js client — NOT a hand-rolled
-    // fetch — so it does not inherit planner.js's edit-modal fetch path.
+    // Every Desk write goes through api/calls.js (security slice 3 (a)2). A failed
+    // one never pretends: a 401 shows the red sign-in banner (cdAuthFetch does
+    // that), anything else says so; the item stays where it was.
+    function deskWriteFailed(what, r) {
+      console.error('[desk] ' + what + ' failed', r.status, r.error);
+      if (r.status === 401) return;                          // the red sign-in banner is already up
+      alert('Could not ' + what + ': ' + (r.error || 'unknown error'));
+      if (r.status === 409) deskLoad();                      // someone else changed it — show what's there now
+    }
+    function deskWriteErrText(what, r) {
+      return r.status === 401 ? cdAuthErrorText(401) : 'Could not ' + what + ': ' + (r.error || 'unknown error');
+    }
+
+    // Optimistic reschedule (a calendar drag) with revert on failure. The server
+    // builds the patch (reschedulePatch): onto a timed slot clears the key box in
+    // the same write (§6b).
     async function rescheduleCall(callId, dueAt, dueAllDay) {
       const call = (lastData && lastData.calls || []).find(c => String(c.id) === String(callId));
       if (!call) return;
       const prev = { due_at: call.due_at, due_all_day: call.due_all_day, dropoff_key_box: call.dropoff_key_box };
-      // Onto a timed slot clears the key box in the same write (§6b).
       const patch = DA() ? DA().reschedulePatch(dueAt, dueAllDay, keyBoxColAvailable) : { due_at: dueAt, due_all_day: dueAllDay };
       Object.assign(call, patch);   // optimistic
       deskRender(lastData);
-      try {
-        const { error } = await db.from('calls').update(patch).eq('id', callId);
-        if (error) throw error;
-      } catch (e) {
-        console.error('[desk] reschedule failed', e);
-        alert('Could not reschedule: ' + (e && e.message ? e.message : e));
-        Object.assign(call, prev);   // revert
+      const r = await cdCallsWrite({ action: 'reschedule', call_id: Number(callId), due_at: dueAt, due_all_day: !!dueAllDay });
+      if (!r.ok) {
+        Object.assign(call, prev);   // revert — the chip goes back where it was
         deskRender(lastData);
+        deskWriteFailed('reschedule', r);
       }
     }
 
@@ -11783,22 +11792,17 @@
         const who = customerLabel(call, (lastData && lastData.custMap) || {});
         if (!confirm(M.confirmMessage(call, who, dueLabel(call.due_at, call.due_all_day)))) return;
       }
-      const patch = M.outcomePatch(outcome, {
-        now: new Date().toISOString(),
-        byName: (typeof CHAT_IDENTITY !== 'undefined' && CHAT_IDENTITY.name) || null,
-      });
-      if (!patch) return;
-      const { error } = await db.from('calls').update(patch).eq('id', id);
-      if (error) { console.error('[desk] outcome failed', error); alert('Could not save: ' + error.message); return; }
+      // The server builds the patch (outcomePatch) and stamps who/when.
+      const r = await cdCallsWrite({ action: 'outcome', call_id: Number(id), outcome });
+      if (!r.ok) { deskWriteFailed('save', r); return; }
       deskLoad();
     }
 
     // Undo — put a cleared item back exactly where it was. next_step/due_at were
     // never touched by a clear, so nulling resolved_at + the outcome restores it.
     async function undoCleared(id) {
-      const M = DO(); if (!M) return;
-      const { error } = await db.from('calls').update(M.undoPatch()).eq('id', id);
-      if (error) { console.error('[desk] undo failed', error); alert('Could not undo: ' + error.message); return; }
+      const r = await cdCallsWrite({ action: 'undo', call_id: Number(id) });   // undoPatch, on the server
+      if (!r.ok) { deskWriteFailed('undo', r); return; }
       deskLoad();
     }
 
@@ -11852,18 +11856,21 @@
         const who = customerLabel(call, (lastData && lastData.custMap) || {});
         if (!confirm(M.confirmMessage(call, who, dueLabel(call.due_at, call.due_all_day)))) return;
       }
-      const patch = M.outcomePatch(outcome, {
-        call,
-        note: $('deskNotNowNote').value,
-        now: new Date().toISOString(),
-        callbackDueAt: parking ? deskDueAt(dateKey, null, null) : null,   // callbacks are all-day
-        byName: (typeof CHAT_IDENTITY !== 'undefined' && CHAT_IDENTITY.name) || null,
-      });
-      if (!patch) { err.textContent = 'Could not build that change.'; return; }
       const btn = $('deskNotNowSave'); btn.disabled = true;
       try {
-        const { error } = await db.from('calls').update(patch).eq('id', call.id);
-        if (error) { err.textContent = 'Could not save: ' + error.message; return; }
+        // The server builds the patch (outcomePatch): who/when, and for Follow up the
+        // drop-off date it leaves behind (outcome_prev_due_at) from the row itself.
+        const note = $('deskNotNowNote').value;
+        const r = await cdCallsWrite({
+          action: 'outcome', call_id: Number(call.id), outcome,
+          ...(note && note.trim() ? { note } : {}),
+          ...(parking ? { callback_due_at: deskDueAt(dateKey, null, null) } : {}),   // callbacks are all-day
+        });
+        if (!r.ok) {                                   // the dialog stays open with what was typed
+          err.textContent = deskWriteErrText('save', r);
+          if (r.status === 409) { closeNotNow(); deskLoad(); alert(r.error); }
+          return;
+        }
         closeNotNow(); deskLoad();
       } finally { btn.disabled = false; }
     }
@@ -11876,11 +11883,8 @@
     })();
 
     async function resolveCall(id) {
-      const { error } = await db.from('calls').update({
-        resolved_at: new Date().toISOString(),
-        resolved_by_name: (typeof CHAT_IDENTITY !== 'undefined' && CHAT_IDENTITY.name) || null,
-      }).eq('id', id);
-      if (error) { console.error('[desk] resolve failed', error); alert('Could not mark done: ' + error.message); return; }
+      const r = await cdCallsWrite({ action: 'done', call_id: Number(id) });   // resolved_at + who, on the server
+      if (!r.ok) { deskWriteFailed('mark done', r); return; }
       deskLoad();
     }
     async function restoreDeclinedDesk(roId) {
@@ -12019,10 +12023,10 @@
       const saveBtn = $('deskEditSave'); saveBtn.disabled = true;
       try {
         if (st.mode === 'edit') {
-          // Re-route / reschedule — anon UPDATE. resolved_at is untouched, so the
-          // item stays visible on the Desk (invariant held).
-          const { error } = await db.from('calls').update(kbPatch({ next_step: type, due_at, due_all_day })).eq('id', st.id);
-          if (error) { err.textContent = 'Could not save: ' + error.message; return; }
+          // Re-route / reschedule — api/calls.js `edit` (withKeyBox on the server).
+          // resolved_at is untouched, so the item stays visible on the Desk.
+          const r = await cdCallsWrite({ action: 'edit', call_id: Number(st.id), next_step: type, due_at, due_all_day, key_box: keyBox });
+          if (!r.ok) { err.textContent = deskWriteErrText('save', r); return; }   // the modal stays open as typed
           closeDeskEdit(); deskLoad();
         } else {
           const l10 = window.cdLast10 || ((s) => String(s == null ? '' : s).replace(/\D/g, '').slice(-10));

@@ -16,8 +16,19 @@
      auto_file_ro  — the robot's open-RO check after a human attach: exactly
                      one RO open when the call came in → file it, and ONLY into
                      an empty ro_id (shared/call-auto-attach.js rules).
-   The other 12 browser writers (Desk, Call Log, customer record) still write
-   directly until steps (a)2 / (a)3.
+   Step (a)2 (2026-09-25) moves the DESK's six writers (shared/desk-outcomes.js +
+   shared/desk-appointments.js build every patch, exactly as the board did):
+     outcome       — Arrived / Not coming / Called (clears: resolved_at + who +
+                     outcome + reason) or Follow up (does NOT clear: moves to
+                     Callbacks with a call-back date; outcome_prev_due_at keeps
+                     the drop-off date it leaves, read from the ROW, not the body);
+                     a clear only lands on a row that isn't cleared yet (409);
+     undo          — Recently cleared → back exactly as it was (undoPatch);
+     done          — the pre-migration plain "Done" (resolved_at + who);
+     edit          — the Edit modal: next_step + date + time/key box;
+     reschedule    — a calendar drag: onto a timed slot clears the key box in the
+                     same write (reschedulePatch).
+   The Call Log / customer record writers still write directly until (a)3.
 
    GATE — requireUser(req) FIRST: a live Supabase session that maps to an
    ACTIVE employee (the same rule as public.is_staff()). A KiKi login, an
@@ -38,17 +49,21 @@
    ============================================================ */
 import { requireUser } from './_lib/require-user.js';
 import { pickOpenRoAt, autoFileRoPatch, clearAutoFileTagsPatch } from '../shared/call-auto-attach.js';
+import { OUTCOMES, outcomePatch, undoPatch, clearsItem } from '../shared/desk-outcomes.js';
+import { withKeyBox, reschedulePatch } from '../shared/desk-appointments.js';
 
 const PROD_SUPABASE = 'https://hygemiszxwmyrkmhbjub.supabase.co';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const ACTIONS = ['note', 'customer', 'auto_file_ro'];
+export const ACTIONS = ['note', 'customer', 'auto_file_ro', 'outcome', 'undo', 'done', 'edit', 'reschedule'];
+export const DESK_STEPS = ['quoted_callback', 'dropping_off'];      // the two Desk lanes
+export const MAX_OUTCOME_NOTE = 500;                                 // desk-outcomes.js trims to this
 export const NEXT_STEPS = ['quoted_callback', 'dropping_off', 'checking_on_car', 'price_shopper'];
 export const MAX_NOTE = 10000;
 // What the card may set with `note`. Nothing else — never a stamp, never resolved_at.
 export const NOTE_FIELDS = ['note', 'next_step', 'due_at', 'due_all_day', 'ro_id', 'dropoff_key_box'];
 // What the response carries back (the card's view of the row).
-export const CALL_COLS = 'id,customer_id,ro_id,note,next_step,due_at,due_all_day,dropoff_key_box,noted_at,noted_by_name,started_at,auto_attached_at,auto_ro_filed_at,auto_attach_run_id';
+export const CALL_COLS = 'id,customer_id,ro_id,note,next_step,due_at,due_all_day,dropoff_key_box,noted_at,noted_by_name,started_at,auto_attached_at,auto_ro_filed_at,auto_attach_run_id,resolved_at,resolved_by_name,outcome,outcome_note,outcome_prev_due_at';
 
 const isCallId = (v) => Number.isInteger(v) && v > 0;
 
@@ -59,7 +74,16 @@ export function parseBody(body) {
   if (!ACTIONS.includes(b.action)) return { ok: false, error: `action must be one of ${ACTIONS.join(', ')}` };
   const callId = Number(b.call_id);
   if (!isCallId(callId)) return { ok: false, error: 'call_id must be a positive integer' };
-  const allowedTop = { note: ['action', 'call_id', 'fields', 'fold_customer_id'], customer: ['action', 'call_id', 'customer_id'], auto_file_ro: ['action', 'call_id'] }[b.action];
+  const allowedTop = {
+    note: ['action', 'call_id', 'fields', 'fold_customer_id'],
+    customer: ['action', 'call_id', 'customer_id'],
+    auto_file_ro: ['action', 'call_id'],
+    outcome: ['action', 'call_id', 'outcome', 'note', 'callback_due_at'],
+    undo: ['action', 'call_id'],
+    done: ['action', 'call_id'],
+    edit: ['action', 'call_id', 'next_step', 'due_at', 'due_all_day', 'key_box'],
+    reschedule: ['action', 'call_id', 'due_at', 'due_all_day'],
+  }[b.action];
   const extra = Object.keys(b).filter((k) => !allowedTop.includes(k));
   if (extra.length) return { ok: false, error: `not allowed: ${extra.join(', ')}` };
 
@@ -67,7 +91,34 @@ export function parseBody(body) {
     if (typeof b.customer_id !== 'string' || !UUID_RE.test(b.customer_id)) return { ok: false, error: 'customer_id must be a uuid' };
     return { ok: true, action: 'customer', callId, customerId: b.customer_id };
   }
-  if (b.action === 'auto_file_ro') return { ok: true, action: 'auto_file_ro', callId };
+  if (b.action === 'auto_file_ro' || b.action === 'undo' || b.action === 'done') return { ok: true, action: b.action, callId };
+
+  const isoOk = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
+  if (b.action === 'outcome') {
+    if (!OUTCOMES.includes(b.outcome)) return { ok: false, error: `outcome must be one of ${OUTCOMES.join(', ')}` };
+    if (b.note != null && typeof b.note !== 'string') return { ok: false, error: 'note must be text' };
+    if (typeof b.note === 'string' && b.note.length > 2000) return { ok: false, error: 'note is too long' };
+    if (b.outcome === 'follow_up') {
+      if (!isoOk(b.callback_due_at)) return { ok: false, error: 'follow_up needs callback_due_at (an ISO timestamp)' };
+    } else if (b.callback_due_at != null) {
+      return { ok: false, error: 'callback_due_at is only for follow_up' };
+    }
+    return { ok: true, action: 'outcome', callId, outcome: b.outcome, note: b.note == null ? null : b.note, callbackDueAt: b.callback_due_at || null };
+  }
+  if (b.action === 'reschedule') {
+    if (!isoOk(b.due_at)) return { ok: false, error: 'due_at must be an ISO timestamp' };
+    if (typeof b.due_all_day !== 'boolean') return { ok: false, error: 'due_all_day must be true or false' };
+    return { ok: true, action: 'reschedule', callId, dueAt: b.due_at, allDay: b.due_all_day };
+  }
+  if (b.action === 'edit') {
+    if (!DESK_STEPS.includes(b.next_step)) return { ok: false, error: 'next_step must be quoted_callback or dropping_off' };
+    if (!isoOk(b.due_at)) return { ok: false, error: 'due_at must be an ISO timestamp' };
+    if (typeof b.due_all_day !== 'boolean') return { ok: false, error: 'due_all_day must be true or false' };
+    if (b.key_box != null && typeof b.key_box !== 'boolean') return { ok: false, error: 'key_box must be true or false' };
+    const keyBox = b.next_step === 'dropping_off' && b.key_box === true;
+    if (keyBox && !b.due_all_day) return { ok: false, error: 'a key-box drop-off is all-day' };
+    return { ok: true, action: 'edit', callId, step: b.next_step, dueAt: b.due_at, allDay: b.due_all_day, keyBox };
+  }
 
   // note
   const f = b.fields && typeof b.fields === 'object' && !Array.isArray(b.fields) ? b.fields : null;
@@ -138,8 +189,13 @@ export default async function handler(req, res) {
     if (!cur.row) return res.status(404).json({ error: 'call not found' });
     switch (parsed.action) {
       case 'note': return await doNote(res, db, parsed, cur.row, who, now);
-      case 'customer': return await doCustomer(res, db, parsed, cur.row);
-      default: return await doAutoFileRo(res, db, cur.row, now);
+      case 'customer': return await doCustomer(res, db, parsed);
+      case 'auto_file_ro': return await doAutoFileRo(res, db, cur.row, now);
+      case 'outcome': return await doOutcome(res, db, parsed, cur.row, who, now);
+      case 'undo': return await doUndo(res, db, cur.row);
+      case 'done': return await doDone(res, db, cur.row, who, now);
+      case 'edit': return await doEdit(res, db, parsed, cur.row);
+      default: return await doReschedule(res, db, parsed, cur.row);
     }
   } catch (e) {
     console.error('[calls]', parsed.action, 'threw:', String((e && e.message) || e));
@@ -229,4 +285,53 @@ async function doAutoFileRo(res, db, row, now) {
   if (!w.ok) return res.status(502).json({ error: 'write failed' });
   if (!w.row) return res.status(200).json({ call: row, ro_id: null });         // a person filed it first — fine
   return res.status(200).json({ call: w.row, ro_id: roId });
+}
+
+/* ── The Desk (step (a)2) ─────────────────────────────────────────────── */
+
+const ALREADY_CLEARED = { error: 'already_cleared', message: 'Someone already cleared this from the Desk — it is in Recently cleared.' };
+
+// Arrived / Not coming / Called clear the lead; Follow up moves it to Callbacks.
+// Every value comes from desk-outcomes.js outcomePatch — who/when from the server,
+// the date Follow up leaves behind from the ROW.
+async function doOutcome(res, db, p, row, who, now) {
+  if (row.resolved_at) return res.status(409).json(ALREADY_CLEARED);
+  const patch = outcomePatch(p.outcome, { now, byName: who.name, note: p.note, call: row, callbackDueAt: p.callbackDueAt });
+  if (!patch) return res.status(400).json({ error: 'could not build that change' });
+  // Conditional on the row still being open, so two people can't both clear it.
+  const w = await patchCall(db, row.id, '&resolved_at=is.null', patch);
+  if (!w.ok) return res.status(502).json({ error: 'write failed' });
+  if (!w.row) return res.status(409).json(ALREADY_CLEARED);
+  return res.status(200).json({ call: w.row, cleared: clearsItem(p.outcome) });
+}
+
+// Recently cleared → back exactly as it was. Not cleared (any more) → nothing to do.
+async function doUndo(res, db, row) {
+  if (!row.resolved_at) return res.status(200).json({ call: row, unchanged: true });
+  const w = await patchCall(db, row.id, '', undoPatch());
+  if (!w.ok || !w.row) return res.status(502).json({ error: 'write failed' });
+  return res.status(200).json({ call: w.row });
+}
+
+// The pre-migration plain "Done": resolved_at + who, no outcome.
+async function doDone(res, db, row, who, now) {
+  if (row.resolved_at) return res.status(409).json(ALREADY_CLEARED);
+  const w = await patchCall(db, row.id, '&resolved_at=is.null', { resolved_at: now, resolved_by_name: who.name });
+  if (!w.ok) return res.status(502).json({ error: 'write failed' });
+  if (!w.row) return res.status(409).json(ALREADY_CLEARED);
+  return res.status(200).json({ call: w.row });
+}
+
+// The Edit modal: lane + date + time or key box. resolved_at is never touched.
+async function doEdit(res, db, p, row) {
+  const w = await patchCall(db, row.id, '', withKeyBox({ next_step: p.step, due_at: p.dueAt, due_all_day: p.allDay }, p.keyBox, true));
+  if (!w.ok || !w.row) return res.status(502).json({ error: 'write failed' });
+  return res.status(200).json({ call: w.row });
+}
+
+// A calendar drag. Onto a timed slot clears the key box in the same write.
+async function doReschedule(res, db, p, row) {
+  const w = await patchCall(db, row.id, '', reschedulePatch(p.dueAt, p.allDay, true));
+  if (!w.ok || !w.row) return res.status(502).json({ error: 'write failed' });
+  return res.status(200).json({ call: w.row });
 }

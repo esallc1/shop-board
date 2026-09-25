@@ -273,7 +273,9 @@ test('the call window no longer has "Mark done"', () => {
 test('board asks before clearing a future-dated item, and offers undo', () => {
   assert.match(BOARD, /\bneedsConfirm\(call, new Date\(\)\)/, 'confirm on future clears');
   assert.match(BOARD, /\bconfirmMessage\(call,/, 'the confirm names who and when');
-  assert.match(BOARD, /\bundoPatch\(\)/, 'undo path');
+  // Security slice 3 (a)2: undo runs undoPatch() on the SERVER (api/calls.js `undo`).
+  assert.match(BOARD, /cdCallsWrite\(\{ action: 'undo', call_id: Number\(id\) \}\)/, 'undo path');
+  assert.match(readFileSync(join(root, 'api/calls.js'), 'utf8'), /patchCall\(db, row\.id, '', undoPatch\(\)\)/, 'the server restores with undoPatch');
   assert.match(BOARD, /data-undo=/, 'an Undo control per cleared row');
   assert.match(BOARD, /\brecentlyCleared\(rows, new Date\(\)\)/, 'the Recently cleared list');
   assert.match(BOARD, /function applyOutcome\(/, 'one write path for all four outcomes');

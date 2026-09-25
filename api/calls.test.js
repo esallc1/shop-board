@@ -17,6 +17,13 @@
      • auto_file_ro: exactly one open RO → filed, conditional on ro_id being empty
        IN THE WRITE; 2 open / already filed / lost the race → nothing written;
      • repair_orders and customers are only ever READ.
+   Step (a)2 — the Desk (outcome / undo / done / edit / reschedule):
+     • 401 for every Desk action without a staff session; 400 for any key outside
+       the action's list (resolved_at, resolved_by_name, outcome_prev_due_at, …);
+     • the patches are desk-outcomes.js / desk-appointments.js's, with who/when
+       from the server and Follow up's outcome_prev_due_at from the ROW;
+     • a clear only lands on an open row (resolved_at=is.null) — else 409;
+     • Undo restores the row EXACTLY as it was before the clear.
    ============================================================ */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -34,7 +41,8 @@ function world(rows = {}, ros = []) {
   const w = { reads: [], writes: [], calls: {} };
   for (const [id, r] of Object.entries(rows)) w.calls[id] = { id: Number(id), customer_id: null, ro_id: null, note: null, next_step: null,
     due_at: null, due_all_day: true, dropoff_key_box: false, noted_at: null, noted_by_name: null, started_at: '2026-09-25T14:00:00Z',
-    auto_attached_at: null, auto_ro_filed_at: null, auto_attach_run_id: null, ...r };
+    auto_attached_at: null, auto_ro_filed_at: null, auto_attach_run_id: null,
+    resolved_at: null, resolved_by_name: null, outcome: null, outcome_note: null, outcome_prev_due_at: null, ...r };
   const json = (status, data) => ({ ok: status >= 200 && status < 300, status, json: async () => data, text: async () => JSON.stringify(data) });
   w.fetch = async (url, opts = {}) => {
     const method = opts.method || 'GET';
@@ -70,7 +78,7 @@ function world(rows = {}, ros = []) {
       const body = JSON.parse(opts.body);
       w.writes.push({ url, method, body, table: 'calls' });
       // Honour the guards the endpoint puts on the write.
-      for (const col of ['noted_at', 'customer_id', 'ro_id']) {
+      for (const col of ['noted_at', 'customer_id', 'ro_id', 'resolved_at']) {
         if (q.get(col) === 'is.null' && row && row[col] != null) return json(200, []);
       }
       if (!row) return json(200, []);
@@ -272,4 +280,173 @@ test('repair_orders and customers are only ever READ', async () => {
   await call({ action: 'note', call_id: 7, fields: { ro_id: RO1 }, fold_customer_id: CUST }, { w });
   await call({ action: 'customer', call_id: 7, customer_id: CUST2 }, { w });
   assert.ok(w.writes.every((x) => x.table === 'calls'), 'every write is to calls');
+});
+
+/* ── the Desk (step (a)2) ─────────────────────────────────────────────── */
+
+const DROP = { next_step: 'dropping_off', due_at: '2026-09-28T04:00:00.000Z', due_all_day: true, dropoff_key_box: true, noted_at: '2026-09-20T10:00:00Z', noted_by_name: 'Josh' };
+
+test('Desk: 401 for every action without a signed-in active employee — and nothing is read', async () => {
+  const bodies = [
+    { action: 'outcome', call_id: 7, outcome: 'arrived' },
+    { action: 'undo', call_id: 7 },
+    { action: 'done', call_id: 7 },
+    { action: 'edit', call_id: 7, next_step: 'dropping_off', due_at: '2026-09-28T04:00:00Z', due_all_day: true },
+    { action: 'reschedule', call_id: 7, due_at: '2026-09-28T14:00:00Z', due_all_day: false },
+  ];
+  for (const b of bodies) for (const token of [null, 'kiki-token', 'inactive-token']) {
+    const w = world({ 7: DROP });
+    const { res } = await call(b, { token, w });
+    assert.equal(res.statusCode, 401, `${b.action} ${token}`);
+    assert.equal(w.reads.length + w.writes.length, 0);
+  }
+});
+
+test('Desk: 400 for any key outside the action\'s list, and for impossible values — nothing written', async () => {
+  const bad = [
+    { action: 'outcome', call_id: 7, outcome: 'arrived', resolved_at: '2020-01-01T00:00:00Z' },
+    { action: 'outcome', call_id: 7, outcome: 'arrived', resolved_by_name: 'Me' },
+    { action: 'outcome', call_id: 7, outcome: 'follow_up', callback_due_at: '2026-10-09T04:00:00Z', outcome_prev_due_at: null },
+    { action: 'outcome', call_id: 7, outcome: 'fixed_elsewhere' },
+    { action: 'outcome', call_id: 7, outcome: 'follow_up' },
+    { action: 'outcome', call_id: 7, outcome: 'arrived', callback_due_at: '2026-10-09T04:00:00Z' },
+    { action: 'undo', call_id: 7, resolved_at: null },
+    { action: 'done', call_id: 7, resolved_by_name: 'Me' },
+    { action: 'edit', call_id: 7, next_step: 'checking_on_car', due_at: '2026-09-28T04:00:00Z', due_all_day: true },
+    { action: 'edit', call_id: 7, next_step: 'dropping_off', due_at: '2026-09-28T14:00:00Z', due_all_day: false, key_box: true },
+    { action: 'edit', call_id: 7, next_step: 'dropping_off', due_at: '2026-09-28T04:00:00Z', due_all_day: true, noted_by_name: 'Me' },
+    { action: 'edit', call_id: 7, next_step: 'dropping_off', due_at: 'soon', due_all_day: true },
+    { action: 'reschedule', call_id: 7, due_at: '2026-09-28T14:00:00Z', due_all_day: false, dropoff_key_box: true },
+    { action: 'reschedule', call_id: 7, due_at: '2026-09-28T14:00:00Z' },
+  ];
+  for (const b of bad) {
+    const w = world({ 7: DROP });
+    const { res } = await call(b, { w });
+    assert.equal(res.statusCode, 400, JSON.stringify(b).slice(0, 90));
+    assert.equal(w.writes.length, 0);
+  }
+});
+
+test('Arrived / Not coming / Called: resolved_at + who from the SERVER, the outcome and reason — the lane and date untouched', async () => {
+  const w = world({ 7: DROP });
+  const { res } = await call({ action: 'outcome', call_id: 7, outcome: 'arrived' }, { w });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.cleared, true);
+  const wr = w.writes[0];
+  assert.match(wr.url, /resolved_at=is\.null/, 'only an open row can be cleared');
+  assert.deepEqual(Object.keys(wr.body).sort(), ['outcome', 'outcome_note', 'resolved_at', 'resolved_by_name']);
+  assert.equal(wr.body.resolved_by_name, 'ZZ Test Advisor');
+  assert.ok(Math.abs(Date.parse(wr.body.resolved_at) - Date.now()) < 5000);
+  assert.equal(w.calls[7].next_step, 'dropping_off');
+  assert.equal(w.calls[7].due_at, DROP.due_at);
+  const w2 = world({ 7: DROP });
+  await call({ action: 'outcome', call_id: 7, outcome: 'not_coming', note: '  sold the car  ' }, { w: w2 });
+  assert.equal(w2.calls[7].outcome, 'not_coming');
+  assert.equal(w2.calls[7].outcome_note, 'sold the car');
+});
+
+test('Follow up: moves to Callbacks with the new date; outcome_prev_due_at comes from the ROW; nothing is cleared', async () => {
+  const w = world({ 7: DROP });
+  const { res } = await call({ action: 'outcome', call_id: 7, outcome: 'follow_up', note: 'no money till the 1st', callback_due_at: '2026-10-09T04:00:00.000Z' }, { w });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.cleared, false);
+  const row = w.calls[7];
+  assert.equal(row.next_step, 'quoted_callback');
+  assert.equal(row.due_at, '2026-10-09T04:00:00.000Z');
+  assert.equal(row.due_all_day, true);
+  assert.equal(row.outcome, 'follow_up');
+  assert.equal(row.outcome_prev_due_at, DROP.due_at, 'the drop-off date they missed');
+  assert.equal(row.noted_by_name, 'ZZ Test Advisor');
+  assert.equal(row.resolved_at, null, 'Follow up never clears');
+});
+
+test('a clear on an already-cleared row is refused (409) — including a race between two boards', async () => {
+  const w = world({ 7: { ...DROP, resolved_at: '2026-09-25T10:00:00Z', resolved_by_name: 'Josh', outcome: 'arrived' } });
+  const r1 = await call({ action: 'outcome', call_id: 7, outcome: 'not_coming' }, { w });
+  assert.equal(r1.res.statusCode, 409);
+  assert.equal(w.writes.length, 0);
+  assert.equal(w.calls[7].resolved_by_name, 'Josh');
+  assert.equal((await call({ action: 'done', call_id: 7 }, { w })).res.statusCode, 409);
+  // Race: open when read, cleared by someone else before our write.
+  const w2 = world({ 7: DROP });
+  const orig = w2.fetch;
+  w2.fetch = async (url, opts = {}) => {
+    if ((opts.method || 'GET') === 'PATCH') { w2.calls[7].resolved_at = '2026-09-25T10:00:00Z'; w2.calls[7].resolved_by_name = 'Josh'; }
+    return orig(url, opts);
+  };
+  const r2 = await call({ action: 'outcome', call_id: 7, outcome: 'arrived' }, { w: w2 });
+  assert.equal(r2.res.statusCode, 409);
+  assert.equal(w2.calls[7].resolved_by_name, 'Josh', 'the first clear stands');
+});
+
+test('Undo restores the row EXACTLY as it was before the clear (and keeps a Follow up\'s missed date)', async () => {
+  const w = world({ 7: DROP });
+  const before = { ...w.calls[7] };
+  await call({ action: 'outcome', call_id: 7, outcome: 'arrived' }, { w });
+  assert.notEqual(w.calls[7].resolved_at, null);
+  const u = await call({ action: 'undo', call_id: 7 }, { w });
+  assert.equal(u.res.statusCode, 200);
+  assert.deepEqual(w.calls[7], before, 'every column back');
+  // follow_up → Called from the Callbacks lane → Undo: back on Callbacks, still knowing why.
+  const w2 = world({ 7: DROP });
+  await call({ action: 'outcome', call_id: 7, outcome: 'follow_up', callback_due_at: '2026-10-09T04:00:00.000Z' }, { w: w2 });
+  const parked = { ...w2.calls[7] };
+  await call({ action: 'outcome', call_id: 7, outcome: 'called' }, { w: w2 });
+  await call({ action: 'undo', call_id: 7 }, { w: w2 });
+  // undoPatch as it has always been (desk-outcomes.js): the clear's four columns are
+  // nulled — `outcome` included — and outcome_prev_due_at is deliberately KEPT, so the
+  // row is back on Callbacks, same date, still knowing the drop-off it missed.
+  assert.deepEqual(w2.calls[7], { ...parked, outcome: null });
+  assert.equal(w2.calls[7].outcome_prev_due_at, DROP.due_at);
+  // Undo on an open row: nothing to do, nothing written.
+  const w3 = world({ 7: DROP });
+  const n = await call({ action: 'undo', call_id: 7 }, { w: w3 });
+  assert.equal(n.res.body.unchanged, true);
+  assert.equal(w3.writes.length, 0);
+});
+
+test('Done (pre-migration fallback): resolved_at + who only', async () => {
+  const w = world({ 7: DROP });
+  await call({ action: 'done', call_id: 7 }, { w });
+  assert.deepEqual(Object.keys(w.writes[0].body).sort(), ['resolved_at', 'resolved_by_name']);
+  assert.equal(w.writes[0].body.resolved_by_name, 'ZZ Test Advisor');
+});
+
+test('Edit: lane + date + time or key box (key box only on an all-day drop-off); resolved_at never touched', async () => {
+  const w = world({ 7: DROP });
+  await call({ action: 'edit', call_id: 7, next_step: 'quoted_callback', due_at: '2026-10-01T04:00:00.000Z', due_all_day: true, key_box: true }, { w });
+  assert.deepEqual(w.writes[0].body, { next_step: 'quoted_callback', due_at: '2026-10-01T04:00:00.000Z', due_all_day: true, dropoff_key_box: false }, 'a callback is never a key box');
+  await call({ action: 'edit', call_id: 7, next_step: 'dropping_off', due_at: '2026-10-02T04:00:00.000Z', due_all_day: true, key_box: true }, { w });
+  assert.equal(w.writes[1].body.dropoff_key_box, true);
+  await call({ action: 'edit', call_id: 7, next_step: 'dropping_off', due_at: '2026-10-02T14:30:00.000Z', due_all_day: false }, { w });
+  assert.deepEqual(w.writes[2].body, { next_step: 'dropping_off', due_at: '2026-10-02T14:30:00.000Z', due_all_day: false, dropoff_key_box: false });
+  assert.ok(w.writes.every((x) => !('resolved_at' in x.body)));
+});
+
+test('Reschedule (a calendar drag): onto a timed slot clears the key box in the SAME write; onto the all-day strip keeps it', async () => {
+  const w = world({ 7: DROP });
+  await call({ action: 'reschedule', call_id: 7, due_at: '2026-09-29T15:00:00.000Z', due_all_day: false }, { w });
+  assert.deepEqual(w.writes[0].body, { due_at: '2026-09-29T15:00:00.000Z', due_all_day: false, dropoff_key_box: false });
+  const w2 = world({ 7: DROP });
+  await call({ action: 'reschedule', call_id: 7, due_at: '2026-09-30T04:00:00.000Z', due_all_day: true }, { w: w2 });
+  assert.deepEqual(w2.writes[0].body, { due_at: '2026-09-30T04:00:00.000Z', due_all_day: true });
+  assert.equal(w2.calls[7].dropoff_key_box, true, 'the key box stays');
+});
+
+test('static: the six Desk writers go through api/calls.js — none writes `calls` directly', async () => {
+  const { readFileSync } = await import('node:fs');
+  const board = readFileSync(new URL('../advisor-board.html', import.meta.url), 'utf8');
+  const body = (name) => {
+    const i = board.indexOf(`async function ${name}(`);
+    assert.ok(i > 0, name);
+    const j = board.indexOf('\n    }\n', i);
+    return board.slice(i, j);
+  };
+  const expect = { applyOutcome: "action: 'outcome'", undoCleared: "action: 'undo'", resolveCall: "action: 'done'",
+    saveNotNow: "action: 'outcome'", deskEditSave: "action: 'edit'", rescheduleCall: "action: 'reschedule'" };
+  for (const [fn, act] of Object.entries(expect)) {
+    const src = body(fn);
+    assert.doesNotMatch(src, /from\('calls'\)/, `${fn} still writes calls directly`);
+    assert.ok(src.includes('cdCallsWrite(') && src.includes(act), `${fn} → ${act}`);
+  }
 });

@@ -49,9 +49,16 @@ appointment is a direct anon UPDATE, but a manual add must go through a server e
 (requireUser = an active employee; a fixed list of actions, each writing only its own columns;
 who/when stamped on the server), then the anon + authenticated UPDATE policies are dropped.
 Step (a)1 (2026-09-25, **LIVE on prod** `bd78d76`): the call card's `saveNote` / `persistCustomer` and
-`autoFileRoForCall` ([[inbox-calls]] §5). Still direct until (a)2 / (a)3: the Desk writes
-(§7, §9, the calendar drag) and the Call Log / customer record writes (attach, un-attach,
-not-a-customer, learned phone, File to RO).
+`autoFileRoForCall` ([[inbox-calls]] §5). Step (a)2 (2026-09-25, **staging**): the six **Desk**
+writers — `applyOutcome` / `saveNotNow` → `outcome`, `undoCleared` → `undo`, `resolveCall` → `done`,
+`deskEditSave` (edit mode) → `edit`, `rescheduleCall` → `reschedule` (§7, §9). The server builds
+every patch with the same shared rules (`outcomePatch`, `undoPatch`, `withKeyBox`,
+`reschedulePatch`) and stamps who/when from the signed-in employee; a clear only lands on a row
+that is still open (409 "Someone already cleared this…" otherwise, and the Desk reloads). A failed
+Desk write never pretends: 401 → the red sign-in banner, anything else → "Could not …: reason"
+(alert on a lane button; the red line inside the Edit / Not-now dialog, which stays open as
+typed); a dragged chip snaps back. Still direct until (a)3: the Call Log / customer record writes
+(attach, un-attach, not-a-customer, learned phone, File to RO).
 
 **Walk-in / manual appointment (no call).** The same single-row model represents an
 appointment that never came in as a call — a `calls` row marked "not a real call" by two
@@ -366,9 +373,9 @@ created directly. One modal (`#deskEdit`, `openDeskEdit(mode, opts)`) does both,
 
 - **Edit / re-route** — the **Edit** button on a Callbacks or Coming-in row opens the
   modal on that item. It can **change the type** (Callback ⇄ Drop-off = `quoted_callback`
-  ⇄ `dropping_off`) and the **date/time**. Save is an **anon UPDATE**
-  (`update({ next_step, due_at, due_all_day, dropoff_key_box })` — the last only when the
-  column exists, §6b) — it never touches `resolved_at`, so the
+  ⇄ `dropping_off`) and the **date/time**. Save goes through **`api/calls.js` `edit`**
+  (security slice 3 (a)2): `{ next_step, due_at, due_all_day, dropoff_key_box }` built by
+  `withKeyBox` on the server — the key box only on an all-day drop-off, §6b — it never touches `resolved_at`, so the
   item stays on the Desk (invariant held). This is how a mis-bucketed callback becomes a
   drop-off on the calendar. (Dragging a chip still reschedules date/time only.)
 - **Manual add** — the **`+ Add`** button (calendar header) **or clicking an empty
@@ -404,7 +411,8 @@ only guard: anyone on the internet could call it and it would run with the servi
   on the unlikely UNIQUE collision) and `started_at = null`. `resolved_at` stays null.
 - Pure helpers `parseApptBody` / `syntheticCtmId` are unit-tested in
   `api/desk-appointment.test.js`. **Prod-only:** the endpoint runs on Vercel, so manual
-  add does not work under a bare static preview; edit/re-route (anon UPDATE) works anywhere.
+  add does not work under a bare static preview; since slice 3 (a)2 edit/re-route goes through
+  `api/calls.js` too, so neither works under a bare static preview.
 
 ## 9. Finishing with a Desk item — `shared/desk-outcomes.js`
 Until 2026-09-20 there was exactly one way: **"Done" → `resolved_at`**, no confirm, no undo,
@@ -467,7 +475,9 @@ inventing a reason for it.
 `outcome` (CHECK: `arrived | not_coming | follow_up | called`), `outcome_note`,
 `outcome_prev_due_at`, plus a partial index on `resolved_at` for the cleared list.
 **No new table** — a Desk appointment IS a calls row (§1). **No backfill**, **no RLS
-change**, **no new endpoint**: same anon UPDATE the Desk already used.
+change**. The writes went through the Desk's anon UPDATE until security slice 3 (a)2; now
+through `api/calls.js` (`outcome` / `undo` / `done`), same patches (`outcomePatch` /
+`undoPatch`), built on the server. Follow up's `outcome_prev_due_at` is read from the ROW.
 
 - `migrations/20260920_calls_outcome_{SANDBOX,PROD}.sql` — **either order is safe.**
   `deskLoad` tries `CALL_COLS_OUTCOME` and falls back to `CALL_COLS` on 42703 (the tier
@@ -606,6 +616,7 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- **2026-09-25** — (staging) security slice 3 (a)2: the six Desk writers go through `api/calls.js` (`outcome` / `undo` / `done` / `edit` / `reschedule`), patches built on the server with the same shared rules; a clear only on an open row (409); failures shown, never faked; §1, §7, §8, §9d.
 - **2026-09-25** — security slice 3 (a)1 **shipped to prod** ([[inbox-calls]] change log): fast-forward `c51dc83..969bdec` (code = `bd78d76`; `969bdec` = docs-only on top). www / board. / apex `/api/version` = `969bdec` (~30 s); `advisor-board.html` (+ the two static tests) byte-identical to `bd78d76`, docs to `969bdec`, on all three; CLAUDE.md 404; `api/calls` answers an unauthenticated POST with 401 on all three. Prod read-only (not signed in, nothing written): page loads, tray folded, `cdCallsWrite` present, no console errors. Live test call + note: Cris, on prod.
 - **2026-09-25** — (staging) security slice 3 step (a)1: §1 + §5 — the card's writes go through `api/calls.js`; Close waits for the save.
 - **2026-09-24** — **shipped to prod** as `47bdc15` (fast-forward `1682236..47bdc15`, Cris's OK after testing on test.* as ZZ Test Advisor). www / board. / apex `/api/version` = `47bdc15` (steady); the 12 changed served files byte-identical on all three; CLAUDE.md 404. Prod read-only (pane not signed in, nothing written, no RO opened): the tray loaded FOLDED (strip, board padded 48 px), no `#callCardStack`, no floating `.call-card` anywhere, f badge "!" (the not-signed-in state), 📞 grey. Before the ship, the two glance fixes checked on test.* with dry-run rings: JOSE RAMIREZ → no Last visit / no Heads up rows (his only RO is in the shop); KEVIN CRUZ → Last visit "RO #6032 · Sep 19", no Heads up.

@@ -102,8 +102,9 @@ board's one client `cdCallsWrite` (`cdAuthFetch`, the signed-in session as a bea
   the next change; the card says "Not saved (reason) — it will be sent again with your next change", or the
   sign-in line on a 401. **Close / × wait** for a save on its way, and refuse while a change is unsaved.
 - The gate is `requireUser` — a live session that maps to an **active** employee (the same rule as
-  `is_staff()`). The other 12 browser writers (Desk, Call Log, customer record) still write directly until
-  steps (a)2 / (a)3; the anon/authenticated UPDATE policies stay until the lockdown (step (b)).
+  `is_staff()`). The Desk's six writers follow in step (a)2 (staging, [[call-window-desk]] §1); the Call
+  Log / customer record writers still write directly until (a)3; the anon/authenticated UPDATE policies
+  stay until the lockdown (step (b)).
 The tray code (`inbox-calls.js`) reads and writes nothing itself (test-locked). The card still never writes
 `resolved_at` (test-locked; the endpoint doesn't accept it).
 
@@ -138,6 +139,7 @@ The tray code (`inbox-calls.js`) reads and writes nothing itself (test-locked). 
 - `shared/bottom-drawer.css` — `body.mtray-tucked .bdr { --dp-right: 48px }`.
 
 ## Session change log
+- **2026-09-25** — (staging) security slice 3 (a)2: the Desk's writers also moved to `api/calls.js` ([[call-window-desk]] §1).
 - **2026-09-25** — **security slice 3 (a)1 shipped to prod** (Cris's OK, shop closed): fast-forward `c51dc83..969bdec` (code = `bd78d76`; `969bdec` = docs-only on top). www / board. / apex `/api/version` = `969bdec` (~30 s); `advisor-board.html` (+ the two static tests) byte-identical to `bd78d76`, docs to `969bdec`, on all three; CLAUDE.md 404; `api/calls` answers an unauthenticated POST with 401 on all three. Prod read-only (not signed in, nothing written): page loads, tray folded, `cdCallsWrite` present, no console errors. Live test call + note: Cris, on prod.
 - **2026-09-25** — security slice 3 (a)1 driven on test.* at `bd78d76`. Signed OUT: a note on TEST RELOAD → `api/calls` 401, the card showed the red sign-in line (never "Saved"), Close refused, the row untouched. Signed in as ZZ Test Advisor, real clicks/keys: TEST RELOAD (row 298) note → 200 "Saved ✓", Call back → 200, Tomorrow → 200 (echo "→ Callback: Sat, Sep 26"), Close closed at once; after a reload the row reads note, `next_step quoted_callback`, `due_at` Sep 26 all-day, `noted_by_name` ZZ Test Advisor (stamped by the server), `resolved_at` null, and the Desk shows the callback. Row 112 ((850) 516-0664, two CARL WORTHEY records) → pick the second → 200 + the robot's RO check 200 (no open RO); after a reload `customer_id` = the picked one, `noted_at` still null (a pick isn't a note). Left on the sandbox: row 298 as a TEST callback (Sat Sep 26) and row 112 attached to CARL WORTHEY `a07f651d…`.
 - **2026-09-25** — security slice 3 step (a)1 (staging): the card's three writers (`saveNote`, `persistCustomer`, `autoFileRoForCall`) go through `api/calls.js`; server stamps `noted_*` once; "Saved ✓" only on a 200; unsaved changes are resent; Close waits. No DB change.
