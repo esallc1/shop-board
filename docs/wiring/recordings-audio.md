@@ -61,8 +61,8 @@ Four places show a call recording; since slice 2b they all use **`shared/recordi
   "arrives a few minutes after the call ends"; **no row** → "shows up after the call ends" for the first
   `NO_RECORDING_AFTER_MS` (30 min) from the call's start, then **"No recording"** — the row is created by the
   CTM *end* webhook only when the call ended WITH audio (`api/ctm-webhook.js` `mapRecordingRow` /
-  `insertRecording`), so no row after that means none is coming; failed → "couldn't be fetched"; a dry-run card
-  → "none (test call)". Re-checked every 45 s while open until ready; one fresh link per card on a playback error.
+  `insertRecording`), so no row after that means none is coming; failed — or ready but no link could be signed (the file isn't in storage) → "couldn't be
+  fetched"; a dry-run card → "none (test call)". Re-checked every 45 s while open until ready; one fresh link per card on a playback error.
 - Nothing in the module reads or writes on its own (the request is injected) — locked by
   `shared/recording-view.test.js`.
 

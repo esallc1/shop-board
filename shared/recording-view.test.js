@@ -143,6 +143,9 @@ test('tray card: ready → inline <audio controls>; pending → "arrives a few m
   assert.deepEqual([p.state, /arrives a few minutes after the call ends/.test(p.html)], ['pending', true]);
   const f = inlineRecordingView(describeEntry(FAILED), { callId: 9, nowMs: NOW });
   assert.deepEqual([f.state, /couldn't be fetched/.test(f.html)], ['failed', true]);
+  // "ready" but no link could be signed (file missing from storage) → not "arrives …" either.
+  const unsigned = inlineRecordingView(describeEntry({ ...READY, playback_url: null }), { callId: 7, nowMs: NOW });
+  assert.deepEqual([unsigned.state, /couldn't be fetched/.test(unsigned.html), /arrives/.test(unsigned.html)], ['failed', true, false]);
   assert.equal(inlineRecordingView(null, { callId: null }).state, 'test');
   assert.match(inlineRecordingView(null, { callId: null }).html, /none \(test call\)/);
 });

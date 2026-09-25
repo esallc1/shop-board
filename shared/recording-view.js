@@ -139,7 +139,9 @@ export function inlineRecordingView(d, { callId, startedMs, nowMs = Date.now() }
     return { state: 'ready', html: line(`🎧 Recording${d.label ? ' · ' + esc(d.label) : ''}`)
       + `<audio class="cc-rec-audio" controls preload="none" src="${esc(d.playbackUrl)}"></audio>` };
   }
-  if (d && d.render && d.state === 'failed') return { state: 'failed', html: line('🎧 Recording — couldn\'t be fetched', true) };
+  // Failed — or "ready" but no link could be signed (the file isn't in storage): either
+  // way it isn't arriving, so never say "arrives a few minutes…" for it.
+  if (d && d.render && (d.state === 'failed' || d.state === 'ready')) return { state: 'failed', html: line('🎧 Recording — couldn\'t be fetched', true) };
   if (d && d.render) return { state: 'pending', html: line('🎧 Recording — arrives a few minutes after the call ends', true) };
   // No recording row. The row only appears when the call ENDS with audio — so a recent
   // call may still be on the line; an older one simply has no recording.

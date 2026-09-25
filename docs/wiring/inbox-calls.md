@@ -75,7 +75,7 @@ An incoming call no longer floats over the board: it rings as a pinned caller-ID
     fetch cron hasn't got the file yet) → "arrives a few minutes after the call ends"; **no recording row at all**
     → "shows up after the call ends" for the first 30 min from the call's start, then **"No recording"** (the
     row is only created when a call ENDS with audio — before slice 2b this case said "arrives a few minutes…"
-    forever); failed → "couldn't be fetched"; a dry-run card → "none (test call)". Re-checked every 45 s while
+    forever); failed, or ready with no signable link → "couldn't be fetched"; a dry-run card → "none (test call)". Re-checked every 45 s while
     the card is open until ready; ONE fresh link per card on a playback error (links last 5 min).
   - **Call note** — autosave as before.
   - **Anything left to do?** — **Call back** (`quoted_callback`) · **Coming in** (`dropping_off`) · **Done
