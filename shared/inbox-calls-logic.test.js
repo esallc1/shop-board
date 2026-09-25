@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
-  RING_MS, ringStartMs, isRinging, pickRinging, orderNewestFirst, orderNeedsHandling, callRowName, callRowStatus, stripCalls, callerGlance,
+  RING_MS, ringStartMs, isRinging, pickRinging, orderNewestFirst, callRowName, callRowStatus, stripCalls, callerGlance,
 } from './inbox-calls-logic.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -75,16 +75,17 @@ test('static: the tray mounts the calls area, takes queued cards, opens on a cal
   assert.match(tray, /import \{ mountCallSlot \} from '\.\/inbox-calls\.js';/);
   assert.match(tray, /window\.cdCallInbox = \{ add: \(card\) => callSlot\.add\(card\)/);
   assert.match(tray, /window\.cdCallInboxPending\.splice\(0\)/);
-  assert.match(tray, /if \(added && ringing\) setUi\('open'\);/, 'only a call ringing NOW opens the tray');
+  // The fold / auto-open rules live in shared/inbox-list-logic.js (behaviour-tested in
+  // inbox-list-logic.test.js); the tray must use them with the same inputs as slice 1.
+  assert.match(tray, /const next = uiAfterCallChange\(\{\s*added, ringing, calls: calls\(\), ui: st\.ui, threadOpen: !!st\.openThreadId,\s*staleOpen: st\.showStale, mode: st\.mode, fbWaiting: st\.waiting\.length,\s*\}\);/, 'only a call ringing NOW opens the tray');
   assert.match(src('inbox-calls.js'), /onChange\(\{ added: true, ringing: isRinging\(Number\(card\.dataset\.ringStart\), Date\.now\(\)\) \}\)/);
-  // Page load / new tab: stays folded — never opens on the first load.
-  assert.match(tray, /if \(!st\.loadedOnceBefore\) \{ if \(st\.ui === 'hidden'\) setUi\('tucked'\); return; \}/);
   assert.doesNotMatch(tray, /readTuck|writeTuck|cdMtrayTuckedAt/, 'the old "remember I tucked it" rule is gone (it never opens on load now)');
-  assert.match(tray, /if \(hasNewInbound\(prevNewest, st\.newest\) && st\.waiting\.length\) \{ setUi\('open'\); return; \}/, 'a newly arrived message opens it');
-  assert.match(tray, /const count = \(st\.mode === 'ok' \? st\.waiting\.length : 0\) \+ calls\(\);/, 'calls count as waiting (the tray only folds when both are handled)');
+  assert.match(tray, /newInbound: hasNewInbound\(prevNewest, st\.newest\) && !!st\.waiting\.length,/, 'a newly arrived message opens it');
+  assert.match(tray, /const count = waitingCount\(\{ mode: st\.mode, fbActive: st\.waiting\.length, calls: calls\(\) \}\);/, 'calls count as waiting (the tray only folds when both are handled)');
+  assert.match(tray, /mode: st\.mode, loadedOnce: st\.loadedOnce, loadedOnceBefore: st\.loadedOnceBefore, ui: st\.ui, count, before,/);
+  assert.match(tray, /threadOpen: !!st\.openThreadId, staleOpen: st\.showStale,\s*\}\);\s*if \(next\) setUi\(next\);/);
   // Default = the folded strip; nothing waiting → fold back to it (never 'hidden' after the first load).
   assert.doesNotMatch(tray, /setUi\('hidden'\)/);
-  assert.match(tray, /if \(count === 0 && before > 0 && st\.ui === 'open' && !st\.openThreadId && !st\.showStale\) \{ setUi\('tucked'\); return; \}/, 'folds when the last waiting item is handled');
   assert.match(tray, /document\.body\.classList\.toggle\('mtray-tucked', ui === 'tucked'\)/, 'the strip pushes the board');
   assert.match(tray, /class="mtray-ph"/, 'phone badge on the strip');
   assert.match(tray, /<div class="mtray-title">Inbox<small><\/small><\/div>/);
@@ -97,12 +98,11 @@ test('static: the tray mounts the calls area, takes queued cards, opens on a cal
   assert.doesNotMatch(css, /z-index:\s*(3\d{3}|[4-9]\d{3})/, 'the tray stays at 2900');
 });
 
-test('the pinned slot skips a call someone already opened (answered); "Needs handling" = NO NOTE YET on top, then noted', () => {
+test('the pinned slot skips a call someone already opened (answered)', () => {
   const e = (id, agoS, extra = {}) => ({ id, startMs: NOW - agoS * 1000, ...extra });
   assert.equal(pickRinging([e('a', 30, { answered: true }), e('b', 60)], NOW), 'b');
   assert.equal(pickRinging([e('a', 30, { answered: true })], NOW), null);
-  const order = orderNeedsHandling([e('n1', 100, { noted: true }), e('u1', 900), e('n2', 50, { noted: true }), e('u2', 300)]);
-  assert.deepEqual(order.map((x) => x.id), ['u2', 'u1', 'n2', 'n1']);
+  // The "Needs handling" order is tested in inbox-list-logic.test.js (mergeNeedsHandling).
 });
 
 test('the ringing glance (screen 1): name, phone, vehicle, In shop now, Last visit, one Heads-up line', () => {

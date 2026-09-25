@@ -44,13 +44,9 @@ export function orderNewestFirst(entries) {
   return (Array.isArray(entries) ? entries.slice() : []).sort((a, b) => (Number(b.startMs) || 0) - (Number(a.startMs) || 0));
 }
 
-// "Needs handling" order (Cris, 2026-09-24): calls with NO NOTE YET on top (newest
-// first), then the ones someone already noted (newest first). A call that ended
-// with nobody typing anything drops to the top of the list — never away.
-export function orderNeedsHandling(entries) {
-  const list = orderNewestFirst(entries);
-  return [...list.filter((e) => !e.noted), ...list.filter((e) => e.noted)];
-}
+// The "Needs handling" order lives in shared/inbox-list-logic.js (mergeNeedsHandling —
+// calls and Facebook threads in one list since slice 2a; calls alone keep the slice-1
+// order: NO NOTE YET on top, newest first each).
 
 // What a row calls the caller: the matched customer's name > the caller-ID name
 // (CNAM) > the number.

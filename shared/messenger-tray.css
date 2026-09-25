@@ -156,7 +156,7 @@
 @keyframes mtrayRing { 0%, 100% { box-shadow: 0 0 0 0 rgba(22,163,74,.55); } 50% { box-shadow: 0 0 0 7px rgba(22,163,74,0); } }
 @media (prefers-reduced-motion: reduce) { .mtray-strip.is-ringing .mtray-ph { animation: none; outline: 2px solid #16a34a; } }
 
-/* The calls area sits above the Facebook list and scrolls on its own. */
+/* The calls area (the ringing glance + the opened card) sits above the one list and scrolls on its own. */
 .mtray-calls { flex: 0 1 auto; max-height: 68%; overflow-y: auto; border-bottom: 1px solid var(--border, #e2e5ee); }
 .mtray-calls[hidden] { display: none; }
 .mtray-callstore { display: none; }
@@ -174,12 +174,11 @@
 .mtray-callrow.is-ringing .mtray-preview { color: #15803d; font-weight: 600; }
 .mtray-note.is-small { padding: 10px 16px; }
 
-/* An opened call takes the whole tray; an open Facebook conversation hides the call rows. */
+/* An opened call takes the whole tray. (The call rows live in the one list in .mtray-body,
+   so an open Facebook conversation — which replaces the list — hides them by itself.) */
 .mtray.has-call-detail .mtray-calls { flex: 1; max-height: none; border-bottom: 0; }
 .mtray.has-call-detail .mtray-body,
 .mtray.has-call-detail .mtray-compose { display: none; }
-.mtray.has-call-detail .mtray-callrows { display: none; }
-.mtray.has-thread .mtray-callrows { display: none; }
 
 /* ── The folded strip is the DEFAULT (Cris 2026-09-24, mockup screen 4): a slim
    full-height column on the right that PUSHES the board — never covers it. ── */
@@ -212,6 +211,8 @@ body.mtray-tucked .main-area { padding-right: 48px; }
 .mtray-iconbtn.is-primary { background: var(--accent, #5b5ef4); border-color: var(--accent, #5b5ef4); color: #fff; }
 .mtray-iconbtn.is-primary:hover { filter: brightness(1.05); background: var(--accent, #5b5ef4); }
 .mtray-callrow.is-unnoted .mtray-preview { color: #b45309; font-weight: 600; }
+/* Nobody answered yet (slice 2a): the same amber for a Facebook thread where the customer spoke last. */
+.mtray-row.is-unanswered .mtray-win { background: #fff4e0; color: #b45309; font-weight: 600; }
 
 /* Screen 2 bits on the card (recording, "coming" buttons). */
 .call-card .cc-rec { margin: 2px 0 8px; }

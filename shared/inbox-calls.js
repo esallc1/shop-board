@@ -12,8 +12,9 @@
               name, phone, vehicle, In shop now, Last visit (only with a
               closed RO), Heads up (only when there's something to flag), and
               "Answered → notepad" (opens the card; the call stops pinning);
-     rows   — "Needs handling": every other call on this board — NO NOTE YET on
-              top, then noted ones (newest first each). Click → that card opens;
+     rows   — every other call on this board, handed to the tray (rows()) which
+              draws them in its ONE mixed "Needs handling" list with the Facebook
+              threads (slice 2a, shared/inbox-list-logic.js). Click → open(id);
      detail — the one card opened (screen 2: recording, note, next step, …),
               with "‹ All" to put it back;
      store  — a hidden holder for the cards themselves (all of them, except the
@@ -26,7 +27,7 @@
    someone is typing). Nothing here reads or writes the database.
    ============================================================ */
 import {
-  ringStartMs, isRinging, pickRinging, orderNeedsHandling, callRowName, callRowStatus, stripCalls, callerGlance,
+  ringStartMs, isRinging, pickRinging, callRowName, callRowStatus, stripCalls, callerGlance,
 } from './inbox-calls-logic.js';
 
 const TICK_MS = 5000;
@@ -44,12 +45,10 @@ export function mountCallSlot({ section, onChange, timeLabel }) {
       <div class="mtray-calldetail-head"><button type="button" class="mtray-iconbtn" data-call-act="back">‹ All</button></div>
       <div class="mtray-calldetail-slot"></div>
     </div>
-    <div class="mtray-callrows"></div>
     <div class="mtray-callstore" hidden></div>`;
   const ring = section.querySelector('.mtray-ring');
   const detail = section.querySelector('.mtray-calldetail');
   const detailSlot = section.querySelector('.mtray-calldetail-slot');
-  const rows = section.querySelector('.mtray-callrows');
   const store = section.querySelector('.mtray-callstore');
 
   const cards = () => [...section.querySelectorAll('.call-card')];
@@ -109,26 +108,26 @@ export function mountCallSlot({ section, onChange, timeLabel }) {
     detailSlot.appendChild(card);
     arrange();
     card.dispatchEvent(new CustomEvent('cc:shown'));   // the card loads its recording
-    if (typeof onChange === 'function') onChange({});
+    if (typeof onChange === 'function') onChange({ user: true });
   }
 
-  // Put every card where it belongs, then redraw the glance + the rows.
+  // Put every card where it belongs, then redraw the glance. The rows are the
+  // tray's to draw (rows()) — this area holds only the glance + the opened card.
+  let pinnedId = null;       // the call in the glance at the last arrange()
+  let ringShown = '';        // the glance's HTML — only re-painted when it changed
   function arrange() {
     const nowMs = Date.now();
     const list = cards().map(entry);
     for (const e of list) {
       if (!e.inDetail && e.card.parentElement !== store && !hasFocus(e.card)) store.appendChild(e.card);
     }
-    const ringId = pickRinging(list, nowMs);
-    const ringE = ringId ? list.find((e) => e.id === ringId) : null;
-    ring.innerHTML = ringE ? ringHtml(ringE) : '';
+    pinnedId = pickRinging(list, nowMs);
+    const ringE = pinnedId ? list.find((e) => e.id === pinnedId) : null;
+    const html = ringE ? ringHtml(ringE) : '';
+    if (html !== ringShown) { ring.innerHTML = html; ringShown = html; }
     detail.hidden = !detailSlot.querySelector('.call-card');
     section.classList.toggle('has-detail', !detail.hidden);
-    const rowList = orderNeedsHandling(list.filter((e) => !e.inDetail && e.id !== ringId));
-    rows.innerHTML = rowList.length
-      ? `<div class="mtray-sec">Needs handling</div>` + rowList.map((e) => rowHtml(e, nowMs)).join('')
-      : '';
-    section.hidden = !list.length;
+    section.hidden = !ringE && detail.hidden;
   }
 
   let queued = null;
@@ -143,11 +142,9 @@ export function mountCallSlot({ section, onChange, timeLabel }) {
   section.addEventListener('cc:glance', () => changed());
 
   section.addEventListener('click', (ev) => {
-    const row = ev.target.closest('[data-call-row]');
     const act = ev.target.closest('[data-call-act]');
-    if (row || (act && act.dataset.callAct === 'answer')) {
-      const id = row ? row.dataset.callRow : act.dataset.callId;
-      const card = cards().find((c) => c.dataset.callId === id);
+    if (act && act.dataset.callAct === 'answer') {
+      const card = cards().find((c) => c.dataset.callId === act.dataset.callId);
       if (card) openCard(card);
       return;
     }
@@ -159,7 +156,7 @@ export function mountCallSlot({ section, onChange, timeLabel }) {
       const cur = detailSlot.querySelector('.call-card');
       if (cur) store.appendChild(cur);
       arrange();
-      if (typeof onChange === 'function') onChange({});
+      if (typeof onChange === 'function') onChange({ user: true });
     }
   });
 
@@ -185,5 +182,15 @@ export function mountCallSlot({ section, onChange, timeLabel }) {
       return { count: list.length, ringing: stripCalls(list.filter((e) => !e.answered)).ringing };
     },
     inDetail: () => !!detailSlot.querySelector('.call-card'),
+    // The call rows for the tray's one list: every card except the pinned glance and
+    // the opened one, as { id, startMs, noted, html } (unordered — the tray merges).
+    rows: (nowMs = Date.now()) => cards().map(entry)
+      .filter((e) => !e.inDetail && e.id !== pinnedId)
+      .map((e) => ({ id: e.id, startMs: e.startMs, noted: e.noted, html: rowHtml(e, nowMs) })),
+    // A row was tapped in the tray's list → that card opens here.
+    open(id) {
+      const card = cards().find((c) => c.dataset.callId === String(id));
+      if (card) openCard(card);
+    },
   };
 }

@@ -38,8 +38,22 @@
    wipes what someone is typing. Drafts are kept per conversation.
 
    Refresh: realtime on both tables + a 60-second catch-up.
+
+   ONE "Needs handling" list (slice 2a, 2026-09-25): the call rows (from the calls
+   area, rows()) and the waiting Facebook threads are merged by
+   mergeNeedsHandling — nobody-answered-yet on top, then the rest, newest first —
+   and drawn here, in the body, by drawList. Every redraw goes through draw():
+   the Facebook load, realtime, the 5 s call tick and every tap. A BACKGROUND
+   redraw waits while someone has keyboard focus on a row (and the list HTML is
+   only replaced when it actually changed). The call cards themselves never live
+   in the list — a row just opens its card (callSlot.open), so a typed note is
+   never touched by a redraw.
    ============================================================ */
 import { mountCallSlot } from './inbox-calls.js';
+import {
+  lastStaffReplyByThread, mergeNeedsHandling, waitingCount, stripBadges,
+  uiAfterLoad, uiAfterCallChange, deferListRedraw,
+} from './inbox-list-logic.js';
 import {
   splitWaiting, callLink, threadName, windowLabel, previewText, attachmentLabel,
   timeLabel, newestInbound, hasNewInbound, latestByThread,
@@ -120,6 +134,9 @@ export function mountMessengerTray({ db, viewer }) {
     mode: 'loading',           // loading | ok | signin | notstaff | error
     ui: 'hidden',              // hidden | open | tucked
     threads: [], waiting: [], stale: [], latest: {}, customers: {}, employees: null,
+    lastStaff: {},             // threadId → ms of the newest staff reply (who spoke last)
+    listShown: '',             // the list HTML on screen — replaced only when it changed
+    listDirty: false,          // a background redraw waited for keyboard focus to leave
     showStale: false,          // the "Can't reply anymore" section is collapsed until clicked
     lastCount: 0,              // waiting threads + calls at the last decision (auto-fold on the drop to 0)
     openThreadId: null, threadMsgs: [], newest: null, loadedOnce: false, loadedOnceBefore: false,
@@ -157,23 +174,19 @@ export function mountMessengerTray({ db, viewer }) {
 
   function drawStrip() {
     const c = callSlot ? callSlot.strip() : { count: 0, ringing: false };
-    phBadge.classList.toggle('is-off', !c.count);
-    phCount.hidden = !c.count;
-    phCount.textContent = String(c.count);
-    strip.classList.toggle('is-ringing', c.ringing);
+    const b = stripBadges({ mode: st.mode, fbActive: st.waiting.length, calls: c });
+    phBadge.classList.toggle('is-off', b.phone.off);
+    phCount.hidden = b.phone.hidden;
+    phCount.textContent = b.phone.text;
+    strip.classList.toggle('is-ringing', b.phone.ringing);
     const calls = c.count ? `${c.count} call${c.count === 1 ? '' : 's'}${c.ringing ? ' (ringing)' : ''} · ` : '';
-    if (st.mode === 'ok') {
-      countEl.textContent = String(st.waiting.length);
-      countEl.hidden = !st.waiting.length;
-      $('.mtray-fb').classList.toggle('is-off', !st.waiting.length);
-      countEl.classList.remove('is-note');
-      strip.title = `${calls}${st.waiting.length} Facebook conversation${st.waiting.length === 1 ? '' : 's'} waiting`;
-    } else {
-      countEl.textContent = '!';
-      countEl.hidden = false;
-      countEl.classList.add('is-note');
-      strip.title = `${calls}Facebook messages — sign in from CrisData to see them`;
-    }
+    countEl.textContent = b.fb.text;
+    countEl.hidden = b.fb.hidden;
+    countEl.classList.toggle('is-note', b.fb.note);
+    if (b.fb.off !== null) $('.mtray-fb').classList.toggle('is-off', b.fb.off);
+    strip.title = st.mode === 'ok'
+      ? `${calls}${st.waiting.length} Facebook conversation${st.waiting.length === 1 ? '' : 's'} waiting`
+      : `${calls}Facebook messages — sign in from CrisData to see them`;
   }
 
   function drawBanner() {
@@ -181,43 +194,67 @@ export function mountMessengerTray({ db, viewer }) {
     banner.textContent = st.bannerText ? `⚠ ${st.bannerText}` : '';
   }
 
-  function drawList() {
-    compose.hidden = true;
-    const nWait = (st.mode === 'ok' ? st.waiting.length : 0) + calls();
-    titleSmall.textContent = nWait ? `· ${nWait} waiting` : '';
-    if (st.mode === 'signin') {
-      body.innerHTML = `<div class="mtray-note"><strong>Sign in from CrisData to see Facebook messages.</strong>This board was opened without a CrisData sign-in, so it can't read the shop's Facebook conversations. Log out and sign in again from the CrisData front door.</div>`;
-      return;
-    }
-    if (st.mode === 'notstaff') {
-      body.innerHTML = `<div class="mtray-note"><strong>This sign-in can't see Facebook messages.</strong>Only active CrisData employees can. Ask Cris to check your login.</div>`;
-      return;
-    }
-    if (st.mode === 'error' && !st.loadedOnce) {
-      body.innerHTML = `<div class="mtray-note"><strong>Couldn't load Facebook messages.</strong>${esc(st.errorText)} — it will try again within a minute.</div>`;
-      return;
-    }
-    const warn = st.mode === 'error' ? `<div class="mtray-warn">Couldn't refresh just now — showing what was last loaded.</div>` : '';
-    if (!st.waiting.length) {
-      body.innerHTML = warn + (calls()
-        ? `<div class="mtray-note is-small">No Facebook messages waiting.</div>`
-        : `<div class="mtray-note"><strong>All caught up.</strong>New calls and Facebook messages will show here.</div>`) + staleHtml();
-      return;
-    }
+  // The ONE "Needs handling" list: call rows + Facebook threads, merged (slice 2a).
+  // Call rows keep working when Facebook can't load (sign-in / permission / error):
+  // the Facebook note then sits under them.
+  function listHtml() {
     const now = Date.now();
-    // ONE "Needs handling" list: the call rows (in the calls area above) come first,
-    // the Facebook threads continue it — the heading only when no call row shows it.
-    const head = callSection && callSection.querySelector('.mtray-callrow') ? '' : '<div class="mtray-sec">Needs handling</div>';
-    body.innerHTML = warn + head + st.waiting.map((t) => {
-      const who = threadName(t, st.customers);
-      const w = windowLabel(t.last_inbound_at, now);
-      const winCls = !w.open ? 'is-closed' : (w.urgent ? 'is-urgent' : '');
-      return `<button type="button" class="mtray-row" data-thread="${esc(t.id)}">
-        <div class="mtray-row-top"><span class="mtray-name${who.linked ? '' : ' is-fb'}">${esc(who.name)}</span><span class="mtray-time">${esc(timeLabel(t.last_message_at, now))}</span></div>
+    let fbNote = '';
+    if (st.mode === 'signin') {
+      fbNote = `<div class="mtray-note"><strong>Sign in from CrisData to see Facebook messages.</strong>This board was opened without a CrisData sign-in, so it can't read the shop's Facebook conversations. Log out and sign in again from the CrisData front door.</div>`;
+    } else if (st.mode === 'notstaff') {
+      fbNote = `<div class="mtray-note"><strong>This sign-in can't see Facebook messages.</strong>Only active CrisData employees can. Ask Cris to check your login.</div>`;
+    } else if ((st.mode === 'error' || st.mode === 'loading') && !st.loadedOnce) {
+      fbNote = st.mode === 'loading' ? '' : `<div class="mtray-note"><strong>Couldn't load Facebook messages.</strong>${esc(st.errorText)} — it will try again within a minute.</div>`;
+    }
+    const fbReady = !fbNote && st.loadedOnce;
+    const items = mergeNeedsHandling({
+      calls: callSlot ? callSlot.rows(now) : [],
+      threads: fbReady ? st.waiting : [],
+      lastStaff: st.lastStaff,
+    });
+    const warn = st.mode === 'error' && st.loadedOnce ? `<div class="mtray-warn">Couldn't refresh just now — showing what was last loaded.</div>` : '';
+    let html = warn;
+    if (items.length) {
+      html += '<div class="mtray-sec">Needs handling</div>' + items.map((it) => (it.kind === 'call' ? it.ref.html : threadRowHtml(it.ref, it.fresh, now))).join('');
+    }
+    if (fbNote) return html + fbNote;
+    if (!fbReady) return html;
+    if (!st.waiting.length) {
+      html += calls()
+        ? `<div class="mtray-note is-small">No Facebook messages waiting.</div>`
+        : `<div class="mtray-note"><strong>All caught up.</strong>New calls and Facebook messages will show here.</div>`;
+    }
+    return html + staleHtml();
+  }
+
+  // A Facebook row. The time is when the CUSTOMER's last message arrived (what the
+  // list sorts by) — our own reply never makes a thread look newer.
+  function threadRowHtml(t, fresh, now) {
+    const who = threadName(t, st.customers);
+    const w = windowLabel(t.last_inbound_at, now);
+    const winCls = !w.open ? 'is-closed' : (w.urgent ? 'is-urgent' : '');
+    const arrived = t.last_inbound_received_at || t.last_inbound_at || t.last_message_at;
+    return `<button type="button" class="mtray-row${fresh ? ' is-unanswered' : ''}" data-thread="${esc(t.id)}">
+        <div class="mtray-row-top"><span class="mtray-name${who.linked ? '' : ' is-fb'}">${esc(who.name)}</span><span class="mtray-time">${esc(timeLabel(arrived, now))}</span></div>
         <div class="mtray-preview">${esc(previewText(st.latest[t.id]))}</div>
-        <span class="mtray-win ${winCls}">${esc(w.text)}</span>
+        <span class="mtray-win ${winCls}">${esc(w.text)}${fresh ? ' · no reply yet' : ''}</span>
       </button>`;
-    }).join('') + staleHtml();
+  }
+
+  function drawList() {
+    const html = listHtml();
+    if (html !== st.listShown || body.dataset.thread) { body.innerHTML = html; st.listShown = html; }
+    st.listDirty = false;
+  }
+
+  // Keyboard focus on a row (or anything in the list) holds a background redraw.
+  function listFocusHeld() {
+    const a = document.activeElement;
+    if (!a || a === body || !body.contains(a)) return { inList: false, visible: false };
+    let visible = true;
+    try { visible = a.matches(':focus-visible'); } catch (e) { visible = true; }
+    return { inList: true, visible };
   }
 
   // "Can't reply anymore" — waiting threads whose 24 h window closed. Collapsed; not counted.
@@ -354,34 +391,42 @@ export function mountMessengerTray({ db, viewer }) {
     }
   }
 
-  function draw() {
+  // THE draw path. background = a refresh nobody tapped for (the Facebook load,
+  // realtime, the 5 s call tick): the list then waits while a row has keyboard focus.
+  function draw({ background = false } = {}) {
     drawStrip();
     drawBanner();
-    // An open Facebook conversation hides the call rows (the ringing card stays pinned);
-    // an opened call hides the Facebook list.
+    const nWait = waitingCount({ mode: st.mode, fbActive: st.waiting.length, calls: calls() });
+    titleSmall.textContent = nWait ? `· ${nWait} waiting` : '';
+    // An open Facebook conversation replaces the list in the body (the ringing glance
+    // stays pinned above); an opened call takes the whole tray (CSS: has-call-detail).
     root.classList.toggle('has-thread', !!(st.openThreadId && st.mode !== 'signin' && st.mode !== 'notstaff'));
     root.classList.toggle('has-call-detail', !!(callSlot && callSlot.inDetail()));
-    if (st.openThreadId && st.mode !== 'signin' && st.mode !== 'notstaff') drawThread();
-    else { body.dataset.thread = ''; drawList(); }
+    if (st.openThreadId && st.mode !== 'signin' && st.mode !== 'notstaff') { st.listShown = ''; drawThread(); return; }
+    compose.hidden = true;
+    const f = listFocusHeld();
+    if (deferListRedraw({ background, focusInList: f.inList, focusVisible: f.visible })) { st.listDirty = true; return; }
+    drawList();
+    body.dataset.thread = '';
   }
+  // A redraw that waited runs as soon as keyboard focus leaves the list.
+  body.addEventListener('focusout', () => setTimeout(() => {
+    if (st.listDirty && !listFocusHeld().inList) draw();
+  }, 0));
 
   /* ── what to show after a load ───────────────────────────────────────── */
+  // Rules: uiAfterLoad (shared/inbox-list-logic.js) — never opens on the first load,
+  // opens for a newly arrived message, folds when the last waiting item is handled.
   function decideUi(prevNewest) {
-    const count = (st.mode === 'ok' ? st.waiting.length : 0) + calls();
+    const count = waitingCount({ mode: st.mode, fbActive: st.waiting.length, calls: calls() });
     const before = st.lastCount;
     st.lastCount = count;
-    if (st.mode === 'signin' || st.mode === 'notstaff' || (st.mode === 'error' && !st.loadedOnce)) {
-      if (st.ui === 'hidden') setUi('tucked');
-      return;
-    }
-    // Page load / new tab: stay folded — the badges show what's waiting. Never opens here.
-    if (!st.loadedOnceBefore) { if (st.ui === 'hidden') setUi('tucked'); return; }
-    // Something NEW while the page is open: a customer message that just arrived.
-    if (hasNewInbound(prevNewest, st.newest) && st.waiting.length) { setUi('open'); return; }
-    // The last waiting item was just handled (count dropped to 0) → fold back to the strip,
-    // unless someone is reading a conversation or the "Can't reply anymore" list.
-    if (count === 0 && before > 0 && st.ui === 'open' && !st.openThreadId && !st.showStale) { setUi('tucked'); return; }
-    if (st.ui === 'hidden') setUi('tucked');
+    const next = uiAfterLoad({
+      mode: st.mode, loadedOnce: st.loadedOnce, loadedOnceBefore: st.loadedOnceBefore, ui: st.ui, count, before,
+      newInbound: hasNewInbound(prevNewest, st.newest) && !!st.waiting.length,
+      threadOpen: !!st.openThreadId, staleOpen: st.showStale,
+    });
+    if (next) setUi(next);
   }
 
   /* ── loading ─────────────────────────────────────────────────────────── */
@@ -425,8 +470,10 @@ export function mountMessengerTray({ db, viewer }) {
             .in('thread_id', ids).order('sent_at', { ascending: false }).limit(500);
           if (mr.error) throw mr.error;
           st.latest = latestByThread(mr.data);
+          st.lastStaff = lastStaffReplyByThread(mr.data);
         } else {
           st.latest = {};
+          st.lastStaff = {};
         }
 
         if (st.openThreadId) await loadThread(st.openThreadId);
@@ -439,7 +486,7 @@ export function mountMessengerTray({ db, viewer }) {
         console.warn('[MessengerTray] load failed', e);
       } finally {
         decideUi(prevNewest);
-        draw();
+        draw({ background: true });
       }
     })();
     try { await loading; } finally {
@@ -584,6 +631,8 @@ export function mountMessengerTray({ db, viewer }) {
   });
 
   root.addEventListener('click', async (ev) => {
+    const callRow = ev.target.closest('[data-call-row]');
+    if (callRow && body.contains(callRow)) { callSlot.open(callRow.dataset.callRow); return; }
     const pick = ev.target.closest('[data-cust-id]');
     if (pick) {
       const c = (st.allCustomers || []).find((x) => String(x.id) === pick.dataset.custId);
@@ -637,10 +686,15 @@ export function mountMessengerTray({ db, viewer }) {
   callSlot = mountCallSlot({
     section: callSection,
     timeLabel,
-    onChange({ added, ringing }) {
-      if (added && ringing) setUi('open');                 // only a call that is actually ringing now
-      else if (!calls() && st.ui === 'open' && !st.openThreadId && !st.showStale && st.mode === 'ok' && !st.waiting.length) setUi('tucked');
-      draw();
+    // Rules: uiAfterCallChange — only a call ringing NOW opens the tray; the last call
+    // going away folds it when nothing else waits. user = a tap (open / ‹ All), drawn at once.
+    onChange({ added, ringing, user }) {
+      const next = uiAfterCallChange({
+        added, ringing, calls: calls(), ui: st.ui, threadOpen: !!st.openThreadId,
+        staleOpen: st.showStale, mode: st.mode, fbWaiting: st.waiting.length,
+      });
+      if (next) setUi(next);
+      draw({ background: !user });
     },
   });
   function calls() { return callSlot ? callSlot.count() : 0; }

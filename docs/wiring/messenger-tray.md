@@ -1,6 +1,6 @@
 # How the Messenger inbox tray is wired
 > Doc: `/docs/wiring/messenger-tray.md`
-> Last updated: 2026-09-24 — **it's the Inbox now: incoming calls live here too** ([[inbox-calls]]); §2 rewritten — the folded strip is the default, pushes the board, 📞 + f badges. Earlier: step 5 actions (§3a), created with step 4.
+> Last updated: 2026-09-25 — **slice 2a: ONE mixed "Needs handling" list** (calls + Facebook threads, nobody-answered-yet on top — §2, [[inbox-calls]] §3); staging only. Earlier 2026-09-24 — **it's the Inbox now: incoming calls live here too** ([[inbox-calls]]); §2 rewritten — the folded strip is the default, pushes the board, 📞 + f badges. Earlier: step 5 actions (§3a), created with step 4.
 > `api/messenger.js`. Created the same day with step 4 (read-only).
 > Verified vs commit `bc52dd2` (the commit that SHIPPED the sent-before-Done fix — prod + staging, 2026-09-23).
 > Status: 🟢 **LIVE on prod with real Messenger traffic** — proven end to end 2026-09-23 with Cris's personal 🟢 The Inbox with calls ([[inbox-calls]] slice 1) LIVE on prod since `47bdc15`.
@@ -20,8 +20,8 @@ or mark it Done.
 - **z-index 2900** (panel and strip): below every modal (3000), the call-log drawer (3300), the
   mobile sidebar (4500) and Team Chat toasts (9999). It never paints over them.
 - **Since 2026-09-24 it's the "Inbox": incoming CALLS live here too** ([[inbox-calls]]) — a calls area
-  above the Facebook list (the pinned ringing caller-ID glance + "Needs handling" call rows + the opened
-  call card). The old floating call cards (z 4000) are gone.
+  above the list (the pinned ringing caller-ID glance + the opened call card); the call rows are part of
+  the ONE "Needs handling" list with the Facebook threads (§2). The old floating call cards (z 4000) are gone.
 - **Open, ≥ 900 px wide:** `body.mtray-open` gives `.main-area` `padding-right: 340px`, so the
   lanes move over instead of being covered. **Below 900 px:** the panel overlays (max 92vw).
 - The call card, call log, Desk lanes and Team Chat are untouched.
@@ -38,9 +38,27 @@ or mark it Done.
 - **Folds back by itself** when the **last** waiting item is handled — the waiting count (threads you can
   still reply to + calls) drops to 0 — unless a conversation or the "Can't reply anymore" list is open on
   screen (`st.lastCount`). A tray you opened from the strip with nothing waiting stays open until you hide it.
-- **"Needs handling" is one list:** call rows first (no-note calls on top), then the waiting Facebook
-  threads under the same heading ([[inbox-calls]] §3). An open conversation hides the call rows (a
-  ringing glance stays pinned); an opened call hides the Facebook list.
+- **"Needs handling" is ONE mixed list** (slice 2a, Cris 2026-09-25 — option B; `mergeNeedsHandling` in
+  `shared/inbox-list-logic.js`): call rows and the Facebook threads you can still reply to, drawn together by
+  `drawList` in the tray body.
+  - **On top — nobody answered yet**, newest first: a call with **no note** (`noted_at` null), or a thread where
+    **the customer spoke last** — no staff reply since their last message **arrived** (`fbNeedsFirstResponse`;
+    the after-hours auto-reply and a failed send are not replies, a reply from Facebook's own app is). Such a
+    thread's pill reads "… left to reply · no reply yet" in amber.
+  - **Then everything else**, newest first. "Newest" = a call's start, or the **arrival of the customer's last
+    message** — never our reply, so a thread we just answered doesn't jump up. A Facebook row's time shows that
+    same arrival time (before 2a it showed the last activity, our replies included).
+  - "Who spoke last" comes from the messages the tray already reads (`lastStaffReplyByThread`) — no new query,
+    no DB change.
+  - An open conversation replaces the list in the body (the ringing glance stays pinned above); an opened call
+    takes the whole tray (`has-call-detail`). When Facebook can't load (sign-in / permission / error) the call
+    rows still show, with the Facebook note under them.
+- **One draw path:** everything redraws through `draw()` — the Facebook load (realtime + 60 s catch-up), the
+  calls area (5 s tick, a card closing / loading its name) and every tap. A **background** redraw waits while
+  a row has **keyboard** focus (`:focus-visible` — a mouse click doesn't hold it) and runs when focus leaves;
+  the list HTML is only replaced when it actually changed (no flicker on the tick).
+- **Badges, "N waiting", fold and auto-open are unchanged from slice 1** — the same rules, now pure functions
+  (`stripBadges`, `waitingCount`, `uiAfterLoad`, `uiAfterCallChange`) locked by `shared/inbox-list-logic.test.js`.
 - **"Can't reply anymore"** (Cris, 2026-09-24): a waiting thread whose **24 h reply window has closed**
   (`windowLabel(last_inbound_at).open` false — `splitWaiting`) **stops counting as waiting**: not on the f
   badge, not in "N waiting", and it doesn't keep the tray open. It sits in a small **collapsed** section at
@@ -159,7 +177,11 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 - Attachment links are Meta's and expire; nothing is copied.
 
 ## Where it lives in the code
-- `shared/messenger-tray.js` — the DOM half: `mountMessengerTray({ db })`.
+- `shared/messenger-tray.js` — the DOM half: `mountMessengerTray({ db })`; `draw()` (the one draw path),
+  `listHtml` / `threadRowHtml` / `drawList` (the one list), `listFocusHeld`.
+- `shared/inbox-list-logic.js` (+ `.test.js`) — slice 2a: `mergeNeedsHandling`, `isStaffReply`,
+  `lastStaffReplyByThread`, `fbNeedsFirstResponse`, and the unchanged slice-1 rules `waitingCount`,
+  `stripBadges`, `uiAfterLoad`, `uiAfterCallChange`, plus `deferListRedraw`.
 - `shared/messenger-tray-logic.js` — pure rules: `isWaiting`, `waitingThreads`, `threadName`,
   `windowLabel`, `previewText`, `attachmentLabel`, `messageByline`, `timeLabel`, `newestInbound`,
   `hasNewInbound`, `latestByThread`, and (step 5) `composeState`, `replyError`, `searchCustomers`,
@@ -172,6 +194,7 @@ the server checks it (`requireUser`) and writes with the service key. The tray n
 - Tables: `social_threads`, `social_messages` (`migrations/20260923_social_messaging_*.sql`).
 
 ## Session change log
+- **2026-09-25** — slice 2a (staging): ONE mixed "Needs handling" list — calls + threads merged by `mergeNeedsHandling` (nobody-answered-yet on top, then newest first by the customer's time); FB row time = the customer's last message arrival; one draw path with a keyboard-focus hold; badges / fold / auto-open moved into pure, tested rules unchanged. No DB change, no new write.
 - **2026-09-24** — **shipped to prod** as `47bdc15` (fast-forward `1682236..47bdc15`, Cris's OK after testing on test.* as ZZ Test Advisor). www / board. / apex `/api/version` = `47bdc15` (steady); the 12 changed served files byte-identical on all three; CLAUDE.md 404. Prod read-only (pane not signed in, nothing written, no RO opened): the tray loaded FOLDED (strip, board padded 48 px), no `#callCardStack`, no floating `.call-card` anywhere, f badge "!" (the not-signed-in state), 📞 grey. Before the ship, the two glance fixes checked on test.* with dry-run rings: JOSE RAMIREZ → no Last visit / no Heads up rows (his only RO is in the shop); KEVIN CRUZ → Last visit "RO #6032 · Sep 19", no Heads up.
 - **2026-09-24** — the two changes driven on test.* at `0881a9d` (ZZ Test Owner, sandbox): files byte-identical. **Reload with old threads waiting → stayed folded**: f badge 2 (the 2 threads still in their reply window), phone badge grey, "Can't reply anymore (7)" not counted. **Fake ring (`cdHandleTestCall`) → opened** (3 waiting = 1 call + 2 threads). Can't-reply section opened: 7 rows, 📞 Call them (`tel:` from the customer's or the typed phone) or "No phone on file", ✓ Done on each; Done on one sandbox thread → `done_at` set, section 7 → 6, f badge still 2, tray stayed open. **An old untouched call after a reload joins quietly**: a fake sandbox ring (TEST RELOAD, row via test.*'s webhook) left 2+ min, reload → folded; backfill → row "no note yet", 📞 badge 1, no pulse, still folded. (The load-time backfill waits for the page to be visible — the test pane was hidden; it also runs on becoming visible.) Left on the sandbox: TEST RELOAD (untouched — shows in "Needs handling" on today's sandbox boards) and TEST TRAYCALL (row 297, a Fri Sep 25 callback).
 - **2026-09-24** — (Cris) the tray **never opens on page load** — it opens only for a call ringing now or a newly arrived message; folds back when the last waiting item is handled; the `cdMtrayTuckedAt` memory is gone. Threads past the 24 h window move to a collapsed **"Can't reply anymore"** section (📞 Call them · ✓ Done), not counted anywhere; a new customer message brings them back. `splitWaiting` / `callLink` (+ tests). Staging.
