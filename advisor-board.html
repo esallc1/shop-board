@@ -2865,6 +2865,23 @@
       ? window.RecordingView.createButtonPlayer({ place, fetchIndex: (ids) => cdRecordingIndex(ids, place) })
       : null);
   }
+  // ── Call writes: the server-side writer api/calls.js (security slice 3). The
+  // browser never writes `calls` itself for these; the server checks the signed-in
+  // employee, allows only each action's own columns, and stamps who/when.
+  // → { ok:true, call, … } or { ok:false, status, error } — never throws.
+  async function cdCallsWrite(payload) {
+    try {
+      const r = await cdAuthFetch(db, '/api/calls', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      let body = null; try { body = await r.json(); } catch (e) { /* no body */ }
+      if (!r.ok) return { ok: false, status: r.status, error: (body && (body.message || body.error)) || ('HTTP ' + r.status) };
+      return { ok: true, ...(body || {}) };
+    } catch (e) {
+      return { ok: false, status: 0, error: 'could not reach CrisData' };
+    }
+  }
+
   // Pause + collapse the ONE open recording player (of `place` when given, else any).
   function cdRecordingStop(place) {
     const RV = window.RecordingView; if (RV) RV.closeOpenPlayer(place);
@@ -11149,33 +11166,22 @@
   // persistCustomer/saveNote), so it lives at script top level rather than in
   // either IIFE. Best effort: any failure just leaves ro_id null.
   //
-  // The `.is('ro_id', null)` guard makes this ATOMIC in the database — it fills
-  // an empty slot only. A human who has already filed this call to an RO can
-  // never be overwritten by the robot, no matter the ordering.
+  // Runs on the SERVER since security slice 3 (api/calls.js auto_file_ro): its
+  // write carries `ro_id=is.null`, so it is ATOMIC in the database — it fills an
+  // empty slot only. A human who has already filed this call to an RO can never
+  // be overwritten by the robot, no matter the ordering.
   // ══════════════════════════════════════════════════════════
   async function autoFileRoForCall(call) {
-    const AA = window.CallAutoAttach;
-    if (!AA || !call || call.id == null) return null;
-    const customerId = call.customer_id;
-    if (!customerId || !call.started_at) return null;
+    if (!call || call.id == null) return null;
+    if (!call.customer_id || !call.started_at) return null;
     if (call.ro_id != null) return null;                 // already filed — leave it alone
-    try {
-      const { data, error } = await db.from('repair_orders')
-        .select('id, status, created_at, closed_at, declined_at')
-        .eq('customer_id', customerId);
-      if (error) { console.error('[auto-attach] RO lookup failed', error); return null; }
-      const roId = AA.pickOpenRoAt(data || [], call.started_at);
-      if (!roId) return null;                            // 0 or 2+ open at call time → never guess
-      const patch = AA.autoFileRoPatch(roId, new Date().toISOString());
-      const w = await db.from('calls').update(patch).eq('id', call.id).is('ro_id', null).select('id');
-      if (w.error) { console.error('[auto-attach] RO file failed', w.error); return null; }
-      if (!(w.data || []).length) return null;           // lost the race to a human — fine
-      Object.assign(call, patch);
-      return roId;
-    } catch (e) {
-      console.error('[auto-attach] RO file threw', e);
-      return null;
-    }
+    // The server does the whole check (api/calls.js auto_file_ro): the RO lookup,
+    // pickOpenRoAt, and the write conditional on ro_id still being empty.
+    const r = await cdCallsWrite({ action: 'auto_file_ro', call_id: Number(call.id) });
+    if (!r.ok) { console.error('[auto-attach] RO file failed', r.status, r.error); return null; }
+    if (!r.ro_id || !r.call) return null;                // 0 / 2+ open, or a person filed it first — fine
+    Object.assign(call, { ro_id: r.call.ro_id, auto_ro_filed_at: r.call.auto_ro_filed_at, auto_attach_run_id: r.call.auto_attach_run_id });
+    return r.ro_id;
   }
 
   // ══════════════════════════════════════════════════════════
@@ -12864,69 +12870,83 @@
     // webhook). anon UPDATE is allowed by the slice-3a policy; anon can't INSERT
     // (webhook owns creation). callId is calls.id (bigserial) from the realtime
     // row; when it's absent (dry-run test card) we update local state only.
-    function setSaved(card, kind) {
+    function setSaved(card, kind, reason) {
       const el = card.querySelector('.cc-saved'); if (!el) return;
       el.classList.remove('err', 'ok');
       if (kind === 'saving') el.textContent = 'Saving…';
       else if (kind === 'saved') { el.textContent = 'Saved ✓'; el.classList.add('ok'); }
-      else if (kind === 'error') { el.textContent = 'Save failed — will retry on next change'; el.classList.add('err'); }
+      else if (kind === 'error') {
+        // Never a fake "Saved": say it wasn't saved, and why. Unsaved changes ride
+        // along with the next save (card._unsaved), so nothing typed is dropped.
+        const why = reason && reason.status === 401 ? CD_SIGNIN_LOST
+          : 'Not saved' + (reason && reason.error ? ' (' + reason.error + ')' : '') + ' — it will be sent again with your next change.';
+        el.textContent = why; el.classList.add('err');
+      }
       else el.textContent = '';
     }
 
-    // customer_id from a multi-match PICK persists immediately, with NO
-    // noted_by/noted_at stamp (picking a name isn't "noting the call").
+    // customer_id from a multi-match PICK persists immediately (api/calls.js
+    // `customer`), with NO noted stamp (picking a name isn't "noting the call").
     async function persistCustomer(card, customerId) {
       card._customerId = customerId;
-      card._customerPersisted = true;
       const id = card._call && card._call.id;
-      if (id == null) return;                       // dry-run card
-      const { error } = await db.from('calls').update({ customer_id: customerId }).eq('id', id);
-      if (error) { console.error('[callerCard] customer save failed', error); card._customerPersisted = false; return; }
-      card._call.customer_id = customerId;
+      if (id == null) { card._customerPersisted = true; return; }   // dry-run card
+      card._customerPersisted = false;
+      setSaved(card, 'saving');
+      const r = await cdCallsWrite({ action: 'customer', call_id: Number(id), customer_id: String(customerId) });
+      if (!r.ok) { console.error('[callerCard] customer save failed', r.status, r.error); setSaved(card, 'error', r); return; }
+      card._customerPersisted = true;
+      card._call.customer_id = r.call ? r.call.customer_id : customerId;
+      setSaved(card, 'saved');
       // Auto-attach call site 2 — a human just said who this is, so re-run the
       // open-RO check. Best effort; the picker below still overrides it freely.
       await autoFileRoForCall(card._call);
       renderFiledRo(card);          // reflect an auto-filed RO in the picker
     }
 
-    // Note / next_step / date / ro_id saves. On the FIRST such save we stamp
-    // noted_by_name + noted_at (who handled the call) and fold in a known-but-
-    // not-yet-persisted customer_id (single match). Idempotent per field.
-    async function saveNote(card, patch) {
-      const p = { ...patch };
-      // A HUMAN touching ro_id takes the whole row out of the robot's namespace:
-      // clearing auto_attach_run_id detaches it from every batch undo, so no
-      // reverse statement can revoke a decision a person made. auto_attached_at
-      // is LEFT AS-IS — it is a factual record that the machine picked the
-      // customer, and it is no longer an undo key once the run id is gone.
-      // Same rule in the Customer Record's "File to RO…" (fileCallToRo).
-      if ('ro_id' in p && card._call && window.CallAutoAttach) {
-        Object.assign(p, window.CallAutoAttach.clearAutoFileTagsPatch());
-      }
-      if (!card._noted) {
-        p.noted_by_name = (CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
-        p.noted_at = new Date().toISOString();
-        card._noted = true;
-      }
-      let foldedCustomer = false;
-      if (card._customerId != null && !card._customerPersisted) {
-        p.customer_id = card._customerId;
-        card._customerPersisted = true;
-        foldedCustomer = true;
-      }
-      Object.assign(card._call, p);
-      card._lastPatch = p;                          // exposed for local verification
+    // Note / next_step / date / ro_id / key-box saves — through api/calls.js
+    // (`note`). The SERVER stamps noted_at + noted_by_name (once, for the signed-in
+    // employee), clears the robot's RO tags when a person picks the RO, and fills a
+    // known single-match customer only into an empty customer_id. "Saved ✓" shows
+    // only when the server said so; a failed change stays in card._unsaved and is
+    // sent again with the next one. Returns true when this save landed.
+    function saveNote(card, patch) {
+      const run = saveNoteNow(card, patch);
+      card._inflight = run;
+      return run;
+    }
+    async function saveNoteNow(card, patch) {
+      const fields = { ...patch };
+      Object.assign(card._call, fields);            // the card shows what was typed/picked at once
+      card._unsaved = { ...(card._unsaved || {}), ...fields };
       updateEcho(card);                             // reflect the lane + date
-      setSaved(card, 'saving');
       const id = card._call && card._call.id;
-      if (id == null) { setSaved(card, 'saved'); return; }   // dry-run card
-      const { error } = await db.from('calls').update(p).eq('id', id);
-      if (error) { console.error('[callerCard] note save failed', error); setSaved(card, 'error'); return; }
-      setSaved(card, 'saved');
+      if (id == null) { card._noted = true; card._unsaved = {}; setSaved(card, 'saved'); return true; }   // dry-run card
+      const send = { ...card._unsaved };
+      const fold = (card._customerId != null && !card._customerPersisted) ? String(card._customerId) : null;
+      const seq = card._saveSeq = (card._saveSeq || 0) + 1;
+      card._lastPatch = send;                       // exposed for local verification
+      setSaved(card, 'saving');
+      const r = await cdCallsWrite({ action: 'note', call_id: Number(id), fields: send, ...(fold ? { fold_customer_id: fold } : {}) });
+      if (!r.ok) {
+        console.error('[callerCard] note save failed', r.status, r.error);
+        if (seq === card._saveSeq) setSaved(card, 'error', r);
+        return false;
+      }
+      for (const k of Object.keys(send)) if (card._unsaved && card._unsaved[k] === send[k]) delete card._unsaved[k];
+      const row = r.call || {};
+      // The server's own fields (who noted it, the customer, the robot's tags).
+      for (const k of ['noted_at', 'noted_by_name', 'customer_id', 'auto_ro_filed_at', 'auto_attach_run_id', 'auto_attached_at']) {
+        if (k in row) card._call[k] = row[k];
+      }
+      card._noted = !!row.noted_at;
+      if (row.customer_id != null) card._customerPersisted = true;   // folded now, or someone set one — stop sending it
+      if (seq === card._saveSeq) setSaved(card, Object.keys(card._unsaved).length ? 'saving' : 'saved');
       // Auto-attach call site 2 — only when THIS save is what first attached the
       // customer, and only when the save didn't itself set ro_id (the
       // checking_on_car picker). A human's explicit pick always wins.
-      if (foldedCustomer && !('ro_id' in p)) await autoFileRoForCall(card._call);
+      if (r.customer_folded && !('ro_id' in send)) await autoFileRoForCall(card._call);
+      return true;
     }
 
     function headHtml(call) {
@@ -13208,9 +13228,9 @@
       let noteTimer = null;
       const saveIfChanged = () => {
         const v = note.value;
-        if (v === card._lastNote) return;
+        if (v === card._lastNote) return null;
         card._lastNote = v;
-        saveNote(card, { note: v });
+        return saveNote(card, { note: v });
       };
       note.addEventListener('input', () => {
         clearTimeout(noteTimer);
@@ -13224,7 +13244,7 @@
       // scheduling something for later. Renamed from the old "Done", which read
       // as "handled" but only dismissed — the ambiguity that hid an open callback.
       const closeBtn = card.querySelector('.cc-close');
-      if (closeBtn) closeBtn.addEventListener('click', () => { clearTimeout(noteTimer); saveIfChanged(); tryClose(card); });
+      if (closeBtn) closeBtn.addEventListener('click', () => { clearTimeout(noteTimer); saveIfChanged(); tryClose(card); });   // tryClose waits for the save
 
       card.querySelectorAll('.cc-next button[data-next]').forEach(b =>
         b.addEventListener('click', () => {
@@ -13261,7 +13281,13 @@
     // it stays in "Needs handling" (Cris, 2026-09-24 — "a call must never disappear just
     // because nobody typed anything"). Slice 5's "Done" / "Not a customer" add the
     // other ways out.
-    function tryClose(card) {
+    async function tryClose(card) {
+      // A save still on its way decides whether the call is noted — wait for it.
+      if (card._inflight) { try { await card._inflight; } catch (e) { /* shown on the card */ } }
+      if (card._unsaved && Object.keys(card._unsaved).length) {
+        setSaved(card, 'error', { error: 'the last change did not reach CrisData' });
+        return false;                               // never close over a change that wasn't saved
+      }
       if (!card._noted) {
         const el = card.querySelector('.cc-saved');
         if (el) { el.classList.remove('ok'); el.classList.add('err'); el.textContent = 'Add a note or pick what happens next first — then Close.'; }

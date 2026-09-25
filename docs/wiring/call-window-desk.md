@@ -45,6 +45,14 @@ four values below (or null = not yet chosen). Schema: `20260728_calls*.sql`
 appointment is a direct anon UPDATE, but a manual add must go through a server endpoint
 (§8).
 
+**Security slice 3 (in progress):** every browser write moves to **`api/calls.js`**
+(requireUser = an active employee; a fixed list of actions, each writing only its own columns;
+who/when stamped on the server), then the anon + authenticated UPDATE policies are dropped.
+Step (a)1 (2026-09-25, staging): the call card's `saveNote` / `persistCustomer` and
+`autoFileRoForCall` ([[inbox-calls]] §5). Still direct until (a)2 / (a)3: the Desk writes
+(§7, §9, the calendar drag) and the Call Log / customer record writes (attach, un-attach,
+not-a-customer, learned phone, File to RO).
+
 **Walk-in / manual appointment (no call).** The same single-row model represents an
 appointment that never came in as a call — a `calls` row marked "not a real call" by two
 fields: `ctm_call_id` = a **synthetic negative id** (real CTM ids are positive, so it
@@ -183,7 +191,7 @@ meant) visible **before** the card is closed.
 ## 5. Closing the call window (it can no longer clear anything)
 The card has **one** button: **Close** (and the × in its header). It flushes any pending note and
 dismisses the card — **but only once the call has been noted** (a note, a next step, or filed to an RO —
-all via `saveNote`, which stamps `noted_at`). On an un-noted call, Close / × say "Add a note or pick
+all via `saveNote`; the server stamps `noted_at`, and Close waits for that save to come back). On an un-noted call, Close / × say "Add a note or pick
 what happens next first — then Close." and keep the card (`tryClose`, Cris 2026-09-24: "a call must
 never disappear just because nobody typed anything" — [[inbox-calls]] §3). A callback or drop-off **stays on the Desk** (`resolved_at` null) so it cannot fall
 off the radar.
@@ -598,6 +606,7 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- **2026-09-25** — (staging) security slice 3 step (a)1: §1 + §5 — the card's writes go through `api/calls.js`; Close waits for the save.
 - **2026-09-24** — **shipped to prod** as `47bdc15` (fast-forward `1682236..47bdc15`, Cris's OK after testing on test.* as ZZ Test Advisor). www / board. / apex `/api/version` = `47bdc15` (steady); the 12 changed served files byte-identical on all three; CLAUDE.md 404. Prod read-only (pane not signed in, nothing written, no RO opened): the tray loaded FOLDED (strip, board padded 48 px), no `#callCardStack`, no floating `.call-card` anywhere, f badge "!" (the not-signed-in state), 📞 grey. Before the ship, the two glance fixes checked on test.* with dry-run rings: JOSE RAMIREZ → no Last visit / no Heads up rows (his only RO is in the shop); KEVIN CRUZ → Last visit "RO #6032 · Sep 19", no Heads up.
 - **2026-09-24** — calls into the Inbox tray, slice 1 (staging): the card lives inside the tray (no floating stack); chips Call back · Coming in · Done (coming), old two hidden unless set; recording + "coming" Attach/Start RO/Not a customer on the card; Close / × refuse an un-noted call; backfill = today's untouched calls (25) and runs on page load; `loadDetail` also reads each RO's `closed_at` + vehicle (for the tray's glance). Writes unchanged. [[inbox-calls]].
 - 2026-09-23 — §6-log added: `window.cdDeskOpenLogAt(when, callId)` + `data-log-call` on log rows + `.log-row-hl`, for the top-bar search's unattached call-note results. Nothing else in the call log changed.

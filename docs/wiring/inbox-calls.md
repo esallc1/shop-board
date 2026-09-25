@@ -3,7 +3,7 @@
 > Last updated: 2026-09-25 — **slice 2a**: the call rows are part of ONE mixed "Needs handling" list with the
 > Facebook threads (§3); staging only. Created 2026-09-24 with **slice 1** of "calls into the Inbox tray" (Cris's design, the
 > "Front Desk Inbox Tray" mockup screens 1, 2 and 4). Verified vs commit `651df27` (test.* + read-only on prod, 2026-09-25).
-> Status: 🟢 **slice 2b (one shared recording player) LIVE on prod** since `103a645` (2026-09-25). 🟢 slice 1 **LIVE on prod** since `47bdc15` (2026-09-24); 🟢 **slice 2a (the mixed list) LIVE on prod** since `651df27` (2026-09-25). Slice 2b (shared recording player) and 3–6 (security, missed calls, handled, History) not built.
+> Status: 🟡 **security slice 3 step (a)1 (the card writes through `api/calls.js`) on staging only.** 🟢 **slice 2b (one shared recording player) LIVE on prod** since `103a645` (2026-09-25). 🟢 slice 1 **LIVE on prod** since `47bdc15` (2026-09-24); 🟢 **slice 2a (the mixed list) LIVE on prod** since `651df27` (2026-09-25). Slice 2b (shared recording player) and 3–6 (security, missed calls, handled, History) not built.
 > Related: [[messenger-tray]] (the tray this lives in), [[call-window-desk]] (the call card's writes, the Desk
 > lanes it feeds — unchanged), [[recordings-audio]] (the recording on screen 2), [[desk-pad]] (the bottom
 > drawer beside the tray).
@@ -87,12 +87,25 @@ An incoming call no longer floats over the board: it rings as a pinned caller-ID
 - Cards are **moved, never re-drawn** (`shared/inbox-calls.js`), so a typed note and every listener survive; a
   card with the keyboard focus in it is never moved by the 5 s tick.
 
-## 5. Writes — unchanged, and temporary
-Slice 1 changes **where** the card is drawn, not what it writes: the same direct browser updates to `calls`
-(`saveNote`, `persistCustomer`) — anon/authenticated UPDATE on `calls` is still open. **Cris's decision
-(2026-09-24): allowed until the security slice** moves every `calls` write to `api/calls.js` (requireUser,
-fixed columns, server stamps) and removes that permission. The tray code (`inbox-calls.js`) reads and writes
-nothing itself (test-locked). The card still never writes `resolved_at` (test-locked).
+## 5. Writes — through `api/calls.js` (security slice 3, step (a)1 — staging)
+The card no longer writes `calls` from the browser. Its three writers call **`api/calls.js`** through the
+board's one client `cdCallsWrite` (`cdAuthFetch`, the signed-in session as a bearer token):
+- **`note`** (`saveNote`) — the note, next step, date, key box, filed RO. Only those six columns are accepted
+  (anything else → 400). The **server** stamps `noted_at` + `noted_by_name` for the signed-in employee, **once**
+  (a conditional write `noted_at=is.null`); a person picking the RO clears the robot's run tags; the card's
+  known single-match customer (`fold_customer_id`) only fills an **empty** `customer_id`.
+- **`customer`** (`persistCustomer`, the "several customers on this number" pick) — `customer_id` only, no
+  noted stamp.
+- **`auto_file_ro`** (`autoFileRoForCall`, top level — also called after a Call Log attach) — the server does
+  the open-RO check (`pickOpenRoAt`) and writes only into an **empty** `ro_id` (`ro_id=is.null` in the write).
+- **"Saved ✓" only when the server said so.** A failed change stays in `card._unsaved` and is sent again with
+  the next change; the card says "Not saved (reason) — it will be sent again with your next change", or the
+  sign-in line on a 401. **Close / × wait** for a save on its way, and refuse while a change is unsaved.
+- The gate is `requireUser` — a live session that maps to an **active** employee (the same rule as
+  `is_staff()`). The other 12 browser writers (Desk, Call Log, customer record) still write directly until
+  steps (a)2 / (a)3; the anon/authenticated UPDATE policies stay until the lockdown (step (b)).
+The tray code (`inbox-calls.js`) reads and writes nothing itself (test-locked). The card still never writes
+`resolved_at` (test-locked; the endpoint doesn't accept it).
 
 ## Known gaps & open questions (as of 2026-09-24)
 - **On test.* a real ring doesn't pop live** — the sandbox's `supabase_realtime` publication seems to lack
@@ -125,6 +138,7 @@ nothing itself (test-locked). The card still never writes `resolved_at` (test-lo
 - `shared/bottom-drawer.css` — `body.mtray-tucked .bdr { --dp-right: 48px }`.
 
 ## Session change log
+- **2026-09-25** — security slice 3 step (a)1 (staging): the card's three writers (`saveNote`, `persistCustomer`, `autoFileRoForCall`) go through `api/calls.js`; server stamps `noted_*` once; "Saved ✓" only on a 200; unsaved changes are resent; Close waits. No DB change.
 - **2026-09-25** — **slice 2b shipped to prod** ([[recordings-audio]] change log): fast-forward `d600a5e..1a2cd8a` (code = `103a645`; `1a2cd8a` = docs-only on top). www / board. / apex `/api/version` = `1a2cd8a` (~30 s after the push); `advisor-board.html`, `shared/recording-view.js` (+test) and `shared/inbox-calls-logic.test.js` byte-identical to `103a645`, the two docs to `1a2cd8a`, on all three; CLAUDE.md 404. Prod read-only (pane not signed in, nothing written, no RO opened): tray folded, strip drawn, `recording-view.js` + `recording-player.js` 200, `window.RecordingView` + `cdRecordingIndex` / `cdRecordingPlayer` present, no console errors. Real playback on prod not yet heard (no sign-in in the pane) — Cris to click a real one.
 - **2026-09-25** — slice 2b driven on test.* at `103a645`: tray card on TEST RELOAD (no recording row) → "🎧 No recording" (the old "arrives a few minutes…" gone); call 284 (row ready, file missing on the sandbox) → "couldn't be fetched"; with a stand-in link, a dead first link → one fresh link → plays ([[recordings-audio]] change log).
 - **2026-09-25** — slice 2b (staging): the tray card's recording uses the shared player (`shared/recording-view.js`); a call with NO recording row now reads "shows up after the call ends" (first 30 min) then "No recording" instead of "arrives a few minutes…" forever; one fresh link per card (was: could repeat on every new player). No DB change.

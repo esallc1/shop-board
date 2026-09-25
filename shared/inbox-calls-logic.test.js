@@ -64,9 +64,10 @@ test('static: the floating card stack is GONE; the card is handed to the tray; i
   assert.match(cc, /placeCard\(card\);/);
   assert.match(cc, /if \(hasCard\(call\.ctm_call_id\)\) return;/, 'still one card per call');
   assert.match(cc, /window\.cdHandleTestCall = handleNewCall;/, 'dry-run hook kept');
-  // Same writes as before (temporary until the security slice): direct calls updates from saveNote / persistCustomer.
-  assert.match(cc, /await db\.from\('calls'\)\.update\(p\)\.eq\('id', id\);/);
-  assert.match(cc, /await db\.from\('calls'\)\.update\(\{ customer_id: customerId \}\)\.eq\('id', id\);/);
+  // Security slice 3 (a)1: the card writes ONLY through api/calls.js — never `calls` directly.
+  assert.doesNotMatch(cc, /from\('calls'\)\s*\.(update|insert|upsert|delete)\(/, 'no direct calls write left in the call card');
+  assert.match(cc, /cdCallsWrite\(\{ action: 'note', call_id: Number\(id\), fields: send,/);
+  assert.match(cc, /cdCallsWrite\(\{ action: 'customer', call_id: Number\(id\), customer_id: String\(customerId\) \}\)/);
   assert.doesNotMatch(cc.replace(/\/\/.*$/gm, ''), /resolved_at\s*:/, 'the card still never WRITES resolved_at (it only reads it in the backfill)');
 });
 
@@ -141,7 +142,9 @@ test('the ringing glance (screen 1): name, phone, vehicle, In shop now, Last vis
 test('static: a call with no note can NOT be closed (× / Close); today\'s untouched calls come back after a reload', () => {
   const board = src('../advisor-board.html');
   const cc = board.slice(board.indexOf('(function callerCard()'), board.indexOf('window.cdBackfillCalls = backfillRecentCalls;'));
-  assert.match(cc, /function tryClose\(card\) \{\s*if \(!card\._noted\) \{/);
+  assert.match(cc, /async function tryClose\(card\) \{[\s\S]{0,200}?if \(card\._inflight\) \{ try \{ await card\._inflight; \}/, 'Close waits for a save on its way');
+  assert.match(cc, /if \(card\._unsaved && Object\.keys\(card\._unsaved\)\.length\) \{[\s\S]{0,160}?return false;/, 'never closes over an unsaved change');
+  assert.match(cc, /if \(!card\._noted\) \{/);
   assert.match(cc, /querySelector\('\.call-card-x'\)\.addEventListener\('click', \(\) => tryClose\(card\)\)/);
   assert.match(cc, /saveIfChanged\(\); tryClose\(card\); \}\);/);
   assert.doesNotMatch(cc, /dismissedCardIds\.add\(card\.dataset\.callId\); card\.remove\(\); \}\);/, 'no unguarded close left');

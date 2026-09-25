@@ -82,7 +82,7 @@ test('every gated-endpoint call site goes through cdAuthFetch', async () => {
     ...readdirSync(root).filter((f) => f.endsWith('.html')),
     ...readdirSync(join(root, 'shared')).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js')).map((f) => 'shared/' + f),
   ];
-  const GATED = ['announcement', 'change-request', 'desk-appointment', 'recording-links', 'recording-assign', 'extract-invoice', 'messenger'];
+  const GATED = ['announcement', 'change-request', 'desk-appointment', 'recording-links', 'recording-assign', 'extract-invoice', 'messenger', 'whiteboard', 'calls'];
   const bad = [];
   for (const f of files) {
     const src = readFileSync(join(root, f), 'utf8');
