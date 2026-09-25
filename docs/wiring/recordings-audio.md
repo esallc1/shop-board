@@ -1,8 +1,8 @@
 # How recordings & audio is wired
 
 > Doc: `/docs/wiring/recordings-audio.md`
-> Last updated: 2026-09-25 — **§3 added: ONE shared player** (`shared/recording-view.js`, Inbox slice 2b) for all four places on the advisor board; staging only.
-> Status: §3 verified vs the slice-2b commit (code + test.*). §1–§2 last verified vs `bea25cf` (2026-07-30) plus the 2026-09-17 auth notes — not re-checked this session.
+> Last updated: 2026-09-25 — **§3 added: ONE shared player** (`shared/recording-view.js`, Inbox slice 2b) for all four places on the advisor board; **LIVE on prod** since `103a645`.
+> Status: §3 verified vs `103a645` (code + test.* + read-only prod load). §1–§2 last verified vs `bea25cf` (2026-07-30) plus the 2026-09-17 auth notes — not re-checked this session.
 
 ## 0. In one line
 All audio is served through server endpoints with short-lived signed URLs; the
@@ -87,6 +87,7 @@ Four places show a call recording; since slice 2b they all use **`shared/recordi
   `20260729_recordings_links.sql` (`vehicle_id`, `ro_id` columns)
 
 ## Session change log
+- 2026-09-25 — **slice 2b shipped to prod** (Cris's OK on test.*): fast-forward `d600a5e..1a2cd8a` (code = `103a645`; `1a2cd8a` = docs-only on top). www / board. / apex `/api/version` = `1a2cd8a` (~30 s after the push); `advisor-board.html`, `shared/recording-view.js` (+test) and `shared/inbox-calls-logic.test.js` byte-identical to `103a645`, the two docs to `1a2cd8a`, on all three; CLAUDE.md 404. Prod read-only (pane not signed in, nothing written, no RO opened): tray folded, strip drawn, `recording-view.js` + `recording-player.js` 200, `window.RecordingView` + `cdRecordingIndex` / `cdRecordingPlayer` present, no console errors. Real playback on prod not yet heard (no sign-in in the pane) — Cris to click a real one.
 - 2026-09-25 — slice 2b driven on test.* at `103a645` (ZZ Test Advisor): served files byte-identical; prod untouched (`d600a5e`). **The sandbox has the `recordings` rows but NOT the audio files** (201 ready rows, every signed link comes back null — storage objects were never copied), so nothing real can play on test.*. Real reader, real clicks: customer record ▶ → exactly one fresh-link request, nothing plays, highlight clears, no error (same as before); tray card for call 284 → "couldn't be fetched"; TEST RELOAD (no row, yesterday) → "🎧 No recording". Then with the page's links reader wrapped to hand back a generated tone (real server read, link swapped; page memory only), real clicks: customer record ▶ plays / tap again stops / highlight clears; RO Call History (2 rows, one batched call) 284 plays then 117 takes over; Call Log Aug 12 (10 rows, one batched call, 7 ▶ / 3 empty) with a dead first link → exactly one fresh link → plays; tray card with a dead first link → the error fetched one fresh link → plays.
 - 2026-09-25 — §3 (Inbox slice 2b, staging): the four copied fetch/draw/relink blocks on the advisor board (Call Log, RO Call History, customer record, tray call card) replaced by `shared/recording-view.js` + one links reader `cdRecordingIndex`. Call Log + RO Call History now batch by 50 like the customer record; the tray card's "no recording" case fixed ("No recording" after 30 min). No DB change, no new write.
 - 2026-09-17 — §1: `api/recording-links.js` + `api/recording-assign.js` now require a signed-in active employee (`api/_lib/require-user.js`); the advisor board's three links call sites and the assign call go through `cdAuthFetch`. Signing rules, precedence and the crons are unchanged.
