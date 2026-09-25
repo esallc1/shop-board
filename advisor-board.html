@@ -1323,12 +1323,16 @@
   window.NewBadge = NewBadge;
   NewBadge.startNewBadges(document);
 </script>
-<!-- Call-recording play-button render-state logic (ESM). Assigns
-     window.RecordingPlayer; used by the call-log slide-out. Pure/DOM-free —
-     the server (api/recording-links.js) is the ONLY thing that reads recordings. -->
+<!-- Call recordings (ESM). window.RecordingPlayer = the pure state decision
+     (ready / pending / failed); window.RecordingView = the ONE player every place
+     uses — Call Log, RO Call History, customer record, the tray call card
+     (docs/wiring/recordings-audio.md §3). The server (api/recording-links.js) is
+     the ONLY thing that reads recordings. -->
 <script type="module">
   import * as RecordingPlayer from './shared/recording-player.js';
+  import * as RecordingView from './shared/recording-view.js';
   window.RecordingPlayer = RecordingPlayer;
+  window.RecordingView = RecordingView;
 </script>
 <!-- Comeback chain logic (ESM). Assigns window.ComebackChain; used by the RO
      detail badge + chain card and the blocked-close guard. Pure/DOM-free. -->
@@ -2845,6 +2849,25 @@
   // ── Supabase
   const { url: SUPABASE_URL, key: SUPABASE_KEY } = window.cdSupabaseCreds();
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // ── Call recordings: the ONE links reader + player maker (shared/recording-view.js,
+  // docs/wiring/recordings-audio.md §3). api/recording-links is the only reader (signed-in
+  // employee, through cdAuthFetch); the board never reads the recordings table.
+  function cdRecordingIndex(callIds, tag) {
+    const RV = window.RecordingView; if (!RV) return Promise.resolve({});
+    return RV.fetchRecordingIndex(callIds, (ids) => cdAuthFetch(db, '/api/recording-links', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ call_ids: ids }),
+    }), tag);
+  }
+  // A ▶ Play player for one place (its own hidden <audio>), made on first use
+  // (the module loads after this script runs). → () => player | null.
+  function cdRecordingPlayer(audioId, tag) {
+    let p = null;
+    return () => p || (p = window.RecordingView
+      ? window.RecordingView.createButtonPlayer({ getAudio: () => document.getElementById(audioId), fetchIndex: (ids) => cdRecordingIndex(ids, tag) })
+      : null);
+  }
 
   BoardSettings.init({
     db, targetSelector: '.main-area', mountSelector: '.sidebar-btn-row',
@@ -5569,83 +5592,22 @@
     }
 
     // ── recording play buttons on the Call History card (slice C) ──
-    // Reuse window.RecordingPlayer + api/recording-links.js (ids only; the boards
-    // never read the recordings table). One reused <audio> for this card; a
-    // second play stops the first. Read-only; NEVER printed.
-    let roRecStateByCall = {};   // call id (string) → player descriptor
+    // The shared player (shared/recording-view.js): one batched links call, the same
+    // three states as the Call Log, one reused <audio> for this card (a second play
+    // stops the first). Read-only; NEVER printed.
     let roRecSeq = 0;            // guards a stale async decorate from a newer open
-    let roRecPlayingBtn = null;
-
-    async function fetchRoRecordingLinks(callIds) {
-      const RP = window.RecordingPlayer;
-      const ids = (callIds || []).map(v => Number(v)).filter(v => Number.isInteger(v) && v > 0);
-      if (!RP || !ids.length) return {};
-      try {
-        const r = await cdAuthFetch(db, '/api/recording-links', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ call_ids: ids }),
-        });
-        if (!r.ok) { console.warn('[CdRO] recording-links', r.status); return {}; }
-        return RP.indexResults(await r.json());
-      } catch (e) { console.warn('[CdRO] recording-links failed', e); return {}; }
-    }
+    const roRec = cdRecordingPlayer('cdRoRecAudio', 'CdRO');
 
     async function decorateRoCallRecordings(calls, seq) {
-      const RP = window.RecordingPlayer; if (!RP) return;
-      const idx = await fetchRoRecordingLinks((calls || []).map(c => c.id));
+      const P = roRec(); if (!P) return;
+      const idx = await P.fetchIndex((calls || []).map(c => c.id));
       if (seq !== roRecSeq) return;         // a newer render already ran — don't paint stale
-      roRecStateByCall = {};
+      P.reset();
       const box = $('cdRoCallsBody'); if (!box) return;
-      box.querySelectorAll('.cd-call-rec[data-rec-call]').forEach(cell => {
-        const callId = cell.dataset.recCall;
-        const d = RP.describeCallId(idx, callId);
-        if (!d.render) { cell.innerHTML = ''; return; }   // no recording → no affordance
-        roRecStateByCall[callId] = d;
-        if (d.state === 'ready') {
-          cell.innerHTML = `<button type="button" class="rec-btn rec-ready" data-rec-play="${esc(callId)}" aria-label="${esc(d.aria)}">${esc(d.label)}</button>`;
-        } else if (d.state === 'pending') {
-          cell.innerHTML = `<span class="rec-btn rec-pending" title="${esc(d.aria)}" aria-label="${esc(d.aria)}">${esc(d.label)}</span>`;
-        } else {
-          cell.innerHTML = `<span class="rec-marker" title="${esc(d.aria)}">${esc(d.label)}</span>`;
-        }
-      });
+      box.querySelectorAll('.cd-call-rec[data-rec-call]').forEach(cell => P.paint(cell, idx, cell.dataset.recCall, esc));
       box.querySelectorAll('[data-rec-play]').forEach(b =>
-        b.addEventListener('click', (e) => { e.stopPropagation(); playRoRecording(b.dataset.recPlay, b); }));
+        b.addEventListener('click', (e) => { e.stopPropagation(); P.play(b.dataset.recPlay, b); }));
     }
-
-    // Re-mint one call's signed URL (they age out in ~5 min). Updates the cached
-    // descriptor and returns the fresh url, or null.
-    async function remintRoRecordingUrl(callId) {
-      const RP = window.RecordingPlayer; if (!RP) return null;
-      const idx = await fetchRoRecordingLinks([callId]);
-      const d = RP.describeCallId(idx, callId);
-      if (roRecStateByCall[callId]) roRecStateByCall[callId] = d;
-      return d.playbackUrl || null;
-    }
-
-    async function playRoRecording(callId, btn) {
-      const audio = $('cdRoRecAudio'); if (!audio) return;
-      if (roRecPlayingBtn === btn && !audio.paused) { audio.pause(); return; }  // tap playing → stop
-      if (roRecPlayingBtn && roRecPlayingBtn !== btn) roRecPlayingBtn.classList.remove('playing');
-      roRecPlayingBtn = btn;
-      let url = (roRecStateByCall[callId] && roRecStateByCall[callId].playbackUrl) || null;
-      if (!url) url = await remintRoRecordingUrl(callId);   // opened >5 min ago
-      if (!url) { btn.classList.remove('playing'); return; }
-      const tryPlay = async (src) => { audio.src = src; await audio.play(); };
-      try { await tryPlay(url); btn.classList.add('playing'); }
-      catch (e) {
-        // Signed URL likely aged out between open and click → re-mint once.
-        const fresh = await remintRoRecordingUrl(callId);
-        if (fresh) { try { await tryPlay(fresh); btn.classList.add('playing'); } catch (_) { btn.classList.remove('playing'); } }
-        else btn.classList.remove('playing');
-      }
-    }
-    (function wireRoRecAudio() {
-      const audio = $('cdRoRecAudio'); if (!audio) return;
-      const clear = () => { if (roRecPlayingBtn) roRecPlayingBtn.classList.remove('playing'); };
-      audio.addEventListener('ended', clear);
-      audio.addEventListener('pause', clear);
-    })();
 
     // ── comeback chain: badge + chain card (read-only, NEVER printed) ──
     // parent_ro_id points at the IMMEDIATE parent; the ordinal/root come from
@@ -9118,7 +9080,7 @@
       renderCustProfile();
       if (!sameCustomer) $('custVehicles').innerHTML = '<div class="cust-tl-empty">Loading history…</div>';
       // recordings: ONE batched links fetch for all union calls, then bucket + render
-      custRecIdx = await fetchCustRecLinks(custRecCallsAll.map(c => c.id));
+      custRecIdx = await cdRecordingIndex(custRecCallsAll.map(c => c.id), 'cust');   // batches of 50 (shared/recording-view.js)
       if (seq !== custLoadSeq) return;
       custCallGroups = computeCallGroups();
 
@@ -10706,11 +10668,9 @@
       const unconf = c.confirmed ? '' : '<span class="cust-rec-unconf">unconfirmed</span>';
       const dsc = RP ? RP.describeCallId(custRecIdx, c.id) : { render: false };
       let play = '';
-      if (dsc && dsc.render) {
-        custRecState[String(c.id)] = dsc;
-        if (dsc.state === 'ready') play = `<button type="button" class="rec-btn rec-ready" data-rec-play="${esc(c.id)}" aria-label="${esc(dsc.aria)}">${esc(dsc.label)}</button>`;
-        else if (dsc.state === 'pending') play = `<span class="rec-btn rec-pending" title="${esc(dsc.aria)}">${esc(dsc.label)}</span>`;
-        else play = `<span class="rec-marker" title="${esc(dsc.aria)}">${esc(dsc.label)}</span>`;
+      if (dsc && dsc.render && window.RecordingView) {
+        const P = custRec(); if (P) P.remember(c.id, dsc);
+        play = window.RecordingView.recButtonHtml(dsc, c.id, esc);
       }
       const note = (c.note && String(c.note).trim()) ? `<div class="cust-tl-note">${esc(String(c.note).trim())}</div>` : '';
       // The Desk appointment this call carries + what came of it, in the Desk's
@@ -10843,7 +10803,7 @@
       return ro ? ro.vehicle_id : null;
     }
 
-    let custRecState = {}, custRecPlayingBtn = null;
+    const custRec = cdRecordingPlayer('custRecAudio', 'cust');   // the record's ▶ Play player (shared/recording-view.js)
 
     // Assign (or clear) a recording's vehicle via the service-role endpoint (the
     // board can't write recordings directly) — the ONE write this read-only page
@@ -10863,52 +10823,9 @@
       } catch (e) { console.error('[cust] assign vehicle failed', e); alert('Could not assign vehicle: ' + e.message); rerenderCustBody(); }
     }
 
-    // Batched links fetch (chunked by the endpoint's 50 cap so the 31-vehicle
-    // fleet with many calls still resolves fully).
-    async function fetchCustRecLinks(callIds) {
-      const RP = window.RecordingPlayer;
-      const ids = (callIds || []).map(v => Number(v)).filter(v => Number.isInteger(v) && v > 0);
-      if (!RP || !ids.length) return {};
-      const idx = {};
-      for (let i = 0; i < ids.length; i += 50) {
-        try {
-          const r = await cdAuthFetch(db, '/api/recording-links', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ call_ids: ids.slice(i, i + 50) }),
-          });
-          if (r.ok) Object.assign(idx, RP.indexResults(await r.json()));
-        } catch (e) { console.warn('[cust] recording-links failed', e); }
-      }
-      return idx;
-    }
-    async function remintCustRec(callId) {
-      const RP = window.RecordingPlayer; if (!RP) return null;
-      const idx = await fetchCustRecLinks([callId]);
-      const d = RP.describeCallId(idx, callId);
-      if (custRecState[String(callId)]) custRecState[String(callId)] = d;
-      return d.playbackUrl || null;
-    }
-    async function playCustRec(callId, btn) {
-      const audio = $('custRecAudio'); if (!audio) return;
-      if (custRecPlayingBtn === btn && !audio.paused) { audio.pause(); return; }
-      if (custRecPlayingBtn && custRecPlayingBtn !== btn) custRecPlayingBtn.classList.remove('playing');
-      custRecPlayingBtn = btn;
-      let url = (custRecState[String(callId)] && custRecState[String(callId)].playbackUrl) || null;
-      if (!url) url = await remintCustRec(callId);
-      if (!url) { btn.classList.remove('playing'); return; }
-      const tryPlay = async (src) => { audio.src = src; await audio.play(); };
-      try { await tryPlay(url); btn.classList.add('playing'); }
-      catch (e) {
-        const fresh = await remintCustRec(callId);
-        if (fresh) { try { await tryPlay(fresh); btn.classList.add('playing'); } catch (_) { btn.classList.remove('playing'); } }
-        else btn.classList.remove('playing');
-      }
-    }
-    (function wireCustRecAudio() {
-      const a = $('custRecAudio'); if (!a) return;
-      const clear = () => { if (custRecPlayingBtn) custRecPlayingBtn.classList.remove('playing'); };
-      a.addEventListener('ended', clear); a.addEventListener('pause', clear);
-    })();
+    // The ▶ Play player for the record's timeline (shared/recording-view.js): one
+    // reused #custRecAudio, tap again = stop, one fresh link if the 5-min link aged out.
+    // The links are fetched in batches of 50 (the 31-vehicle fleet with many calls).
 
     // Repoint the ONE phone entry point every call-log row / Desk row / chip
     // uses. Resolve phone → customer id (id beats phone). One match → the record;
@@ -11087,7 +11004,7 @@
       if (!panel) return;
       panel.addEventListener('click', (e) => {
         const play = e.target.closest('[data-rec-play]');
-        if (play) { playCustRec(play.dataset.recPlay, play); return; }
+        if (play) { const P = custRec(); if (P) P.play(play.dataset.recPlay, play); return; }
         const ro = e.target.closest('[data-open-ro]');
         if (ro) {
           const rid = ro.dataset.openRo;
@@ -12190,7 +12107,6 @@
     let unattachedOnly = false;
     let logCallsById = {};      // id → call, for the row action buttons
     let logSuggestById = {};    // id → single phone-matched customer, for one-tap attach
-    let recStateByCall = {};    // call id (string) → player descriptor, for play/re-mint
     let recDecorateSeq = 0;     // guards a stale async decorate from painting over a newer render
 
     function addDays(day, n) { const d = new Date(day); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + n); return d; }
@@ -12393,85 +12309,20 @@
     }
 
     // ── call-recording play button (slice B) ──
-    // The boards never read the recordings table; api/recording-links.js is the
-    // ONLY reader and hands back per-call { status, duration_seconds, playback_url }.
-    // We render the THREE states distinctly (ready/pending/failed) and play via
-    // the single reused <audio>. No auto-refresh loop — we re-fetch on open only.
-    async function fetchRecordingLinks(callIds) {
-      const RP = window.RecordingPlayer;
-      const ids = (callIds || []).map(v => Number(v)).filter(v => Number.isInteger(v) && v > 0);
-      if (!RP || !ids.length) return {};
-      try {
-        const r = await cdAuthFetch(db, '/api/recording-links', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ call_ids: ids }),
-        });
-        if (!r.ok) { console.warn('[desk] recording-links', r.status); return {}; }
-        return RP.indexResults(await r.json());
-      } catch (e) { console.warn('[desk] recording-links failed', e); return {}; }
-    }
+    // The shared player (shared/recording-view.js): api/recording-links.js is the
+    // ONLY reader; the THREE states render distinctly (ready/pending/failed) and play
+    // via the single reused <audio>. No auto-refresh loop — we re-fetch on open only.
+    const deskRec = cdRecordingPlayer('deskRecAudio', 'desk');
 
     async function decorateRecordings(calls, seq) {
-      const RP = window.RecordingPlayer; if (!RP) return;
-      const idx = await fetchRecordingLinks((calls || []).map(c => c.id));
+      const P = deskRec(); if (!P) return;
+      const idx = await P.fetchIndex((calls || []).map(c => c.id));
       if (seq !== recDecorateSeq) return;         // a newer render already ran — don't paint stale
-      recStateByCall = {};
-      $('deskLogList').querySelectorAll('.log-rec[data-rec-call]').forEach(cell => {
-        const callId = cell.dataset.recCall;
-        const d = RP.describeCallId(idx, callId);
-        if (!d.render) { cell.innerHTML = ''; return; }   // no recording → no affordance
-        recStateByCall[callId] = d;
-        if (d.state === 'ready') {
-          cell.innerHTML = `<button type="button" class="rec-btn rec-ready" data-rec-play="${esc(callId)}" aria-label="${esc(d.aria)}">${esc(d.label)}</button>`;
-        } else if (d.state === 'pending') {
-          cell.innerHTML = `<span class="rec-btn rec-pending" title="${esc(d.aria)}" aria-label="${esc(d.aria)}">${esc(d.label)}</span>`;
-        } else {
-          cell.innerHTML = `<span class="rec-marker" title="${esc(d.aria)}">${esc(d.label)}</span>`;
-        }
-      });
+      P.reset();
+      $('deskLogList').querySelectorAll('.log-rec[data-rec-call]').forEach(cell => P.paint(cell, idx, cell.dataset.recCall, esc));
       $('deskLogList').querySelectorAll('[data-rec-play]').forEach(b =>
-        b.addEventListener('click', (e) => { e.stopPropagation(); playRecording(b.dataset.recPlay, b); }));
+        b.addEventListener('click', (e) => { e.stopPropagation(); P.play(b.dataset.recPlay, b); }));
     }
-
-    // Re-mint a single call's signed URL (they age out in ~5 min). Updates the
-    // cached descriptor and returns the fresh url, or null.
-    async function remintRecordingUrl(callId) {
-      const RP = window.RecordingPlayer; if (!RP) return null;
-      const idx = await fetchRecordingLinks([callId]);
-      const d = RP.describeCallId(idx, callId);
-      if (recStateByCall[callId]) recStateByCall[callId] = d;
-      return d.playbackUrl || null;
-    }
-
-    let recPlayingBtn = null;
-    async function playRecording(callId, btn) {
-      const audio = $('deskRecAudio'); if (!audio) return;
-      // Tapping the button that's already playing → pause/stop it.
-      if (recPlayingBtn === btn && !audio.paused) { audio.pause(); return; }
-      // Starting a new one always stops the previous (single reused element).
-      if (recPlayingBtn && recPlayingBtn !== btn) recPlayingBtn.classList.remove('playing');
-      recPlayingBtn = btn;
-      let url = (recStateByCall[callId] && recStateByCall[callId].playbackUrl) || null;
-      if (!url) url = await remintRecordingUrl(callId);   // opened >5 min ago, or never minted
-      if (!url) { btn.classList.remove('playing'); return; }
-      const tryPlay = async (src) => { audio.src = src; await audio.play(); };
-      try {
-        await tryPlay(url);
-        btn.classList.add('playing');
-      } catch (e) {
-        // Most likely the signed URL aged out between open and click → re-mint once.
-        const fresh = await remintRecordingUrl(callId);
-        if (fresh) { try { await tryPlay(fresh); btn.classList.add('playing'); } catch (_) { btn.classList.remove('playing'); } }
-        else btn.classList.remove('playing');
-      }
-    }
-    // Clear the playing highlight when playback ends or is paused elsewhere.
-    (function wireRecAudio() {
-      const audio = $('deskRecAudio'); if (!audio) return;
-      const clear = () => { if (recPlayingBtn) recPlayingBtn.classList.remove('playing'); };
-      audio.addEventListener('ended', clear);
-      audio.addEventListener('pause', clear);
-    })();
 
     // ── attach / un-attach / not-a-customer actions ──
     // All go through the tested shared/call-attach.js. customer_id is written
@@ -13420,41 +13271,17 @@
       card.remove();
       return true;
     }
-    // The recording (screen 2): api/recording-links (signed-in employee only) →
-    // a player when the file is ready; "pending" until the 5-minute fetch cron has it.
+    // The recording (screen 2) — the shared inline player (shared/recording-view.js):
+    // api/recording-links (signed-in employee only) → a player when the file is ready;
+    // "arrives a few minutes after the call ends" while it's pending (the 5-minute fetch
+    // cron); NO recording row → "shows up after the call ends" for the first 30 min of
+    // the call, then "No recording" (the row only appears when a call ends WITH audio);
+    // one fresh link on a playback error (links last 5 min).
     async function loadCardRecording(card) {
       const el = card.querySelector('.cc-rec'); if (!el) return 'none';
-      const RP = window.RecordingPlayer;
-      const id = card._call && card._call.id;
-      if (id == null) { el.innerHTML = '<div class="cc-rec-line">🎧 Recording — none (test call)</div>'; return 'none'; }
-      if (!RP) { el.innerHTML = '<div class="cc-rec-line">🎧 Recording — player not loaded</div>'; return 'none'; }
-      if (el.dataset.state === 'ready' && el.querySelector('audio')) return 'ready';
-      let idx = {};
-      try {
-        const r = await cdAuthFetch(db, '/api/recording-links', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ call_ids: [Number(id)] }),
-        });
-        if (r.ok) idx = RP.indexResults(await r.json());
-      } catch (e) { console.warn('[callerCard] recording-links failed', e); }
-      const d = RP.describeCallId(idx, id);
-      if (d.state === 'ready' && d.playbackUrl) {
-        el.dataset.state = 'ready';
-        el.innerHTML = `<div class="cc-rec-line">🎧 Recording${d.label ? ' · ' + esc(d.label) : ''}</div><audio class="cc-rec-audio" controls preload="none" src="${esc(d.playbackUrl)}"></audio>`;
-        // The signed link lasts 5 minutes — on an error, fetch a fresh one once.
-        const audio = el.querySelector('audio');
-        audio.addEventListener('error', async () => {
-          if (audio.dataset.retried) return;
-          audio.dataset.retried = '1';
-          el.dataset.state = '';
-          await loadCardRecording(card);
-        }, { once: true });
-        return 'ready';
-      }
-      el.dataset.state = d.state || 'none';
-      el.innerHTML = `<div class="cc-rec-line is-wait">🎧 Recording — ${d.render && d.state === 'failed'
-        ? 'couldn\'t be fetched' : 'arrives a few minutes after the call ends'}</div>`;
-      return d.state || 'none';
+      const RV = window.RecordingView;
+      if (!RV) { el.innerHTML = '<div class="cc-rec-line">🎧 Recording — player not loaded</div>'; return 'none'; }
+      return RV.loadInlineRecording(el, card._call || {}, (ids) => cdRecordingIndex(ids, 'callerCard'));
     }
     // Shown in the tray's detail view → load the recording, and keep checking every
     // 45 s while it's open there and not ready yet.
@@ -13463,7 +13290,7 @@
       card.addEventListener('cc:shown', async () => {
         clearInterval(timer);
         const state = await loadCardRecording(card);
-        if (state === 'ready' || state === 'none' && (card._call || {}).id == null) return;
+        if (state === 'ready' || state === 'test') return;
         timer = setInterval(async () => {
           if (!card.isConnected || !card.closest('.mtray-calldetail-slot')) { clearInterval(timer); return; }
           if (await loadCardRecording(card) === 'ready') clearInterval(timer);

@@ -156,9 +156,9 @@ test('static: a call with no note can NOT be closed (× / Close); today\'s untou
   assert.match(cc, />Attach… <small>coming<\/small>/);
   assert.match(cc, />Start RO <small>coming<\/small>/);
   assert.match(cc, />Not a customer <small>coming<\/small>/);
-  // The recording: through the signed-in endpoint, pending until ready.
-  assert.match(cc, /cdAuthFetch\(db, '\/api\/recording-links'/);
-  assert.match(cc, /arrives a few minutes after the call ends/);
+  // The recording: the shared inline player (slice 2b) through the board's one signed-in links reader.
+  assert.match(cc, /return RV\.loadInlineRecording\(el, card\._call \|\| \{\}, \(ids\) => cdRecordingIndex\(ids, 'callerCard'\)\);/);
+  assert.match(src('recording-view.js'), /arrives a few minutes after the call ends/);
 });
 
 test('the glance hides Last visit with no closed RO, and Heads up when there is nothing to flag (no "—" / "None")', () => {

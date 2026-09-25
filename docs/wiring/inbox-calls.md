@@ -3,7 +3,7 @@
 > Last updated: 2026-09-25 — **slice 2a**: the call rows are part of ONE mixed "Needs handling" list with the
 > Facebook threads (§3); staging only. Created 2026-09-24 with **slice 1** of "calls into the Inbox tray" (Cris's design, the
 > "Front Desk Inbox Tray" mockup screens 1, 2 and 4). Verified vs commit `651df27` (test.* + read-only on prod, 2026-09-25).
-> Status: 🟢 slice 1 **LIVE on prod** since `47bdc15` (2026-09-24); 🟢 **slice 2a (the mixed list) LIVE on prod** since `651df27` (2026-09-25). Slice 2b (shared recording player) and 3–6 (security, missed calls, handled, History) not built.
+> Status: 🟡 **slice 2b (one shared recording player) on staging only** — waiting for Cris on test.*. 🟢 slice 1 **LIVE on prod** since `47bdc15` (2026-09-24); 🟢 **slice 2a (the mixed list) LIVE on prod** since `651df27` (2026-09-25). Slice 2b (shared recording player) and 3–6 (security, missed calls, handled, History) not built.
 > Related: [[messenger-tray]] (the tray this lives in), [[call-window-desk]] (the call card's writes, the Desk
 > lanes it feeds — unchanged), [[recordings-audio]] (the recording on screen 2), [[desk-pad]] (the bottom
 > drawer beside the tray).
@@ -70,9 +70,13 @@ An incoming call no longer floats over the board: it rings as a pinned caller-ID
 ## 4. The opened call — the card inside the tray (screen 2)
 - Tapping a row (or "Answered → notepad") moves the **same call card** into the tray's detail view ("‹ All"
   puts it back). It is the callerCard code in `advisor-board.html`, unchanged in what it saves:
-  - **🎧 Recording** — `api/recording-links` (signed-in employee only) through `cdAuthFetch`; a player when the
-    file is ready; "arrives a few minutes after the call ends" until then (the 5-minute fetch cron), re-checked
-    every 45 s while the card is open; one fresh link on a playback error (links last 5 min).
+  - **🎧 Recording** — the board's ONE shared player since slice 2b ([[recordings-audio]] §3,
+    `loadInlineRecording`): an inline player when the file is ready; **pending** (the row exists, the 5-minute
+    fetch cron hasn't got the file yet) → "arrives a few minutes after the call ends"; **no recording row at all**
+    → "shows up after the call ends" for the first 30 min from the call's start, then **"No recording"** (the
+    row is only created when a call ENDS with audio — before slice 2b this case said "arrives a few minutes…"
+    forever); failed → "couldn't be fetched"; a dry-run card → "none (test call)". Re-checked every 45 s while
+    the card is open until ready; ONE fresh link per card on a playback error (links last 5 min).
   - **Call note** — autosave as before.
   - **Anything left to do?** — **Call back** (`quoted_callback`) · **Coming in** (`dropping_off`) · **Done
     (coming)**. Same `next_step` values, date UI, echo and Desk lanes as before. The two old chips ("Checking on
@@ -121,6 +125,7 @@ nothing itself (test-locked). The card still never writes `resolved_at` (test-lo
 - `shared/bottom-drawer.css` — `body.mtray-tucked .bdr { --dp-right: 48px }`.
 
 ## Session change log
+- **2026-09-25** — slice 2b (staging): the tray card's recording uses the shared player (`shared/recording-view.js`); a call with NO recording row now reads "shows up after the call ends" (first 30 min) then "No recording" instead of "arrives a few minutes…" forever; one fresh link per card (was: could repeat on every new player). No DB change.
 - **2026-09-25** — **slice 2a shipped to prod** (Cris's OK on test.*): fast-forward `242ed60..af98f5c` (code = `651df27`; `af98f5c` = the docs-only test log on top). www / board. / apex `/api/version` = `af98f5c` (~30 s after the push); all 7 changed code files byte-identical to `651df27` and both wiring docs to `af98f5c` on all three; CLAUDE.md 404. Prod read-only (pane not signed in, nothing written, no RO opened): tray loaded FOLDED (board padded 48 px), strip drawn, 📞 grey, f "!" (the not-signed-in state), `inbox-list-logic.js` / `inbox-calls.js` / `messenger-tray.js` loaded 200, no console errors, no floating `.call-card`.
 - **2026-09-25** — slice 2a driven on test.* at `651df27` (ZZ Test Advisor, 800 px pane): 6 served files byte-identical; prod untouched (`242ed60`). Three dry-run calls from 10/20/30 min ago → stayed folded, 📞 3 no pulse, f 0 grey, rows newest first in the ONE list (none left in the calls area). A ring NOW → opened, pinned glance, 📞 4 pulsing, "Inbox · 4 waiting", one heading, "Can't reply anymore (8)" uncounted. Opened TEST TWENTY by a real click, typed a note with real keys → survived the 5 s ticks and the 60 s Facebook catch-up load (same element, focus kept); more typing; "‹ All" → order RINGNOW 2m · TEN 12m · THIRTY 32m (no note) then TWENTY (noted); reopened → full note intact, same element. Reload → folded, 📞 0 (dry-run cards write nothing). No live FB thread in its window on the sandbox, so the FB half of the order rests on the unit tests.
 - **2026-09-25** — slice 2a (staging): call rows moved out of the calls area into the tray's ONE mixed "Needs handling" list (`rows()` / `open(id)`; `mergeNeedsHandling` — nobody-answered-yet on top, then newest first). Cards still moved, never rebuilt; glance only re-painted on change. No DB change, no new write.
