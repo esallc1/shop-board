@@ -3,7 +3,7 @@
 > Last updated: 2026-09-25 — **slice 2a**: the call rows are part of ONE mixed "Needs handling" list with the
 > Facebook threads (§3); staging only. Created 2026-09-24 with **slice 1** of "calls into the Inbox tray" (Cris's design, the
 > "Front Desk Inbox Tray" mockup screens 1, 2 and 4). Verified vs commit `651df27` (test.* + read-only on prod, 2026-09-25).
-> Status: 🟡 **security slice 3 step (a)1 (the card writes through `api/calls.js`) on staging only.** 🟢 **slice 2b (one shared recording player) LIVE on prod** since `103a645` (2026-09-25). 🟢 slice 1 **LIVE on prod** since `47bdc15` (2026-09-24); 🟢 **slice 2a (the mixed list) LIVE on prod** since `651df27` (2026-09-25). Slice 2b (shared recording player) and 3–6 (security, missed calls, handled, History) not built.
+> Status: 🟢 **security slice 3 step (a)1 (the card writes through `api/calls.js`) LIVE on prod** since `bd78d76` (2026-09-25). 🟢 **slice 2b (one shared recording player) LIVE on prod** since `103a645` (2026-09-25). 🟢 slice 1 **LIVE on prod** since `47bdc15` (2026-09-24); 🟢 **slice 2a (the mixed list) LIVE on prod** since `651df27` (2026-09-25). Slice 2b (shared recording player) and 3–6 (security, missed calls, handled, History) not built.
 > Related: [[messenger-tray]] (the tray this lives in), [[call-window-desk]] (the call card's writes, the Desk
 > lanes it feeds — unchanged), [[recordings-audio]] (the recording on screen 2), [[desk-pad]] (the bottom
 > drawer beside the tray).
@@ -87,7 +87,7 @@ An incoming call no longer floats over the board: it rings as a pinned caller-ID
 - Cards are **moved, never re-drawn** (`shared/inbox-calls.js`), so a typed note and every listener survive; a
   card with the keyboard focus in it is never moved by the 5 s tick.
 
-## 5. Writes — through `api/calls.js` (security slice 3, step (a)1 — staging)
+## 5. Writes — through `api/calls.js` (security slice 3, step (a)1 — LIVE on prod since `bd78d76`)
 The card no longer writes `calls` from the browser. Its three writers call **`api/calls.js`** through the
 board's one client `cdCallsWrite` (`cdAuthFetch`, the signed-in session as a bearer token):
 - **`note`** (`saveNote`) — the note, next step, date, key box, filed RO. Only those six columns are accepted
@@ -138,6 +138,7 @@ The tray code (`inbox-calls.js`) reads and writes nothing itself (test-locked). 
 - `shared/bottom-drawer.css` — `body.mtray-tucked .bdr { --dp-right: 48px }`.
 
 ## Session change log
+- **2026-09-25** — **security slice 3 (a)1 shipped to prod** (Cris's OK, shop closed): fast-forward `c51dc83..969bdec` (code = `bd78d76`; `969bdec` = docs-only on top). www / board. / apex `/api/version` = `969bdec` (~30 s); `advisor-board.html` (+ the two static tests) byte-identical to `bd78d76`, docs to `969bdec`, on all three; CLAUDE.md 404; `api/calls` answers an unauthenticated POST with 401 on all three. Prod read-only (not signed in, nothing written): page loads, tray folded, `cdCallsWrite` present, no console errors. Live test call + note: Cris, on prod.
 - **2026-09-25** — security slice 3 (a)1 driven on test.* at `bd78d76`. Signed OUT: a note on TEST RELOAD → `api/calls` 401, the card showed the red sign-in line (never "Saved"), Close refused, the row untouched. Signed in as ZZ Test Advisor, real clicks/keys: TEST RELOAD (row 298) note → 200 "Saved ✓", Call back → 200, Tomorrow → 200 (echo "→ Callback: Sat, Sep 26"), Close closed at once; after a reload the row reads note, `next_step quoted_callback`, `due_at` Sep 26 all-day, `noted_by_name` ZZ Test Advisor (stamped by the server), `resolved_at` null, and the Desk shows the callback. Row 112 ((850) 516-0664, two CARL WORTHEY records) → pick the second → 200 + the robot's RO check 200 (no open RO); after a reload `customer_id` = the picked one, `noted_at` still null (a pick isn't a note). Left on the sandbox: row 298 as a TEST callback (Sat Sep 26) and row 112 attached to CARL WORTHEY `a07f651d…`.
 - **2026-09-25** — security slice 3 step (a)1 (staging): the card's three writers (`saveNote`, `persistCustomer`, `autoFileRoForCall`) go through `api/calls.js`; server stamps `noted_*` once; "Saved ✓" only on a 200; unsaved changes are resent; Close waits. No DB change.
 - **2026-09-25** — **slice 2b shipped to prod** ([[recordings-audio]] change log): fast-forward `d600a5e..1a2cd8a` (code = `103a645`; `1a2cd8a` = docs-only on top). www / board. / apex `/api/version` = `1a2cd8a` (~30 s after the push); `advisor-board.html`, `shared/recording-view.js` (+test) and `shared/inbox-calls-logic.test.js` byte-identical to `103a645`, the two docs to `1a2cd8a`, on all three; CLAUDE.md 404. Prod read-only (pane not signed in, nothing written, no RO opened): tray folded, strip drawn, `recording-view.js` + `recording-player.js` 200, `window.RecordingView` + `cdRecordingIndex` / `cdRecordingPlayer` present, no console errors. Real playback on prod not yet heard (no sign-in in the pane) — Cris to click a real one.
