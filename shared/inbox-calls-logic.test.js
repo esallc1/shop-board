@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
-  RING_MS, ringStartMs, isRinging, pickRinging, orderNewestFirst, callRowName, callRowStatus, stripCalls, callerGlance,
+  RING_MS, ringStartMs, isRinging, pickRinging, orderNewestFirst, callRowName, isRealCall, callRowStatus, stripCalls, callerGlance,
 } from './inbox-calls-logic.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -169,4 +169,30 @@ test('the glance hides Last visit with no closed RO, and Heads up when there is 
   assert.match(slot, /\$\{g\.lastVisit \? line\('Last visit', g\.lastVisit\) : ''\}/);
   assert.match(slot, /\$\{g\.headsUp \? line\('Heads up', g\.headsUp\) : ''\}/);
   assert.doesNotMatch(slot, /'None'|g\.lastVisit \|\| '—'/);
+});
+
+test('only a REAL call rings: a positive CTM id — never a Desk "+ Add" row (negative made-up id)', () => {
+  assert.equal(isRealCall({ ctm_call_id: 4415052380 }), true);
+  assert.equal(isRealCall({ ctm_call_id: '4415052380' }), true, 'bigint over the wire as text');
+  assert.equal(isRealCall({ ctm_call_id: 990000401 }), true, 'staging fake CTM rings still ring');
+  assert.equal(isRealCall({ ctm_call_id: -1758841234567000 }), false, 'a + Add appointment');
+  assert.equal(isRealCall({ ctm_call_id: '-1758841234567000' }), false);
+  assert.equal(isRealCall({ ctm_call_id: 0 }), false);
+  assert.equal(isRealCall({ ctm_call_id: null }), false);
+  assert.equal(isRealCall({}), false);
+  assert.equal(isRealCall(null), false);
+  assert.equal(isRealCall({ ctm_call_id: 'abc' }), false);
+  assert.equal(isRealCall({ ctm_call_id: NaN }), false);
+});
+
+test('static: the live listener and the reload backfill draw the SAME line (ctm_call_id > 0)', () => {
+  const board = src('../advisor-board.html');
+  const cc = board.slice(board.indexOf('(function callerCard()'), board.indexOf('window.cdBackfillCalls = backfillRecentCalls;'));
+  // Every new calls row (realtime INSERT, the dry-run hook) goes through handleNewCall — which refuses a non-call first.
+  assert.match(cc, /async function handleNewCall\(call\) \{[\s\S]{0,400}?if \(!call \|\| !\(window\.InboxCallsLogic \? window\.InboxCallsLogic\.isRealCall\(call\) : Number\(call\.ctm_call_id\) > 0\)\) return;/);
+  assert.match(cc, /\{ event: 'INSERT', schema: 'public', table: 'calls' \}, \(payload\) => handleNewCall\(payload\.new\)\)/);
+  assert.match(cc, /\.gt\('ctm_call_id', 0\)/, 'the backfill: real calls only');
+  assert.match(board, /import \* as InboxCallsLogic from '\.\/shared\/inbox-calls-logic\.js';\s*window\.InboxCallsLogic = InboxCallsLogic;/);
+  // The made-up id + Add uses really is negative.
+  assert.match(src('../api/desk-appointment.js'), /return -base;/);
 });

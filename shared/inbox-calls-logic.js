@@ -12,6 +12,18 @@
 
 export const RING_MS = 2 * 60 * 1000;
 
+// Is this `calls` row a REAL incoming call — one that should ring and get a card?
+// Only a CTM call has a positive ctm_call_id. A Desk "+ Add" appointment is also a
+// calls row, but api/desk-appointment.js gives it a made-up NEGATIVE id (and no
+// started_at): it lives on the Desk and must never ring or open the tray
+// (Cris, 2026-09-25 — it popped "INCOMING · —" on prod). Same line the card
+// backfill draws in the database (`ctm_call_id > 0`).
+export function isRealCall(call) {
+  const id = call ? call.ctm_call_id : null;
+  return typeof id === 'number' ? Number.isFinite(id) && id > 0
+    : (typeof id === 'string' && /^\d+$/.test(id) && Number(id) > 0);
+}
+
 // When did this call start ringing? The call's own started_at when it's a real
 // time not in the future (a little clock skew allowed); otherwise when this board
 // got the card (a dry-run card, or a row with no started_at).

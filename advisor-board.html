@@ -1334,6 +1334,12 @@
   window.RecordingPlayer = RecordingPlayer;
   window.RecordingView = RecordingView;
 </script>
+<!-- Incoming-call rules (ESM) — window.InboxCallsLogic.isRealCall decides which new
+     `calls` rows ring in the tray (a Desk "+ Add" row never does). inbox-calls.md §2. -->
+<script type="module">
+  import * as InboxCallsLogic from './shared/inbox-calls-logic.js';
+  window.InboxCallsLogic = InboxCallsLogic;
+</script>
 <!-- Comeback chain logic (ESM). Assigns window.ComebackChain; used by the RO
      detail badge + chain card and the blocked-close guard. Pure/DOM-free. -->
 <script type="module">
@@ -13330,7 +13336,9 @@
     }
 
     async function handleNewCall(call) {
-      if (!call || call.ctm_call_id == null) return;
+      // Only a real CTM call rings (inbox-calls.md §2). A Desk "+ Add" row (negative
+      // made-up ctm_call_id) is not a call: no card, no ring, no tray — it stays on the Desk.
+      if (!call || !(window.InboxCallsLogic ? window.InboxCallsLogic.isRealCall(call) : Number(call.ctm_call_id) > 0)) return;
       // Dedup: one card per ctm_call_id (a retry hits ON CONFLICT server-side and
       // arrives as UPDATE, not INSERT — but guard anyway).
       if (hasCard(call.ctm_call_id)) return;

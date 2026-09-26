@@ -391,6 +391,10 @@ created directly. One modal (`#deskEdit`, `openDeskEdit(mode, opts)`) does both,
 Because anon can't INSERT into `calls` (§1), a manual add runs server-side with the
 service-role key (same posture as `api/recording-assign.js`).
 
+**A + Add row never rings.** It is a new `calls` row, so the tray's realtime INSERT listener
+sees it — but its `ctm_call_id` is negative (`syntheticCtmId`), and the tray only rings for a
+real CTM call (`isRealCall`, [[inbox-calls]] §2). It shows on the Desk / calendar only.
+
 **SIGNED-IN EMPLOYEES ONLY since 2026-09-17 (Security Phase 3).** The first thing the handler
 does — before the body is parsed — is `requireUser(req)` (`api/_lib/require-user.js`): the
 caller's `Authorization: Bearer <access_token>` must be a live Supabase session **whose
@@ -616,6 +620,7 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- **2026-09-25** — (staging) §8: a + Add row never rings in the tray (`isRealCall`, [[inbox-calls]] §2).
 - **2026-09-25** — security slice 3 (a)2 **shipped to prod**: fast-forward `8b8f8af..44fca0e` (code = `254dc9c`; `44fca0e` = docs-only on top). www / board. / apex `/api/version` = `44fca0e` (www flipped back to the old SHA once while the domains switched, then steady); `advisor-board.html` (+ `shared/desk-outcomes.test.js`) byte-identical to `254dc9c`, docs to `44fca0e`, on all three; CLAUDE.md 404; an unauthenticated Desk `outcome` → 401 on all three. Prod read-only (not signed in, nothing written): page loads, tray folded, no console errors. Cris checked Follow up by hand on test.* first (Mon Oct 12 + reason on (239) 634-0703 — both saved). One real Desk action on prod: Cris.
 - **2026-09-25** — security slice 3 (a)2 driven signed in on test.* at `254dc9c` (ZZ Test Advisor, real clicks; test rows 301–303 made with + Add). **Arrived** on 301 (today) → 200, `outcome arrived`, resolved by ZZ Test Advisor, off Coming in; reload → in Recently cleared. **Follow up** on 302 (Sat Sep 26 drop-off) with reason "waiting on insurance" → 200, moved to Callbacks, `due_at` Oct 9 (the dialog's default — the typed date didn't take in the date control), `outcome_prev_due_at` Sep 26 from the row, not cleared; reload → on Callbacks. **Undo** 301 → 200, the row identical to before Arrived; reload → back on Coming in. **Done** on callback 297 (TEST TRAYCALL, due today, no confirm) → 200, `outcome called`, resolved by ZZ Test Advisor; reload → in Recently cleared. **Edit** 303 (Sun Sep 27 10:00) → after-hours key drop box → 200, all-day + `dropoff_key_box true`; reload → 🔑 chip on Sun's all-day row. **Calendar drag** of that chip to Sat Sep 26 ~10 AM → 200, `due_at` Sat 10:15, `due_all_day false`, `dropoff_key_box false` in the same write; reload → "10:15 AM TEST DESK EDIT" on Saturday. Left on the sandbox: 301 (drop-off today), 302 (callback Oct 9), 303 (drop-off Sat 10:15), 297 cleared (called).
 - **2026-09-25** — (staging) security slice 3 (a)2: the six Desk writers go through `api/calls.js` (`outcome` / `undo` / `done` / `edit` / `reschedule`), patches built on the server with the same shared rules; a clear only on an open row (409); failures shown, never faked; §1, §7, §8, §9d.

@@ -28,6 +28,12 @@ An incoming call no longer floats over the board: it rings as a pinned caller-ID
 - Header: **"Inbox · N waiting"** (calls + Facebook threads you can still reply to).
 
 ## 2. Ringing — the pinned caller-ID glance (screen 1)
+- **Only a REAL call rings** (`isRealCall`: a positive `ctm_call_id`, the CTM webhook's rows). Every new `calls`
+  row reaches `handleNewCall` through the realtime INSERT listener, and a Desk **"+ Add"** appointment is a
+  `calls` row too — with a made-up **negative** `ctm_call_id` and no `started_at` ([[call-window-desk]] §8). It
+  is refused first: no card, no ring, the tray doesn't open; it lives on the Desk only. The reload backfill draws
+  the same line in its query (`ctm_call_id > 0`) — a test keeps the two together. (Before 2026-09-25 a + Add
+  drop-off rang as "INCOMING · —" for 2 minutes and opened the tray — seen on prod.)
 - A call **rings for 2 minutes** from its `started_at` (`RING_MS`; a dry-run card with no start rings from when
   it arrived). The **newest ringing call nobody has opened yet** gets the pinned glance at the top of the tray
   (`pickRinging`); other ringing calls are rows marked "ringing".
@@ -139,6 +145,7 @@ The tray code (`inbox-calls.js`) reads and writes nothing itself (test-locked). 
 - `shared/bottom-drawer.css` — `body.mtray-tucked .bdr { --dp-right: 48px }`.
 
 ## Session change log
+- **2026-09-25** — (staging) only a real call rings: `isRealCall` (positive `ctm_call_id`) at the top of `handleNewCall`; a Desk + Add row no longer pops "INCOMING · —" / opens the tray. No DB change.
 - **2026-09-25** — security slice 3 (a)2 (the Desk) **shipped to prod** ([[call-window-desk]] change log).
 - **2026-09-25** — (staging) security slice 3 (a)2: the Desk's writers also moved to `api/calls.js` ([[call-window-desk]] §1).
 - **2026-09-25** — **security slice 3 (a)1 shipped to prod** (Cris's OK, shop closed): fast-forward `c51dc83..969bdec` (code = `bd78d76`; `969bdec` = docs-only on top). www / board. / apex `/api/version` = `969bdec` (~30 s); `advisor-board.html` (+ the two static tests) byte-identical to `bd78d76`, docs to `969bdec`, on all three; CLAUDE.md 404; `api/calls` answers an unauthenticated POST with 401 on all three. Prod read-only (not signed in, nothing written): page loads, tray folded, `cdCallsWrite` present, no console errors. Live test call + note: Cris, on prod.
