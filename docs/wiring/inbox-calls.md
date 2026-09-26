@@ -145,6 +145,7 @@ The tray code (`inbox-calls.js`) reads and writes nothing itself (test-locked). 
 - `shared/bottom-drawer.css` — `body.mtray-tucked .bdr { --dp-right: 48px }`.
 
 ## Session change log
+- **2026-09-25** — the + Add fix driven signed in on test.* at `e73cd37` (ZZ Test Advisor). A listen-only spy on the same realtime feed proved the rows reach the page. **+ Add** (real clicks/keys: (239) 555-0620 "TEST ADD NORING", drop-off today) → row 304, `ctm_call_id` −1790383405207863, the INSERT event arrived — after 10 s the tray was still folded, no card, no ring, 📞 badge hidden; the drop-off is on the Desk. **A fake CTM ring** posted to test.*'s webhook (id 990000601, "TEST REAL RING") → row 305 rang: the tray opened, the pinned glance "INCOMING · New caller · (239) 555-0621", 📞 1 pulsing. Left on the sandbox: rows 304 (drop-off today) and 305 (an untouched test call).
 - **2026-09-25** — (staging) only a real call rings: `isRealCall` (positive `ctm_call_id`) at the top of `handleNewCall`; a Desk + Add row no longer pops "INCOMING · —" / opens the tray. No DB change.
 - **2026-09-25** — security slice 3 (a)2 (the Desk) **shipped to prod** ([[call-window-desk]] change log).
 - **2026-09-25** — (staging) security slice 3 (a)2: the Desk's writers also moved to `api/calls.js` ([[call-window-desk]] §1).
