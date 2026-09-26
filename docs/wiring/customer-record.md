@@ -608,6 +608,7 @@ not-loaded case, then renders:
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
+- **2026-09-25** — File to RO via `api/calls.js` `file_ro` **LIVE on prod** (`b9d349c`).
 - **2026-09-25** — (staging) security slice 3 (a)3: File to RO goes through `api/calls.js` `file_ro`; the cache-invalidation table updated for the server-side phone learn / un-learn.
 - 2026-09-23 — §7 rewritten: the list's own search box is gone (top-bar search replaces it); browse-only list; ambiguous phone → top-bar search with the number; `cdOpenCustomerAtCall` (focus on one call, highlight); `cdEnsureCustList` exposed. `shared/cust-cache-guard.test.js` updated in place to the new shape.
 - 2026-09-21 — Shipped to prod at `6733056`; `shared/customer-record.js` + `advisor-board.html` byte-identical to git on www, board.*, apex.

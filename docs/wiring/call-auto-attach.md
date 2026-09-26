@@ -288,6 +288,7 @@ This does not change anything the robot does: auto-attach still never writes a p
 circumstances, so no prompt ever appears for a machine attach.
 
 ## Session change log
+- **2026-09-25** — call site 2 + un-attach tag clearing + the manual re-file via `api/calls.js` **LIVE on prod** (`b9d349c`).
 - **2026-09-25** — (staging) security slice 3: call site 2 (`auto_file_ro`), the un-attach tag clearing and the manual re-file run in `api/calls.js`; §3 seam + Where it lives + §7 table updated.
 - 2026-08-21 — **Run-count-as-env-guard retired.** No code or behaviour change here; §3 gained a
   warning that the per-run counts are history, not invariants. The `3333…` count fell 11 → 10
