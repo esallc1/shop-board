@@ -10,6 +10,8 @@
           their last message arrived — the after-hours auto-reply and a failed
           send don't count as a reply);
      2. then everything else, newest first.
+   Slice 4 (Cris, 2026-09-26, order A): a MISSED call with no note goes above
+   everything — above the rest of the top group, unanswered Facebook threads included.
    "Newest" = when the customer reached out: a call's start, or the ARRIVAL of
    the customer's last Facebook message — never our own reply, so a thread we
    just answered doesn't jump to the top.
@@ -52,15 +54,17 @@ export function mergeNeedsHandling({ calls = [], threads = [], lastStaff = {} } 
   const items = [];
   for (const c of Array.isArray(calls) ? calls : []) {
     if (!c) continue;
-    items.push({ kind: 'call', id: String(c.id), ms: Number(c.startMs) || 0, fresh: !c.noted, ref: c });
+    items.push({ kind: 'call', id: String(c.id), ms: Number(c.startMs) || 0, fresh: !c.noted, missed: !!c.missed && !c.noted, ref: c });
   }
   for (const t of Array.isArray(threads) ? threads : []) {
     if (!t) continue;
     const last = lastStaff ? lastStaff[t.id] : null;
-    items.push({ kind: 'fb', id: String(t.id), ms: inboundArrivedMs(t) || 0, fresh: fbNeedsFirstResponse(t, last), ref: t });
+    items.push({ kind: 'fb', id: String(t.id), ms: inboundArrivedMs(t) || 0, fresh: fbNeedsFirstResponse(t, last), missed: false, ref: t });
   }
-  // Stable, fully deterministic: fresh first, newest first, then calls before threads, then id.
-  return items.sort((a, b) => (Number(b.fresh) - Number(a.fresh)) || (b.ms - a.ms)
+  // rank 0 = a missed call with no note, 1 = the rest of "nobody answered yet", 2 = everything else.
+  const rank = (x) => (x.missed ? 0 : x.fresh ? 1 : 2);
+  // Stable, fully deterministic: by rank, newest first, then calls before threads, then id.
+  return items.sort((a, b) => (rank(a) - rank(b)) || (b.ms - a.ms)
     || (a.kind === b.kind ? 0 : a.kind === 'call' ? -1 : 1) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
 
@@ -78,7 +82,7 @@ export function waitingCount({ mode, fbActive = 0, calls = 0 } = {}) {
 // fb.off === null → leave the f greyed-or-not as it was (a sign-in / load problem).
 export function stripBadges({ mode, fbActive = 0, calls = { count: 0, ringing: false } } = {}) {
   const c = calls || { count: 0, ringing: false };
-  const phone = { count: c.count || 0, ringing: !!c.ringing, off: !c.count, hidden: !c.count, text: String(c.count || 0) };
+  const phone = { count: c.count || 0, ringing: !!c.ringing, missed: !!c.missed, off: !c.count, hidden: !c.count, text: String(c.count || 0) };
   const fb = mode === 'ok'
     ? { text: String(fbActive), hidden: !fbActive, off: !fbActive, note: false }
     : { text: '!', hidden: false, off: null, note: true };

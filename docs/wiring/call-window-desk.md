@@ -39,6 +39,10 @@ Everything below is columns on a single `calls` row (no appointments table):
 `resolved_at/resolved_by_name`, `customer_id`. `next_step` is CHECK-constrained to the
 four values below (or null = not yet chosen). Schema: `20260728_calls*.sql`
 (`_notes` adds next_step/due_*/ro_id/noted_*, `_resolved` adds resolved_*).
+**Slice 4 (missed calls):** `call_status` (CTM's end-of-call result: answered / no answer / busy / failed) and
+`ended_at` — `migrations/20260926_calls_call_status_*.sql` (written, not run yet). Written **only** by
+`api/ctm-webhook.js` from the end / end_immediate webhooks (PATCH of those two columns, never a new row,
+answered never downgraded); the tray reads them ([[inbox-calls]] §3a).
 
 **RLS:** anon (the board key) may **SELECT** and **UPDATE** `calls`, but **not INSERT**
 — row creation is service-role only (the CTM webhook owns it). This is why editing an
@@ -632,6 +636,7 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- **2026-09-26** — (staging) §1: the two slice-4 columns `call_status` / `ended_at` (webhook-only writes).
 - **2026-09-25** — security slice 3 (a)3 **shipped to prod**: fast-forward `9f662e6..0979d5e` (code = `b9d349c`; `5c15be5` = docs, `0979d5e` = the two lockdown migration files, NOT RUN). www / board. / apex `/api/version` = `0979d5e` (steady); `advisor-board.html` (+ `shared/cust-cache-guard.test.js`) byte-identical to `b9d349c`, docs to `0979d5e`, on all three; CLAUDE.md 404; `migrations/20260926_calls_lockdown_{SANDBOX,PROD}.sql` 404 (not public; also checked on test.* before the push); an unauthenticated `attach` → 401. Prod read-only (not signed in, nothing written): page loads, tray folded, no browser phone writer, no console errors. One real Call log action on prod: Cris. **All 15 browser `calls` writers are now server-side on prod**; the watch period starts now; the lockdown (b) is written and waiting.
 - **2026-09-25** — security slice 3 (a)3 driven signed in on test.* at `b9d349c` (ZZ Test Advisor, real clicks; reload after each). Call 305 ((239) 555-0621, unattached) in today's Call log: **Attach** → RUDY MARTINEZ via the picker → 200 (attach) + 200 (robot RO check, nothing filed — his only RO #5509 is closed), "Attached by ZZ Test Advisor", prompt "Also save (239) 555-0621 as a second number for RUDY MARTINEZ?" → **Save the number** → 200: RUDY `phone_secondary` = 2395550621, call `learned_phone` true. **File to RO** from RUDY's record → #5509 · Closed → 200, `ro_id` set, noted by ZZ Test Advisor (stamped by the server, none before), left needs-filing. **Un-attach** → 200 in one action: link cleared, `learned_phone` false, RUDY `phone_secondary` back to null; the person-filed #5509 stays (by design). **Not a customer** → 200, marked by ZZ Test Advisor; **Undo** → 200, cleared. Every step held after a reload. Left on the sandbox: call 305 unattached, filed to RUDY's #5509.
 - **2026-09-25** — (staging) security slice 3 (a)3: the Call Log / customer record writers go through `api/calls.js` (`attach`, `learn_phone`, `unattach`, `not_a_customer`, `clear_not_a_customer`, `file_ro`); the phone learn / un-learn moved server-side into the same action; the browser writes `calls` nowhere now. §1, §2c, §6d, Where it lives.

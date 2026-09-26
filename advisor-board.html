@@ -13331,8 +13331,10 @@
       // form is built once so re-rendering detail (e.g. after a pick) never
       // wipes an in-progress note. No auto-clear timer — dismiss is manual.
       card.innerHTML = headHtml(call)
+        + `<div class="cc-missed" role="status" hidden>● Missed call</div>`
         + `<div class="call-card-detail"><div class="call-card-muted">Looking up…</div></div>`
         + formShellHtml();
+      renderMissed(card);
       placeCard(card);       // into the Inbox tray (newest rings on top; the rest are "Needs handling" rows)
 
       card.querySelector('.call-card-x').addEventListener('click', () => tryClose(card));
@@ -13386,10 +13388,31 @@
     window.cdHandleTestCall = handleNewCall;   // lets us dry-run a card without a live call
 
     let callsChannel = null;
+    // Slice 4 (missed calls): the end of a call arrives as an UPDATE of the row
+    // (api/ctm-webhook.js sets call_status + ended_at). Only those two fields are
+    // taken from it — a note being typed on the card is never overwritten. The
+    // tray re-arranges (the ring stops; a missed call goes red to the top).
+    function renderMissed(card) {
+      const el = card.querySelector('.cc-missed'); if (!el) return;
+      const L = window.InboxCallsLogic;
+      el.hidden = !(L && L.isMissed(card._call));
+    }
+    function handleCallUpdate(row) {
+      if (!row || !(window.InboxCallsLogic ? window.InboxCallsLogic.isRealCall(row) : Number(row.ctm_call_id) > 0)) return;
+      const card = document.querySelector(`.call-card[data-call-id="${String(row.ctm_call_id)}"]`);
+      if (!card || !card._call) return;
+      if (!('call_status' in row) && !('ended_at' in row)) return;       // columns not there yet — nothing to do
+      if (card._call.call_status === row.call_status && card._call.ended_at === row.ended_at) return;
+      card._call.call_status = row.call_status ?? null;
+      card._call.ended_at = row.ended_at ?? null;
+      renderMissed(card);
+      card.dispatchEvent(new CustomEvent('cc:glance', { bubbles: true }));
+    }
     function subscribeCalls() {
       if (callsChannel) db.removeChannel(callsChannel);
       callsChannel = db.channel('advisor-board-calls-live')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'calls' }, (payload) => handleNewCall(payload.new))
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'calls' }, (payload) => handleCallUpdate(payload.new))
         .subscribe();
     }
     subscribeCalls();

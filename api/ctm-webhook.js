@@ -19,6 +19,12 @@
    handler, and every failure path leaves the call sitting in the pile for a
    human. A call is never lost because attach failed.
 
+   Slice 4 (missed calls): the `end` AND `end_immediate` deliveries PATCH the
+   end-of-call result onto the existing calls row — ONLY call_status + ended_at,
+   keyed on a positive ctm_call_id (applyEndStatus). Never a new row (the start
+   may not have landed; a partial row would ring as a blank card), never the
+   notes, and an 'answered' result is never downgraded by a later event.
+
    STILL out of scope: audio download, transcription, field extraction,
    estimate creation, spam/scam flag (no such field in the payload).
 
@@ -244,6 +250,53 @@ async function insertRecording(body) {
   }
 }
 
+// ── SLICE 4: the end-of-call result (missed calls) ─────────────────────────
+// Map an end / end_immediate body → { ctmId, status, patch } or null. Pure +
+// exported so the shape is test-locked. call_status (NOT dial_status — that one
+// says 'completed' on some missed calls) is 'answered' / 'no answer' / 'busy' /
+// 'failed'. The patch is EXACTLY { call_status, ended_at } — nothing else.
+export function mapEndStatus(body, nowISO) {
+  if (!body) return null;
+  const id = Number(body.id);
+  if (!Number.isSafeInteger(id) || id <= 0) return null;            // a real CTM call only
+  const status = typeof body.call_status === 'string' ? body.call_status.trim().toLowerCase() : '';
+  if (!status) return null;
+  return { ctmId: id, status, patch: { call_status: status, ended_at: nowISO } };
+}
+
+// The PATCH filter. An 'answered' result always lands; any other result only on a
+// row that isn't already answered — so a late / retried 'no answer' can never
+// turn an answered call into a missed one.
+export function endStatusFilter(ctmId, status) {
+  const base = `ctm_call_id=eq.${ctmId}`;
+  return status === 'answered' ? base : `${base}&or=(call_status.is.null,call_status.neq.answered)`;
+}
+
+// PATCH (never POST): if the start never landed there is no row and nothing
+// happens — the migration's backfill can fill it from ctm_webhook_log later.
+// Never throws. Before the migration runs the columns don't exist: logged, and
+// the webhook carries on (still 200).
+async function applyEndStatus(body) {
+  const m = mapEndStatus(body, new Date().toISOString());
+  if (!m) return;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) { console.error('[ctm-webhook] SUPABASE_SERVICE_ROLE_KEY not set — cannot record the end of call.'); return; }
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/calls?${endStatusFilter(m.ctmId, m.status)}`, {
+      method: 'PATCH',
+      headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify(m.patch),
+    });
+    if (!r.ok) {
+      const t = await r.text().catch(() => '');
+      if (/42703|PGRST204|call_status|ended_at/.test(t)) console.warn('[ctm-webhook] calls.call_status / ended_at not there yet — run migrations/20260926_calls_call_status_*.sql');
+      else console.error('[ctm-webhook] end-of-call status failed', r.status, t);
+    }
+  } catch (e) {
+    console.error('[ctm-webhook] end-of-call status threw', e);
+  }
+}
+
 // Best-effort UPSERT into `calls` keyed on ctm_call_id, via PostgREST with the
 // service-role key. Returns nothing and never throws: a `calls` failure must
 // not turn into a non-200 to CTM, and must not undo the ctm_webhook_log write.
@@ -383,8 +436,10 @@ export default async function handler(req, res) {
   //                          upsert `calls` — an end payload run through mapCallRow
   //                          would null the notes Josh typed on the same
   //                          ctm_call_id. That recon guard is the whole point.
-  //   • any other value    → logged only; nothing else (e.g. 'end_immediate',
-  //                          which carries no audio).
+  //   • trigger === 'end_immediate' → the end-of-call result only (applyEndStatus).
+  //   • any other value    → logged only; nothing else.
+  //   Both end triggers also record call_status + ended_at (slice 4) — a PATCH of
+  //   those two columns only, so the notes are still never touched.
   // trigger stays null when the param is absent, keeping the start path
   // byte-identical to today apart from the (null) trigger_hint we now always log.
   let trigger = null;
@@ -445,7 +500,10 @@ export default async function handler(req, res) {
       //     failed) simply means there is nothing to attach yet.
       if (call) await autoAttachCall(call);
     } else if (trigger === 'end') {
+      if (body) await applyEndStatus(body);
       if (body) await insertRecording(body);
+    } else if (trigger === 'end_immediate') {
+      if (body) await applyEndStatus(body);
     }
   } catch (e) {
     // Never surface a non-200 to CTM in this phase — log and move on.

@@ -39,13 +39,29 @@ export function isRinging(startMs, nowMs = Date.now()) {
   return Number.isFinite(s) && s > 0 && nowMs - s < RING_MS;
 }
 
+// ── Missed calls (slice 4, Cris 2026-09-26) ─────────────────────────────────
+// CTM's end-of-call result lands on the row as call_status (api/ctm-webhook.js,
+// from call_status — NOT dial_status). Missed = the caller got nobody: no answer,
+// busy, failed. NULL = no end event yet → behaves exactly as before (never
+// "missed" without CTM saying so).
+export const MISSED_STATUSES = ['no answer', 'no-answer', 'busy', 'failed'];
+const normStatus = (v) => (typeof v === 'string' ? v.trim().toLowerCase() : '');
+export function isMissed(call) {
+  return !!call && MISSED_STATUSES.includes(normStatus(call.call_status));
+}
+// Has the call ended (CTM sent the end event)? Then it no longer rings.
+export function hasEnded(call) {
+  return !!call && (!!call.ended_at || !!normStatus(call.call_status));
+}
+
 // The one card that gets the pinned ringing slot: the NEWEST still-ringing card
-// that nobody has opened yet (not in the detail view, not answered). Others that
-// still ring show as rows marked "ringing". entries: [{ id, startMs, inDetail, answered }] → id | null.
+// that nobody has opened yet (not in the detail view, not answered, not ended).
+// Others that still ring show as rows marked "ringing".
+// entries: [{ id, startMs, inDetail, answered, ended }] → id | null.
 export function pickRinging(entries, nowMs = Date.now()) {
   let best = null;
   for (const e of Array.isArray(entries) ? entries : []) {
-    if (!e || e.inDetail || e.answered || !isRinging(e.startMs, nowMs)) continue;
+    if (!e || e.inDetail || e.answered || e.ended || !isRinging(e.startMs, nowMs)) continue;
     if (!best || e.startMs > best.startMs) best = e;
   }
   return best ? best.id : null;
@@ -67,16 +83,21 @@ export function callRowName({ customerName, cnam, number } = {}) {
   return s(customerName) || s(cnam) || s(number) || '(unknown number)';
 }
 
-// The row's second line: "Direct · ringing" / "Facebook · needs handling" / "… · noted".
-export function callRowStatus({ source, ringing, noted } = {}) {
+// The row's second line: "Direct · ringing" / "Direct · no note yet" / "Direct · Missed · no note yet" / "… · noted".
+export function callRowStatus({ source, ringing, noted, missed } = {}) {
   const st = ringing ? 'ringing' : (noted ? 'noted — close it when done' : 'no note yet');
-  return [typeof source === 'string' && source.trim() ? source.trim() : '', st].filter(Boolean).join(' · ');
+  return [typeof source === 'string' && source.trim() ? source.trim() : '', !ringing && missed ? 'Missed' : '', st].filter(Boolean).join(' · ');
 }
 
-// Strip badge: the number of calls on this board, and whether one is ringing.
+// Strip badge: the number of calls on this board, whether one is ringing (an ended
+// call never rings), and whether a MISSED call still has no note (→ the badge turns red).
 export function stripCalls(entries, nowMs = Date.now()) {
-  const list = Array.isArray(entries) ? entries : [];
-  return { count: list.length, ringing: list.some((e) => e && isRinging(e.startMs, nowMs)) };
+  const list = Array.isArray(entries) ? entries.filter(Boolean) : [];
+  return {
+    count: list.length,
+    ringing: list.some((e) => !e.ended && isRinging(e.startMs, nowMs)),
+    missed: list.some((e) => e.missed && !e.noted),
+  };
 }
 
 /* ── The ringing caller-ID glance (mockup screen 1, Cris 2026-09-24) ─────── */

@@ -179,7 +179,8 @@ export function mountMessengerTray({ db, viewer }) {
     phCount.hidden = b.phone.hidden;
     phCount.textContent = b.phone.text;
     strip.classList.toggle('is-ringing', b.phone.ringing);
-    const calls = c.count ? `${c.count} call${c.count === 1 ? '' : 's'}${c.ringing ? ' (ringing)' : ''} · ` : '';
+    strip.classList.toggle('has-missed', b.phone.missed);      // a missed call with no note → the 📞 badge is red
+    const calls = c.count ? `${c.count} call${c.count === 1 ? '' : 's'}${c.ringing ? ' (ringing)' : ''}${c.missed ? ' (missed)' : ''} · ` : '';
     countEl.textContent = b.fb.text;
     countEl.hidden = b.fb.hidden;
     countEl.classList.toggle('is-note', b.fb.note);

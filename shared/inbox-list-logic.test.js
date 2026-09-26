@@ -95,7 +95,7 @@ test('calls alone keep the slice-1 order (no note on top, newest first each); ti
 
 test('badges: 📞 = every call card on this board (noted-not-closed included), pulses only for an unopened ring; f = threads you can still reply to', () => {
   const b = stripBadges({ mode: 'ok', fbActive: 2, calls: { count: 3, ringing: true } });
-  assert.deepEqual(b.phone, { count: 3, ringing: true, off: false, hidden: false, text: '3' });
+  assert.deepEqual(b.phone, { count: 3, ringing: true, missed: false, off: false, hidden: false, text: '3' });
   assert.deepEqual(b.fb, { text: '2', hidden: false, off: false, note: false });
   const none = stripBadges({ mode: 'ok', fbActive: 0, calls: { count: 0, ringing: false } });
   assert.deepEqual([none.phone.off, none.phone.hidden, none.fb.off, none.fb.hidden], [true, true, true, true]);
@@ -115,7 +115,7 @@ test('the tray feeds the badges the same numbers as slice 1: callSlot.strip() an
   assert.match(tray, /const c = callSlot \? callSlot\.strip\(\) : \{ count: 0, ringing: false \};\s*const b = stripBadges\(\{ mode: st\.mode, fbActive: st\.waiting\.length, calls: c \}\);/);
   assert.match(tray, /\(\{ active: st\.waiting, stale: st\.stale \} = splitWaiting\(st\.threads\)\);/);
   const slot = src('inbox-calls.js');
-  assert.match(slot, /return \{ count: list\.length, ringing: stripCalls\(list\.filter\(\(e\) => !e\.answered\)\)\.ringing \};/, 'every card counts; only an unopened one pulses');
+  assert.match(slot, /return \{ count: list\.length, ringing: stripCalls\(list\.filter\(\(e\) => !e\.answered\)\)\.ringing, missed: stripCalls\(list\)\.missed \};/, 'every card counts; only an unopened one pulses; a missed one turns it red');
 });
 
 /* ── fold / auto-open — exactly as slice 1 ──────────────────────────────── */
@@ -201,4 +201,29 @@ test('static: slice 2a adds no DB access and no write — the rules are pure; th
   assert.doesNotMatch(slot, /\bdb\b|\.from\(|fetch\(|cdAuthFetch/);
   const tray = src('messenger-tray.js');
   assert.match(tray, /\.select\('id, thread_id, direction, source, text, attachments, send_status, sent_at, auto'\)/, 'the same message read as before (who spoke last comes from it)');
+});
+
+/* ── Slice 4: order A — a missed call with no note above EVERYTHING ─────── */
+test('order A: missed calls with no note on the very top (above unanswered FB threads), then the rest of the top group, then the rest', () => {
+  const calls = [
+    { id: 'm1', startMs: NOW - 50 * 60000, noted: false, missed: true },   // missed, 50 m ago
+    { id: 'u1', startMs: NOW - 2 * 60000, noted: false, missed: false },   // answered, no note, 2 m
+    { id: 'mN', startMs: NOW - 1 * 60000, noted: true, missed: true },     // missed but NOTED → normal noted group
+    { id: 'm2', startMs: NOW - 90 * 60000, noted: false, missed: true },   // missed, 90 m
+  ];
+  const threads = [{ id: 'fbQ', last_inbound_at: iso(1), last_inbound_received_at: iso(1) }];   // customer spoke last, 1 m
+  const order = mergeNeedsHandling({ calls, threads, lastStaff: {} });
+  assert.deepEqual(order.map((x) => `${x.kind}:${x.id}`), [
+    'call:m1', 'call:m2',         // missed + no note, newest first — above everything
+    'fb:fbQ', 'call:u1',          // the rest of "nobody answered yet", newest first
+    'call:mN',                    // noted
+  ]);
+  assert.deepEqual(order.map((x) => x.missed), [true, true, false, false, false]);
+});
+
+test('the 📞 badge turns red while a missed call has no note', () => {
+  assert.equal(stripBadges({ mode: 'ok', fbActive: 0, calls: { count: 2, ringing: false, missed: true } }).phone.missed, true);
+  assert.equal(stripBadges({ mode: 'ok', fbActive: 0, calls: { count: 2, ringing: false } }).phone.missed, false);
+  assert.match(src('messenger-tray.js'), /strip\.classList\.toggle\('has-missed', b\.phone\.missed\);/);
+  assert.match(src('messenger-tray.css'), /\.mtray-strip\.has-missed \.mtray-pcount \{ background: #dc2626;/);
 });

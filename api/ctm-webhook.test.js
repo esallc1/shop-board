@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
-import handler, { redactHeaders, unixToIso, mapCallRow, mapRecordingRow } from './ctm-webhook.js';
+import handler, { redactHeaders, unixToIso, mapCallRow, mapRecordingRow, mapEndStatus, endStatusFilter } from './ctm-webhook.js';
 
 test('strips both Vercel credential headers, keeps everything else', () => {
   const incoming = {
@@ -318,7 +318,7 @@ test('a second end delivery for the same ctm_call_id cannot duplicate (on-confli
   assert.match(rec.init.headers.Prefer, /resolution=ignore-duplicates/, 'ON CONFLICT DO NOTHING');
 });
 
-test('end_immediate (a trigger value other than end) → logs only: no recordings, no calls', async () => {
+test('end_immediate → no recordings and never the calls upsert (it only records the end-of-call status — slice 4)', async () => {
   const { res, calls } = await runHandler(
     { url: '/api/ctm-webhook?trigger=end_immediate', body: END_WITH_AUDIO },
     () => fakeResponse({ ok: true, json: [] }),
@@ -349,4 +349,76 @@ test('mapRecordingRow returns null with no id or no/blank audio; call_id default
   assert.equal(mapRecordingRow({ audio: 'https://x' }, 1), null);
   assert.equal(mapRecordingRow({ id: 42, audio: 'https://x' }).call_id, null);   // unresolved call_id → null
   assert.equal(mapRecordingRow({ id: 42, audio: 'https://x', duration: 'nope' }, 1).duration_seconds, null);
+});
+
+// ── SLICE 4: the end-of-call result (missed calls) ─────────────────────────
+// Real payload shapes from ctm_webhook_log (2026-09): call_status is the truth,
+// dial_status can say 'completed' on a missed call.
+const END_MISSED = JSON.stringify({ id: 4415052381, call_status: 'no answer', dial_status: 'completed', status: 'no answer', duration: 21, talk_time: 0, ring_time: 21, hold_time: 0, unix_time: 1758800000, audio: null });
+const END_BUSY = JSON.stringify({ id: 4415052382, call_status: 'busy', dial_status: 'busy', duration: 3, talk_time: 0, unix_time: 1758800000 });
+const END_ANSWERED = JSON.stringify({ id: 4415052380, call_status: 'answered', dial_status: 'completed', duration: 53, talk_time: 41, ring_time: 12, unix_time: 1758800000,
+  audio: 'https://api.calltrackingmetrics.com/accounts/1/calls/4415052380/recording' });
+const isStatusPatch = (c) => c.init && c.init.method === 'PATCH' && isCallsUrl(c.url);
+
+test('mapEndStatus: call_status (not dial_status) + ended_at, a positive CTM id only — nothing else in the patch', () => {
+  const m = mapEndStatus(JSON.parse(END_MISSED), '2026-09-26T01:00:00.000Z');
+  assert.deepEqual(m, { ctmId: 4415052381, status: 'no answer', patch: { call_status: 'no answer', ended_at: '2026-09-26T01:00:00.000Z' } });
+  assert.equal(mapEndStatus(JSON.parse(END_ANSWERED), 'x').status, 'answered');
+  assert.equal(mapEndStatus({ id: 5, call_status: '  Busy ' }, 'x').status, 'busy');
+  assert.equal(mapEndStatus({ id: -1758841234567000, call_status: 'no answer' }, 'x'), null, 'a Desk + Add row never');
+  assert.equal(mapEndStatus({ id: 0, call_status: 'no answer' }, 'x'), null);
+  assert.equal(mapEndStatus({ id: 5, dial_status: 'completed' }, 'x'), null, 'no call_status → nothing');
+  assert.equal(mapEndStatus({ id: 5, call_status: '' }, 'x'), null);
+  assert.equal(mapEndStatus(null, 'x'), null);
+});
+
+test('endStatusFilter: answered always lands; a missed result never downgrades an answered call', () => {
+  assert.equal(endStatusFilter(7, 'answered'), 'ctm_call_id=eq.7');
+  assert.equal(endStatusFilter(7, 'no answer'), 'ctm_call_id=eq.7&or=(call_status.is.null,call_status.neq.answered)');
+  assert.equal(endStatusFilter(7, 'busy'), 'ctm_call_id=eq.7&or=(call_status.is.null,call_status.neq.answered)');
+});
+
+test('end + end_immediate: one PATCH of call_status + ended_at by ctm_call_id — never a POST, never the notes', async () => {
+  for (const trigger of ['end', 'end_immediate']) {
+    const { res, calls } = await runHandler(
+      { url: `/api/ctm-webhook?trigger=${trigger}`, body: END_MISSED },
+      () => fakeResponse({ ok: true, json: [] }),
+    );
+    assert.equal(res.statusCode, 200);
+    const p = calls.filter(isStatusPatch);
+    assert.equal(p.length, 1, trigger);
+    assert.match(p[0].url, /\/rest\/v1\/calls\?ctm_call_id=eq\.4415052381&or=\(call_status\.is\.null,call_status\.neq\.answered\)$/);
+    assert.deepEqual(Object.keys(p[0].body).sort(), ['call_status', 'ended_at'], 'exactly the two columns — never note / next_step / customer');
+    assert.equal(p[0].body.call_status, 'no answer');
+    assert.equal(calls.filter(isCallsUpsert).length, 0, 'never creates a row');
+  }
+  const busy = await runHandler({ url: '/api/ctm-webhook?trigger=end_immediate', body: END_BUSY }, () => fakeResponse({ ok: true, json: [] }));
+  assert.equal(busy.calls.filter(isStatusPatch)[0].body.call_status, 'busy');
+  // answered: no downgrade guard needed — it always lands.
+  const ans = await runHandler({ url: '/api/ctm-webhook?trigger=end', body: END_ANSWERED }, (url) =>
+    String(url).includes('/rest/v1/calls?ctm_call_id=eq.4415052380&select') ? fakeResponse({ ok: true, json: [{ id: 55 }] }) : fakeResponse({ ok: true, json: [] }));
+  assert.match(ans.calls.filter(isStatusPatch)[0].url, /ctm_call_id=eq\.4415052380$/);
+  assert.equal(ans.calls.filter(isRecordingsInsert).length, 1, 'the recording is still captured on end');
+});
+
+test('the start webhook and a payload without call_status never PATCH the end-of-call status', async () => {
+  const start = await runHandler({ url: '/api/ctm-webhook', body: START_BODY }, () => fakeResponse({ ok: true, json: [{ id: 1 }] }));
+  assert.equal(start.calls.filter(isStatusPatch).filter((c) => 'call_status' in (c.body || {})).length, 0);
+  const noStatus = await runHandler({ url: '/api/ctm-webhook?trigger=end', body: JSON.stringify({ id: 4380799274, dial_status: 'completed', duration: 30 }) }, () => fakeResponse({ ok: true, json: [] }));
+  assert.equal(noStatus.calls.filter(isStatusPatch).length, 0);
+});
+
+test('before the migration (the columns missing): the webhook logs and still answers 200', async () => {
+  const savedWarn = console.warn; const warns = [];
+  console.warn = (...a) => warns.push(a.join(' '));
+  try {
+    const { res } = await runHandler(
+      { url: '/api/ctm-webhook?trigger=end_immediate', body: END_MISSED },
+      (url, init) => (init && init.method === 'PATCH')
+        ? fakeResponse({ ok: false, status: 400, errBody: { code: 'PGRST204', message: "Could not find the 'call_status' column of 'calls'" } })
+        : fakeResponse({ ok: true, json: [] }),
+    );
+    assert.equal(res.statusCode, 200);
+  } finally { console.warn = savedWarn; }
+  assert.ok(warns.some((w) => /run migrations\/20260926_calls_call_status/.test(w)));
 });

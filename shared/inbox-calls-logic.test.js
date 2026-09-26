@@ -50,8 +50,8 @@ test('rows: customer name > caller ID name > number; status says ringing / needs
   assert.equal(callRowStatus({ source: 'Direct', ringing: true }), 'Direct · ringing');
   assert.equal(callRowStatus({ source: 'Facebook' }), 'Facebook · no note yet');
   assert.equal(callRowStatus({ noted: true }), 'noted — close it when done');
-  assert.deepEqual(stripCalls([{ startMs: NOW - 5000 }, { startMs: NOW - 500000 }], NOW), { count: 2, ringing: true });
-  assert.deepEqual(stripCalls([], NOW), { count: 0, ringing: false });
+  assert.deepEqual(stripCalls([{ startMs: NOW - 5000 }, { startMs: NOW - 500000 }], NOW), { count: 2, ringing: true, missed: false });
+  assert.deepEqual(stripCalls([], NOW), { count: 0, ringing: false, missed: false });
 });
 
 test('static: the floating card stack is GONE; the card is handed to the tray; its writes and the dry-run hook are untouched', () => {
@@ -79,7 +79,7 @@ test('static: the tray mounts the calls area, takes queued cards, opens on a cal
   // The fold / auto-open rules live in shared/inbox-list-logic.js (behaviour-tested in
   // inbox-list-logic.test.js); the tray must use them with the same inputs as slice 1.
   assert.match(tray, /const next = uiAfterCallChange\(\{\s*added, ringing, calls: calls\(\), ui: st\.ui, threadOpen: !!st\.openThreadId,\s*staleOpen: st\.showStale, mode: st\.mode, fbWaiting: st\.waiting\.length,\s*\}\);/, 'only a call ringing NOW opens the tray');
-  assert.match(src('inbox-calls.js'), /onChange\(\{ added: true, ringing: isRinging\(Number\(card\.dataset\.ringStart\), Date\.now\(\)\) \}\)/);
+  assert.match(src('inbox-calls.js'), /onChange\(\{ added: true, ringing: isRinging\(Number\(card\.dataset\.ringStart\), Date\.now\(\)\) && !hasEnded\(card\._call\) \}\)/, 'an ended call never opens the tray');
   assert.doesNotMatch(tray, /readTuck|writeTuck|cdMtrayTuckedAt/, 'the old "remember I tucked it" rule is gone (it never opens on load now)');
   assert.match(tray, /newInbound: hasNewInbound\(prevNewest, st\.newest\) && !!st\.waiting\.length,/, 'a newly arrived message opens it');
   assert.match(tray, /const count = waitingCount\(\{ mode: st\.mode, fbActive: st\.waiting\.length, calls: calls\(\) \}\);/, 'calls count as waiting (the tray only folds when both are handled)');
@@ -195,4 +195,53 @@ test('static: the live listener and the reload backfill draw the SAME line (ctm_
   assert.match(board, /import \* as InboxCallsLogic from '\.\/shared\/inbox-calls-logic\.js';\s*window\.InboxCallsLogic = InboxCallsLogic;/);
   // The made-up id + Add uses really is negative.
   assert.match(src('../api/desk-appointment.js'), /return -base;/);
+});
+
+/* ── Slice 4: missed calls ──────────────────────────────────────────────── */
+import { isMissed, hasEnded, MISSED_STATUSES } from './inbox-calls-logic.js';
+
+test('missed = CTM said no answer / busy / failed; NULL = no end event yet (never "missed" without CTM saying so)', () => {
+  for (const s of ['no answer', 'No Answer', ' busy ', 'failed', 'no-answer']) assert.equal(isMissed({ call_status: s }), true, s);
+  for (const s of ['answered', 'in progress', '', null, undefined]) assert.equal(isMissed({ call_status: s }), false, String(s));
+  assert.equal(isMissed(null), false);
+  assert.equal(isMissed({}), false, 'columns not there yet → not missed');
+  assert.deepEqual(MISSED_STATUSES, ['no answer', 'no-answer', 'busy', 'failed']);
+  assert.equal(hasEnded({ ended_at: '2026-09-26T01:00:00Z' }), true);
+  assert.equal(hasEnded({ call_status: 'answered' }), true);
+  assert.equal(hasEnded({}), false);
+  assert.equal(hasEnded(null), false);
+});
+
+test('an ENDED call stops ringing at once: never the pinned glance, never "ringing" on the strip', () => {
+  const e = (id, agoS, extra = {}) => ({ id, startMs: NOW - agoS * 1000, ...extra });
+  assert.equal(pickRinging([e('a', 10, { ended: true }), e('b', 30)], NOW), 'b', 'the ended newer call is skipped');
+  assert.equal(pickRinging([e('a', 10, { ended: true })], NOW), null);
+  assert.equal(stripCalls([e('a', 10, { ended: true })], NOW).ringing, false);
+});
+
+test('rows: a missed call says "Missed" (red); the strip knows a missed call still has no note', () => {
+  assert.equal(callRowStatus({ source: 'Direct', missed: true }), 'Direct · Missed · no note yet');
+  assert.equal(callRowStatus({ source: 'Direct', missed: true, noted: true }), 'Direct · Missed · noted — close it when done');
+  assert.equal(callRowStatus({ source: 'Direct', missed: true, ringing: true }), 'Direct · ringing', 'still ringing → not yet missed');
+  assert.equal(callRowStatus({ source: 'Direct', missed: false }), 'Direct · no note yet');
+  assert.equal(stripCalls([{ startMs: 1, missed: true, noted: false }], NOW).missed, true);
+  assert.equal(stripCalls([{ startMs: 1, missed: true, noted: true }], NOW).missed, false, 'noted → the badge is no longer red');
+  const slot = src('inbox-calls.js');
+  assert.match(slot, /\$\{missedOpen \? ' is-missed' : ''\}/);
+  assert.match(slot, /ended: hasEnded\(card\._call\),/);
+  assert.match(slot, /\.map\(\(e\) => \(\{ id: e\.id, startMs: e\.startMs, noted: e\.noted, missed: e\.missed, html: rowHtml\(e, nowMs\) \}\)\)/);
+});
+
+test('static: the card hears the END of a call (realtime UPDATE) — only call_status + ended_at are taken, never the note', () => {
+  const board = src('../advisor-board.html');
+  const cc = board.slice(board.indexOf('(function callerCard()'), board.indexOf('window.cdBackfillCalls = backfillRecentCalls;'));
+  assert.match(cc, /\{ event: 'UPDATE', schema: 'public', table: 'calls' \}, \(payload\) => handleCallUpdate\(payload\.new\)\)/);
+  const fn = cc.slice(cc.indexOf('function handleCallUpdate('), cc.indexOf('function subscribeCalls('));
+  assert.match(fn, /isRealCall\(row\)/, 'a + Add row never');
+  assert.match(fn, /card\._call\.call_status = row\.call_status \?\? null;\s*card\._call\.ended_at = row\.ended_at \?\? null;/);
+  assert.doesNotMatch(fn, /Object\.assign\(card\._call|\.note\b|next_step|customer_id/, 'nothing else from the row');
+  assert.match(fn, /dispatchEvent\(new CustomEvent\('cc:glance', \{ bubbles: true \}\)\)/, 'the tray re-arranges');
+  assert.match(cc, /<div class="cc-missed" role="status" hidden>● Missed call<\/div>/);
+  // The reload backfill brings the new columns back (select *), whether or not they exist yet.
+  assert.match(cc, /const \{ data, error \} = await db\.from\('calls'\)\.select\('\*'\)/);
 });

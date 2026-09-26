@@ -73,6 +73,27 @@ An incoming call no longer floats over the board: it rings as a pinned caller-ID
   on focus / visibility, and on the 60 s health tick. (It was the last 15 minutes, 5 cards.) A call closed on
   this board after being noted has `noted_at` set, so it never comes back.
 
+## 3a. Missed calls (slice 4 — staging; needs `migrations/20260926_calls_call_status_*.sql`)
+- **Where "missed" comes from.** CTM's `end` and `end_immediate` webhooks carry `call_status` — `answered`,
+  `no answer`, `busy` (rarely `failed`). `api/ctm-webhook.js` (`applyEndStatus`) PATCHes **only**
+  `calls.call_status` + `calls.ended_at` onto the existing row by positive `ctm_call_id` — never a new row
+  (an end before its start just does nothing; the migration's backfill can fill it), never the notes, and an
+  `answered` result is never downgraded (the filter `or=(call_status.is.null,call_status.neq.answered)` on any
+  other result). **Not `dial_status`** — it says `completed` on some missed calls. No voicemail flag exists
+  (CTM sends none; no missed call carried audio in the logged payloads).
+- **Missed = `no answer` / `busy` / `failed`** (`isMissed`). `call_status` NULL = no end event yet → the call
+  behaves exactly as before; it is never "missed" without CTM saying so.
+- **In the tray.** The card hears the end as a realtime **UPDATE** (`handleCallUpdate` — takes only
+  `call_status` + `ended_at`, never the note being typed) and re-arranges:
+  - an **ended** call stops ringing at once (`hasEnded` → no pinned glance, no pulse, no auto-open);
+  - a missed call's row reads **"Missed · no note yet"** in red (`.is-missed`), its card shows **"● Missed call"**;
+  - **order A (Cris, 2026-09-26):** a missed call with no note sits at the **very top** of "Needs handling",
+    above everything — unanswered Facebook threads included (`mergeNeedsHandling` rank 0);
+  - the 📞 badge turns **red** while any missed call has no note (`has-missed`).
+  - It leaves "Needs handling" the same way as any call: a note / next step / filed, then Close.
+- **Before the migration runs** the columns don't exist: the board reads `select('*')` (nothing to show), the
+  webhook logs "not there yet" and still answers 200. Nothing breaks either way round.
+
 ## 4. The opened call — the card inside the tray (screen 2)
 - Tapping a row (or "Answered → notepad") moves the **same call card** into the tray's detail view ("‹ All"
   puts it back). It is the callerCard code in `advisor-board.html`, unchanged in what it saves:
@@ -121,8 +142,8 @@ The tray code (`inbox-calls.js`) reads and writes nothing itself (test-locked). 
   has `calls` in the publication (cards pop live there today). Fix = add `calls` on the SANDBOX only (Cris,
   the prod-vs-sandbox publication comparison query).
 - **Per-board "Needs handling"** — shared state needs `handled_at` / `handled_by_name` (slice 5).
-- **Answered vs missed** isn't known yet — CTM's `call_status` from the end webhook (slice 4: missed =
-  `no answer`, `busy`, `failed`, ~19 % of calls).
+- **Missed calls** (§3a) are built on staging and need the `call_status` migration (Cris, by hand, sandbox
+  first). Until it runs, nothing shows as missed.
 - **Done / Attach / Start RO / Not a customer** show as "coming" (slice 5).
 - Below 900 px the open tray overlays the board (as before); the folded strip still pushes.
 - A modal (z 3000) covers the tray (z 2900) — a call that rings while a modal is open shows once the modal
@@ -140,11 +161,13 @@ The tray code (`inbox-calls.js`) reads and writes nothing itself (test-locked). 
   `window.cdCallInboxPending`, the strip badges, fold-to-strip, the shared heading; `messenger-tray.css` — the
   strip column, the glance, the card-in-tray look.
 - `advisor-board.html` — the callerCard IIFE: `placeCard` / `hasCard` (hand-off to the tray), `setGlance`,
-  `tryClose`, `loadCardRecording` / `wireCardInTray`, the next-step chips, the backfill (today, 25), and the
+  `tryClose`, `loadCardRecording` / `wireCardInTray`, `renderMissed` / `handleCallUpdate` (slice 4, the realtime
+  UPDATE listener), the next-step chips, the backfill (today, 25), and the
   richer read in `loadDetail` (RO `closed_at` + vehicle). The floating `#callCardStack` (z 4000) is gone.
 - `shared/bottom-drawer.css` — `body.mtray-tucked .bdr { --dp-right: 48px }`.
 
 ## Session change log
+- **2026-09-26** — (staging) slice 4 missed calls: `api/ctm-webhook.js` records `call_status` + `ended_at` from both end webhooks; the tray hears it (realtime UPDATE), stops the ring, shows "Missed · no note yet" in red at the very top (order A), "● Missed call" on the card, red 📞 badge. Needs `migrations/20260926_calls_call_status_*.sql` (written, not run).
 - **2026-09-25** — security slice 3 (a)3 **shipped to prod** ([[call-window-desk]] change log): every browser `calls` write is now server-side; lockdown files written, not run.
 - **2026-09-25** — **the + Add no-ring fix shipped to prod** (Cris's OK): fast-forward `5db4207..9a8cfb1` (code = `e73cd37`; `9a8cfb1` = docs-only on top). www / board. / apex `/api/version` = `9a8cfb1` (steady); `advisor-board.html`, `shared/inbox-calls-logic.js` (+test) byte-identical to `e73cd37`, docs to `9a8cfb1`, on all three; CLAUDE.md 404. Prod read-only (not signed in, nothing written): page loads, tray folded, `inbox-calls-logic.js` 200, `isRealCall` loaded (a negative id → false), no console errors. A real + Add on prod: Cris.
 - **2026-09-25** — the + Add fix driven signed in on test.* at `e73cd37` (ZZ Test Advisor). A listen-only spy on the same realtime feed proved the rows reach the page. **+ Add** (real clicks/keys: (239) 555-0620 "TEST ADD NORING", drop-off today) → row 304, `ctm_call_id` −1790383405207863, the INSERT event arrived — after 10 s the tray was still folded, no card, no ring, 📞 badge hidden; the drop-off is on the Desk. **A fake CTM ring** posted to test.*'s webhook (id 990000601, "TEST REAL RING") → row 305 rang: the tray opened, the pinned glance "INCOMING · New caller · (239) 555-0621", 📞 1 pulsing. Left on the sandbox: rows 304 (drop-off today) and 305 (an untouched test call).

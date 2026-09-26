@@ -211,6 +211,13 @@ body.mtray-tucked .main-area { padding-right: 48px; }
 .mtray-iconbtn.is-primary { background: var(--accent, #5b5ef4); border-color: var(--accent, #5b5ef4); color: #fff; }
 .mtray-iconbtn.is-primary:hover { filter: brightness(1.05); background: var(--accent, #5b5ef4); }
 .mtray-callrow.is-unnoted .mtray-preview { color: #b45309; font-weight: 600; }
+/* Missed call, no note yet (slice 4): red — and it sorts to the very top. */
+.mtray-callrow.is-missed .mtray-preview { color: #b91c1c; font-weight: 700; }
+.mtray-callrow.is-missed { box-shadow: inset 3px 0 0 #dc2626; }
+.mtray-strip.has-missed .mtray-pcount { background: #dc2626; color: #fff; }
+/* The "Missed call" line on the card. */
+.call-card .cc-missed { margin: 2px 0 6px; font-size: 12.5px; font-weight: 700; color: #b91c1c; }
+.call-card .cc-missed[hidden] { display: none; }
 /* Nobody answered yet (slice 2a): the same amber for a Facebook thread where the customer spoke last. */
 .mtray-row.is-unanswered .mtray-win { background: #fff4e0; color: #b45309; font-weight: 600; }
 

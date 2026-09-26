@@ -27,7 +27,7 @@
    someone is typing). Nothing here reads or writes the database.
    ============================================================ */
 import {
-  ringStartMs, isRinging, pickRinging, callRowName, callRowStatus, stripCalls, callerGlance,
+  ringStartMs, isRinging, pickRinging, callRowName, callRowStatus, stripCalls, callerGlance, isMissed, hasEnded,
 } from './inbox-calls-logic.js';
 
 const TICK_MS = 5000;
@@ -58,6 +58,8 @@ export function mountCallSlot({ section, onChange, timeLabel }) {
     inDetail: detailSlot.contains(card),
     answered: card.dataset.answered === '1',
     noted: !!card._noted,
+    ended: hasEnded(card._call),        // slice 4: CTM's end event arrived — it no longer rings
+    missed: isMissed(card._call),       // …and nobody answered
     card,
   });
   const numberOf = (call) => call.caller_formatted
@@ -74,11 +76,12 @@ export function mountCallSlot({ section, onChange, timeLabel }) {
     const call = c._call || {};
     const g = glanceOf(c);
     const name = callRowName({ customerName: g.who !== 'New caller' ? g.who : '', cnam: call.cnam, number: g.phone });
-    const ringing = isRinging(e.startMs, nowMs) && !e.answered;
+    const ringing = isRinging(e.startMs, nowMs) && !e.answered && !e.ended;
     const when = typeof timeLabel === 'function' && call.started_at ? timeLabel(call.started_at, nowMs) : '';
-    return `<button type="button" class="mtray-row mtray-callrow${ringing ? ' is-ringing' : ''}${e.noted ? '' : ' is-unnoted'}" data-call-row="${esc(e.id)}">
+    const missedOpen = e.missed && !e.noted;
+    return `<button type="button" class="mtray-row mtray-callrow${ringing ? ' is-ringing' : ''}${e.noted ? '' : ' is-unnoted'}${missedOpen ? ' is-missed' : ''}" data-call-row="${esc(e.id)}">
       <div class="mtray-row-top"><span class="mtray-name">📞 ${esc(name)}</span><span class="mtray-time">${esc(when)}</span></div>
-      <div class="mtray-preview">${esc(callRowStatus({ source: g.source, ringing, noted: e.noted }))}</div>
+      <div class="mtray-preview">${esc(callRowStatus({ source: g.source, ringing, noted: e.noted, missed: e.missed }))}</div>
     </button>`;
   }
 
@@ -172,21 +175,21 @@ export function mountCallSlot({ section, onChange, timeLabel }) {
       arrange();
       // `ringing`: the tray opens by itself only for a call ringing NOW — a backfilled
       // call from earlier today (e.g. after a reload) just joins the list quietly.
-      if (typeof onChange === 'function') onChange({ added: true, ringing: isRinging(Number(card.dataset.ringStart), Date.now()) });
+      if (typeof onChange === 'function') onChange({ added: true, ringing: isRinging(Number(card.dataset.ringStart), Date.now()) && !hasEnded(card._call) });
     },
     has: (id) => cards().some((c) => c.dataset.callId === String(id)),
     count: () => cards().length,
     // Count every call on this board; only a not-yet-opened one makes the badge pulse.
     strip: () => {
       const list = cards().map(entry);
-      return { count: list.length, ringing: stripCalls(list.filter((e) => !e.answered)).ringing };
+      return { count: list.length, ringing: stripCalls(list.filter((e) => !e.answered)).ringing, missed: stripCalls(list).missed };
     },
     inDetail: () => !!detailSlot.querySelector('.call-card'),
     // The call rows for the tray's one list: every card except the pinned glance and
     // the opened one, as { id, startMs, noted, html } (unordered — the tray merges).
     rows: (nowMs = Date.now()) => cards().map(entry)
       .filter((e) => !e.inDetail && e.id !== pinnedId)
-      .map((e) => ({ id: e.id, startMs: e.startMs, noted: e.noted, html: rowHtml(e, nowMs) })),
+      .map((e) => ({ id: e.id, startMs: e.startMs, noted: e.noted, missed: e.missed, html: rowHtml(e, nowMs) })),
     // A row was tapped in the tray's list → that card opens here.
     open(id) {
       const card = cards().find((c) => c.dataset.callId === String(id));
