@@ -33,7 +33,7 @@ An incoming call no longer floats over the board: it rings as a pinned caller-ID
   `calls` row too — with a made-up **negative** `ctm_call_id` and no `started_at` ([[call-window-desk]] §8). It
   is refused first: no card, no ring, the tray doesn't open; it lives on the Desk only. The reload backfill draws
   the same line in its query (`ctm_call_id > 0`) — a test keeps the two together. (Before 2026-09-25 a + Add
-  drop-off rang as "INCOMING · —" for 2 minutes and opened the tray — seen on prod.)
+  drop-off rang as "INCOMING · —" for 2 minutes and opened the tray — seen on prod. Fixed, LIVE on prod `e73cd37`.)
 - A call **rings for 2 minutes** from its `started_at` (`RING_MS`; a dry-run card with no start rings from when
   it arrived). The **newest ringing call nobody has opened yet** gets the pinned glance at the top of the tray
   (`pickRinging`); other ringing calls are rows marked "ringing".
@@ -145,6 +145,7 @@ The tray code (`inbox-calls.js`) reads and writes nothing itself (test-locked). 
 - `shared/bottom-drawer.css` — `body.mtray-tucked .bdr { --dp-right: 48px }`.
 
 ## Session change log
+- **2026-09-25** — **the + Add no-ring fix shipped to prod** (Cris's OK): fast-forward `5db4207..9a8cfb1` (code = `e73cd37`; `9a8cfb1` = docs-only on top). www / board. / apex `/api/version` = `9a8cfb1` (steady); `advisor-board.html`, `shared/inbox-calls-logic.js` (+test) byte-identical to `e73cd37`, docs to `9a8cfb1`, on all three; CLAUDE.md 404. Prod read-only (not signed in, nothing written): page loads, tray folded, `inbox-calls-logic.js` 200, `isRealCall` loaded (a negative id → false), no console errors. A real + Add on prod: Cris.
 - **2026-09-25** — the + Add fix driven signed in on test.* at `e73cd37` (ZZ Test Advisor). A listen-only spy on the same realtime feed proved the rows reach the page. **+ Add** (real clicks/keys: (239) 555-0620 "TEST ADD NORING", drop-off today) → row 304, `ctm_call_id` −1790383405207863, the INSERT event arrived — after 10 s the tray was still folded, no card, no ring, 📞 badge hidden; the drop-off is on the Desk. **A fake CTM ring** posted to test.*'s webhook (id 990000601, "TEST REAL RING") → row 305 rang: the tray opened, the pinned glance "INCOMING · New caller · (239) 555-0621", 📞 1 pulsing. Left on the sandbox: rows 304 (drop-off today) and 305 (an untouched test call).
 - **2026-09-25** — (staging) only a real call rings: `isRealCall` (positive `ctm_call_id`) at the top of `handleNewCall`; a Desk + Add row no longer pops "INCOMING · —" / opens the tray. No DB change.
 - **2026-09-25** — security slice 3 (a)2 (the Desk) **shipped to prod** ([[call-window-desk]] change log).
