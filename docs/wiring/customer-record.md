@@ -327,7 +327,7 @@ The cache stays (re-reading ~2700 rows per keystroke is not a fix). Three nets m
 
 | Net | Covers | Where |
 |---|---|---|
-| `invalidateCustAllList()`, published as **`window.cdInvalidateCustList`** | every customer write **in this page** | called at all five write sites: the wizard's create (`createCustomer`) and "Edit details" (`saveCustomerDetails`), the record's Edit form (`saveCustEdit`, §4f), and the Desk attach phone-learn / un-learn (`setSecondaryIfNull`, the un-attach clear) |
+| `invalidateCustAllList()`, published as **`window.cdInvalidateCustList`** | every customer write **in this page** | called at every write site: the wizard's create (`createCustomer`) and "Edit details" (`saveCustomerDetails`), the record's Edit form (`saveCustEdit`, §4f) — and, since security slice 3 (a)3, after the Desk attach phone-learn / un-learn that now run **on the server** (`api/calls.js` `learn_phone` / `unattach` → the board invalidates on `r.learned` / `r.unlearned`) |
 | Realtime channel **`advisor-board-customers-live`** on `customers` | **another tab, another person** | same idiom as `-cdros-live` / `-desk-live`. ⚠ **Dead on staging:** the sandbox's `supabase_realtime` publication has **zero tables** (verified 2026-09-17), so nothing on `test.*` exercises realtime — the other two nets are what make cross-tab work there |
 | `VIEW_REFRESH.customer.refetch` marks it stale | returning to the tab, incl. a dead socket | the backstop — marks stale, never fetches on its own |
 
@@ -470,8 +470,10 @@ has filed yet:
 
 ## 6b. Write 2 — "File to RO…" (the manual re-file)
 The Phase 2 companion: a `<select>` on each **needs-filing** entry that files the call to one
-of **this customer's** ROs (`fileCallToRo`). It sits beside the recording→vehicle picker so
-the two read as one filing block.
+of **this customer's** ROs (`fileCallToRo` → `api/calls.js` `file_ro` since security slice 3
+(a)3: the server refuses an RO of a different customer (409), clears the robot's tags, and stamps
+the noted-by only if none yet). It sits beside the recording→vehicle picker so the two read as one
+filing block.
 
 - **All of the customer's ROs, newest first, stage-labelled** — `#6009 · RO`, `#5451 · Closed`.
   **Closed ROs are included on purpose**: the real case is a customer ringing a week after
@@ -606,6 +608,7 @@ not-loaded case, then renders:
   board** (the accordion groups calls itself via `computeCallGroups`).
 
 ## Session change log
+- **2026-09-25** — (staging) security slice 3 (a)3: File to RO goes through `api/calls.js` `file_ro`; the cache-invalidation table updated for the server-side phone learn / un-learn.
 - 2026-09-23 — §7 rewritten: the list's own search box is gone (top-bar search replaces it); browse-only list; ambiguous phone → top-bar search with the number; `cdOpenCustomerAtCall` (focus on one call, highlight); `cdEnsureCustList` exposed. `shared/cust-cache-guard.test.js` updated in place to the new shape.
 - 2026-09-21 — Shipped to prod at `6733056`; `shared/customer-record.js` + `advisor-board.html` byte-identical to git on www, board.*, apex.
 - 2026-09-21 — Timeline entries show the Desk appointment + outcome line and an "Added on the Desk" tag; every call time/sort on the record uses `started_at` → `created_at` (`cdCallWhen` / `compareCallWhen`). See [[call-window-desk]] §10.

@@ -165,10 +165,11 @@ the backlog (17 rows). It fires from all three human attach paths:
   and **only** when the save didn't itself set `ro_id` (a human's explicit pick always wins).
 
 **Both writes are atomic in the database, not in JS.** The webhook PATCHes with
-`?id=eq.<id>&customer_id=is.null&not_a_customer_at=is.null`; the board updates with
-`.is('ro_id', null)`. If a human got there first, the write matches **zero rows** and the robot
-loses the race harmlessly. This is the same seam as `setSecondaryIfNull` in
-`shared/call-attach.js`: the decision belongs to the DB, not to a possibly-stale snapshot.
+`?id=eq.<id>&customer_id=is.null&not_a_customer_at=is.null`; call site 2 runs on the server since
+security slice 3 (`api/calls.js` `auto_file_ro`, PATCH with `ro_id=is.null`). If a human got there
+first, the write matches **zero rows** and the robot loses the race harmlessly. Same seam as the
+phone learn (`api/calls.js` `learn_phone`, `phone_secondary=is.null`): the decision belongs to the
+DB, not to a possibly-stale snapshot.
 
 ## 5. The backfills (done, on the sandbox only)
 Both were written out, reviewed, and run **by hand** against `efhmefpaijjncwgbvwki`.
@@ -225,8 +226,9 @@ so new columns are covered automatically.
 - **Call site 1:** `api/ctm-webhook.js` — `autoAttachCall`, called from the `trigger === null`
   branch after `upsertCall` (which now returns the upserted row).
 - **Call site 2:** `advisor-board.html` — `autoFileRoForCall` (script top level, shared by both
-  IIFEs); wired into `performAttach`, `persistCustomer`, `saveNote`. Tag clearing in
-  `performUnattach` and in `saveNote`'s `ro_id` branch. `LOG_COLS_AUTO` is the third select
+  IIFEs) → `api/calls.js` `auto_file_ro` (the RO lookup + `pickOpenRoAt` + the guarded write are
+  on the server); called from `performAttach`, `persistCustomer`, `saveNote`. Tag clearing in
+  `api/calls.js` `unattach` (+ an ro_id the robot filed) and in `note` / `file_ro` (a person's RO pick). `LOG_COLS_AUTO` is the third select
   tier that loads the auto columns (a fourth, `LOG_COLS_OUTCOME`, now sits on top of it and
   falls back to it — [[call-window-desk]] §10).
 - **Migrations (hand-run):** `migrations/20260818_call_auto_attach.sql` (undo tag),
@@ -244,7 +246,7 @@ so **closed ROs are listed**, which is precisely the case the robot cannot handl
 |---|---|---|
 | Where | a persistent **"Filed to RO"** row on the popup | a `<select>` on each **needs-filing** entry |
 | When | any disposition, or none | **confirmed** calls only |
-| Writes via | `saveNote({ ro_id })` | direct `calls` update |
+| Writes via | `saveNote({ ro_id })` → `api/calls.js` `note` | `api/calls.js` `file_ro` (only the call's own customer's RO) |
 | After | picker re-renders | `rerenderCustBody()` — the entry jumps out of needs-filing |
 
 **The rule both obey (non-negotiable): a human's touch clears the robot's file tags.**
@@ -286,6 +288,7 @@ This does not change anything the robot does: auto-attach still never writes a p
 circumstances, so no prompt ever appears for a machine attach.
 
 ## Session change log
+- **2026-09-25** — (staging) security slice 3: call site 2 (`auto_file_ro`), the un-attach tag clearing and the manual re-file run in `api/calls.js`; §3 seam + Where it lives + §7 table updated.
 - 2026-08-21 — **Run-count-as-env-guard retired.** No code or behaviour change here; §3 gained a
   warning that the per-run counts are history, not invariants. The `3333…` count fell 11 → 10
   when call 227 was filed to RO #6032 — `clearAutoFileTagsPatch()` working as designed. Anyone

@@ -10764,21 +10764,17 @@
     // record says who touched it. Then re-bucket: computeCallGroups moves the
     // call out of "needs filing" and up under its RO immediately.
     async function fileCallToRo(callId, roId) {
-      const AA = window.CallAutoAttach;
       const call = (custRecCallsAll || []).find(x => String(x.id) === String(callId));
-      const patch = { ro_id: roId || null, ...(AA ? AA.clearAutoFileTagsPatch() : {}) };
-      if (call && !call.noted_at) {
-        patch.noted_by_name = (CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
-        patch.noted_at = new Date().toISOString();
-      }
-      const { error } = await db.from('calls').update(patch).eq('id', callId);
-      if (error) {
-        console.error('[cust] file to RO failed', error);
-        alert('Could not file this call: ' + error.message);
-        rerenderCustBody();
+      // api/calls.js `file_ro`: only an RO of the call's own customer; the robot's
+      // tags cleared; the noted stamp (who/when from the server) only if none yet.
+      const r = await cdCallsWrite({ action: 'file_ro', call_id: Number(callId), ro_id: roId || null });
+      if (!r.ok) {
+        console.error('[cust] file to RO failed', r.status, r.error);
+        if (r.status !== 401) alert('Could not file this call: ' + (r.error || 'unknown error'));   // 401 → the red sign-in banner
+        rerenderCustBody();                                       // the picker snaps back to what's saved
         return;
       }
-      if (call) Object.assign(call, patch);
+      if (call && r.call) for (const k of ['ro_id', 'auto_ro_filed_at', 'auto_attach_run_id', 'noted_at', 'noted_by_name']) call[k] = r.call[k];
       rerenderCustBody();
     }
 
@@ -12344,7 +12340,6 @@
     // ── attach / un-attach / not-a-customer actions ──
     // All go through the tested shared/call-attach.js. customer_id is written
     // ONLY here (deliberate confirmation), never on passive render.
-    const l10Local = (s) => (window.cdLast10 ? window.cdLast10(s) : String(s == null ? '' : s).replace(/\D/g, '').slice(-10));
 
     // ── Phone learning: ATOMIC writer ──────────────────────────────────
     // The `customer` snapshot handed around here (from custIdx / attachAllCust)
@@ -12354,13 +12349,9 @@
     // zero rows → nothing is overwritten, and learned_phone is derived from the
     // row count, never from the snapshot. phone_primary is never a write target
     // (enforced in call-attach.js).
-    const setSecondaryIfNull = async (custId, value) => {
-      const r = await db.from('customers').update({ phone_secondary: value })
-        .eq('id', custId).is('phone_secondary', null).select('id');
-      if (r.error) throw r.error;
-      if (window.cdInvalidateCustList) window.cdInvalidateCustList();   // the list is searched by phone too
-      return (r.data || []).length;          // 1 = claimed the empty slot, 0 = already occupied
-    };
+    // The phone write itself (and un-learning it) happens on the SERVER now, in the
+    // same action as the call write (api/calls.js learn_phone / unattach): the
+    // empty-slot guard is still the database's (`phone_secondary=is.null`).
 
     // ── The "also save this number?" question ──────────────────────────
     // Attaching a call used to ALSO write the caller's number into the
@@ -12417,40 +12408,37 @@
       const p = pendingLearn; if (!p) return;
       pendingLearn = null;
       if (!yes) { rememberLearnDecline(p.customer.id, logCallsById[p.callId] ? logCallsById[p.callId].caller_bare : null); logLoad(); return; }
-      const CA = window.CallAttach;
       const call = logCallsById[p.callId];
-      try {
-        const learn = await CA.attachPhoneLearn({
-          callerBare: call ? call.caller_bare : null, customer: p.customer,
-          last10: window.cdLast10, setSecondaryIfNull,
-        });
-        if (learn.learnedPhone) {
-          // learned_phone is what lets un-attach clear the number again later.
-          const { error } = await db.from('calls').update({ learned_phone: true }).eq('id', p.callId);
-          if (error) console.error('[desk] learned_phone flag failed', error);
-          else if (call) call.learned_phone = true;
-          custIdx = null; attachAllCust = null;   // a number changed — drop the cached indexes
-        }
-      } catch (error) {
-        console.error('[desk] phone learn failed', error);
-        alert('Could not save the phone number: ' + (error.message || 'unknown error'));
+      // api/calls.js `learn_phone`: the customer's EMPTY phone_secondary (the
+      // database decides) and, only if that landed, learned_phone on the call.
+      const r = await cdCallsWrite({ action: 'learn_phone', call_id: Number(p.callId) });
+      if (!r.ok) {
+        console.error('[desk] phone learn failed', r.status, r.error);
+        if (r.status !== 401) alert('Could not save the phone number: ' + (r.error || 'unknown error'));
+      } else if (r.learned) {
+        if (call) call.learned_phone = true;
+        custIdx = null; attachAllCust = null;   // a number changed — drop the cached indexes
+        if (window.cdInvalidateCustList) window.cdInvalidateCustList();   // the list is searched by phone too
       }
       logLoad();
     }
 
     async function performAttach(call, customer) {
       const CA = window.CallAttach; if (!CA || !call || !customer) return;
-      const byName = (CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
       // Work out the phone question CONCURRENTLY with the attach write. The
       // attach is unconditional: it is never gated on the question, on the
       // answer, or on that lookup succeeding.
       const learnQ = planPhoneLearn(call, customer).catch(() => null);
       // Attach the call. learned_phone starts FALSE — nothing has been learned
       // yet, and it only becomes true if the advisor says yes (answerPhoneLearn).
-      const patch = CA.attachCallPatch(customer.id, byName, new Date().toISOString(), false);
-      const { error } = await db.from('calls').update(patch).eq('id', call.id);
-      if (error) { console.error('[desk] attach failed', error); alert('Could not attach: ' + error.message); return; }
-      Object.assign(call, patch);
+      // api/calls.js `attach` (attachCallPatch on the server; who/when from there).
+      const r = await cdCallsWrite({ action: 'attach', call_id: Number(call.id), customer_id: String(customer.id) });
+      if (!r.ok) {
+        console.error('[desk] attach failed', r.status, r.error);
+        if (r.status !== 401) alert('Could not attach: ' + (r.error || 'unknown error'));
+        return;                                       // the row stays as it was
+      }
+      for (const k of ['customer_id', 'attached_by_name', 'attached_at', 'learned_phone']) call[k] = r.call[k];
       // Auto-attach call site 2 — now that we know WHO, re-run the open-RO check
       // for the moment the call came in. Best effort; ro_id stays null unless
       // exactly one RO was open. Never blocks or fails the attach.
@@ -12461,49 +12449,35 @@
       logLoad();
     }
     async function performUnattach(call) {
-      const CA = window.CallAttach; if (!CA || !call) return;
-      // Decide BEFORE we overwrite learned_phone. Clears phone_secondary ONLY if
-      // this attach learned it — a pre-existing number is never deleted.
-      const clearsSecondary = CA.unattachClearsSecondary(call);
-      // The robot's marks come off with the attach. Un-attaching means "this
-      // call is not this person", so anything the machine derived from that
-      // link — including an ro_id IT filed — must go too. An ro_id a HUMAN
-      // filed is left standing (auto_ro_filed_at is null in that case).
-      const AA = window.CallAutoAttach;
-      const autoPatch = AA ? { ...AA.clearAutoTagsPatch(), ...(call.auto_ro_filed_at ? { ro_id: null } : {}) } : {};
-      if (clearsSecondary && call.customer_id) {
-        // Conditional delete: clear ONLY when phone_secondary STILL holds the
-        // exact number this attach wrote (canonical 10 digits). If it changed
-        // since, the guard matches zero rows and we touch nothing — so a stale
-        // learned_phone can never delete a number this call didn't write.
-        const key = l10Local(call.caller_bare);
-        const { error } = await db.from('customers').update({ phone_secondary: null })
-          .eq('id', call.customer_id).eq('phone_secondary', key).select('id');
-        if (error) { console.error('[desk] un-learn phone failed', error); alert('Could not update the customer: ' + error.message); return; }
-        if (window.cdInvalidateCustList) window.cdInvalidateCustList();   // the number just left this customer
+      if (!call) return;
+      // api/calls.js `unattach`, in ONE action: the link + the robot's marks (and an
+      // ro_id the robot filed) come off; the customer's phone_secondary is cleared
+      // ONLY if this attach learned it and it still holds exactly that number —
+      // decided on the server from the database row, not this snapshot.
+      const r = await cdCallsWrite({ action: 'unattach', call_id: Number(call.id) });
+      if (!r.ok) {
+        console.error('[desk] un-attach failed', r.status, r.error);
+        if (r.status !== 401) alert('Could not un-attach: ' + (r.error || 'unknown error'));
+        return;                                       // the row stays as it was
       }
-      const patch = { ...CA.unattachCallPatch(), ...autoPatch };
-      const { error } = await db.from('calls').update(patch).eq('id', call.id);
-      if (error) { console.error('[desk] un-attach failed', error); alert('Could not un-attach: ' + error.message); return; }
-      Object.assign(call, patch);
-      if (clearsSecondary) custIdx = null;
+      for (const k of ['customer_id', 'attached_by_name', 'attached_at', 'learned_phone', 'ro_id', 'auto_attached_at', 'auto_ro_filed_at', 'auto_attach_run_id']) call[k] = r.call[k];
+      if (r.unlearned) { custIdx = null; if (window.cdInvalidateCustList) window.cdInvalidateCustList(); }   // the number just left this customer
       logLoad();
     }
+    // Not a customer (spam / wrong number) and its undo — api/calls.js
+    // (notACustomerPatch / clearNotACustomerPatch on the server; who/when from there).
     async function performNotACustomer(call) {
-      const CA = window.CallAttach; if (!CA || !call) return;
-      const byName = (CHAT_IDENTITY && CHAT_IDENTITY.name) || null;
-      const patch = CA.notACustomerPatch(byName, new Date().toISOString());
-      const { error } = await db.from('calls').update(patch).eq('id', call.id);
-      if (error) { console.error('[desk] mark not-a-customer failed', error); alert('Could not mark: ' + error.message); return; }
-      Object.assign(call, patch);
+      if (!call) return;
+      const r = await cdCallsWrite({ action: 'not_a_customer', call_id: Number(call.id) });
+      if (!r.ok) { console.error('[desk] mark not-a-customer failed', r.status, r.error); if (r.status !== 401) alert('Could not mark: ' + (r.error || 'unknown error')); return; }
+      call.not_a_customer_at = r.call.not_a_customer_at; call.not_a_customer_by_name = r.call.not_a_customer_by_name;
       logLoad();
     }
     async function performClearNotACustomer(call) {
-      const CA = window.CallAttach; if (!CA || !call) return;
-      const patch = CA.clearNotACustomerPatch();
-      const { error } = await db.from('calls').update(patch).eq('id', call.id);
-      if (error) { console.error('[desk] clear not-a-customer failed', error); alert('Could not undo: ' + error.message); return; }
-      Object.assign(call, patch);
+      if (!call) return;
+      const r = await cdCallsWrite({ action: 'clear_not_a_customer', call_id: Number(call.id) });
+      if (!r.ok) { console.error('[desk] clear not-a-customer failed', r.status, r.error); if (r.status !== 401) alert('Could not undo: ' + (r.error || 'unknown error')); return; }
+      call.not_a_customer_at = null; call.not_a_customer_by_name = null;
       logLoad();
     }
 

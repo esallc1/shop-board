@@ -28,7 +28,22 @@
      edit          — the Edit modal: next_step + date + time/key box;
      reschedule    — a calendar drag: onto a timed slot clears the key box in the
                      same write (reschedulePatch).
-   The Call Log / customer record writers still write directly until (a)3.
+   Step (a)3 (2026-09-25) moves the CALL LOG + CUSTOMER RECORD writers
+   (shared/call-attach.js + call-auto-attach.js build every patch):
+     attach        — a person confirms the customer (attachCallPatch, learned_phone
+                     false); the robot's RO check follows through auto_file_ro;
+     learn_phone   — "also save this number?" → YES: the caller's number into the
+                     customer's EMPTY phone_secondary (the database decides empty:
+                     `phone_secondary=is.null` in the write — the July 29 stale-
+                     snapshot fix), and only if that landed, learned_phone = true —
+                     the customer write and the call write in ONE action;
+     unattach      — clears the link, the robot's tags (and an ro_id the robot
+                     filed); and ONLY when this attach learned the number, clears
+                     phone_secondary if it STILL holds exactly that number;
+     not_a_customer / clear_not_a_customer — the spam / wrong-number mark;
+     file_ro       — the customer record's "File to RO…": only an RO of the call's
+                     own customer; noted stamp only if none yet.
+   After (a)3 the browser writes `calls` nowhere (test-locked).
 
    GATE — requireUser(req) FIRST: a live Supabase session that maps to an
    ACTIVE employee (the same rule as public.is_staff()). A KiKi login, an
@@ -51,11 +66,14 @@ import { requireUser } from './_lib/require-user.js';
 import { pickOpenRoAt, autoFileRoPatch, clearAutoFileTagsPatch } from '../shared/call-auto-attach.js';
 import { OUTCOMES, outcomePatch, undoPatch, clearsItem } from '../shared/desk-outcomes.js';
 import { withKeyBox, reschedulePatch } from '../shared/desk-appointments.js';
+import { attachCallPatch, unattachCallPatch, unattachClearsSecondary, notACustomerPatch, clearNotACustomerPatch, phoneLearningPlan } from '../shared/call-attach.js';
+import { clearAutoTagsPatch } from '../shared/call-auto-attach.js';
 
 const PROD_SUPABASE = 'https://hygemiszxwmyrkmhbjub.supabase.co';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const ACTIONS = ['note', 'customer', 'auto_file_ro', 'outcome', 'undo', 'done', 'edit', 'reschedule'];
+export const ACTIONS = ['note', 'customer', 'auto_file_ro', 'outcome', 'undo', 'done', 'edit', 'reschedule',
+  'attach', 'learn_phone', 'unattach', 'not_a_customer', 'clear_not_a_customer', 'file_ro'];
 export const DESK_STEPS = ['quoted_callback', 'dropping_off'];      // the two Desk lanes
 export const MAX_OUTCOME_NOTE = 500;                                 // desk-outcomes.js trims to this
 export const NEXT_STEPS = ['quoted_callback', 'dropping_off', 'checking_on_car', 'price_shopper'];
@@ -63,7 +81,7 @@ export const MAX_NOTE = 10000;
 // What the card may set with `note`. Nothing else — never a stamp, never resolved_at.
 export const NOTE_FIELDS = ['note', 'next_step', 'due_at', 'due_all_day', 'ro_id', 'dropoff_key_box'];
 // What the response carries back (the card's view of the row).
-export const CALL_COLS = 'id,customer_id,ro_id,note,next_step,due_at,due_all_day,dropoff_key_box,noted_at,noted_by_name,started_at,auto_attached_at,auto_ro_filed_at,auto_attach_run_id,resolved_at,resolved_by_name,outcome,outcome_note,outcome_prev_due_at';
+export const CALL_COLS = 'id,customer_id,ro_id,note,next_step,due_at,due_all_day,dropoff_key_box,noted_at,noted_by_name,started_at,auto_attached_at,auto_ro_filed_at,auto_attach_run_id,resolved_at,resolved_by_name,outcome,outcome_note,outcome_prev_due_at,caller_bare,attached_by_name,attached_at,learned_phone,not_a_customer_at,not_a_customer_by_name';
 
 const isCallId = (v) => Number.isInteger(v) && v > 0;
 
@@ -83,15 +101,26 @@ export function parseBody(body) {
     done: ['action', 'call_id'],
     edit: ['action', 'call_id', 'next_step', 'due_at', 'due_all_day', 'key_box'],
     reschedule: ['action', 'call_id', 'due_at', 'due_all_day'],
+    attach: ['action', 'call_id', 'customer_id'],
+    learn_phone: ['action', 'call_id'],
+    unattach: ['action', 'call_id'],
+    not_a_customer: ['action', 'call_id'],
+    clear_not_a_customer: ['action', 'call_id'],
+    file_ro: ['action', 'call_id', 'ro_id'],
   }[b.action];
   const extra = Object.keys(b).filter((k) => !allowedTop.includes(k));
   if (extra.length) return { ok: false, error: `not allowed: ${extra.join(', ')}` };
 
-  if (b.action === 'customer') {
+  if (b.action === 'customer' || b.action === 'attach') {
     if (typeof b.customer_id !== 'string' || !UUID_RE.test(b.customer_id)) return { ok: false, error: 'customer_id must be a uuid' };
-    return { ok: true, action: 'customer', callId, customerId: b.customer_id };
+    return { ok: true, action: b.action, callId, customerId: b.customer_id };
   }
-  if (b.action === 'auto_file_ro' || b.action === 'undo' || b.action === 'done') return { ok: true, action: b.action, callId };
+  if (['auto_file_ro', 'undo', 'done', 'learn_phone', 'unattach', 'not_a_customer', 'clear_not_a_customer'].includes(b.action)) return { ok: true, action: b.action, callId };
+  if (b.action === 'file_ro') {
+    if (!('ro_id' in b)) return { ok: false, error: 'ro_id is required (null to un-file)' };
+    if (b.ro_id !== null && (typeof b.ro_id !== 'string' || !UUID_RE.test(b.ro_id))) return { ok: false, error: 'ro_id must be a uuid or null' };
+    return { ok: true, action: 'file_ro', callId, roId: b.ro_id };
+  }
 
   const isoOk = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
   if (b.action === 'outcome') {
@@ -195,7 +224,13 @@ export default async function handler(req, res) {
       case 'undo': return await doUndo(res, db, cur.row);
       case 'done': return await doDone(res, db, cur.row, who, now);
       case 'edit': return await doEdit(res, db, parsed, cur.row);
-      default: return await doReschedule(res, db, parsed, cur.row);
+      case 'reschedule': return await doReschedule(res, db, parsed, cur.row);
+      case 'attach': return await doAttach(res, db, parsed, cur.row, who, now);
+      case 'learn_phone': return await doLearnPhone(res, db, cur.row);
+      case 'unattach': return await doUnattach(res, db, cur.row);
+      case 'not_a_customer': return await doSimple(res, db, cur.row, notACustomerPatch(who.name, now));
+      case 'clear_not_a_customer': return await doSimple(res, db, cur.row, clearNotACustomerPatch());
+      default: return await doFileRo(res, db, parsed, cur.row, who, now);
     }
   } catch (e) {
     console.error('[calls]', parsed.action, 'threw:', String((e && e.message) || e));
@@ -334,4 +369,102 @@ async function doReschedule(res, db, p, row) {
   const w = await patchCall(db, row.id, '', reschedulePatch(p.dueAt, p.allDay, true));
   if (!w.ok || !w.row) return res.status(502).json({ error: 'write failed' });
   return res.status(200).json({ call: w.row });
+}
+
+/* ── The Call Log + customer record (step (a)3) ─────────────────────────── */
+
+const last10 = (v) => String(v == null ? '' : v).replace(/\D/g, '').slice(-10);
+
+// PATCH customers with a guard; → { ok, rows } (rows = how many matched).
+async function patchCustomer(db, id, filter, body) {
+  const r = await fetch(`${db.base}/rest/v1/customers?id=eq.${id}${filter}&select=id,phone_secondary`, {
+    method: 'PATCH',
+    headers: { ...db.headers, Prefer: 'return=representation' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) { console.error('[calls] customer write failed · HTTP', r.status, await r.text().catch(() => '')); return { ok: false }; }
+  const rows = await r.json();
+  return { ok: true, rows: Array.isArray(rows) ? rows.length : 0 };
+}
+
+// A person confirms who the call is. learned_phone starts false; the phone
+// question (learn_phone) and the robot's RO check (auto_file_ro) are separate calls.
+async function doAttach(res, db, p, row, who, now) {
+  const ok = await customerExists(db, p.customerId);
+  if (ok === null) return res.status(502).json({ error: 'read failed' });
+  if (!ok) return res.status(404).json({ error: 'customer not found' });
+  const w = await patchCall(db, row.id, '', attachCallPatch(p.customerId, who.name, now, false));
+  if (!w.ok || !w.row) return res.status(502).json({ error: 'write failed' });
+  return res.status(200).json({ call: w.row });
+}
+
+// "Also save this number?" → YES. The customer is the call's own (from the ROW);
+// the number is the call's caller. phoneLearningPlan is the intent gate (never the
+// primary, never an already-known number, never an occupied slot); the database
+// makes the final empty-slot decision in the write itself.
+async function doLearnPhone(res, db, row) {
+  if (!row.customer_id) return res.status(409).json({ error: 'not_attached', message: 'This call is not attached to a customer any more.' });
+  const c = await readOne(db, `customers?id=eq.${row.customer_id}&select=id,phone_primary,phone_secondary`);
+  if (c.error) return res.status(502).json({ error: 'read failed' });
+  if (!c.row) return res.status(404).json({ error: 'customer not found' });
+  const plan = phoneLearningPlan(row.caller_bare, c.row);
+  if (!plan.customerPatch) return res.status(200).json({ call: row, learned: false });
+  const cw = await patchCustomer(db, row.customer_id, '&phone_secondary=is.null', plan.customerPatch);
+  if (!cw.ok) return res.status(502).json({ error: 'write failed' });
+  if (cw.rows !== 1) return res.status(200).json({ call: row, learned: false });   // the slot was taken meanwhile
+  // Only now: this attach learned the number (what lets un-attach clear it again).
+  const w = await patchCall(db, row.id, `&customer_id=eq.${row.customer_id}`, { learned_phone: true });
+  if (!w.ok) return res.status(502).json({ error: 'write failed', message: 'The number was saved on the customer, but the call could not be marked — tell Cris.' });
+  return res.status(200).json({ call: w.row || row, learned: true, phone_secondary: plan.customerPatch.phone_secondary });
+}
+
+// Un-attach: "this call is not this person". The link, its attribution and the
+// robot's marks go (an ro_id the ROBOT filed goes too; a person's stays). The
+// customer's phone_secondary is cleared ONLY when this attach learned it AND it
+// still holds exactly that number — a pre-existing or changed number is never touched.
+async function doUnattach(res, db, row) {
+  let unlearned = false;
+  if (unattachClearsSecondary(row) && row.customer_id) {
+    const key = last10(row.caller_bare);
+    if (key.length === 10) {
+      const cw = await patchCustomer(db, row.customer_id, `&phone_secondary=eq.${key}`, { phone_secondary: null });
+      if (!cw.ok) return res.status(502).json({ error: 'write failed', message: 'Could not update the customer — nothing was changed.' });
+      unlearned = cw.rows === 1;
+    }
+  }
+  const patch = { ...unattachCallPatch(), ...clearAutoTagsPatch(), ...(row.auto_ro_filed_at ? { ro_id: null } : {}) };
+  const w = await patchCall(db, row.id, '', patch);
+  if (!w.ok || !w.row) return res.status(502).json({ error: 'write failed' });
+  return res.status(200).json({ call: w.row, unlearned });
+}
+
+async function doSimple(res, db, row, patch) {
+  const w = await patchCall(db, row.id, '', patch);
+  if (!w.ok || !w.row) return res.status(502).json({ error: 'write failed' });
+  return res.status(200).json({ call: w.row });
+}
+
+// The customer record's "File to RO…": only one of the call's OWN customer's ROs
+// (closed ones included). A person's choice leaves the robot's namespace; the
+// noted stamp only if the call was never noted.
+async function doFileRo(res, db, p, row, who, now) {
+  if (p.roId) {
+    if (!row.customer_id) return res.status(409).json({ error: 'not_attached', message: 'Attach the call to the customer first.' });
+    const ro = await readOne(db, `repair_orders?id=eq.${p.roId}&select=id,customer_id`);
+    if (ro.error) return res.status(502).json({ error: 'read failed' });
+    if (!ro.row) return res.status(404).json({ error: 'ro not found' });
+    if (String(ro.row.customer_id) !== String(row.customer_id)) {
+      return res.status(409).json({ error: 'wrong_customer', message: "That RO belongs to a different customer — this call can't be filed to it." });
+    }
+  }
+  let latest = row;
+  const w = await patchCall(db, row.id, '', { ro_id: p.roId, ...clearAutoFileTagsPatch() });
+  if (!w.ok || !w.row) return res.status(502).json({ error: 'write failed' });
+  latest = w.row;
+  if (!latest.noted_at) {
+    const s = await patchCall(db, row.id, '&noted_at=is.null', { noted_at: now, noted_by_name: who.name });
+    if (!s.ok) return res.status(502).json({ error: 'write failed' });
+    if (s.row) latest = s.row;
+  }
+  return res.status(200).json({ call: latest });
 }

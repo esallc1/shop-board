@@ -42,7 +42,16 @@ function customerWriteSites() {
 
 test('the page still has customer write sites to check (guard is not vacuous)', () => {
   const sites = customerWriteSites();
-  assert.ok(sites.length >= 4, 'expected at least 4 customer writes, found ' + sites.length + ' at ' + sites);
+  // 2 since security slice 3 (a)3 (2026-09-25): the phone learn / un-learn writes moved
+  // to the server (api/calls.js learn_phone / unattach) — covered by the next test.
+  assert.ok(sites.length >= 2, 'expected at least 2 customer writes, found ' + sites.length + ' at ' + sites);
+});
+
+test('a phone the SERVER learned or un-learned still invalidates the cached list', () => {
+  const learn = SRC.slice(SRC.indexOf('async function answerPhoneLearn('), SRC.indexOf('async function performAttach('));
+  assert.match(learn, /\} else if \(r\.learned\) \{[\s\S]{0,240}?cdInvalidateCustList\(\)/);
+  const un = SRC.slice(SRC.indexOf('async function performUnattach('), SRC.indexOf('async function performNotACustomer('));
+  assert.match(un, /if \(r\.unlearned\) \{[^}]*cdInvalidateCustList\(\)/);
 });
 
 test('EVERY customer write invalidates the cached list', () => {

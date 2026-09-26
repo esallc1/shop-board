@@ -37,11 +37,16 @@ const RO1 = '33333333-3333-4333-8333-333333333333';
 const RO2 = '55555555-5555-4555-8555-555555555555';
 const NOPE = '99999999-9999-4999-8999-999999999999';
 
-function world(rows = {}, ros = []) {
-  const w = { reads: [], writes: [], calls: {} };
+function world(rows = {}, ros = [], custs = null) {
+  const w = { reads: [], writes: [], calls: {}, custs: custs || {
+    [CUST]: { id: CUST, phone_primary: '2395550100', phone_secondary: null },
+    [CUST2]: { id: CUST2, phone_primary: '2395550200', phone_secondary: '2395550299' },
+  } };
   for (const [id, r] of Object.entries(rows)) w.calls[id] = { id: Number(id), customer_id: null, ro_id: null, note: null, next_step: null,
     due_at: null, due_all_day: true, dropoff_key_box: false, noted_at: null, noted_by_name: null, started_at: '2026-09-25T14:00:00Z',
     auto_attached_at: null, auto_ro_filed_at: null, auto_attach_run_id: null,
+    caller_bare: '2395550777', attached_by_name: null, attached_at: null, learned_phone: false,
+    not_a_customer_at: null, not_a_customer_by_name: null,
     resolved_at: null, resolved_by_name: null, outcome: null, outcome_note: null, outcome_prev_due_at: null, ...r };
   const json = (status, data) => ({ ok: status >= 200 && status < 300, status, json: async () => data, text: async () => JSON.stringify(data) });
   w.fetch = async (url, opts = {}) => {
@@ -59,15 +64,26 @@ function world(rows = {}, ros = []) {
     }
     const q = new URL(url).searchParams;
     if (url.includes('/rest/v1/customers?')) {
-      if (method !== 'GET') { w.writes.push({ url, method }); return json(500, {}); }
-      w.reads.push(url);
       const id = (q.get('id') || '').replace(/^eq\./, '');
-      return json(200, [CUST, CUST2].includes(id) ? [{ id }] : []);
+      const c = w.custs[id];
+      if (method === 'GET') { w.reads.push(url); return json(200, c ? [{ ...c }] : []); }
+      const body = JSON.parse(opts.body);
+      w.writes.push({ url, method, body, table: 'customers' });
+      if (!c) return json(200, []);
+      const ps = q.get('phone_secondary');
+      if (ps === 'is.null' && c.phone_secondary != null) return json(200, []);
+      if (ps && ps.startsWith('eq.') && c.phone_secondary !== ps.slice(3)) return json(200, []);
+      Object.assign(c, body);
+      return json(200, [{ ...c }]);
     }
     if (url.includes('/rest/v1/repair_orders?')) {
       if (method !== 'GET') { w.writes.push({ url, method }); return json(500, {}); }
       w.reads.push(url);
-      if (q.get('id')) { const id = q.get('id').replace(/^eq\./, ''); return json(200, ros.some((r) => r.id === id) || id === RO1 ? [{ id }] : []); }
+      if (q.get('id')) {
+        const id = q.get('id').replace(/^eq\./, '');
+        const ro = ros.find((r) => r.id === id) || (id === RO1 ? { id: RO1, customer_id: CUST } : null);
+        return json(200, ro ? [ro] : []);
+      }
       const cid = (q.get('customer_id') || '').replace(/^eq\./, '');
       return json(200, ros.filter((r) => r.customer_id === cid));
     }
@@ -449,4 +465,186 @@ test('static: the six Desk writers go through api/calls.js — none writes `call
     assert.doesNotMatch(src, /from\('calls'\)/, `${fn} still writes calls directly`);
     assert.ok(src.includes('cdCallsWrite(') && src.includes(act), `${fn} → ${act}`);
   }
+});
+
+/* ── the Call Log + customer record (step (a)3) ───────────────────────── */
+
+test('(a)3: 401 without a staff session and 400 for any key outside the action — nothing written', async () => {
+  const bodies = [
+    { action: 'attach', call_id: 7, customer_id: CUST }, { action: 'learn_phone', call_id: 7 }, { action: 'unattach', call_id: 7 },
+    { action: 'not_a_customer', call_id: 7 }, { action: 'clear_not_a_customer', call_id: 7 }, { action: 'file_ro', call_id: 7, ro_id: RO1 },
+  ];
+  for (const b of bodies) for (const token of [null, 'kiki-token', 'inactive-token']) {
+    const w = world({ 7: {} });
+    const { res } = await call(b, { token, w });
+    assert.equal(res.statusCode, 401, `${b.action} ${token}`);
+    assert.equal(w.reads.length + w.writes.length, 0);
+  }
+  const bad = [
+    { action: 'attach', call_id: 7, customer_id: CUST, attached_by_name: 'Me' },
+    { action: 'attach', call_id: 7, customer_id: CUST, learned_phone: true },
+    { action: 'attach', call_id: 7 },
+    { action: 'learn_phone', call_id: 7, phone_secondary: '2395550777' },
+    { action: 'learn_phone', call_id: 7, customer_id: CUST },
+    { action: 'unattach', call_id: 7, learned_phone: true },
+    { action: 'not_a_customer', call_id: 7, not_a_customer_by_name: 'Me' },
+    { action: 'clear_not_a_customer', call_id: 7, not_a_customer_at: null },
+    { action: 'file_ro', call_id: 7 },
+    { action: 'file_ro', call_id: 7, ro_id: 'nope' },
+    { action: 'file_ro', call_id: 7, ro_id: RO1, noted_by_name: 'Me' },
+  ];
+  for (const b of bad) {
+    const w = world({ 7: {} });
+    assert.equal((await call(b, { w })).res.statusCode, 400, JSON.stringify(b).slice(0, 80));
+    assert.equal(w.writes.length, 0);
+  }
+});
+
+test('attach: the confirmed customer + who/when from the SERVER, learned_phone false; then the robot only fills an EMPTY ro_id', async () => {
+  const w = world({ 7: {} }, [openRo(RO1)]);
+  const a = await call({ action: 'attach', call_id: 7, customer_id: CUST }, { w });
+  assert.equal(a.res.statusCode, 200);
+  assert.deepEqual(Object.keys(w.writes[0].body).sort(), ['attached_at', 'attached_by_name', 'customer_id', 'learned_phone']);
+  assert.equal(w.calls[7].attached_by_name, 'ZZ Test Advisor');
+  assert.equal(w.calls[7].learned_phone, false);
+  assert.equal((await call({ action: 'attach', call_id: 7, customer_id: NOPE }, { w: world({ 7: {} }) })).res.statusCode, 404);
+  // The board's follow-up: auto_file_ro — fills the empty slot…
+  const f = await call({ action: 'auto_file_ro', call_id: 7 }, { w });
+  assert.equal(f.res.body.ro_id, RO1);
+  // …but never a filled one.
+  const w2 = world({ 7: { ro_id: RO2 } }, [openRo(RO1)]);
+  await call({ action: 'attach', call_id: 7, customer_id: CUST }, { w: w2 });
+  assert.equal((await call({ action: 'auto_file_ro', call_id: 7 }, { w: w2 })).res.body.ro_id, null);
+  assert.equal(w2.calls[7].ro_id, RO2);
+});
+
+test('learn_phone: the caller\'s number into the customer\'s EMPTY phone_secondary (the database decides), and only then learned_phone', async () => {
+  const w = world({ 7: { customer_id: CUST, caller_bare: '2395550777' } });
+  const r = await call({ action: 'learn_phone', call_id: 7 }, { w });
+  assert.equal(r.res.statusCode, 200);
+  assert.equal(r.res.body.learned, true);
+  const cw = w.writes.find((x) => x.table === 'customers');
+  assert.match(cw.url, /phone_secondary=is\.null/, 'the empty-slot guard lives in the write (July 29 fix)');
+  assert.deepEqual(cw.body, { phone_secondary: '2395550777' });
+  assert.equal(w.custs[CUST].phone_secondary, '2395550777');
+  assert.equal(w.calls[7].learned_phone, true);
+  // Occupied slot → nothing written, learned false.
+  const w2 = world({ 7: { customer_id: CUST2, caller_bare: '2395550777' } });
+  const r2 = await call({ action: 'learn_phone', call_id: 7 }, { w: w2 });
+  assert.equal(r2.res.body.learned, false);
+  assert.equal(w2.custs[CUST2].phone_secondary, '2395550299', 'never overwritten');
+  assert.equal(w2.calls[7].learned_phone, false);
+  // The number is already the customer's primary → nothing.
+  const w3 = world({ 7: { customer_id: CUST, caller_bare: '2395550100' } });
+  assert.equal((await call({ action: 'learn_phone', call_id: 7 }, { w: w3 })).res.body.learned, false);
+  assert.ok(!w3.writes.some((x) => x.table === 'customers'));
+  // Stale snapshot: the slot was filled between our read and our write → the guard matches nothing.
+  const w4 = world({ 7: { customer_id: CUST, caller_bare: '2395550777' } });
+  const orig = w4.fetch;
+  w4.fetch = async (url, opts = {}) => {
+    if ((opts.method || 'GET') === 'PATCH' && url.includes('/customers?')) w4.custs[CUST].phone_secondary = '2395550888';
+    return orig(url, opts);
+  };
+  const r4 = await call({ action: 'learn_phone', call_id: 7 }, { w: w4 });
+  assert.equal(r4.res.body.learned, false);
+  assert.equal(w4.custs[CUST].phone_secondary, '2395550888');
+  assert.equal(w4.calls[7].learned_phone, false, 'never claims a number it did not write');
+  // Not attached any more → 409.
+  assert.equal((await call({ action: 'learn_phone', call_id: 7 }, { w: world({ 7: {} }) })).res.statusCode, 409);
+});
+
+test('unattach restores the row: link + robot marks off (an ro_id the robot filed too); the learned number cleared ONLY if it is still exactly that number', async () => {
+  const w = world({ 7: { customer_id: CUST, caller_bare: '2395550777' } }, [openRo(RO1)]);
+  const before = { ...w.calls[7] };
+  const custBefore = { ...w.custs[CUST] };
+  await call({ action: 'attach', call_id: 7, customer_id: CUST }, { w });
+  await call({ action: 'learn_phone', call_id: 7 }, { w });
+  await call({ action: 'auto_file_ro', call_id: 7 }, { w });
+  assert.equal(w.calls[7].ro_id, RO1);
+  const u = await call({ action: 'unattach', call_id: 7 }, { w });
+  assert.equal(u.res.statusCode, 200);
+  assert.equal(u.res.body.unlearned, true);
+  assert.deepEqual(w.custs[CUST], custBefore, 'the learned number is gone again');
+  const row = w.calls[7];
+  for (const k of ['customer_id', 'attached_by_name', 'attached_at', 'ro_id', 'auto_attached_at', 'auto_ro_filed_at', 'auto_attach_run_id']) assert.equal(row[k], null, k);
+  assert.equal(row.learned_phone, false);
+  assert.deepEqual({ ...row, customer_id: before.customer_id }, before, 'otherwise exactly as before');
+  // A PERSON's ro_id stays; a number that changed since is never touched; a number never learned is never touched.
+  const w2 = world({ 7: { customer_id: CUST, caller_bare: '2395550777', learned_phone: true, ro_id: RO2 } },
+    [], { [CUST]: { id: CUST, phone_primary: '2395550100', phone_secondary: '2395550999' } });
+  const u2 = await call({ action: 'unattach', call_id: 7 }, { w: w2 });
+  assert.equal(u2.res.body.unlearned, false);
+  assert.equal(w2.custs[CUST].phone_secondary, '2395550999');
+  assert.equal(w2.calls[7].ro_id, RO2, 'a person filed it — it stays');
+  const w3 = world({ 7: { customer_id: CUST2, caller_bare: '2395550299', learned_phone: false } });
+  await call({ action: 'unattach', call_id: 7 }, { w: w3 });
+  assert.ok(!w3.writes.some((x) => x.table === 'customers'), 'learned_phone false → customers never touched');
+  assert.equal(w3.custs[CUST2].phone_secondary, '2395550299');
+});
+
+test('not a customer + clear: the mark with who/when from the server, and back', async () => {
+  const w = world({ 7: {} });
+  await call({ action: 'not_a_customer', call_id: 7 }, { w });
+  assert.deepEqual(Object.keys(w.writes[0].body).sort(), ['not_a_customer_at', 'not_a_customer_by_name']);
+  assert.equal(w.calls[7].not_a_customer_by_name, 'ZZ Test Advisor');
+  assert.equal(w.calls[7].customer_id, null, 'never touches customer_id');
+  await call({ action: 'clear_not_a_customer', call_id: 7 }, { w });
+  assert.equal(w.calls[7].not_a_customer_at, null);
+  assert.equal(w.calls[7].not_a_customer_by_name, null);
+});
+
+test('file_ro: only an RO of the call\'s OWN customer; robot tags cleared; noted stamp only if none yet; un-file with null', async () => {
+  const ros = [{ id: RO1, customer_id: CUST }, { id: RO2, customer_id: CUST2 }];
+  const w = world({ 7: { customer_id: CUST, auto_attach_run_id: AUTO_ATTACH_LIVE_RUN_ID, auto_ro_filed_at: '2026-09-25T09:00:00Z' } }, ros);
+  const ok = await call({ action: 'file_ro', call_id: 7, ro_id: RO1 }, { w });
+  assert.equal(ok.res.statusCode, 200);
+  assert.deepEqual(w.writes[0].body, { ro_id: RO1, auto_ro_filed_at: null, auto_attach_run_id: null });
+  assert.equal(w.calls[7].noted_by_name, 'ZZ Test Advisor', 'never noted → stamped');
+  assert.match(w.writes[1].url, /noted_at=is\.null/);
+  const wrong = await call({ action: 'file_ro', call_id: 7, ro_id: RO2 }, { w });
+  assert.equal(wrong.res.statusCode, 409);
+  assert.equal(wrong.res.body.error, 'wrong_customer');
+  assert.equal(w.calls[7].ro_id, RO1, 'unchanged');
+  // Already noted → no second stamp.
+  const w2 = world({ 7: { customer_id: CUST, noted_at: '2026-09-20T10:00:00Z', noted_by_name: 'Josh' } }, ros);
+  await call({ action: 'file_ro', call_id: 7, ro_id: RO1 }, { w: w2 });
+  assert.equal(w2.writes.length, 1);
+  assert.equal(w2.calls[7].noted_by_name, 'Josh');
+  // Un-file.
+  await call({ action: 'file_ro', call_id: 7, ro_id: null }, { w: w2 });
+  assert.equal(w2.calls[7].ro_id, null);
+  // No customer on the call → can't file to anyone's RO.
+  assert.equal((await call({ action: 'file_ro', call_id: 7, ro_id: RO1 }, { w: world({ 7: {} }, ros) })).res.statusCode, 409);
+});
+
+test('static: ZERO direct calls writes left in the browser code (all 15 writers moved); these paths never write customers', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const root = new URL('../', import.meta.url);
+  const files = [
+    ...readdirSync(root).filter((f) => f.endsWith('.html')),
+    ...readdirSync(new URL('../shared/', import.meta.url)).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js')).map((f) => 'shared/' + f),
+  ];
+  const hits = [];
+  for (const f of files) {
+    const lines = readFileSync(new URL(f, root), 'utf8').split('\n');
+    lines.forEach((line, i) => {
+      if (!/\.from\((['"`])calls\1\)/.test(line)) return;
+      if (/\.(insert|update|upsert|delete)\(/.test(lines.slice(i, i + 3).join(' '))) hits.push(`${f}:${i + 1}`);
+    });
+  }
+  assert.deepEqual(hits, [], 'every calls write goes through api/calls.js');
+  const board = readFileSync(new URL('advisor-board.html', root), 'utf8');
+  const body = (name, next) => board.slice(board.indexOf(`async function ${name}(`), board.indexOf(next));
+  const paths = {
+    fileCallToRo: ['file_ro', '// ── Unfiled calls'], answerPhoneLearn: ['learn_phone', 'async function performAttach('],
+    performAttach: ['attach', 'async function performUnattach('], performUnattach: ['unattach', '// Not a customer (spam'],
+    performNotACustomer: ['not_a_customer', 'async function performClearNotACustomer('], performClearNotACustomer: ['clear_not_a_customer', '// ── attach customer picker'],
+  };
+  for (const [fn, [act, next]] of Object.entries(paths)) {
+    const src = body(fn, next);
+    assert.ok(src.length > 50, fn);
+    assert.doesNotMatch(src, /from\('customers'\)|from\('calls'\)/, `${fn} writes directly`);
+    assert.ok(src.includes(`action: '${act}'`), `${fn} → ${act}`);
+  }
+  assert.doesNotMatch(board, /setSecondaryIfNull = async/, 'the browser phone writer is gone');
 });

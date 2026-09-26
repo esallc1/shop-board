@@ -57,8 +57,14 @@ every patch with the same shared rules (`outcomePatch`, `undoPatch`, `withKeyBox
 that is still open (409 "Someone already cleared this…" otherwise, and the Desk reloads). A failed
 Desk write never pretends: 401 → the red sign-in banner, anything else → "Could not …: reason"
 (alert on a lane button; the red line inside the Edit / Not-now dialog, which stays open as
-typed); a dragged chip snaps back. Still direct until (a)3: the Call Log / customer record writes
-(attach, un-attach, not-a-customer, learned phone, File to RO).
+typed); a dragged chip snaps back. Step (a)3 (2026-09-25, **staging**): the Call Log / customer
+record writers — `performAttach` → `attach`, `answerPhoneLearn` → `learn_phone`, `performUnattach` →
+`unattach`, `performNotACustomer` / `performClearNotACustomer` → `not_a_customer` /
+`clear_not_a_customer`, and the customer record's `fileCallToRo` → `file_ro` (only an RO of the
+call's own customer, 409 otherwise). The phone learn / un-learn write to `customers.phone_secondary`
+moved **into the same server action** as the call write (§2c). **After (a)3 the browser writes
+`calls` nowhere** (a test sweeps every page and shared module); the anon + authenticated UPDATE
+policies are still open until the lockdown (step (b)).
 
 **Walk-in / manual appointment (no call).** The same single-row model represents an
 appointment that never came in as a call — a `calls` row marked "not a real call" by two
@@ -167,10 +173,14 @@ accepting wrongly rewrites a customer record.
 the evidence lookup runs *concurrently* with that write. Declining, dismissing, navigating
 away, or the lookup failing all leave the call attached. Only the phone write is in question.
 
-**Answering yes** runs the same atomic `attachPhoneLearn` as before (`setSecondaryIfNull` —
-writes only `WHERE phone_secondary IS NULL`, so a stale snapshot can never overwrite an
-occupied slot), then stamps `learned_phone = true` on the call, which is what lets **un-attach
-clear the number again** (§unchanged — `unattachClearsSecondary`).
+**Answering yes** calls `api/calls.js` **`learn_phone`** (security slice 3 (a)3 — before, the
+browser wrote `customers` itself). The server reads the call's own customer and caller, runs the
+same intent gate (`phoneLearningPlan`: never the primary, never an already-known number), and
+writes `phone_secondary` with the guard **in the write** (`phone_secondary=is.null` — the July 29
+fix: a stale snapshot can never overwrite an occupied slot). **Only if that write landed** does it
+stamp `learned_phone = true` on the call, which is what lets **un-attach clear the number again**
+(`unattach`: `unattachClearsSecondary` from the database row, and the clear only matches while
+`phone_secondary` still holds exactly that number). Both halves are one server action.
 
 **Declining is remembered** in `localStorage` (`cdPhoneLearnDeclined`), keyed on the
 **(customer, number) pair** and capped at 200 entries, so the same question isn't asked again
@@ -358,7 +368,7 @@ bare number. Now every lane, Recently cleared and the calendar chips use one res
 - **"Who is this?"** — tapping a guess (lanes and Recently cleared) opens `#deskGuess`:
   one guess → **Yes, that's <name>** · **Someone else…** · **Open customer page**; "N
   customers" → the N to pick from · **Someone else…**. Every link goes through the July 29
-  `performAttach` (anon UPDATE via `CallAttach.attachCallPatch`, the open-RO re-check, the
+  `performAttach` (`api/calls.js` `attach` since slice 3 (a)3, the open-RO re-check, the
   phone-learn plan) wrapped by `attachFromDesk`, which redraws the Desk from memory so the
   row turns confirmed without a reload. **Someone else…** opens the existing attach picker
   (`openAttach`, search all customers); **Open customer page** is `cdOpenCustomerById`
@@ -582,7 +592,7 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
   `wouldLearnPhone`, `countForeignCalls`, `phoneLearnDefaultYes`, `phoneLearnDeclineKey`,
   `isPhoneLearnDeclined`, `rememberPhoneLearnDecline` (tested in `shared/call-attach.test.js`).
   Board side in the `desk` IIFE of `advisor-board.html`: `pendingLearn`, `planPhoneLearn`,
-  `answerPhoneLearn`, the hoisted `setSecondaryIfNull`, `loadLearnDeclines` /
+  `answerPhoneLearn` (→ `api/calls.js` `learn_phone`), `loadLearnDeclines` /
   `rememberLearnDecline` (localStorage `cdPhoneLearnDeclined`), the `.log-learn` block in the
   row renderer, and the `learn-yes` / `learn-no` cases in the `.log-act` handler. CSS
   `.log-learn*`.
@@ -620,6 +630,7 @@ show only on the Desk. Two other screens now draw it, in the **Desk's own words*
 - Schema: `migrations/20260728_calls.sql`, `_calls_notes.sql`, `_calls_resolved.sql`.
 
 ## Session change log
+- **2026-09-25** — (staging) security slice 3 (a)3: the Call Log / customer record writers go through `api/calls.js` (`attach`, `learn_phone`, `unattach`, `not_a_customer`, `clear_not_a_customer`, `file_ro`); the phone learn / un-learn moved server-side into the same action; the browser writes `calls` nowhere now. §1, §2c, §6d, Where it lives.
 - **2026-09-25** — §8 + Add no-ring fix **shipped to prod** ([[inbox-calls]] change log).
 - **2026-09-25** — (staging) §8: a + Add row never rings in the tray (`isRealCall`, [[inbox-calls]] §2).
 - **2026-09-25** — security slice 3 (a)2 **shipped to prod**: fast-forward `8b8f8af..44fca0e` (code = `254dc9c`; `44fca0e` = docs-only on top). www / board. / apex `/api/version` = `44fca0e` (www flipped back to the old SHA once while the domains switched, then steady); `advisor-board.html` (+ `shared/desk-outcomes.test.js`) byte-identical to `254dc9c`, docs to `44fca0e`, on all three; CLAUDE.md 404; an unauthenticated Desk `outcome` → 401 on all three. Prod read-only (not signed in, nothing written): page loads, tray folded, no console errors. Cris checked Follow up by hand on test.* first (Mon Oct 12 + reason on (239) 634-0703 — both saved). One real Desk action on prod: Cris.
